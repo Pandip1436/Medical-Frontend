@@ -1,0 +1,554 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ═══════════════════════════════════════════════════════════════
+   2026 DESIGN SYSTEM — PBIMS
+   Hospital Suppliers, Madurai
+   ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ─── Typography ─────────────────────────────────────────── */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+
+  /* ─── Fluid Typography Scale ─────────────────────────────── */
+  --text-2xs: clamp(0.625rem, 0.6rem + 0.1vw, 0.6875rem);
+  --text-xs: clamp(0.6875rem, 0.65rem + 0.15vw, 0.75rem);
+  --text-sm: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --text-base: clamp(0.8125rem, 0.78rem + 0.18vw, 0.875rem);
+  --text-lg: clamp(0.875rem, 0.82rem + 0.25vw, 1rem);
+  --text-xl: clamp(1.125rem, 1rem + 0.4vw, 1.375rem);
+  --text-2xl: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+  --text-3xl: clamp(1.75rem, 1.4rem + 1vw, 2.5rem);
+
+  /* ─── Core Palette — Light Mode ──────────────────────────── */
+
+  /* Canvas & Surfaces (3-layer depth system) */
+  --color-background: hsl(220 20% 97.5%);
+  --color-foreground: hsl(224 71% 4%);
+  --color-surface: hsl(0 0% 100%);
+  --color-surface-foreground: hsl(224 71% 4%);
+  --color-elevated: hsl(0 0% 100%);
+
+  /* Card (Layer 2) */
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(224 71% 4%);
+
+  /* Borders & Inputs */
+  --color-border: hsl(220 13% 91%);
+  --color-input: hsl(220 13% 91%);
+  --color-ring: hsl(221 83% 53%);
+
+  /* Primary — Pharma Blue */
+  --color-primary: hsl(221 83% 53%);
+  --color-primary-foreground: hsl(0 0% 100%);
+
+  /* Secondary */
+  --color-secondary: hsl(220 14% 96%);
+  --color-secondary-foreground: hsl(220 9% 46%);
+
+  /* Muted */
+  --color-muted: hsl(220 14% 96%);
+  --color-muted-foreground: hsl(220 9% 46%);
+
+  /* Accent */
+  --color-accent: hsl(220 14% 96%);
+  --color-accent-foreground: hsl(224 71% 4%);
+
+  /* Destructive — Rose */
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  /* Success — Emerald */
+  --color-success: hsl(152 69% 31%);
+  --color-success-foreground: hsl(0 0% 100%);
+
+  /* Warning — Amber */
+  --color-warning: hsl(38 92% 50%);
+  --color-warning-foreground: hsl(0 0% 100%);
+
+  /* Popover (Layer 3) */
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(224 71% 4%);
+
+  /* Sidebar */
+  --color-sidebar: hsl(224 71% 4%);
+  --color-sidebar-foreground: hsl(214 32% 91%);
+  --color-sidebar-accent: hsl(217 33% 17%);
+  --color-sidebar-accent-foreground: hsl(0 0% 100%);
+  --color-sidebar-border: hsl(217 33% 17%);
+  --color-sidebar-muted: hsl(215 20% 65%);
+
+  /* ─── 5-Stop Semantic Color Scales ───────────────────────── */
+
+  /* Blue Scale */
+  --color-blue-subtle: hsl(217 91% 97%);
+  --color-blue-light: hsl(217 91% 90%);
+  --color-blue-default: hsl(217 91% 60%);
+  --color-blue-emphasis: hsl(217 91% 45%);
+  --color-blue-solid: hsl(217 91% 30%);
+
+  /* Emerald Scale */
+  --color-emerald-subtle: hsl(152 76% 96%);
+  --color-emerald-light: hsl(152 69% 85%);
+  --color-emerald-default: hsl(152 69% 41%);
+  --color-emerald-emphasis: hsl(152 69% 31%);
+  --color-emerald-solid: hsl(152 69% 20%);
+
+  /* Amber Scale */
+  --color-amber-subtle: hsl(48 96% 96%);
+  --color-amber-light: hsl(48 96% 85%);
+  --color-amber-default: hsl(38 92% 50%);
+  --color-amber-emphasis: hsl(32 95% 44%);
+  --color-amber-solid: hsl(26 90% 30%);
+
+  /* Rose Scale */
+  --color-rose-subtle: hsl(356 100% 97%);
+  --color-rose-light: hsl(356 100% 90%);
+  --color-rose-default: hsl(350 89% 60%);
+  --color-rose-emphasis: hsl(347 77% 50%);
+  --color-rose-solid: hsl(344 70% 30%);
+
+  /* Purple Scale */
+  --color-purple-subtle: hsl(270 100% 98%);
+  --color-purple-light: hsl(270 95% 90%);
+  --color-purple-default: hsl(271 91% 65%);
+  --color-purple-emphasis: hsl(271 81% 56%);
+  --color-purple-solid: hsl(272 72% 35%);
+
+  /* ─── Radii ──────────────────────────────────────────────── */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-full: 9999px;
+
+  /* ─── Shadows — Light Mode ───────────────────────────────── */
+  --shadow-xs: 0 1px 2px hsl(0 0% 0% / 0.04);
+  --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.06), 0 1px 2px hsl(0 0% 0% / 0.04);
+  --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.06), 0 2px 4px -2px hsl(0 0% 0% / 0.04);
+  --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.06), 0 4px 6px -4px hsl(0 0% 0% / 0.04);
+  --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.08), 0 8px 10px -6px hsl(0 0% 0% / 0.04);
+  --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.2);
+  --shadow-glow-blue: 0 0 20px hsl(221 83% 53% / 0.15);
+  --shadow-glow-emerald: 0 0 20px hsl(152 69% 41% / 0.15);
+
+  /* ─── Spacing Tokens ─────────────────────────────────────── */
+  --space-section: clamp(1rem, 0.75rem + 1vw, 1.5rem);
+  --space-card: clamp(0.75rem, 0.6rem + 0.5vw, 1.25rem);
+
+  /* ─── Z-Index Scale ──────────────────────────────────────── */
+  --z-base: 0;
+  --z-dropdown: 50;
+  --z-sticky: 100;
+  --z-overlay: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+  --z-command: 500;
+
+  /* ─── Animation Tokens ───────────────────────────────────── */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE — OLED-Black Premium
+   ═══════════════════════════════════════════════════════════════ */
+@layer base {
+  .dark {
+    --color-background: hsl(0 0% 0%);
+    --color-foreground: hsl(214 32% 91%);
+    --color-surface: hsl(0 0% 4%);
+    --color-surface-foreground: hsl(214 32% 91%);
+    --color-elevated: hsl(0 0% 8%);
+
+    --color-card: hsl(0 0% 5.5%);
+    --color-card-foreground: hsl(214 32% 91%);
+
+    --color-border: hsl(0 0% 100% / 0.08);
+    --color-input: hsl(0 0% 100% / 0.08);
+    --color-ring: hsl(217 91% 60%);
+
+    --color-primary: hsl(217 91% 60%);
+    --color-primary-foreground: hsl(0 0% 0%);
+
+    --color-secondary: hsl(0 0% 10%);
+    --color-secondary-foreground: hsl(214 32% 91%);
+
+    --color-muted: hsl(0 0% 10%);
+    --color-muted-foreground: hsl(215 20% 55%);
+
+    --color-accent: hsl(0 0% 12%);
+    --color-accent-foreground: hsl(214 32% 91%);
+
+    --color-destructive: hsl(0 63% 55%);
+    --color-destructive-foreground: hsl(0 0% 100%);
+
+    --color-success: hsl(152 69% 41%);
+    --color-success-foreground: hsl(0 0% 0%);
+
+    --color-warning: hsl(38 92% 55%);
+    --color-warning-foreground: hsl(0 0% 0%);
+
+    --color-popover: hsl(0 0% 6%);
+    --color-popover-foreground: hsl(214 32% 91%);
+
+    --color-sidebar: hsl(0 0% 2%);
+    --color-sidebar-foreground: hsl(214 32% 80%);
+    --color-sidebar-accent: hsl(0 0% 100% / 0.06);
+    --color-sidebar-accent-foreground: hsl(0 0% 100%);
+    --color-sidebar-border: hsl(0 0% 100% / 0.06);
+    --color-sidebar-muted: hsl(215 20% 45%);
+
+    /* Dark semantic scales — brighter + desaturated */
+    --color-blue-subtle: hsl(217 60% 12%);
+    --color-blue-light: hsl(217 70% 25%);
+    --color-blue-default: hsl(217 91% 60%);
+    --color-blue-emphasis: hsl(217 91% 70%);
+    --color-blue-solid: hsl(217 91% 80%);
+
+    --color-emerald-subtle: hsl(152 40% 10%);
+    --color-emerald-light: hsl(152 50% 22%);
+    --color-emerald-default: hsl(152 69% 45%);
+    --color-emerald-emphasis: hsl(152 69% 55%);
+    --color-emerald-solid: hsl(152 69% 75%);
+
+    --color-amber-subtle: hsl(38 50% 10%);
+    --color-amber-light: hsl(38 60% 22%);
+    --color-amber-default: hsl(38 92% 55%);
+    --color-amber-emphasis: hsl(38 92% 65%);
+    --color-amber-solid: hsl(38 92% 80%);
+
+    --color-rose-subtle: hsl(350 50% 10%);
+    --color-rose-light: hsl(350 60% 22%);
+    --color-rose-default: hsl(350 89% 60%);
+    --color-rose-emphasis: hsl(350 89% 70%);
+    --color-rose-solid: hsl(350 89% 82%);
+
+    --color-purple-subtle: hsl(271 50% 10%);
+    --color-purple-light: hsl(271 60% 22%);
+    --color-purple-default: hsl(271 91% 65%);
+    --color-purple-emphasis: hsl(271 91% 75%);
+    --color-purple-solid: hsl(271 91% 85%);
+
+    /* Dark shadows — borders replace shadows */
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --shadow-xl: none;
+    --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.6);
+    --shadow-glow-blue: 0 0 24px hsl(217 91% 60% / 0.12);
+    --shadow-glow-emerald: 0 0 24px hsl(152 69% 41% / 0.12);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.6;
+    letter-spacing: -0.006em;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  /* Focus ring — consistent visible ring for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Selection color */
+  ::selection {
+    background-color: var(--color-blue-light);
+    color: var(--color-blue-solid);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBAR — Minimal & Themed
+   ═══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(215 20% 65% / 0.2);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(215 20% 65% / 0.4);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 100% / 0.08);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(0 0% 100% / 0.14);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Monospaced numbers — tabular lining figures */
+.font-mono-numbers {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Glassmorphism — Light & Dark */
+.glass {
+  background: hsl(0 0% 100% / 0.65);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid hsl(0 0% 100% / 0.25);
+}
+.dark .glass {
+  background: hsl(0 0% 100% / 0.03);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid hsl(0 0% 100% / 0.06);
+}
+
+/* Active indicator glow for sidebar / nav */
+.glow-active {
+  box-shadow: var(--shadow-glow-blue);
+}
+.dark .glow-active {
+  box-shadow: var(--shadow-glow-blue);
+}
+
+/* Receipt tape visual — totals section */
+.receipt-tape {
+  background: hsl(42 33% 97%);
+  border-top: 2px dashed var(--color-border);
+}
+.dark .receipt-tape {
+  background: hsl(0 0% 5%);
+  border-top: 2px dashed hsl(0 0% 100% / 0.06);
+}
+
+/* Status dot (pulsing) */
+.status-dot-pulse {
+  position: relative;
+}
+.status-dot-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  animation: pulse-ring 2s ease-out infinite;
+  background: inherit;
+  opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS — with reduced-motion support
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Shimmer / skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-muted) 0%,
+    hsl(0 0% 100% / 0.04) 40%,
+    var(--color-muted) 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Shake — form error */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+/* Slide up — page enter */
+@keyframes slide-up-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up-fade 0.3s var(--ease-out);
+}
+
+/* Fade in */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s var(--ease-out);
+}
+
+/* Pulse ring — notification badge, status dots */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.4; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.animate-pulse-ring::after {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+/* Notification bell shake */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(2deg); }
+}
+.animate-bell {
+  animation: bell-ring 0.8s ease-in-out;
+  transform-origin: top center;
+}
+
+/* Row flash on add — green flash then fade */
+@keyframes row-flash {
+  0% { background-color: var(--color-emerald-subtle); }
+  100% { background-color: transparent; }
+}
+.animate-row-flash {
+  animation: row-flash 0.8s ease-out;
+}
+
+/* Count-up shimmer for number */
+@keyframes number-glow {
+  0% { opacity: 0.4; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-number-enter {
+  animation: number-glow 0.4s var(--ease-out);
+}
+
+/* Slide in from right — toast */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s var(--ease-out);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION — respect user preference (mandatory 2026)
+   ═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-shimmer,
+  .animate-shake,
+  .animate-slide-up,
+  .animate-fade-in,
+  .animate-bell,
+  .animate-row-flash,
+  .animate-number-enter,
+  .animate-slide-in-right {
+    animation: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — Mobile bottom nav, content max-widths
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Mobile bottom padding for fixed bottom nav */
+@media (max-width: 767px) {
+  .main-content {
+    padding-bottom: 5rem;
+  }
+}
+
+/* Ultra-wide content cap */
+@media (min-width: 1680px) {
+  .content-area {
+    max-width: 1600px;
+    margin-inline: auto;
+  }
+}
+@media (min-width: 1920px) {
+  .content-area {
+    max-width: 1800px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRINT STYLES
+   ═══════════════════════════════════════════════════════════════ */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt !important;
+  }
+  .no-print,
+  nav,
+  header,
+  aside,
+  .sidebar,
+  .command-palette {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+}
+.print-only {
+  display: none;
+}

@@ -1,0 +1,792 @@
+import { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Search,
+  Plus,
+  MoreHorizontal,
+  Eye,
+  Send,
+  ArrowRightLeft,
+  Trash2,
+  FileText,
+  Download,
+  Printer,
+  SlidersHorizontal,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  IndianRupee,
+  CheckCircle2,
+  Clock,
+  XCircle,
+} from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
+import { navigate } from '@/lib/router'
+import { toast } from 'sonner'
+
+// ─────────────────────────────────────────────────────────────
+// MOCK QUOTATION DATA
+// ─────────────────────────────────────────────────────────────
+
+type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'converted'
+
+interface QuotationItem {
+  name: string
+  qty: number
+  rate: number
+}
+
+interface Quotation {
+  id: string
+  quotationNumber: string
+  date: string
+  customerName: string
+  items: QuotationItem[]
+  total: number
+  status: QuotationStatus
+}
+
+const mockQuotations: Quotation[] = [
+  {
+    id: 'QTN-001',
+    quotationNumber: generateInvoiceNumber('QTN', 87),
+    date: '2026-03-21T10:00:00Z',
+    customerName: 'Apollo Hospital - Madurai',
+    items: [
+      { name: 'Torsemide 20mg Tab', qty: 200, rate: 78.0 },
+      { name: 'Calcium Acetate 667mg Tab', qty: 100, rate: 132.0 },
+    ],
+    total: 29400.0,
+    status: 'sent',
+  },
+  {
+    id: 'QTN-002',
+    quotationNumber: generateInvoiceNumber('QTN', 86),
+    date: '2026-03-20T14:30:00Z',
+    customerName: 'MIOT Hospital',
+    items: [
+      { name: 'Imatinib 400mg Tab', qty: 20, rate: 2600.0 },
+      { name: 'Paclitaxel 260mg Inj', qty: 5, rate: 7900.0 },
+    ],
+    total: 91500.0,
+    status: 'accepted',
+  },
+  {
+    id: 'QTN-003',
+    quotationNumber: generateInvoiceNumber('QTN', 85),
+    date: '2026-03-19T09:15:00Z',
+    customerName: 'Meenakshi Mission Hospital',
+    items: [
+      { name: 'Rituximab 500mg Inj', qty: 4, rate: 23500.0 },
+    ],
+    total: 94000.0,
+    status: 'converted',
+  },
+  {
+    id: 'QTN-004',
+    quotationNumber: generateInvoiceNumber('QTN', 84),
+    date: '2026-03-18T16:45:00Z',
+    customerName: 'MedPlus - Madurai',
+    items: [
+      { name: 'Furosemide 40mg Tab', qty: 500, rate: 25.0 },
+      { name: 'Losartan 50mg Tab', qty: 300, rate: 62.0 },
+      { name: 'Enalapril 5mg Tab', qty: 200, rate: 44.0 },
+    ],
+    total: 40800.0,
+    status: 'draft',
+  },
+  {
+    id: 'QTN-005',
+    quotationNumber: generateInvoiceNumber('QTN', 83),
+    date: '2026-03-17T11:00:00Z',
+    customerName: 'PharmEasy Wholesale',
+    items: [
+      { name: 'Cyclophosphamide 500mg Inj', qty: 30, rate: 165.0 },
+      { name: 'Capecitabine 500mg Tab', qty: 10, rate: 1800.0 },
+    ],
+    total: 22950.0,
+    status: 'rejected',
+  },
+  {
+    id: 'QTN-006',
+    quotationNumber: generateInvoiceNumber('QTN', 82),
+    date: '2026-03-16T13:30:00Z',
+    customerName: 'Dr. Balaji Clinic',
+    items: [
+      { name: 'Tacrolimus 1mg Cap', qty: 30, rate: 295.0 },
+      { name: 'Mycophenolate Mofetil 500mg Tab', qty: 20, rate: 445.0 },
+    ],
+    total: 17750.0,
+    status: 'sent',
+  },
+]
+
+// ─────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10
+
+const PERIOD_OPTIONS = [
+  { value: 'all', label: 'All Time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month' },
+  { value: 'custom', label: 'Custom Range' },
+] as const
+
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All Status' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'converted', label: 'Converted' },
+] as const
+
+const statusBadgeVariant: Record<QuotationStatus, 'success' | 'warning' | 'info' | 'purple' | 'destructive' | 'secondary'> = {
+  converted: 'success',
+  accepted: 'success',
+  sent: 'info',
+  draft: 'secondary',
+  rejected: 'destructive',
+}
+
+const statusLabel: Record<QuotationStatus, string> = {
+  converted: 'Converted',
+  accepted: 'Accepted',
+  sent: 'Sent',
+  draft: 'Draft',
+  rejected: 'Rejected',
+}
+
+// ─────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────
+
+export default function QuotationsPage() {
+  // Search
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Filters
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [period, setPeriod] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [amountMin, setAmountMin] = useState('')
+  const [amountMax, setAmountMax] = useState('')
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const clearFilters = () => {
+    setPeriod('all')
+    setDateFrom('')
+    setDateTo('')
+    setSelectedStatus('all')
+    setAmountMin('')
+    setAmountMax('')
+  }
+
+  // ── Filtering logic ──
+
+  const filteredQuotations = useMemo(() => {
+    let result = [...mockQuotations]
+
+    // Period filter
+    const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
+    switch (period) {
+      case 'today':
+        result = result.filter((qt) => qt.date.slice(0, 10) === todayStr)
+        break
+      case 'week': {
+        const weekAgo = new Date(now)
+        weekAgo.setDate(weekAgo.getDate() - 7)
+        const weekStr = weekAgo.toISOString().slice(0, 10)
+        result = result.filter((qt) => qt.date.slice(0, 10) >= weekStr)
+        break
+      }
+      case 'month': {
+        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+        result = result.filter((qt) => qt.date.slice(0, 10) >= monthStart)
+        break
+      }
+      case 'custom':
+        if (dateFrom) result = result.filter((qt) => qt.date.slice(0, 10) >= dateFrom)
+        if (dateTo) result = result.filter((qt) => qt.date.slice(0, 10) <= dateTo)
+        break
+    }
+
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (qt) =>
+          qt.quotationNumber.toLowerCase().includes(q) ||
+          qt.customerName.toLowerCase().includes(q)
+      )
+    }
+
+    // Status
+    if (selectedStatus && selectedStatus !== 'all') {
+      result = result.filter((qt) => qt.status === selectedStatus)
+    }
+
+    // Amount range
+    if (amountMin) {
+      result = result.filter((qt) => qt.total >= parseFloat(amountMin))
+    }
+    if (amountMax) {
+      result = result.filter((qt) => qt.total <= parseFloat(amountMax))
+    }
+
+    return result
+  }, [searchQuery, period, dateFrom, dateTo, selectedStatus, amountMin, amountMax])
+
+  // ── Stats ──
+
+  const stats = useMemo(() => {
+    const total = mockQuotations.reduce((sum, qt) => sum + qt.total, 0)
+    const acceptedTotal = mockQuotations
+      .filter((qt) => qt.status === 'accepted' || qt.status === 'converted')
+      .reduce((sum, qt) => sum + qt.total, 0)
+    const pendingTotal = mockQuotations
+      .filter((qt) => qt.status === 'draft' || qt.status === 'sent')
+      .reduce((sum, qt) => sum + qt.total, 0)
+    const rejectedCount = mockQuotations.filter((qt) => qt.status === 'rejected').length
+    return {
+      total,
+      totalCount: mockQuotations.length,
+      acceptedCount: mockQuotations.filter((qt) => qt.status === 'accepted' || qt.status === 'converted').length,
+      acceptedTotal,
+      pendingCount: mockQuotations.filter((qt) => qt.status === 'draft' || qt.status === 'sent').length,
+      pendingTotal,
+      rejectedCount,
+    }
+  }, [])
+
+  // ── Pagination ──
+
+  const totalPages = Math.ceil(filteredQuotations.length / PAGE_SIZE)
+  const paginatedQuotations = filteredQuotations.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  )
+
+  const rangeStart = filteredQuotations.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredQuotations.length)
+
+  // ── Bulk select ──
+
+  const allOnPageSelected =
+    paginatedQuotations.length > 0 &&
+    paginatedQuotations.every((qt) => selectedIds.has(qt.id))
+
+  const toggleSelectAll = () => {
+    if (allOnPageSelected) {
+      const newSet = new Set(selectedIds)
+      paginatedQuotations.forEach((qt) => newSet.delete(qt.id))
+      setSelectedIds(newSet)
+    } else {
+      const newSet = new Set(selectedIds)
+      paginatedQuotations.forEach((qt) => newSet.add(qt.id))
+      setSelectedIds(newSet)
+    }
+  }
+
+  const toggleSelectOne = (id: string) => {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+    setSelectedIds(newSet)
+  }
+
+  // ── Active filters count ──
+  const activeFilterCount = [
+    period !== 'all' ? period : '',
+    dateFrom,
+    dateTo,
+    selectedStatus !== 'all' ? selectedStatus : '',
+    amountMin,
+    amountMax,
+  ].filter(Boolean).length
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="space-y-5"
+    >
+      {/* ── Header ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Quotations</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create and manage quotations for customers
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting to Excel...')}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => toast.info('Preparing print view...')}>
+            <Printer className="mr-1.5 h-4 w-4" />
+            Print
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          {
+            label: 'Total Quotations',
+            value: formatCurrency(stats.total),
+            subtitle: `${stats.totalCount} quotations`,
+            icon: IndianRupee,
+            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+            borderAccent: 'border-l-blue-500',
+          },
+          {
+            label: 'Accepted / Converted',
+            value: formatCurrency(stats.acceptedTotal),
+            subtitle: `${stats.acceptedCount} accepted`,
+            icon: CheckCircle2,
+            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            borderAccent: 'border-l-emerald-500',
+          },
+          {
+            label: 'Pending',
+            value: formatCurrency(stats.pendingTotal),
+            subtitle: `${stats.pendingCount} draft/sent`,
+            icon: Clock,
+            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            borderAccent: 'border-l-amber-500',
+          },
+          {
+            label: 'Rejected',
+            value: stats.rejectedCount.toString(),
+            subtitle: 'this period',
+            icon: XCircle,
+            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+            borderAccent: 'border-l-rose-500',
+          },
+        ].map((stat) => (
+          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </p>
+                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* ── Search + Filter Row ── */}
+      <div className="flex items-center gap-3">
+        <div className="w-full max-w-sm">
+          <Input
+            icon={<Search />}
+            suffix={<span className="tabular-nums whitespace-nowrap">{filteredQuotations.length} found</span>}
+            placeholder="Search quotation# or customer..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+          />
+        </div>
+        <Button
+          variant={filtersOpen ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5 shrink-0"
+          onClick={() => setFiltersOpen(!filtersOpen)}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground shrink-0"
+            onClick={() => { clearFilters(); setCurrentPage(1) }}
+          >
+            <X className="mr-1 h-3 w-3" />
+            Clear
+          </Button>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Button onClick={() => toast.info('Opening new quotation form...')}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Create Quotation
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => navigate('/billing/sales')}>
+            <FileText className="mr-1.5 h-4 w-4" />
+            Sales List
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Filter Panel ── */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <Card className="bg-muted/20 dark:bg-muted/10">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {/* Period */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Period
+                    </Label>
+                    <Select value={period} onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Time" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PERIOD_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Custom date range */}
+                  {period === 'custom' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Date From
+                        </Label>
+                        <Input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Date To
+                        </Label>
+                        <Input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Status */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Status
+                    </Label>
+                    <Select value={selectedStatus} onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Amount range */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Amount Range
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={amountMin}
+                        onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
+                        className="w-full"
+                      />
+                      <span className="text-muted-foreground text-xs">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={amountMax}
+                        onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Bulk actions bar ── */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
+              <Badge variant="default" size="sm" dot>
+                {selectedIds.size} selected
+              </Badge>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')}>
+                  <Send className="mr-1 h-3.5 w-3.5" />
+                  Send
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
+                  <Download className="mr-1 h-3.5 w-3.5" />
+                  Export
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
+                  <Printer className="mr-1 h-3.5 w-3.5" />
+                  Print
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="ml-auto"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                <X />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Table ── */}
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allOnPageSelected}
+                  onCheckedChange={toggleSelectAll}
+                />
+              </TableHead>
+              <TableHead>Quotation #</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead className="text-center">Items</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <AnimatePresence mode="popLayout">
+              {paginatedQuotations.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
+                        <FileText className="h-6 w-6 text-muted-foreground/60" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">
+                          No quotations found
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+                          Try adjusting your search or filters
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedQuotations.map((qt, idx) => (
+                  <motion.tr
+                    key={qt.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15, delay: idx * 0.02 }}
+                    className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
+                    onClick={() => toast.info('Opening quotation details...')}
+                  >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds.has(qt.id)}
+                        onCheckedChange={() => toggleSelectOne(qt.id)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
+                        <span className="font-mono text-[11px] font-medium">
+                          {qt.quotationNumber}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatDate(qt.date)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="max-w-[200px]">
+                      <p className="truncate text-sm font-medium">{qt.customerName}</p>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="secondary" size="sm">
+                        {qt.items.length}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm font-semibold">
+                      {formatCurrency(qt.total)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={statusBadgeVariant[qt.status]}
+                        size="sm"
+                        dot
+                      >
+                        {statusLabel[qt.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon-sm">
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => toast.info('Opening quotation details...')}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            View
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => toast.success(`Quotation ${qt.quotationNumber} converted to invoice!`)}
+                            disabled={qt.status === 'converted' || qt.status === 'rejected'}
+                          >
+                            <ArrowRightLeft className="mr-2 h-4 w-4" />
+                            Convert to Invoice
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => toast.info(`Sending quotation to ${qt.customerName}...`)}
+                            disabled={qt.status === 'converted'}
+                          >
+                            <Send className="mr-2 h-4 w-4" />
+                            Send
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => toast.warning(`Quotation ${qt.quotationNumber} deleted`)}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </motion.tr>
+                ))
+              )}
+            </AnimatePresence>
+          </TableBody>
+        </Table>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
+          <p className="text-[11px] text-muted-foreground">
+            Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}
+            <span className="font-medium text-foreground">{filteredQuotations.length}</span> results
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => p - 1)}
+            >
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Prev
+            </Button>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              Page {currentPage} of {totalPages || 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
+              Next
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </motion.div>
+  )
+}

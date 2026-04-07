@@ -1,0 +1,148 @@
+import { useSyncExternalStore, useCallback } from 'react'
+
+// ─── Hash-based router store ───────────────────────────────────────────────
+function getHash(): string {
+  return window.location.hash.slice(1) || '/login'
+}
+
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function emitChange() {
+  for (const listener of listeners) listener()
+}
+
+// Listen to hashchange
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', emitChange)
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────
+
+/** Navigate to a path (sets hash, triggers re-render in all useRoute consumers) */
+export function navigate(path: string) {
+  window.location.hash = path
+}
+
+/** React hook – returns current path and navigate function */
+export function useRoute() {
+  const path = useSyncExternalStore(subscribe, getHash, () => '/login')
+  return { path, navigate }
+}
+
+/** Build an href string that works with hash routing */
+export function href(path: string): string {
+  return `#${path}`
+}
+
+// ─── Route config ──────────────────────────────────────────────────────────
+export interface BreadcrumbItem {
+  label: string
+  href?: string
+}
+
+export interface RouteConfig {
+  label: string
+  breadcrumbs: BreadcrumbItem[]
+}
+
+export const routes: Record<string, RouteConfig> = {
+  '/dashboard': {
+    label: 'Dashboard',
+    breadcrumbs: [{ label: 'Dashboard' }],
+  },
+  '/billing/new': {
+    label: 'New Sale',
+    breadcrumbs: [{ label: 'Billing', href: '#/billing/sales' }, { label: 'New Sale' }],
+  },
+  '/billing/sales': {
+    label: 'Sales List',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Sales List' }],
+  },
+  '/billing/quotations': {
+    label: 'Quotations',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Quotations' }],
+  },
+  '/billing/returns': {
+    label: 'Sales Returns',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Sales Returns' }],
+  },
+  '/purchase/orders': {
+    label: 'Purchase Orders',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Orders' }],
+  },
+  '/purchase/grn': {
+    label: 'Goods Receipt',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Goods Receipt' }],
+  },
+  '/purchase/returns': {
+    label: 'Purchase Returns',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Returns' }],
+  },
+  '/purchase/suppliers': {
+    label: 'Suppliers',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Suppliers' }],
+  },
+  '/inventory/products': {
+    label: 'Products',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Products' }],
+  },
+  '/inventory/stock': {
+    label: 'Stock Overview',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Stock Overview' }],
+  },
+  '/inventory/expiry': {
+    label: 'Expiry Management',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Expiry Management' }],
+  },
+  '/inventory/adjustment': {
+    label: 'Stock Adjustment',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Stock Adjustment' }],
+  },
+  '/customers': {
+    label: 'Customers',
+    breadcrumbs: [{ label: 'Customers' }],
+  },
+  '/customers/outstanding': {
+    label: 'Outstanding',
+    breadcrumbs: [{ label: 'Customers' }, { label: 'Outstanding' }],
+  },
+  '/accounting/cashbook': {
+    label: 'Cash Book',
+    breadcrumbs: [{ label: 'Accounting' }, { label: 'Cash Book' }],
+  },
+  '/accounting/expenses': {
+    label: 'Expenses',
+    breadcrumbs: [{ label: 'Accounting' }, { label: 'Expenses' }],
+  },
+  '/accounting/ledger': {
+    label: 'Ledger',
+    breadcrumbs: [{ label: 'Accounting' }, { label: 'Ledger' }],
+  },
+  '/accounting/pnl': {
+    label: 'Profit & Loss',
+    breadcrumbs: [{ label: 'Accounting' }, { label: 'Profit & Loss' }],
+  },
+  '/reports': {
+    label: 'Reports',
+    breadcrumbs: [{ label: 'Reports' }],
+  },
+  '/settings': {
+    label: 'Settings',
+    breadcrumbs: [{ label: 'Settings' }],
+  },
+}
+
+/** Get route config for a given path, with fallback to dashboard */
+export function getRouteConfig(path: string): RouteConfig {
+  return routes[path] || routes['/dashboard']!
+}
+
+/** Hook that returns navigate as a stable callback */
+export function useNavigate() {
+  return useCallback((path: string) => navigate(path), [])
+}
