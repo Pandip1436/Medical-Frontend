@@ -84,14 +84,17 @@ const sparklineData = {
   profit: [2, 3, 2.5, 4, 3.5, 5, 4.5, 6, 5.5, 7, 6.5, 8],
 }
 
+import { useEffect, useState } from 'react'
+import api from '@/lib/api'
+
 // ─────────────────────────────────────────────────────────────
 // KPI card definitions
 // ─────────────────────────────────────────────────────────────
 
-const kpiCards = [
+const getKpiCards = (kpiData: any) => [
   {
     title: "Today's Sales",
-    value: 147832,
+    value: kpiData?.todaysSales || 0,
     subtitle: '23 invoices',
     change: 12,
     direction: 'up' as const,
@@ -105,7 +108,7 @@ const kpiCards = [
   },
   {
     title: "Today's Purchases",
-    value: 89450,
+    value: kpiData?.monthlySales || 0,
     subtitle: '5 entries',
     change: 8,
     direction: 'down' as const,
@@ -119,7 +122,7 @@ const kpiCards = [
   },
   {
     title: 'Outstanding Receivables',
-    value: 324500,
+    value: kpiData?.totalOutstanding || 0,
     subtitle: '12 customers',
     change: 0,
     direction: 'neutral' as const,
@@ -133,7 +136,7 @@ const kpiCards = [
   },
   {
     title: 'Low Stock Items',
-    value: 18,
+    value: kpiData?.lowStockAlertsCount || 0,
     subtitle: 'products below reorder',
     change: 3,
     direction: 'up' as const,
@@ -148,7 +151,7 @@ const kpiCards = [
   },
   {
     title: 'Near-Expiry (90 days)',
-    value: 42,
+    value: kpiData?.expiringBatchesCount || 0,
     subtitle: 'batches need attention',
     change: 5,
     direction: 'up' as const,
@@ -264,6 +267,16 @@ const totalStockValue = mockStockDistribution.reduce((sum, d) => sum + d.value, 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const userName = user?.name?.split(' ')[0] ?? 'User'
+
+  const [kpiData, setKpiData] = useState<any>(null)
+
+  useEffect(() => {
+    api.get('/reports/dashboard')
+      .then((res) => setKpiData(res.data))
+      .catch((err) => console.error('Failed to fetch dashboard KPIs', err))
+  }, [])
+
+  const kpiCards = getKpiCards(kpiData)
 
   const greeting = (() => {
     const hour = new Date().getHours()

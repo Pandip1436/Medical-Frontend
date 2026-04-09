@@ -63,7 +63,7 @@ export default function LoginPage({
 
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    const success = login(data.email, data.password)
+    const success = await login(data.email, data.password)
 
     if (success) {
       setLoginSucceeded(true)

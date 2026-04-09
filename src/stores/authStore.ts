@@ -2,66 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { User, UserRole } from '@/types'
 
-interface MockCredential {
-  email: string
-  password: string
-  user: User
-}
-
-const mockCredentials: MockCredential[] = [
-  {
-    email: 'admin@hospitalsuppliers.com',
-    password: 'Admin@123',
-    user: {
-      id: 'USR-001',
-      name: 'Administrator',
-      email: 'admin@hospitalsuppliers.com',
-      phone: '9876543210',
-      role: 'admin' as UserRole,
-      avatar: undefined,
-      isActive: true,
-    },
-  },
-  {
-    email: 'ravi@hospitalsuppliers.com',
-    password: 'Pharma@123',
-    user: {
-      id: 'USR-002',
-      name: 'Ravi Kumar',
-      email: 'ravi@hospitalsuppliers.com',
-      phone: '9876543211',
-      role: 'pharmacist' as UserRole,
-      avatar: undefined,
-      isActive: true,
-    },
-  },
-  {
-    email: 'kumar@hospitalsuppliers.com',
-    password: 'Stock@123',
-    user: {
-      id: 'USR-003',
-      name: 'Kumar S',
-      email: 'kumar@hospitalsuppliers.com',
-      phone: '9876543212',
-      role: 'inventory_manager' as UserRole,
-      avatar: undefined,
-      isActive: true,
-    },
-  },
-  {
-    email: 'priya@hospitalsuppliers.com',
-    password: 'Account@123',
-    user: {
-      id: 'USR-004',
-      name: 'Priya M',
-      email: 'priya@hospitalsuppliers.com',
-      phone: '9876543213',
-      role: 'accountant' as UserRole,
-      avatar: undefined,
-      isActive: true,
-    },
-  },
-]
+import api from '@/lib/api'
 
 type Theme = 'light' | 'dark' | 'system'
 type Language = 'en' | 'ta' | 'hi'
@@ -79,7 +20,7 @@ interface AuthState {
   hasCompletedOnboarding: boolean
 
   // Actions
-  login: (email: string, password: string) => boolean
+  login: (email: string, password: string) => Promise<boolean>
   logout: () => void
   setTheme: (theme: Theme) => void
   resolvedTheme: () => 'light' | 'dark'
@@ -103,26 +44,33 @@ export const useAuthStore = create<AuthState>()(
       hasCompletedOnboarding: false,
 
       // Auth actions
-      login: (email: string, password: string): boolean => {
-        const credential = mockCredentials.find(
-          (c) => c.email.toLowerCase() === email.toLowerCase() && c.password === password
-        )
-
-        if (credential) {
-          set({
-            user: {
-              ...credential.user,
-              lastLogin: new Date().toISOString(),
-            },
-            isAuthenticated: true,
-          })
-          return true
+      login: async (email: string, password: string): Promise<boolean> => {
+        try {
+          const response = await api.post('/auth/login', { email, password });
+          if (response.data && response.data.data) {
+            const { user, accessToken } = response.data.data;
+            
+            // Set token
+            localStorage.setItem('auth_token', accessToken.token);
+            
+            set({
+              user: {
+                ...user,
+                lastLogin: new Date().toISOString(),
+              },
+              isAuthenticated: true,
+            })
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.error("Login failed:", error);
+          return false;
         }
-
-        return false
       },
 
       logout: () => {
+        localStorage.removeItem('auth_token');
         set({
           user: null,
           isAuthenticated: false,

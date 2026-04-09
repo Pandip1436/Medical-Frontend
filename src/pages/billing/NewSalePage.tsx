@@ -35,7 +35,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { mockProducts, mockCustomers, mockBatches } from '@/data/mock'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency, generateInvoiceNumber } from '@/lib/utils'
 import type { Product, Customer } from '@/types'
 
@@ -187,6 +188,9 @@ function BillingRow({
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
 }) {
+  const mockProducts = useMasterDataStore(s => s.products)
+  const mockBatches = useMasterDataStore(s => s.batches)
+
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
   const productRef = useRef<HTMLTableCellElement>(null)
@@ -810,15 +814,22 @@ function PaymentPanel({
 // ─────────────────────────────────────────────────────────────
 
 export default function NewSalePage() {
+  const mockProducts = useMasterDataStore(s => s.products)
+  const mockCustomers = useMasterDataStore(s => s.customers)
+  const mockBatches = useMasterDataStore(s => s.batches)
+  const fetchMasterData = useMasterDataStore(s => s.fetchMasterData)
+
+  useEffect(() => {
+    fetchMasterData()
+  }, [])
+
   // ── State ────────────────────────────────────────────────
   const [invoiceType, setInvoiceType] = useState<'invoice' | 'quotation'>('invoice')
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [doctorRef, setDoctorRef] = useState('')
   const [doctorSearch, setDoctorSearch] = useState('')
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false)
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
-    mockCustomers.find((c) => c.type === 'walk-in') ?? null
-  )
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
   const [items, setItems] = useState<BillingItem[]>([createEmptyItem()])
@@ -1035,11 +1046,80 @@ export default function NewSalePage() {
     return selectedCustomer.currentOutstanding > selectedCustomer.creditLimit
   }, [selectedCustomer])
 
+  // ── Submit Invoice ──────────────────────────────────────
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitInvoice = async () => {
+    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    if (activeItems.length === 0) {
+      alert("Please add items to the bill")
+      return;
+    }
+
+    if (showCreditWarning) {
+      alert("Cannot process: Credit limit exceeded")
+      return;
+    }
+
+    setIsSubmitting(true)
+    try {
+      const payload = {
+        invoiceNumber,
+        date: new Date().toISOString(),
+        customerId: selectedCustomer?.id || null,
+        customerName: selectedCustomer ? selectedCustomer.name : 'Walk-in Customer',
+        customerPhone: selectedCustomer ? selectedCustomer.phone : null,
+        doctorName: doctorRef || null,
+        paymentMode: paymentMode.toUpperCase(),
+        
+        subtotal: totals.subtotal,
+        productDiscount: totals.productDiscount,
+        taxableAmount: totals.taxableAmount,
+        cgst: totals.cgst,
+        sgst: totals.sgst,
+        igst: 0,
+        roundOff: totals.roundOff,
+        grandTotal: totals.grandTotal,
+        amountPaid: paymentMode === 'cash' ? paymentDetails.amountReceived : totals.grandTotal,
+
+        items: activeItems.map(item => ({
+          productId: item.productId,
+          productName: item.productName,
+          batchId: item.batchId,
+          batchNumber: item.batchNumber,
+          quantity: item.quantity,
+          mrp: item.mrp,
+          rate: item.rate,
+          discountPercent: item.discountPercent,
+          gstPercent: item.gstPercent,
+          amount: item.amount
+        }))
+      }
+
+      await api.post('/billing', payload)
+      
+      alert("Invoice Generated Successfully!")
+      
+      // Reset form
+      setItems([createEmptyItem()])
+      setDoctorRef('')
+      setPaymentDetails({ ...paymentDetails, amountReceived: 0 })
+      // refetch to update stock
+      fetchMasterData()
+      
+    } catch (error) {
+      console.error(error)
+      alert("Failed to generate invoice. Please check stock limits.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   // ── Keyboard shortcuts ──────────────────────────────────
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'F8') {
         e.preventDefault()
+        submitInvoice()
       } else if (e.key === 'F9') {
         e.preventDefault()
       } else if (e.key === 'F10') {
@@ -1525,9 +1605,14 @@ export default function NewSalePage() {
             <div className="flex flex-col gap-1.5 mt-auto">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="default" className="w-full gap-2 h-10 text-sm font-semibold shadow-md shadow-primary/20">
+                  <Button 
+                    variant="default" 
+                    className="w-full gap-2 h-10 text-sm font-semibold shadow-md shadow-primary/20"
+                    onClick={submitInvoice}
+                    disabled={isSubmitting}
+                  >
                     <Printer className="h-4 w-4" />
-                    Save & Print
+                    {isSubmitting ? 'Saving...' : 'Save & Print'}
                     <kbd className="ml-auto rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-mono">F8</kbd>
                   </Button>
                 </TooltipTrigger>
