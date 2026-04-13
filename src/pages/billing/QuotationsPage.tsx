@@ -42,12 +42,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
@@ -197,7 +197,7 @@ export default function QuotationsPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Filters
-  const [filtersOpen, setFiltersOpen] = useState(false)
+
   const [period, setPeriod] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -363,13 +363,13 @@ export default function QuotationsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting to Excel...')}>
-            <Download className="mr-1.5 h-4 w-4" />
-            Export
+          <Button onClick={() => toast.info('Opening new quotation form...')}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Create Quotation
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info('Preparing print view...')}>
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print
+          <Button variant="outline" onClick={() => navigate('/billing/sales')}>
+            <FileText className="mr-1.5 h-4 w-4" />
+            Sales List
           </Button>
         </div>
       </div>
@@ -428,159 +428,80 @@ export default function QuotationsPage() {
       </div>
 
       {/* ── Search + Filter Row ── */}
-      <div className="flex items-center gap-3">
-        <div className="w-full max-w-sm">
-          <Input
-            icon={<Search />}
-            suffix={<span className="tabular-nums whitespace-nowrap">{filteredQuotations.length} found</span>}
-            placeholder="Search quotation# or customer..."
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-          />
-        </div>
-        <Button
-          variant={filtersOpen ? 'default' : 'outline'}
-          size="sm"
-          className="gap-1.5 shrink-0"
-          onClick={() => setFiltersOpen(!filtersOpen)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-              {activeFilterCount}
-            </Badge>
-          )}
-        </Button>
-        {activeFilterCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground shrink-0"
-            onClick={() => { clearFilters(); setCurrentPage(1) }}
-          >
-            <X className="mr-1 h-3 w-3" />
-            Clear
-          </Button>
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
+        searchPlaceholder="Search quotation# or customer..."
+        resultsCount={filteredQuotations.length}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+      >
+        <EnumSelect
+          label="Period"
+          value={period}
+          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+          options={PERIOD_OPTIONS}
+        />
+
+        {/* Custom date range */}
+        {period === 'custom' && (
+          <>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date From
+              </Label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date To
+              </Label>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
+              />
+            </div>
+          </>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button onClick={() => toast.info('Opening new quotation form...')}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Create Quotation
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/billing/sales')}>
-            <FileText className="mr-1.5 h-4 w-4" />
-            Sales List
-          </Button>
+
+        <EnumSelect
+          label="Status"
+          value={selectedStatus}
+          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+          options={STATUS_OPTIONS}
+        />
+
+        {/* Amount range */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Amount Range
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              placeholder="Min"
+              value={amountMin}
+              onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
+              className="w-full"
+            />
+            <span className="text-muted-foreground text-xs">-</span>
+            <Input
+              type="number"
+              placeholder="Max"
+              value={amountMax}
+              onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
+              className="w-full"
+            />
+          </div>
         </div>
-      </div>
-
-      {/* ── Filter Panel ── */}
-      <AnimatePresence>
-        {filtersOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <Card className="bg-muted/20 dark:bg-muted/10">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {/* Period */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Period
-                    </Label>
-                    <Select value={period} onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Time" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PERIOD_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Custom date range */}
-                  {period === 'custom' && (
-                    <>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Date From
-                        </Label>
-                        <Input
-                          type="date"
-                          value={dateFrom}
-                          onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Date To
-                        </Label>
-                        <Input
-                          type="date"
-                          value={dateTo}
-                          onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Status */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Status
-                    </Label>
-                    <Select value={selectedStatus} onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Amount range */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Amount Range
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        placeholder="Min"
-                        value={amountMin}
-                        onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
-                        className="w-full"
-                      />
-                      <span className="text-muted-foreground text-xs">-</span>
-                      <Input
-                        type="number"
-                        placeholder="Max"
-                        value={amountMax}
-                        onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>
@@ -713,41 +634,29 @@ export default function QuotationsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm">
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => toast.info('Opening quotation details...')}>
-                            <Eye className="mr-2 h-4 w-4" />
-                            View
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => toast.success(`Quotation ${qt.quotationNumber} converted to invoice!`)}
-                            disabled={qt.status === 'converted' || qt.status === 'rejected'}
-                          >
-                            <ArrowRightLeft className="mr-2 h-4 w-4" />
-                            Convert to Invoice
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => toast.info(`Sending quotation to ${qt.customerName}...`)}
-                            disabled={qt.status === 'converted'}
-                          >
-                            <Send className="mr-2 h-4 w-4" />
-                            Send
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => toast.warning(`Quotation ${qt.quotationNumber} deleted`)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <DataTableRowActions
+                        onView={() => toast.info('Opening quotation details...')}
+                        onDelete={() => toast.warning(`Quotation ${qt.quotationNumber} deleted`)}
+                        customActions={[
+                          {
+                            label: 'Convert',
+                            icon: <ArrowRightLeft className="h-4 w-4" />,
+                            onClick: () => toast.success(`Quotation ${qt.quotationNumber} converted to invoice!`),
+                            disabled: qt.status === 'converted' || qt.status === 'rejected'
+                          },
+                          {
+                            label: 'Send',
+                            icon: <Send className="h-4 w-4" />,
+                            onClick: () => toast.info(`Sending quotation to ${qt.customerName}...`),
+                            disabled: qt.status === 'rejected'
+                          },
+                          {
+                            label: 'Download',
+                            icon: <Download className="h-4 w-4" />,
+                            onClick: () => toast.info(`Downloading PDF for ${qt.quotationNumber}...`)
+                          }
+                        ]}
+                      />
                     </TableCell>
                   </motion.tr>
                 ))

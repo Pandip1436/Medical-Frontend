@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -7,8 +7,15 @@ import {
   RotateCcw,
   FileX2,
   Trash2,
+  Search,
+  Undo2,
+  History,
 } from 'lucide-react'
 import { differenceInDays } from 'date-fns'
+
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,7 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { mockProducts, mockBatches, mockSuppliers } from '@/data/mock'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -94,32 +101,63 @@ interface BucketSummary {
 // ─────────────────────────────────────────────────────────────
 
 export default function ExpiryManagementPage() {
+  const batches = useMasterDataStore((s) => s.batches)
+  const suppliers = useMasterDataStore((s) => s.suppliers)
+  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
+  const fetchSuppliers = useMasterDataStore((s) => s.fetchSuppliers)
+
+  useEffect(() => {
+    fetchProducts()
+    fetchSuppliers()
+  }, [])
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSupplier, setSelectedSupplier] = useState('all')
+
   const today = new Date()
 
   // Build enriched batch list
   const enrichedBatches: EnrichedBatch[] = useMemo(() => {
-    return mockBatches.map((batch) => {
-      const product = mockProducts.find((p) => p.id === batch.productId)!
-      const supplier = mockSuppliers.find((s) => s.id === batch.supplierId)
+    return batches.map((batch) => {
+      const supplier = suppliers.find((s) => s.id === batch.supplierId)
       const daysToExpiry = differenceInDays(new Date(batch.expiryDate), today)
       const bucket = assignBucket(daysToExpiry)
 
       return {
         batchId: batch.id,
         batchNumber: batch.batchNumber,
-        productId: product.id,
-        productName: product.name,
+        productId: batch.productId,
+        productName: batch.productName ?? 'Unknown',
         expiryDate: batch.expiryDate,
         mfgDate: batch.mfgDate,
         quantity: batch.quantity,
-        mrp: batch.mrp,
-        stockValue: batch.quantity * batch.mrp,
+        mrp: Number(batch.mrp),
+        stockValue: batch.quantity * Number(batch.mrp),
         supplierName: supplier?.name ?? 'Unknown',
         daysToExpiry,
         bucket,
       }
     })
-  }, [])
+  }, [batches, suppliers])
+
+  const filteredBatches: EnrichedBatch[] = useMemo(() => {
+    let result = enrichedBatches
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (b) =>
+          b.productName.toLowerCase().includes(q) ||
+          b.batchNumber.toLowerCase().includes(q)
+      )
+    }
+
+    if (selectedSupplier !== 'all') {
+      result = result.filter((b) => b.supplierName === selectedSupplier)
+    }
+
+    return result
+  }, [enrichedBatches, searchQuery, selectedSupplier])
 
   // Batches per bucket
   const bucketBatches = useMemo(() => {
@@ -130,11 +168,11 @@ export default function ExpiryManagementPage() {
       '90d': [],
       '180d': [],
     }
-    enrichedBatches.forEach((b) => {
+    filteredBatches.forEach((b) => {
       if (b.bucket) map[b.bucket].push(b)
     })
     return map
-  }, [enrichedBatches])
+  }, [filteredBatches])
 
   // Summary cards
   const summaries: BucketSummary[] = useMemo(() => {
@@ -198,8 +236,8 @@ export default function ExpiryManagementPage() {
   }
 
   // Table renderer for a bucket
-  const renderBatchTable = (batches: EnrichedBatch[]) => (
-    <div className="rounded-2xl border border-border/60 bg-card shadow">
+  const renderBatchTable = (batchesToRender: EnrichedBatch[]) => (
+    <div className="rounded-2xl border border-border/60 bg-card shadow overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -210,28 +248,35 @@ export default function ExpiryManagementPage() {
             <TableHead className="text-right">MRP</TableHead>
             <TableHead className="text-right">Stock Value</TableHead>
             <TableHead>Supplier</TableHead>
-            <TableHead className="text-right">Action</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {batches.map((batch) => (
-            <TableRow key={batch.batchId} className="border-b border-border/40">
+          {batchesToRender.map((batch) => (
+            <TableRow key={batch.batchId} className="border-b border-border/40 hover:bg-muted/10 transition-colors">
               <TableCell className="font-medium">{batch.productName}</TableCell>
               <TableCell className="font-mono text-xs">
                 {batch.batchNumber}
               </TableCell>
               <TableCell>
-                <span
-                  className={cn(
-                    batch.daysToExpiry < 0
-                      ? 'text-red-600 dark:text-red-400 font-semibold'
-                      : batch.daysToExpiry <= 30
-                        ? 'text-orange-600 dark:text-orange-400'
-                        : 'text-muted-foreground'
-                  )}
-                >
-                  {formatDate(batch.expiryDate)}
-                </span>
+                <div className="flex flex-col">
+                  <span
+                    className={cn(
+                      batch.daysToExpiry < 0
+                        ? 'text-red-600 dark:text-red-400 font-semibold'
+                        : batch.daysToExpiry <= 30
+                          ? 'text-orange-600 dark:text-orange-400'
+                          : 'text-muted-foreground'
+                    )}
+                  >
+                    {formatDate(batch.expiryDate)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {batch.daysToExpiry < 0 
+                      ? `${Math.abs(batch.daysToExpiry)} days ago` 
+                      : `in ${batch.daysToExpiry} days`}
+                  </span>
+                </div>
               </TableCell>
               <TableCell className="text-right font-mono text-sm">
                 {batch.quantity}
@@ -242,80 +287,46 @@ export default function ExpiryManagementPage() {
               <TableCell className="text-right font-mono text-sm font-semibold">
                 {formatCurrency(batch.stockValue)}
               </TableCell>
-              <TableCell className="text-muted-foreground">
-                {batch.supplierName}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center justify-end gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => handleCreateReturn(batch)}
-                  >
-                    <RotateCcw className="mr-1 h-3 w-3" />
-                    Return
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => handleWriteOff(batch)}
-                  >
-                    <FileX2 className="mr-1 h-3 w-3" />
-                    Write Off
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => handleMarkDisposed(batch)}
-                  >
-                    <Trash2 className="mr-1 h-3 w-3" />
-                    Disposed
-                  </Button>
-                </div>
+              <TableCell className="text-sm">{batch.supplierName}</TableCell>
+              <TableCell className="text-right">
+                <DataTableRowActions
+                  onView={() => toast.info(`Viewing details for ${batch.productName}`)}
+                  onEdit={() => toast.info(`Edit batch ${batch.batchNumber}`)}
+                  onDelete={() => handleMarkDisposed(batch)}
+                  customActions={[
+                    {
+                      label: 'Create Return',
+                      icon: <Undo2 className="h-4 w-4" />,
+                      onClick: () => handleCreateReturn(batch),
+                    },
+                    {
+                      label: 'Write Off',
+                      icon: <History className="h-4 w-4" />,
+                      onClick: () => handleWriteOff(batch),
+                    },
+                  ]}
+                />
               </TableCell>
             </TableRow>
           ))}
-          {batches.length === 0 && (
-            <TableRow>
-              <TableCell
-                colSpan={8}
-                className="py-8 text-center text-muted-foreground"
-              >
-                No batches in this expiry window.
-              </TableCell>
-            </TableRow>
-          )}
         </TableBody>
       </Table>
+      {batchesToRender.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+          <Search className="mb-3 h-8 w-8 opacity-20" />
+          <p>No batches match your filters in this category</p>
+        </div>
+      )}
     </div>
   )
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
       className="space-y-6"
     >
-      {/* Custom Flex Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <CalendarClock className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Expiry Management</h1>
-            <p className="text-sm text-muted-foreground">
-              Track and manage products approaching expiry
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Summary Cards ── */}
       <motion.div
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5"
         variants={containerVariants}

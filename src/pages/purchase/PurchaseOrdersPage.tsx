@@ -22,7 +22,6 @@ import {
   CheckCircle2,
   Clock,
   Package,
-  RotateCcw,
 } from 'lucide-react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { z } from 'zod'
@@ -52,11 +51,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 import {
   Select,
   SelectContent,
@@ -64,16 +63,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  PopoverAnchor,
-} from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
-import { useMasterDataStore } from '@/stores/masterDataStore'
-import api from '@/lib/api'
-import { useEffect } from 'react'
+import { mockPurchaseOrders, mockSuppliers, mockProducts } from '@/data/mock'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import type { PurchaseOrder } from '@/types'
@@ -144,7 +135,7 @@ export default function PurchaseOrdersPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Filters
-  const [filtersOpen, setFiltersOpen] = useState(false)
+
   const [period, setPeriod] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -162,13 +153,6 @@ export default function PurchaseOrdersPage() {
   // Create PO dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [productSearch, setProductSearch] = useState('')
-  const [isSearchFocused, setIsSearchFocused] = useState(false)
-
-  const { purchaseOrders, suppliers, products, fetchMasterData, isLoading } = useMasterDataStore()
-
-  useEffect(() => {
-    fetchMasterData()
-  }, [])
 
   const clearFilters = () => {
     setPeriod('all')
@@ -183,7 +167,7 @@ export default function PurchaseOrdersPage() {
   // ── Filtering logic ──
 
   const filteredPOs = useMemo(() => {
-    let result = [...purchaseOrders]
+    let result = [...mockPurchaseOrders]
 
     // Period
     const now = new Date()
@@ -234,12 +218,12 @@ export default function PurchaseOrdersPage() {
     if (amountMax) result = result.filter((po) => po.totalAmount <= parseFloat(amountMax))
 
     return result
-  }, [searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax, purchaseOrders])
+  }, [searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const all = purchaseOrders
+    const all = mockPurchaseOrders
     const totalAmount = all.reduce((sum, po) => sum + po.totalAmount, 0)
     const receivedTotal = all
       .filter((po) => po.status === 'fully_received' || po.status === 'closed')
@@ -257,7 +241,7 @@ export default function PurchaseOrdersPage() {
       pendingTotal,
       partialCount,
     }
-  }, [purchaseOrders])
+  }, [])
 
   // ── Pagination ──
 
@@ -341,33 +325,22 @@ export default function PurchaseOrdersPage() {
   }, [watchedItems])
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return products.slice(0, 50)
-    return products
-      .filter((p) =>
-        p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-        p.genericName.toLowerCase().includes(productSearch.toLowerCase())
-      )
-      .slice(0, 50)
-  }, [productSearch, products])
+    if (!productSearch) return []
+    return mockProducts
+      .filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.genericName.toLowerCase().includes(productSearch.toLowerCase()))
+      .slice(0, 8)
+  }, [productSearch])
 
-  function handleProductSelect(index: number, product: any) {
+  function handleProductSelect(index: number, product: (typeof mockProducts)[0]) {
     setValue(`items.${index}.productId`, product.id)
     setValue(`items.${index}.productName`, product.name)
-    setValue(`items.${index}.lastPurchaseRate`, Number(product.purchaseRate))
-    setValue(`items.${index}.expectedRate`, Number(product.purchaseRate))
+    setValue(`items.${index}.lastPurchaseRate`, product.purchaseRate)
+    setValue(`items.${index}.expectedRate`, product.purchaseRate)
     setProductSearch('')
-    setIsSearchFocused(false)
-  }
-
-  function handleClearProduct(index: number) {
-    setValue(`items.${index}.productId`, '')
-    setValue(`items.${index}.productName`, '')
-    setValue(`items.${index}.lastPurchaseRate`, 0)
-    setValue(`items.${index}.expectedRate`, 0)
   }
 
   function handleAutoGenerate() {
-    const lowStockProducts = products.filter((p) => p.totalStock <= p.minStock).slice(0, 18)
+    const lowStockProducts = mockProducts.filter((p) => p.totalStock <= p.minStock).slice(0, 18)
     const newItems = lowStockProducts.map((p) => ({
       productId: p.id, productName: p.name, requiredQty: p.reorderQty,
       lastPurchaseRate: p.purchaseRate, expectedRate: p.purchaseRate,
@@ -378,27 +351,14 @@ export default function PurchaseOrdersPage() {
     toast.success(`Added ${newItems.length} low stock items`)
   }
 
-  async function onSubmitPO(data: any, asDraft: boolean) {
-    try {
-      const payload = {
-        ...data,
-        status: asDraft ? 'draft' : 'sent',
-        date: new Date().toISOString(),
-        poNumber: `PO-${Date.now().toString().slice(-6)}`,
-        totalAmount: poTotal
-      }
-      await api.post('/purchase-orders', payload)
-      toast.success(asDraft
-        ? `Purchase Order saved as draft`
-        : `Purchase Order sent successfully`
-      )
-      setCreateDialogOpen(false)
-      reset()
-      fetchMasterData()
-    } catch (error: any) {
-      console.error(error)
-      toast.error(error.response?.data?.message || 'Failed to create PO')
-    }
+  function onSubmitPO(data: any, asDraft: boolean) {
+    const supplier = mockSuppliers.find((s) => s.id === data.supplierId)
+    toast.success(asDraft
+      ? `Purchase Order saved as draft for ${supplier?.name || 'supplier'}`
+      : `Purchase Order sent to ${supplier?.name || 'supplier'} successfully`
+    )
+    setCreateDialogOpen(false)
+    reset()
   }
 
   return (
@@ -417,13 +377,13 @@ export default function PurchaseOrdersPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting...')} className="cursor-pointer">
-            <Download className="mr-1.5 h-4 w-4" />
-            Export
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Create PO
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info('Printing...')} className="cursor-pointer">
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print
+          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/grn')}>
+            <PackageCheck className="mr-1.5 h-4 w-4" />
+            Goods Receipt
           </Button>
         </div>
       </div>
@@ -480,138 +440,77 @@ export default function PurchaseOrdersPage() {
       </div>
 
       {/* ── Search + Filter Row ── */}
-      <div className="flex items-center gap-3">
-        <div className="w-full max-w-sm">
-          <Input
-            icon={<Search />}
-            suffix={<span className="tabular-nums whitespace-nowrap">{filteredPOs.length} found</span>}
-            placeholder="Search PO# or supplier..."
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-          />
-        </div>
-        <Button
-          variant={filtersOpen ? 'default' : 'outline'}
-          size="sm"
-          className="gap-1.5 shrink-0"
-          onClick={() => setFiltersOpen(!filtersOpen)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-              {activeFilterCount}
-            </Badge>
-          )}
-        </Button>
-        {activeFilterCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground shrink-0"
-            onClick={() => { clearFilters(); setCurrentPage(1) }}
-          >
-            <X className="mr-1 h-3 w-3" />
-            Clear
-          </Button>
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
+        searchPlaceholder="Search PO# or supplier..."
+        resultsCount={filteredPOs.length}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+      >
+        <EnumSelect
+          label="Period"
+          value={period}
+          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+          options={PERIOD_OPTIONS}
+        />
+
+        {/* Custom date range */}
+        {period === 'custom' && (
+          <>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date From
+              </Label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date To
+              </Label>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
+              />
+            </div>
+          </>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)} className="cursor-pointer">
-            <Plus className="mr-1.5 h-4 w-4" />
-            Create PO
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/grn')} className="cursor-pointer">
-            <PackageCheck className="mr-1.5 h-4 w-4" />
-            Goods Receipt
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/returns')} className="cursor-pointer">
-            <ClipboardList className="mr-1.5 h-4 w-4" />
-            Returns
-          </Button>
+
+        <EnumSelect
+          label="Supplier"
+          value={selectedSupplier}
+          onValueChange={(val) => { setSelectedSupplier(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
+          options={[
+            { value: 'all', label: 'All Suppliers' },
+            ...mockSuppliers.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+        />
+
+        <EnumSelect
+          label="Status"
+          value={selectedStatus}
+          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+          options={STATUS_OPTIONS}
+        />
+
+        {/* Amount Range */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Range</Label>
+          <div className="flex items-center gap-2">
+            <Input type="number" placeholder="Min" value={amountMin} onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }} className="w-full" />
+            <span className="text-muted-foreground text-xs">-</span>
+            <Input type="number" placeholder="Max" value={amountMax} onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }} className="w-full" />
+          </div>
         </div>
-      </div>
-
-      {/* ── Filter Panel ── */}
-      <AnimatePresence>
-        {filtersOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <Card className="bg-muted/20 dark:bg-muted/10">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                  {/* Period */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Period</Label>
-                    <Select value={period} onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}>
-                      <SelectTrigger><SelectValue placeholder="All Time" /></SelectTrigger>
-                      <SelectContent>
-                        {PERIOD_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {period === 'custom' && (
-                    <>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-                        <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-                        <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }} />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Supplier */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</Label>
-                    <Select value={selectedSupplier} onValueChange={(val) => { setSelectedSupplier(val); setCurrentPage(1) }}>
-                      <SelectTrigger><SelectValue placeholder="All Suppliers" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Suppliers</SelectItem>
-                        {suppliers.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Status */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</Label>
-                    <Select value={selectedStatus} onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}>
-                      <SelectTrigger><SelectValue placeholder="All Status" /></SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Amount Range */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Range</Label>
-                    <div className="flex items-center gap-2">
-                      <Input type="number" placeholder="Min" value={amountMin} onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }} className="w-full" />
-                      <span className="text-muted-foreground text-xs">-</span>
-                      <Input type="number" placeholder="Max" value={amountMax} onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }} className="w-full" />
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>
@@ -625,15 +524,15 @@ export default function PurchaseOrdersPage() {
             <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')} className="cursor-pointer">
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')}>
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')} className="cursor-pointer">
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')} className="cursor-pointer">
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
@@ -666,16 +565,7 @@ export default function PurchaseOrdersPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="h-40">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                      <p className="text-xs text-muted-foreground">Syncing orders...</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : paginatedPOs.length === 0 ? (
+              {paginatedPOs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -726,33 +616,25 @@ export default function PurchaseOrdersPage() {
                       <span className="text-[11px] text-muted-foreground">{formatDate(po.expectedDelivery)}</span>
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="cursor-pointer"><MoreHorizontal /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => handleAction('view', po)} className="cursor-pointer">
-                            <Eye className="mr-2 h-4 w-4" />View
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('send', po)} disabled={po.status !== 'draft'} className="cursor-pointer">
-                            <Send className="mr-2 h-4 w-4" />Send to Supplier
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleAction('receive', po)}
-                            disabled={po.status === 'draft' || po.status === 'fully_received' || po.status === 'closed'}
-                            className="cursor-pointer"
-                          >
-                            <PackageCheck className="mr-2 h-4 w-4" />Receive Goods
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleAction('cancel', po)}
-                            disabled={po.status === 'fully_received' || po.status === 'closed'}
-                            className="text-destructive focus:text-destructive cursor-pointer"
-                          >
-                            <XCircle className="mr-2 h-4 w-4" />Cancel
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <DataTableRowActions
+                        onView={() => handleAction('view', po)}
+                        onDelete={() => handleAction('cancel', po)}
+                        deleteLabel="Cancel PO"
+                        customActions={[
+                          {
+                            label: 'Send to Supplier',
+                            icon: <Send className="h-4 w-4" />,
+                            onClick: () => handleAction('send', po),
+                            disabled: po.status !== 'draft'
+                          },
+                          {
+                            label: 'Receive Goods',
+                            icon: <PackageCheck className="h-4 w-4" />,
+                            onClick: () => handleAction('receive', po),
+                            disabled: po.status === 'draft' || po.status === 'fully_received' || po.status === 'closed'
+                          }
+                        ]}
+                      />
                     </TableCell>
                   </motion.tr>
                 ))
@@ -793,13 +675,13 @@ export default function PurchaseOrdersPage() {
           <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier <span className="text-red-500">*</span></Label>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</Label>
                 <Select onValueChange={(val) => setValue('supplierId', val)}>
                   <SelectTrigger className={cn(errors.supplierId && 'border-destructive')}>
                     <SelectValue placeholder="Select supplier..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {suppliers.map((s) => (
+                    {mockSuppliers.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -807,14 +689,14 @@ export default function PurchaseOrdersPage() {
                 {errors.supplierId && <p className="text-xs text-destructive">{errors.supplierId.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery <span className="text-red-500">*</span></Label>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</Label>
                 <Input type="date" error={!!errors.expectedDelivery} {...register('expectedDelivery')} />
                 {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="gap-1.5 cursor-pointer" onClick={handleAutoGenerate}>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleAutoGenerate}>
                 <Zap className="h-3.5 w-3.5" />Auto-generate from Low Stock
               </Button>
             </div>
@@ -823,20 +705,20 @@ export default function PurchaseOrdersPage() {
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Order Items <span className="text-red-500">*</span></Label>
-                <Button type="button" variant="outline" size="sm" className="gap-1 cursor-pointer" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Order Items</Label>
+                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
                   <Plus className="h-3 w-3" />Add Row
                 </Button>
               </div>
 
-              <div className="rounded-xl border border-border/60">
+              <div className="rounded-xl border border-border/60 overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[200px]">Product <span className="text-red-500">*</span></TableHead>
-                      <TableHead className="w-[100px]">Req. Qty <span className="text-red-500">*</span></TableHead>
+                      <TableHead className="min-w-[200px]">Product</TableHead>
+                      <TableHead className="w-[100px]">Req. Qty</TableHead>
                       <TableHead className="w-[120px]">Last Rate</TableHead>
-                      <TableHead className="w-[120px]">Expected Rate <span className="text-red-500">*</span></TableHead>
+                      <TableHead className="w-[120px]">Expected Rate</TableHead>
                       <TableHead className="min-w-[120px]">Remarks</TableHead>
                       <TableHead className="w-[60px]" />
                     </TableRow>
@@ -846,70 +728,30 @@ export default function PurchaseOrdersPage() {
                       <TableRow key={field.id} className="border-border/40">
                         <TableCell>
                           {watchedItems[index]?.productName ? (
-                            <div className="flex items-center justify-between gap-2 group/item">
-                              <span className="text-sm font-medium truncate">{watchedItems[index].productName}</span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                // size="icon-xs" 
-                                onClick={() => handleClearProduct(index)}
-                                className="h-6 w-6 opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                              >
-                                <RotateCcw className="h-3 w-3 text-muted-foreground" />
-                              </Button>
-                            </div>
+                            <span className="text-sm font-medium">{watchedItems[index].productName}</span>
                           ) : (
-                            <Popover open={(isSearchFocused || !!productSearch) && filteredProducts.length > 0} modal={false}>
-                              <PopoverAnchor asChild>
-                                <div className="relative group">
-                                  <Input
-                                    icon={<Search className="h-3.5 w-3.5" />}
-                                    placeholder="Select product..."
-                                    value={productSearch}
-                                    onChange={(e) => setProductSearch(e.target.value)}
-                                    onFocus={() => setIsSearchFocused(true)}
-                                    onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-                                    className="h-8 pr-8"
-                                  />
-                                  {productSearch && (
+                            <div className="relative">
+                              <Input
+                                icon={<Search className="h-3.5 w-3.5" />}
+                                placeholder="Search product..."
+                                value={productSearch}
+                                onChange={(e) => setProductSearch(e.target.value)}
+                                className="h-8"
+                              />
+                              {productSearch && filteredProducts.length > 0 && (
+                                <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover p-1 shadow-lg dark:shadow-black/20">
+                                  {filteredProducts.map((p) => (
                                     <button
-                                      type="button"
-                                      onClick={() => setProductSearch('')}
-                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted cursor-pointer"
+                                      key={p.id} type="button"
+                                      className="w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                                      onClick={() => handleProductSelect(index, p)}
                                     >
-                                      <X className="h-3 w-3 text-muted-foreground" />
+                                      {p.name} <span className="font-mono text-xs text-muted-foreground">({formatCurrency(p.purchaseRate)})</span>
                                     </button>
-                                  )}
+                                  ))}
                                 </div>
-                              </PopoverAnchor>
-                              <PopoverContent
-                                className="p-1 w-[320px] shadow-xl border-border/60"
-                                align="start"
-                                side="bottom"
-                                sideOffset={5}
-                                onOpenAutoFocus={(e) => e.preventDefault()}
-                              >
-                                <div className="max-h-[300px] overflow-y-auto space-y-0.5 custom-scrollbar">
-                                  {productSearch && filteredProducts.length === 0 ? (
-                                    <div className="py-4 text-center text-xs text-muted-foreground">No products found</div>
-                                  ) : (
-                                    filteredProducts.map((p) => (
-                                      <button
-                                        key={p.id} type="button"
-                                        className="w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent flex flex-col gap-0.5"
-                                        onClick={() => handleProductSelect(index, p)}
-                                      >
-                                        <span className="font-medium">{p.name}</span>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{p.manufacturer}</span>
-                                          <span className="font-mono text-[11px] font-semibold text-primary">{formatCurrency(p.purchaseRate)}</span>
-                                        </div>
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
+                              )}
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>
@@ -925,7 +767,7 @@ export default function PurchaseOrdersPage() {
                           <Input className="h-8" placeholder="Optional" {...register(`items.${index}.remarks`)} />
                         </TableCell>
                         <TableCell>
-                          <Button type="button" variant="ghost" size="icon-sm" onClick={() => fields.length > 1 && remove(index)} disabled={fields.length <= 1} className="cursor-pointer">
+                          <Button type="button" variant="ghost" size="icon-sm" onClick={() => fields.length > 1 && remove(index)} disabled={fields.length <= 1}>
                             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
                         </TableCell>
@@ -949,18 +791,13 @@ export default function PurchaseOrdersPage() {
               <span className="text-lg font-bold font-mono">{formatCurrency(poTotal)}</span>
             </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button type="button" variant="ghost" onClick={() => setCreateDialogOpen(false)} className="cursor-pointer">
-                Cancel
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()}>
+                Save as Draft
               </Button>
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()} className="cursor-pointer">
-                  Save as Draft
-                </Button>
-                <Button type="submit" className="gap-1.5 cursor-pointer">
-                  <Send className="h-3.5 w-3.5" />Send to Supplier
-                </Button>
-              </div>
+              <Button type="submit" className="gap-1.5">
+                <Send className="h-3.5 w-3.5" />Send to Supplier
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

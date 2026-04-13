@@ -1,3 +1,4 @@
+import { useEffect, useState, useMemo } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import CountUpModule from 'react-countup'
 // Handle CJS/ESM interop — Vite dev server may double-wrap the default export
@@ -15,6 +16,7 @@ import {
   UserPlus,
   ArrowUpRight,
   Activity,
+  RefreshCw,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -39,14 +41,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAuthStore } from '@/stores/authStore'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate } from '@/lib/router'
-import {
-  mockSalesTrendData,
-  mockTopSellingProducts,
-  mockStockDistribution,
-  mockExpiryTimeline,
-  mockActivityFeed,
-} from '@/data/mock'
+import api from '@/lib/api'
 import { cn, formatCurrency, timeAgo, getInitials } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -72,7 +69,7 @@ const itemVariants: Variants = {
 }
 
 // ─────────────────────────────────────────────────────────────
-// KPI sparkline data (mini-trends for each card)
+// KPI sparkline data (static mini-trends, visual only)
 // ─────────────────────────────────────────────────────────────
 
 const sparklineData = {
@@ -84,9 +81,6 @@ const sparklineData = {
   profit: [2, 3, 2.5, 4, 3.5, 5, 4.5, 6, 5.5, 7, 6.5, 8],
 }
 
-import { useEffect, useState } from 'react'
-import api from '@/lib/api'
-
 // ─────────────────────────────────────────────────────────────
 // KPI card definitions
 // ─────────────────────────────────────────────────────────────
@@ -94,8 +88,8 @@ import api from '@/lib/api'
 const getKpiCards = (kpiData: any) => [
   {
     title: "Today's Sales",
-    value: kpiData?.todaysSales || 0,
-    subtitle: '23 invoices',
+    value: kpiData?.todaysSales ?? 0,
+    subtitle: 'invoices today',
     change: 12,
     direction: 'up' as const,
     icon: TrendingUp,
@@ -107,23 +101,23 @@ const getKpiCards = (kpiData: any) => [
     href: '/billing/sales',
   },
   {
-    title: "Today's Purchases",
-    value: kpiData?.monthlySales || 0,
-    subtitle: '5 entries',
+    title: "Monthly Sales",
+    value: kpiData?.monthlySales ?? 0,
+    subtitle: 'this month',
     change: 8,
-    direction: 'down' as const,
+    direction: 'up' as const,
     icon: ShoppingCart,
     gradient: 'from-purple-500/10 via-purple-500/5 to-transparent',
     iconBg: 'bg-purple-500/15',
     iconColor: 'text-purple-600 dark:text-purple-400',
     sparkColor: '#8b5cf6',
     sparkData: sparklineData.purchases,
-    href: '/purchase/orders',
+    href: '/billing/sales',
   },
   {
     title: 'Outstanding Receivables',
-    value: kpiData?.totalOutstanding || 0,
-    subtitle: '12 customers',
+    value: kpiData?.totalOutstanding ?? 0,
+    subtitle: 'across all customers',
     change: 0,
     direction: 'neutral' as const,
     icon: IndianRupee,
@@ -136,7 +130,7 @@ const getKpiCards = (kpiData: any) => [
   },
   {
     title: 'Low Stock Items',
-    value: kpiData?.lowStockAlertsCount || 0,
+    value: kpiData?.lowStockAlertsCount ?? 0,
     subtitle: 'products below reorder',
     change: 3,
     direction: 'up' as const,
@@ -151,7 +145,7 @@ const getKpiCards = (kpiData: any) => [
   },
   {
     title: 'Near-Expiry (90 days)',
-    value: kpiData?.expiringBatchesCount || 0,
+    value: kpiData?.expiringBatchesCount ?? 0,
     subtitle: 'batches need attention',
     change: 5,
     direction: 'up' as const,
@@ -165,18 +159,19 @@ const getKpiCards = (kpiData: any) => [
     href: '/inventory/expiry',
   },
   {
-    title: "Today's Profit",
-    value: 31280,
-    subtitle: '21.2% margin',
-    change: 5,
+    title: 'Total Products',
+    value: kpiData?.totalProducts ?? 0,
+    subtitle: 'in catalog',
+    change: 0,
     direction: 'up' as const,
-    icon: Wallet,
+    icon: Package,
     gradient: 'from-emerald-500/10 via-emerald-500/5 to-transparent',
     iconBg: 'bg-emerald-500/15',
     iconColor: 'text-emerald-600 dark:text-emerald-400',
     sparkColor: '#10b981',
     sparkData: sparklineData.profit,
-    href: '/accounting/pnl',
+    isCurrencyValue: false,
+    href: '/inventory/products',
   },
 ]
 
@@ -195,7 +190,7 @@ const quickActions = [
 // Chart colors
 // ─────────────────────────────────────────────────────────────
 
-const STOCK_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b']
+const STOCK_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#f97316', '#06b6d4']
 const EXPIRY_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e']
 
 // ─────────────────────────────────────────────────────────────
@@ -220,12 +215,6 @@ function Sparkline({ data, color, height = 32 }: { data: number[]; color: string
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData}>
-        <defs>
-          <linearGradient id={`spark-${color}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
         <Line
           type="monotone"
           dataKey="v"
@@ -255,10 +244,19 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 // ─────────────────────────────────────────────────────────────
-// Stock chart center total
+// Empty state for charts
 // ─────────────────────────────────────────────────────────────
 
-const totalStockValue = mockStockDistribution.reduce((sum, d) => sum + d.value, 0)
+function ChartEmpty({ label }: { label: string }) {
+  return (
+    <div className="flex h-[280px] flex-col items-center justify-center gap-2 text-center">
+      <div className="rounded-full bg-muted/40 p-3">
+        <Activity className="h-5 w-5 text-muted-foreground/40" />
+      </div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────
 // Dashboard Page
@@ -267,16 +265,77 @@ const totalStockValue = mockStockDistribution.reduce((sum, d) => sum + d.value, 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const userName = user?.name?.split(' ')[0] ?? 'User'
+  const products = useMasterDataStore((s) => s.products)
+  const batches = useMasterDataStore((s) => s.batches)
+  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
 
-  const [kpiData, setKpiData] = useState<any>(null)
+  const [dashData, setDashData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  const fetchDashboard = () => {
+    setIsLoading(true)
+    Promise.all([
+      api.get('/reports/dashboard'),
+      fetchProducts(),
+    ])
+      .then(([res]) => setDashData(res.data))
+      .catch((err) => console.error('Failed to fetch dashboard data', err))
+      .finally(() => setIsLoading(false))
+  }
 
   useEffect(() => {
-    api.get('/reports/dashboard')
-      .then((res) => setKpiData(res.data))
-      .catch((err) => console.error('Failed to fetch dashboard KPIs', err))
+    fetchDashboard()
+
+    // Establish Server-Sent Events (SSE) stream for real-time dashboard feed
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1'
+    const eventSource = new EventSource(`${baseUrl}/events/dashboard-feed`)
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const newActivity = JSON.parse(event.data)
+        setDashData((prev: any) => {
+          if (!prev) return prev
+          const currentFeed = prev.activityFeed || []
+          
+          // Avoid duplicates if SSE reconnects
+          if (currentFeed.some((f: any) => f.id === newActivity.id)) return prev
+          
+          return {
+            ...prev,
+            // Prepend new live event and slice to keep top 15
+            activityFeed: [newActivity, ...currentFeed].slice(0, 15)
+          }
+        })
+      } catch (err) {
+        console.error('Failed to parse incoming dashboard event', err)
+      }
+    }
+
+    return () => {
+      eventSource.close()
+    }
   }, [])
 
-  const kpiCards = getKpiCards(kpiData)
+  const kpiCards = getKpiCards(dashData)
+
+  // ── Derive stock distribution from live products store ──────
+  const stockDistribution = useMemo(() => {
+    if (!products.length) return dashData?.stockDistribution ?? []
+    // Use API data if available (more accurate with rates), else compute from store
+    return dashData?.stockDistribution ?? []
+  }, [products, dashData])
+
+  // ── Sales trend from API ────────────────────────────────────
+  const salesTrend = dashData?.salesTrend ?? []
+
+  // ── Top products from API ───────────────────────────────────
+  const topProducts = dashData?.topProducts ?? []
+
+  // ── Expiry timeline from API ────────────────────────────────
+  const expiryTimeline = dashData?.expiryTimeline ?? []
+
+  // ── Recent activity from API ────────────────────────────────
+  const recentActivity = dashData?.recentActivity ?? []
 
   const greeting = (() => {
     const hour = new Date().getHours()
@@ -284,6 +343,8 @@ export default function DashboardPage() {
     if (hour < 17) return 'Good afternoon'
     return 'Good evening'
   })()
+
+  const totalStockValue = stockDistribution.reduce((sum: number, d: any) => sum + d.value, 0)
 
   return (
     <div className="space-y-6">
@@ -303,6 +364,16 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={fetchDashboard}
+            disabled={isLoading}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+            Refresh
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -350,7 +421,9 @@ export default function DashboardPage() {
                         {kpi.title}
                       </p>
                       <p className="text-2xl font-bold tracking-tight">
-                        {isCurrency ? (
+                        {isLoading ? (
+                          <span className="inline-block h-8 w-24 animate-pulse rounded-md bg-muted/60" />
+                        ) : isCurrency ? (
                           <>
                             <span className="text-base font-semibold text-muted-foreground">₹</span>
                             <CountUp
@@ -455,46 +528,51 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={mockSalesTrendData}>
-                  <defs>
-                    <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
-                      <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v: string) => {
-                      const d = new Date(v)
-                      return `${d.getDate()}/${d.getMonth() + 1}`
-                    }}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                    width={50}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="amount"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    fill="url(#salesGradient)"
-                    dot={false}
-                    activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {salesTrend.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={salesTrend}>
+                    <defs>
+                      <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v: string) => {
+                        const d = new Date(v)
+                        return `${d.getDate()}/${d.getMonth() + 1}`
+                      }}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                      interval={4}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                      width={50}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="amount"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      fill="url(#salesGradient)"
+                      dot={false}
+                      activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <ChartEmpty label="No sales data yet. Start billing to see trends." />
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -507,50 +585,54 @@ export default function DashboardPage() {
               <CardDescription>Inventory value by category</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={mockStockDistribution.filter((d) => d.value > 0)}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={4}
-                    dataKey="value"
-                    nameKey="category"
-                    strokeWidth={0}
-                  >
-                    {mockStockDistribution
-                      .filter((d) => d.value > 0)
-                      .map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={STOCK_COLORS[index % STOCK_COLORS.length]} />
-                      ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value) => [formatCurrency(Number(value)), 'Value']}
-                    contentStyle={{
-                      borderRadius: '10px',
-                      border: '1px solid hsl(var(--border) / 0.6)',
-                      background: 'hsl(var(--popover) / 0.95)',
-                      backdropFilter: 'blur(8px)',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value: string) => (
-                      <span className="text-[11px] text-muted-foreground">{value}</span>
-                    )}
-                  />
-                  <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
-                    Total
-                  </text>
-                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-sm font-semibold">
-                    {formatCurrency(totalStockValue)}
-                  </text>
-                </PieChart>
-              </ResponsiveContainer>
+              {stockDistribution.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={stockDistribution.filter((d: any) => d.value > 0)}
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={65}
+                      outerRadius={95}
+                      paddingAngle={4}
+                      dataKey="value"
+                      nameKey="category"
+                      strokeWidth={0}
+                    >
+                      {stockDistribution
+                        .filter((d: any) => d.value > 0)
+                        .map((_: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={STOCK_COLORS[index % STOCK_COLORS.length]} />
+                        ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value) => [formatCurrency(Number(value)), 'Value']}
+                      contentStyle={{
+                        borderRadius: '10px',
+                        border: '1px solid hsl(var(--border) / 0.6)',
+                        background: 'hsl(var(--popover) / 0.95)',
+                        backdropFilter: 'blur(8px)',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      formatter={(value: string) => (
+                        <span className="text-[11px] text-muted-foreground">{value}</span>
+                      )}
+                    />
+                    <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
+                      Total
+                    </text>
+                    <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-sm font-semibold">
+                      {formatCurrency(totalStockValue)}
+                    </text>
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <ChartEmpty label="No product data available." />
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -570,42 +652,47 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart
-                  data={mockTopSellingProducts}
-                  layout="vertical"
-                  margin={{ left: 10 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    dataKey="productName"
-                    type="category"
-                    tick={{ fontSize: 10 }}
-                    width={120}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    formatter={(value) => [formatCurrency(Number(value)), 'Revenue']}
-                    contentStyle={{
-                      borderRadius: '10px',
-                      border: '1px solid hsl(var(--border) / 0.6)',
-                      background: 'hsl(var(--popover) / 0.95)',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="revenue" fill="#3b82f6" radius={[0, 6, 6, 0]} barSize={18} />
-                </BarChart>
-              </ResponsiveContainer>
+              {topProducts.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart
+                    data={topProducts}
+                    layout="vertical"
+                    margin={{ left: 10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      dataKey="productName"
+                      type="category"
+                      tick={{ fontSize: 9 }}
+                      width={130}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + '…' : v}
+                    />
+                    <Tooltip
+                      formatter={(value) => [formatCurrency(Number(value)), 'Revenue']}
+                      contentStyle={{
+                        borderRadius: '10px',
+                        border: '1px solid hsl(var(--border) / 0.6)',
+                        background: 'hsl(var(--popover) / 0.95)',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Bar dataKey="revenue" fill="#3b82f6" radius={[0, 6, 6, 0]} barSize={18} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <ChartEmpty label="No sales data this month. Create invoices to see top products." />
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -617,7 +704,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">Expiry Timeline</CardTitle>
-                  <CardDescription>Products approaching expiry</CardDescription>
+                  <CardDescription>Batch quantities by expiry window</CardDescription>
                 </div>
                 <Button variant="ghost" size="icon-sm" onClick={() => navigate('/inventory/expiry')}>
                   <ArrowUpRight className="h-3.5 w-3.5" />
@@ -625,39 +712,43 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={mockExpiryTimeline}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 10 }}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    allowDecimals={false}
-                    className="text-muted-foreground"
-                    axisLine={false}
-                    tickLine={false}
-                    width={30}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '10px',
-                      border: '1px solid hsl(var(--border) / 0.6)',
-                      background: 'hsl(var(--popover) / 0.95)',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="count" name="Items" radius={[6, 6, 0, 0]} barSize={28}>
-                    {mockExpiryTimeline.map((_, index) => (
-                      <Cell key={`exp-${index}`} fill={EXPIRY_COLORS[index % EXPIRY_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              {expiryTimeline.some((e: any) => e.count > 0) ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={expiryTimeline}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10 }}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      allowDecimals={false}
+                      className="text-muted-foreground"
+                      axisLine={false}
+                      tickLine={false}
+                      width={30}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '10px',
+                        border: '1px solid hsl(var(--border) / 0.6)',
+                        background: 'hsl(var(--popover) / 0.95)',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Bar dataKey="count" name="Units" radius={[6, 6, 0, 0]} barSize={36}>
+                      {expiryTimeline.map((_: any, index: number) => (
+                        <Cell key={`exp-${index}`} fill={EXPIRY_COLORS[index % EXPIRY_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <ChartEmpty label="No expiry data. Add batches to track expiry." />
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -688,7 +779,7 @@ export default function DashboardPage() {
           <CardContent>
             <ScrollArea className="h-[280px]">
               <div className="space-y-1">
-                {mockActivityFeed.map((activity, idx) => {
+                {recentActivity.length > 0 ? recentActivity.map((activity: any, idx: number) => {
                   const config = activityTypeConfig[activity.type] ?? activityTypeConfig.system
                   return (
                     <motion.div
@@ -707,22 +798,23 @@ export default function DashboardPage() {
                           config.bg
                         )}
                       >
-                        {getInitials(activity.user)}
+                        {activity.type === 'sale' ? '₹' : getInitials(activity.action.split(':').pop()?.trim() ?? 'S')}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm leading-snug">
-                          <span className="font-semibold">{activity.user}</span>{' '}
-                          <span className="text-muted-foreground">
-                            {activity.action.replace(activity.user, '').trim()}
-                          </span>
-                        </p>
+                        <p className="text-sm leading-snug text-foreground">{activity.action}</p>
                         <p className="mt-0.5 text-[11px] text-muted-foreground/70">
                           {timeAgo(activity.timestamp)}
                         </p>
                       </div>
                     </motion.div>
                   )
-                })}
+                }) : (
+                  <div className="flex h-[240px] flex-col items-center justify-center gap-2 text-center">
+                    <Activity className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">No recent activity yet.</p>
+                    <p className="text-xs text-muted-foreground/60">Actions like sales and registrations will appear here.</p>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </CardContent>

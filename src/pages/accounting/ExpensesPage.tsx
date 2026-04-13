@@ -10,9 +10,14 @@ import {
   Trash2,
   TrendingUp,
   TrendingDown,
-  Calculator,
   Receipt,
+  MoreHorizontal,
+  Search,
+  Calculator,
 } from 'lucide-react'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -107,6 +112,10 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>(mockExpenses)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+
+  // Filters
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
 
   // Monthly summaries
   const monthlySummary = useMemo(() => {
@@ -228,14 +237,27 @@ export default function ExpensesPage() {
     setDialogOpen(false)
   }
 
-  // Sort expenses by date descending
-  const sortedExpenses = useMemo(
-    () =>
-      [...expenses].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      ),
-    [expenses]
-  )
+  // Filtered and sorted expenses
+  const filteredExpenses = useMemo(() => {
+    let result = [...expenses]
+
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(
+        (e) =>
+          e.description.toLowerCase().includes(q) ||
+          e.category.toLowerCase().includes(q)
+      )
+    }
+
+    if (categoryFilter !== 'all') {
+      result = result.filter((e) => e.category === categoryFilter)
+    }
+
+    return result.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+  }, [expenses, search, categoryFilter])
 
   return (
     <motion.div
@@ -343,6 +365,27 @@ export default function ExpensesPage() {
         </Card>
       </div>
 
+      {/* ── Filters ── */}
+      <DataTableFilterBar
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search expenses..."
+        resultsCount={filteredExpenses.length}
+        activeFilterCount={categoryFilter !== 'all' ? 1 : 0}
+        onClearFilters={() => setCategoryFilter('all')}
+      >
+        <EnumSelect
+          label="Category"
+          value={categoryFilter}
+          onValueChange={setCategoryFilter}
+          onClear={() => setCategoryFilter('all')}
+          options={[
+            { label: 'All Categories', value: 'all' },
+            ...expenseCategories.map((cat) => ({ label: cat, value: cat })),
+          ]}
+        />
+      </DataTableFilterBar>
+
       {/* ── Expenses Table ── */}
       <Card className="overflow-hidden rounded-2xl border-border/60">
         <CardContent className="p-0">
@@ -382,7 +425,7 @@ export default function ExpensesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedExpenses.map((expense) => (
+              {filteredExpenses.map((expense) => (
                 <TableRow key={expense.id}>
                   <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                     {formatDate(expense.date)}
@@ -401,30 +444,26 @@ export default function ExpensesPage() {
                     {formatCurrency(expense.amount)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{expense.paymentMode}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handleOpenEdit(expense)}
-                        title="Edit"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                        onClick={() => handleDelete(expense)}
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <DataTableRowActions
+                      customActions={[
+                        {
+                          label: 'Edit',
+                          icon: <Pencil className="h-4 w-4" />,
+                          onClick: () => handleOpenEdit(expense),
+                        },
+                        {
+                          label: 'Delete',
+                          icon: <Trash2 className="h-4 w-4" />,
+                          onClick: () => handleDelete(expense),
+                          variant: 'destructive',
+                        },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
-              {sortedExpenses.length === 0 && (
+              {filteredExpenses.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     No expenses found

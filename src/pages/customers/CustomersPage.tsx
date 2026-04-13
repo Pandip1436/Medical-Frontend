@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -12,8 +13,11 @@ import {
   Receipt,
   Users,
   IndianRupee,
+  Trash2,
   AlertCircle,
 } from 'lucide-react'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,7 +52,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { mockCustomers, mockInvoices } from '@/data/mock'
+import { mockInvoices } from '@/data/mock'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
 
@@ -101,6 +105,11 @@ type CustomerFormValues = z.input<typeof customerSchema>
 // ─────────────────────────────────────────────────────────────
 
 const typeBadgeVariant: Record<string, 'info' | 'purple' | 'success' | 'warning' | 'secondary'> = {
+  HOSPITAL: 'info',
+  WHOLESALE: 'purple',
+  REGULAR: 'success',
+  DOCTOR: 'warning',
+  WALK_IN: 'secondary',
   hospital: 'info',
   wholesale: 'purple',
   regular: 'success',
@@ -110,6 +119,11 @@ const typeBadgeVariant: Record<string, 'info' | 'purple' | 'success' | 'warning'
 
 // Left border accent colors for customer type
 const typeBorderColor: Record<string, string> = {
+  HOSPITAL: 'border-l-blue-500',
+  WHOLESALE: 'border-l-purple-500',
+  REGULAR: 'border-l-emerald-500',
+  DOCTOR: 'border-l-amber-500',
+  WALK_IN: 'border-l-gray-400',
   hospital: 'border-l-blue-500',
   wholesale: 'border-l-purple-500',
   regular: 'border-l-emerald-500',
@@ -155,11 +169,20 @@ function outstandingColor(outstanding: number, creditLimit: number) {
 // ─────────────────────────────────────────────────────────────
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>(mockCustomers)
+  const customers = useMasterDataStore((s) => s.customers)
+  const isLoading = useMasterDataStore((s) => s.isLoading)
+  const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
+  const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
+  const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
+
   const [searchQuery, setSearchQuery] = useState('')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+
+  useEffect(() => {
+    fetchCustomers()
+  }, [])
 
   // Stats
   const stats = useMemo(() => {
@@ -196,26 +219,33 @@ export default function CustomersPage() {
     },
   })
 
-  const handleAddCustomer = (values: any) => {
-    const newCustomer: Customer = {
-      id: generateId('CUS'),
-      name: values.name,
-      phone: values.phone,
-      type: values.type,
-      email: values.email || undefined,
-      address: values.address || undefined,
-      creditLimit: values.creditLimit,
-      currentOutstanding: 0,
-      loyaltyPoints: 0,
-      gstin: values.gstin || undefined,
-      dlNumber: values.dlNumber || undefined,
-      notes: values.notes || undefined,
-      createdAt: new Date().toISOString(),
+  const handleAddCustomer = async (values: any) => {
+    try {
+      // Transform type to backend enum (WALK_IN, REGULAR, etc)
+      const formattedType = values.type.toUpperCase().replace('-', '_')
+      
+      const payload = {
+        ...values,
+        type: formattedType,
+      }
+      
+      await addCustomerAction(payload)
+      toast.success(`Customer "${values.name}" added successfully`)
+      form.reset()
+      setAddDialogOpen(false)
+    } catch (error) {
+      toast.error("Failed to add customer. Please try again.")
     }
-    setCustomers((prev) => [newCustomer, ...prev])
-    toast.success(`Customer "${values.name}" added successfully`)
-    form.reset()
-    setAddDialogOpen(false)
+  }
+
+  const handleDeleteCustomer = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return
+    try {
+      await deleteCustomerAction(id)
+      toast.success(`Customer "${name}" deleted`)
+    } catch (error) {
+      toast.error("Failed to delete customer")
+    }
   }
 
   const handleViewDetails = (customer: Customer) => {
@@ -341,14 +371,12 @@ export default function CustomersPage() {
       </motion.div>
 
       {/* ─── Search ─── */}
-      <motion.div variants={itemVariants} className="max-w-sm">
-        <Input
-          icon={<Search />}
-          placeholder="Search by name or phone..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </motion.div>
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search by name or phone..."
+        resultsCount={filtered.length}
+      />
 
       {/* ─── Customers Table ─── */}
       <motion.div variants={itemVariants}>
@@ -398,37 +426,29 @@ export default function CustomersPage() {
                       {formatCurrency(customer.currentOutstanding)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      {customer.loyaltyPoints.toLocaleString('en-IN')}
+                      {(customer.loyaltyPoints || 0).toLocaleString('en-IN')}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => handleViewDetails(customer)}
-                          title="View Details"
-                        >
-                          <Eye />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => toast.info(`Edit ${customer.name} - coming soon`)}
-                          title="Edit"
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => handleViewDetails(customer)}
-                          title="Payment History"
-                        >
-                          <Receipt />
-                        </Button>
+                      <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+                        <DataTableRowActions
+                          onView={() => handleViewDetails(customer)}
+                          customActions={[
+                            {
+                              label: 'Edit',
+                              icon: <Pencil className="h-4 w-4" />,
+                              onClick: () => toast.info(`Edit ${customer.name} - coming soon`),
+                            },
+                            {
+                              label: 'Delete',
+                              icon: <Trash2 className="h-4 w-4" />,
+                              onClick: () => handleDeleteCustomer(customer.id, customer.name),
+                              variant: 'destructive',
+                            },
+                          ]}
+                        />
                       </div>
                     </TableCell>
-                  </TableRow>
+                    </TableRow>
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>

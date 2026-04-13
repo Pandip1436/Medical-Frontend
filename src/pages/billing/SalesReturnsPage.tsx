@@ -315,18 +315,12 @@ export default function SalesReturnsPage() {
             >
               {/* Left: Search & Invoice List */}
               <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
-                <div className="shrink-0 border-b border-border/40 p-4">
-                  <Input
-                    icon={<Search />}
-                    suffix={matchingInvoices.length > 0 ? (
-                      <span className="tabular-nums whitespace-nowrap">{matchingInvoices.length} found</span>
-                    ) : undefined}
-                    placeholder="Search by invoice number or customer name..."
-                    value={invoiceSearch}
-                    onChange={(e) => setInvoiceSearch(e.target.value)}
-                    autoFocus
-                  />
-                </div>
+                <DataTableFilterBar
+                  searchQuery={invoiceSearch}
+                  onSearchChange={setInvoiceSearch}
+                  searchPlaceholder="Search by invoice number or customer name..."
+                  resultsCount={matchingInvoices.length}
+                />
 
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="p-2">

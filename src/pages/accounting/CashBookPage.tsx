@@ -11,7 +11,10 @@ import {
   ArrowUpRight,
   Wallet,
   BookOpen,
+  Search,
 } from 'lucide-react'
+
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,6 +102,7 @@ export default function CashBookPage() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
   )
+  const [searchQuery, setSearchQuery] = useState('')
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
   const [extraExpenses, setExtraExpenses] = useState<CashTransaction[]>([])
 
@@ -153,8 +157,17 @@ export default function CashBookPage() {
 
     // Sort by time
     txns.sort((a, b) => a.time.localeCompare(b.time))
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      return txns.filter(t => 
+        t.particular.toLowerCase().includes(q) || 
+        t.refNumber.toLowerCase().includes(q)
+      )
+    }
+
     return txns
-  }, [selectedDate, extraExpenses])
+  }, [selectedDate, extraExpenses, searchQuery])
 
   // Summary calculations
   const summary = useMemo(() => {
@@ -238,21 +251,28 @@ export default function CashBookPage() {
         </Button>
       </div>
 
-      {/* ── Date Selector ── */}
-      <div className="flex items-center gap-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Date
-        </span>
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-          <Input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-48 rounded-xl"
-          />
+      {/* ── Search + Filter Row ── */}
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search particulars or ref#..."
+        resultsCount={transactions.length}
+      >
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Current Date
+          </Label>
+          <div className="relative">
+            <CalendarDays className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="h-9 pl-9 text-xs"
+            />
+          </div>
         </div>
-      </div>
+      </DataTableFilterBar>
 
       {/* ── Summary Cards ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

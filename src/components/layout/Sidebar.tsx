@@ -31,6 +31,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
+import { rolePermissions } from '@/App'
 import {
   Tooltip,
   TooltipContent,
@@ -195,12 +196,17 @@ export function Sidebar({ currentPath }: SidebarProps) {
   }, [touchStart])
 
   const filteredGroups = useMemo(() => {
+    const role = user?.role ?? ''
+    // Admin sees everything; other roles are filtered by rolePermissions
+    const allowedPaths = role === 'ADMIN' ? null : (rolePermissions[role] ?? [])
+
     return navigationGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter(
-          (item) => !item.adminOnly || user?.role === 'admin'
-        ),
+        items: group.items.filter((item) => {
+          if (allowedPaths === null) return true // Admin: all items
+          return allowedPaths.includes(item.href)
+        }),
       }))
       .filter((group) => group.items.length > 0)
   }, [user?.role])

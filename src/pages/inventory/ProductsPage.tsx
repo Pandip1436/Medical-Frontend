@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -46,10 +46,14 @@ import {
 } from '@/components/ui/dialog'
 import {
   DropdownMenu,
+  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EnumSelect } from '@/components/shared/EnumSelect'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import {
   Select,
   SelectContent,
@@ -59,7 +63,8 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { mockProducts } from '@/data/mock'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Product } from '@/types'
 
@@ -122,60 +127,70 @@ const scheduleBadgeConfig: Record<
 }
 
 // ─────────────────────────────────────────────────────────────
-// Manufacturers list (for searchable select)
-// ─────────────────────────────────────────────────────────────
-
-const manufacturers = [
-  ...new Set(mockProducts.map((p) => p.manufacturer)),
-].sort()
-
-// ─────────────────────────────────────────────────────────────
-// Page size
-// ─────────────────────────────────────────────────────────────
-
-const PAGE_SIZE = 10
-
-// ─────────────────────────────────────────────────────────────
-// ProductsPage
-// ─────────────────────────────────────────────────────────────
-
 export default function ProductsPage() {
+  const mockProducts = useMasterDataStore(s => s.products)
+  const fetchProducts = useMasterDataStore(s => s.fetchProducts)
+  const isLoading = useMasterDataStore(s => s.isLoading)
+
+  useEffect(() => {
+    fetchProducts()
+  }, [])
+
+  const manufacturers = useMemo(() => {
+    return [...new Set(mockProducts.map((p) => p.manufacturer))].sort()
+  }, [mockProducts])
+
   const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('all')
+  const [selectedSchedule, setSelectedSchedule] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [activeTab, setActiveTab] = useState('basic')
+  const PAGE_SIZE = 10
 
-  // Filter products by search
-  const filteredProducts = useMemo(() => {
-    const q = search.toLowerCase()
-    if (!q) return mockProducts
-    return mockProducts.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.genericName.toLowerCase().includes(q) ||
-        p.manufacturer.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-    )
-  }, [search])
+  const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
+  const [totalCount, setTotalCount] = useState(0)
 
-  // Summary stats
+  // Fetch paginated data independently from the global store cache
+  useEffect(() => {
+    let isSubscribed = true
+    const fetchData = async () => {
+      try {
+        const res = await api.get('/products', {
+          params: { 
+            q: search, 
+            category: selectedCategory,
+            schedule: selectedSchedule,
+            skip: (currentPage - 1) * PAGE_SIZE, 
+            take: PAGE_SIZE 
+          }
+        })
+        if (isSubscribed) {
+          setPaginatedProducts(res.data.data || [])
+          setTotalCount(res.data.total || 0)
+        }
+      } catch (error) {
+        console.error('Failed to fetch paginated products', error)
+      }
+    }
+    fetchData()
+    return () => { isSubscribed = false }
+  }, [search, currentPage, isLoading]) // re-runs if global isLoading toggles (e.g. after add/edit)
+
+  // Summary stats (approximated from paginated data since global array might be large)
   const summaryStats = useMemo(() => {
-    const total = mockProducts.length
+    const total = totalCount
     const lowStock = mockProducts.filter(
       (p) => p.totalStock > 0 && p.totalStock < p.minStock
     ).length
     const outOfStock = mockProducts.filter((p) => p.totalStock === 0).length
     const categories = [...new Set(mockProducts.map((p) => p.category))].length
     return { total, lowStock, outOfStock, categories }
-  }, [])
+  }, [totalCount, mockProducts])
 
-  // Pagination
-  const totalPages = Math.ceil(filteredProducts.length / PAGE_SIZE)
-  const paginatedProducts = filteredProducts.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  )
+  // Pagination metadata
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
 
   // Form
   const form = useForm<ProductFormValues>({
@@ -267,17 +282,38 @@ export default function ProductsPage() {
     setDialogOpen(true)
   }
 
-  const onSubmit = (values: any) => {
-    if (editingProduct) {
-      toast.success(`Product "${values.name}" updated successfully`)
-    } else {
-      toast.success(`Product "${values.name}" added successfully`)
+  const onSubmit = async (values: any) => {
+    const payload = {
+      ...values,
+      category: values.category.toUpperCase(),
+      schedule: values.schedule.toUpperCase(),
+      storageCondition: values.storageCondition.toUpperCase(),
     }
-    setDialogOpen(false)
+
+    try {
+      if (editingProduct) {
+        await api.patch(`/products/${editingProduct.id}`, payload)
+        toast.success(`Product "${values.name}" updated successfully`)
+      } else {
+        await api.post('/products', payload)
+        toast.success(`Product "${values.name}" added successfully`)
+      }
+      setDialogOpen(false)
+      fetchProducts()
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Operation failed")
+    }
   }
 
-  const handleDelete = (product: Product) => {
-    toast.success(`Product "${product.name}" deleted`)
+  const handleDelete = async (product: Product) => {
+    if (!confirm(`Are you sure you want to delete "${product.name}"?`)) return
+    try {
+      await api.delete(`/products/${product.id}`)
+      toast.success(`Product "${product.name}" deleted`)
+      fetchProducts()
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to delete product")
+    }
   }
 
   const handlePrintBarcode = (product: Product) => {
@@ -403,17 +439,44 @@ export default function ProductsPage() {
       </div>
 
       {/* ── Search ── */}
-      <div className="max-w-md">
-        <Input
-          placeholder="Search products by name, generic, manufacturer..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setCurrentPage(1)
-          }}
-          icon={<Search />}
+      <DataTableFilterBar
+        searchQuery={search}
+        onSearchChange={(val) => { setSearch(val); setCurrentPage(1) }}
+        searchPlaceholder="Search products by name, generic, manufacturer..."
+        resultsCount={totalCount}
+        activeFilterCount={(selectedCategory !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0)}
+        onClearFilters={() => {
+          setSelectedCategory('all')
+          setSelectedSchedule('all')
+          setCurrentPage(1)
+        }}
+      >
+        <EnumSelect
+          label="Category"
+          value={selectedCategory}
+          onValueChange={(val) => { setSelectedCategory(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedCategory('all'); setCurrentPage(1) }}
+          options={[
+            { value: 'all', label: 'All Categories' },
+            { value: 'general', label: 'General' },
+            { value: 'otc', label: 'OTC' },
+            { value: 'surgical', label: 'Surgical' },
+          ]}
         />
-      </div>
+        <EnumSelect
+          label="Schedule"
+          value={selectedSchedule}
+          onValueChange={(val) => { setSelectedSchedule(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedSchedule('all'); setCurrentPage(1) }}
+          options={[
+            { value: 'all', label: 'All Schedules' },
+            { value: 'none', label: 'None' },
+            { value: 'H', label: 'Schedule H' },
+            { value: 'H1', label: 'Schedule H1' },
+            { value: 'X', label: 'Schedule X' },
+          ]}
+        />
+      </DataTableFilterBar>
 
       {/* ── Table ── */}
       <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
@@ -433,12 +496,16 @@ export default function ProductsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedProducts.map((product) => {
-              const isOutOfStock = product.totalStock === 0
-              const isLowStock =
-                !isOutOfStock && product.totalStock < product.minStock
-              const cat = categoryBadgeConfig[product.category]
-              const sched = scheduleBadgeConfig[product.schedule]
+              {paginatedProducts.map((product) => {
+                const isOutOfStock = (product.totalStock || 0) === 0
+                const isLowStock =
+                  !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
+                
+                const categoryKey = (product.category || '').toLowerCase()
+                const scheduleKey = (product.schedule || '').toUpperCase()
+                
+                const cat = categoryBadgeConfig[categoryKey]
+                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'none' : scheduleKey]
 
               return (
                 <TableRow
@@ -504,40 +571,20 @@ export default function ProductsPage() {
                   <TableCell className="text-muted-foreground">
                     {product.rackLocation}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() =>
-                          toast.info(`Viewing "${product.name}"`)
-                        }
-                      >
-                        <Eye />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => openEditDialog(product)}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handleDelete(product)}
-                      >
-                        <Trash2 />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handlePrintBarcode(product)}
-                      >
-                        <Barcode />
-                      </Button>
-                    </div>
-                  </TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <DataTableRowActions
+                        onView={() => toast.info(`Viewing "${product.name}"`)}
+                        onEdit={() => openEditDialog(product)}
+                        onDelete={() => handleDelete(product)}
+                        customActions={[
+                          {
+                            label: 'Print Barcode',
+                            icon: <Barcode className="h-4 w-4" />,
+                            onClick: () => handlePrintBarcode(product),
+                          },
+                        ]}
+                      />
+                    </TableCell>
                 </TableRow>
               )
             })}
@@ -548,13 +595,10 @@ export default function ProductsPage() {
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
           <p className="text-sm text-muted-foreground">
             Showing{' '}
-            {Math.min(
-              (currentPage - 1) * PAGE_SIZE + 1,
-              filteredProducts.length
-            )}
+            {totalCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}
             {' - '}
-            {Math.min(currentPage * PAGE_SIZE, filteredProducts.length)} of{' '}
-            {filteredProducts.length} products
+            {Math.min(currentPage * PAGE_SIZE, totalCount)} of{' '}
+            {totalCount} products
           </p>
           <div className="flex items-center gap-2">
             <Button

@@ -54,12 +54,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EnumSelect } from '@/components/shared/EnumSelect'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import {
   Select,
   SelectContent,
@@ -67,9 +65,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useMasterDataStore } from '@/stores/masterDataStore'
-import api from '@/lib/api'
-import { useEffect } from 'react'
+import { mockSuppliers } from '@/data/mock'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import type { Supplier } from '@/types'
@@ -93,7 +89,7 @@ const supplierSchema = z.object({
     .max(15, 'GSTIN must be 15 characters'),
   drugLicense: z.string().min(5, 'Drug license number required'),
   address: z.string().min(10, 'Address is required'),
-  paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
+  paymentTerms: z.enum(['Net 30', 'Net 45', 'Net 60'], {
     message: 'Select payment terms',
   }),
   bankDetails: z.string().optional(),
@@ -130,9 +126,9 @@ const STATUS_OPTIONS = [
 
 const PAYMENT_TERMS_OPTIONS = [
   { value: 'all', label: 'All Terms' },
-  { value: 'NET_30', label: 'Net 30' },
-  { value: 'NET_45', label: 'Net 45' },
-  { value: 'NET_60', label: 'Net 60' },
+  { value: 'Net 30', label: 'Net 30' },
+  { value: 'Net 45', label: 'Net 45' },
+  { value: 'Net 60', label: 'Net 60' },
 ] as const
 
 // ─────────────────────────────────────────────────────────────
@@ -143,8 +139,6 @@ export default function SuppliersPage() {
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Filters
-  const [filtersOpen, setFiltersOpen] = useState(false)
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedPaymentTerms, setSelectedPaymentTerms] = useState<string>('all')
 
@@ -159,12 +153,6 @@ export default function SuppliersPage() {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
 
-  const { suppliers, fetchMasterData, isLoading } = useMasterDataStore()
-
-  useEffect(() => {
-    fetchMasterData()
-  }, [])
-
   const clearFilters = () => {
     setSelectedStatus('all')
     setSelectedPaymentTerms('all')
@@ -173,7 +161,7 @@ export default function SuppliersPage() {
   // ── Filtering logic ──
 
   const filteredSuppliers = useMemo(() => {
-    let result = [...suppliers]
+    let result = [...mockSuppliers]
 
     // Search
     if (searchQuery.trim()) {
@@ -199,18 +187,18 @@ export default function SuppliersPage() {
     }
 
     return result
-  }, [searchQuery, selectedStatus, selectedPaymentTerms, suppliers])
+  }, [searchQuery, selectedStatus, selectedPaymentTerms])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const all = suppliers
+    const all = mockSuppliers
     const activeCount = all.filter((s) => s.isActive).length
     const inactiveCount = all.filter((s) => !s.isActive).length
     const totalPurchases = Object.values(mockSupplierStats).reduce((sum, s) => sum + s.totalPurchases, 0)
     const pendingPayments = Object.values(mockSupplierStats).reduce((sum, s) => sum + s.pendingPayment, 0)
     return { totalCount: all.length, activeCount, inactiveCount, totalPurchases, pendingPayments }
-  }, [suppliers])
+  }, [])
 
   // ── Pagination ──
 
@@ -269,7 +257,7 @@ export default function SuppliersPage() {
       gstin: '',
       drugLicense: '',
       address: '',
-      paymentTerms: 'NET_30',
+      paymentTerms: 'Net 30',
       bankDetails: '',
     },
   })
@@ -284,7 +272,7 @@ export default function SuppliersPage() {
       gstin: '',
       drugLicense: '',
       address: '',
-      paymentTerms: 'NET_30',
+      paymentTerms: 'Net 30',
       bankDetails: '',
     })
     setDialogOpen(true)
@@ -306,34 +294,19 @@ export default function SuppliersPage() {
     setDialogOpen(true)
   }
 
-  async function onSubmit(data: any) {
-    try {
-      if (editingSupplier) {
-        await api.patch(`/suppliers/${editingSupplier.id}`, data)
-        toast.success(`Supplier "${data.name}" updated successfully`)
-      } else {
-        await api.post('/suppliers', data)
-        toast.success(`Supplier "${data.name}" added successfully`)
-      }
-      setDialogOpen(false)
-      reset()
-      setEditingSupplier(null)
-      fetchMasterData()
-    } catch (error: any) {
-      console.error(error)
-      toast.error(error.response?.data?.message || 'Failed to save supplier')
+  function onSubmit(data: any) {
+    if (editingSupplier) {
+      toast.success(`Supplier "${data.name}" updated successfully`)
+    } else {
+      toast.success(`Supplier "${data.name}" added successfully`)
     }
+    setDialogOpen(false)
+    reset()
+    setEditingSupplier(null)
   }
 
-  async function handleDeactivate(supplier: Supplier) {
-    try {
-      await api.patch(`/suppliers/${supplier.id}`, { isActive: !supplier.isActive })
-      toast.success(`Supplier "${supplier.name}" ${supplier.isActive ? 'deactivated' : 'activated'} successfully`)
-      fetchMasterData()
-    } catch (error: any) {
-      console.error(error)
-      toast.error(error.response?.data?.message || 'Failed to update supplier status')
-    }
+  function handleDeactivate(supplier: Supplier) {
+    toast.warning(`Supplier "${supplier.name}" has been deactivated`)
   }
 
   return (
@@ -352,13 +325,13 @@ export default function SuppliersPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting...')} className="cursor-pointer">
-            <Download className="mr-1.5 h-4 w-4" />
-            Export
+          <Button size="sm" onClick={openAddDialog}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Supplier
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info('Printing...')} className="cursor-pointer">
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print
+          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/orders')}>
+            <ClipboardList className="mr-1.5 h-4 w-4" />
+            Purchase Orders
           </Button>
         </div>
       </div>
@@ -415,97 +388,29 @@ export default function SuppliersPage() {
       </div>
 
       {/* ── Search + Filter Row ── */}
-      <div className="flex items-center gap-3">
-        <div className="w-full max-w-sm">
-          <Input
-            icon={<Search />}
-            suffix={<span className="tabular-nums whitespace-nowrap">{filteredSuppliers.length} found</span>}
-            placeholder="Search name, contact, phone, GSTIN..."
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-          />
-        </div>
-        <Button
-          variant={filtersOpen ? 'default' : 'outline'}
-          size="sm"
-          className="gap-1.5 shrink-0 cursor-pointer"
-          onClick={() => setFiltersOpen(!filtersOpen)}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-              {activeFilterCount}
-            </Badge>
-          )}
-        </Button>
-        {activeFilterCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground shrink-0"
-            onClick={() => { clearFilters(); setCurrentPage(1) }}
-          >
-            <X className="mr-1 h-3 w-3" />
-            Clear
-          </Button>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" onClick={openAddDialog} className="cursor-pointer">
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add Supplier
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/orders')} className="cursor-pointer">
-            <ClipboardList className="mr-1.5 h-4 w-4" />
-            Purchase Orders
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Filter Panel ── */}
-      <AnimatePresence>
-        {filtersOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <Card className="bg-muted/20 dark:bg-muted/10">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
-                  {/* Status */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</Label>
-                    <Select value={selectedStatus} onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}>
-                      <SelectTrigger><SelectValue placeholder="All Status" /></SelectTrigger>
-                      <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Payment Terms */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Payment Terms</Label>
-                    <Select value={selectedPaymentTerms} onValueChange={(val) => { setSelectedPaymentTerms(val); setCurrentPage(1) }}>
-                      <SelectTrigger><SelectValue placeholder="All Terms" /></SelectTrigger>
-                      <SelectContent>
-                        {PAYMENT_TERMS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
+        searchPlaceholder="Search name, contact, phone, GSTIN..."
+        resultsCount={filteredSuppliers.length}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+      >
+        <EnumSelect
+          label="Status"
+          value={selectedStatus}
+          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+          options={STATUS_OPTIONS}
+        />
+        <EnumSelect
+          label="Payment Terms"
+          value={selectedPaymentTerms}
+          onValueChange={(val) => { setSelectedPaymentTerms(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedPaymentTerms('all'); setCurrentPage(1) }}
+          options={PAYMENT_TERMS_OPTIONS}
+        />
+      </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>
@@ -559,16 +464,7 @@ export default function SuppliersPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="h-40">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                      <p className="text-xs text-muted-foreground">Syncing with server...</p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : paginatedSuppliers.length === 0 ? (
+              {paginatedSuppliers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -620,42 +516,22 @@ export default function SuppliersPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="cursor-pointer">
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => setDetailSupplier(supplier)} className="cursor-pointer">
-                            <Eye className="mr-2 h-4 w-4" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEditDialog(supplier)} className="cursor-pointer">
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDeactivate(supplier)}
-                            className={cn(
-                              "cursor-pointer",
-                              supplier.isActive ? "text-destructive focus:text-destructive" : "text-emerald-600 focus:text-emerald-600"
-                            )}
-                          >
-                            {supplier.isActive ? (
-                              <>
-                                <UserX className="mr-2 h-4 w-4" />
-                                Deactivate
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
-                                Activate
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <DataTableRowActions
+                        onView={() => setDetailSupplier(supplier)}
+                        customActions={[
+                          {
+                            label: 'Edit',
+                            icon: <Pencil className="h-4 w-4" />,
+                            onClick: () => openEditDialog(supplier),
+                          },
+                          {
+                            label: 'Deactivate',
+                            icon: <UserX className="h-4 w-4" />,
+                            onClick: () => handleDeactivate(supplier),
+                            variant: 'destructive',
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </motion.tr>
                 ))
@@ -700,7 +576,7 @@ export default function SuppliersPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Company Name <span className="text-red-500">*</span>
+                  Company Name
                 </Label>
                 <Input placeholder="e.g. Cipla Ltd" {...register('name')} />
                 {errors.name && (
@@ -709,7 +585,7 @@ export default function SuppliersPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Contact Person <span className="text-red-500">*</span>
+                  Contact Person
                 </Label>
                 <Input placeholder="e.g. Arun Menon" {...register('contactPerson')} />
                 {errors.contactPerson && (
@@ -721,7 +597,7 @@ export default function SuppliersPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Phone <span className="text-red-500">*</span>
+                  Phone
                 </Label>
                 <Input placeholder="10-digit phone number" {...register('phone')} />
                 {errors.phone && (
@@ -730,7 +606,7 @@ export default function SuppliersPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Email <span className="text-red-500">*</span>
+                  Email
                 </Label>
                 <Input type="email" placeholder="supplier@company.com" {...register('email')} />
                 {errors.email && (
@@ -742,7 +618,7 @@ export default function SuppliersPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  GSTIN <span className="text-red-500">*</span>
+                  GSTIN
                 </Label>
                 <Input placeholder="15-character GSTIN" className="font-mono" {...register('gstin')} />
                 {errors.gstin && (
@@ -751,7 +627,7 @@ export default function SuppliersPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Drug License # <span className="text-red-500">*</span>
+                  Drug License #
                 </Label>
                 <Input placeholder="Drug license number" className="font-mono" {...register('drugLicense')} />
                 {errors.drugLicense && (
@@ -762,7 +638,7 @@ export default function SuppliersPage() {
 
             <div className="space-y-2">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Address <span className="text-red-500">*</span>
+                Address
               </Label>
               <Textarea placeholder="Full address" {...register('address')} />
               {errors.address && (
@@ -776,18 +652,18 @@ export default function SuppliersPage() {
                   Payment Terms
                 </Label>
                 <Select
-                  defaultValue={editingSupplier?.paymentTerms || 'NET_30'}
+                  defaultValue={editingSupplier?.paymentTerms || 'Net 30'}
                   onValueChange={(val) =>
-                    setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60')
+                    setValue('paymentTerms', val as 'Net 30' | 'Net 45' | 'Net 60')
                   }
                 >
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="Select payment terms" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="NET_30">Net 30</SelectItem>
-                    <SelectItem value="NET_45">Net 45</SelectItem>
-                    <SelectItem value="NET_60">Net 60</SelectItem>
+                    <SelectItem value="Net 30">Net 30</SelectItem>
+                    <SelectItem value="Net 45">Net 45</SelectItem>
+                    <SelectItem value="Net 60">Net 60</SelectItem>
                   </SelectContent>
                 </Select>
                 {errors.paymentTerms && (
@@ -806,10 +682,10 @@ export default function SuppliersPage() {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="cursor-pointer">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" className="cursor-pointer">
+              <Button type="submit">
                 {editingSupplier ? 'Update Supplier' : 'Add Supplier'}
               </Button>
             </DialogFooter>
@@ -952,11 +828,10 @@ export default function SuppliersPage() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDetailSupplier(null)} className="cursor-pointer">
+              <Button variant="outline" onClick={() => setDetailSupplier(null)}>
                 Close
               </Button>
               <Button
-                className="cursor-pointer"
                 onClick={() => {
                   setDetailSupplier(null)
                   openEditDialog(detailSupplier)

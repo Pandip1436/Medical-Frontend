@@ -364,18 +364,12 @@ export default function PurchaseReturnsPage() {
             >
               {/* Left: Search & GRN List */}
               <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
-                <div className="shrink-0 border-b border-border/40 p-4">
-                  <Input
-                    icon={<Search />}
-                    suffix={matchingGRNs.length > 0 ? (
-                      <span className="tabular-nums whitespace-nowrap">{matchingGRNs.length} found</span>
-                    ) : undefined}
-                    placeholder="Search by GRN number, PO number, or supplier..."
-                    value={grnSearch}
-                    onChange={(e) => setGrnSearch(e.target.value)}
-                    autoFocus
+                  <DataTableFilterBar
+                    searchQuery={grnSearch}
+                    onSearchChange={setGrnSearch}
+                    searchPlaceholder="Search by GRN number, PO number, or supplier..."
+                    resultsCount={matchingGRNs.length}
                   />
-                </div>
 
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="p-2">

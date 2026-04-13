@@ -33,6 +33,83 @@ const ProfitLossPage = lazy(() => import('@/pages/accounting/ProfitLossPage'))
 const ReportsHubPage = lazy(() => import('@/pages/reports/ReportsHubPage'))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'))
 
+// ─── Role-based page access control ───────────────────────────────────────────
+// Maps each role to the set of routes it can access.
+// 'ADMIN' gets everything implicitly (checked first in canAccess).
+export const rolePermissions: Record<string, string[]> = {
+  PHARMACIST: [
+    '/dashboard',
+    '/billing/new',
+    '/billing/sales',
+    '/billing/quotations',
+    '/billing/returns',
+    '/inventory/products',
+    '/inventory/stock',
+    '/inventory/expiry',
+    '/customers',
+    '/customers/outstanding',
+  ],
+  INVENTORY_MANAGER: [
+    '/dashboard',
+    '/inventory/products',
+    '/inventory/stock',
+    '/inventory/expiry',
+    '/inventory/adjustment',
+    '/purchase/orders',
+    '/purchase/grn',
+    '/purchase/returns',
+    '/purchase/suppliers',
+  ],
+  ACCOUNTANT: [
+    '/dashboard',
+    '/billing/sales',
+    '/billing/quotations',
+    '/billing/returns',
+    '/customers',
+    '/customers/outstanding',
+    '/purchase/orders',
+    '/accounting/cashbook',
+    '/accounting/expenses',
+    '/accounting/ledger',
+    '/accounting/pnl',
+    '/reports',
+  ],
+}
+
+function canAccess(role: string | undefined, path: string): boolean {
+  if (!role || role === 'ADMIN') return true
+  const allowed = rolePermissions[role] ?? []
+  return allowed.includes(path)
+}
+
+// ─── Access Denied screen ─────────────────────────────────────────────────────
+function AccessDenied({ role }: { role?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center px-4">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-rose-500/10">
+        <svg className="h-10 w-10 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M12 9v3m0 3h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+        </svg>
+      </div>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Access Restricted</h2>
+        <p className="mt-2 text-muted-foreground max-w-sm">
+          Your <span className="font-semibold text-foreground capitalize">{(role ?? 'current').toLowerCase().replace('_', ' ')}</span> account
+          does not have permission to view this page.
+        </p>
+      </div>
+      <button
+        onClick={() => navigate('/dashboard')}
+        className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow transition-all hover:bg-primary/90"
+      >
+        ← Back to Dashboard
+      </button>
+    </div>
+  )
+}
+
+// ─── Loading fallback ─────────────────────────────────────────────────────────
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -46,7 +123,8 @@ function LoadingFallback() {
 
 function App() {
   const { path } = useRoute()
-  const { isAuthenticated } = useAuthStore()
+  const { isAuthenticated, logout, user } = useAuthStore()
+  const userRole = user?.role
 
   // Register global keyboard shortcuts
   useGlobalShortcuts()
@@ -60,6 +138,16 @@ function App() {
       navigate('/dashboard')
     }
   }, [isAuthenticated, path])
+
+  // Handle global 401 from API interceptor — avoids page reload loop
+  useEffect(() => {
+    const handler = () => {
+      logout()
+      navigate('/login')
+    }
+    window.addEventListener('pbims:unauthorized', handler)
+    return () => window.removeEventListener('pbims:unauthorized', handler)
+  }, [logout])
 
   // Auth pages (not authenticated)
   if (!isAuthenticated) {
@@ -90,6 +178,11 @@ function App() {
 
   // Render page content based on route
   const renderPage = () => {
+    // Check role-based access before rendering any page
+    if (!canAccess(userRole, path)) {
+      return <AccessDenied role={userRole} />
+    }
+
     switch (path) {
       case '/dashboard':
         return <DashboardPage />

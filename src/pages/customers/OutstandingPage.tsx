@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -12,7 +12,12 @@ import {
   Clock,
   Send,
   BookOpen,
+  History,
+  ReceiptText,
 } from 'lucide-react'
+
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,7 +49,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockCustomers, mockInvoices } from '@/data/mock'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import { mockInvoices } from '@/data/mock'
+import api from '@/lib/api'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
 
@@ -126,14 +133,33 @@ function getLastPaymentDate(customerId: string): string | null {
 // ─────────────────────────────────────────────────────────────
 
 export default function OutstandingPage() {
+  const customers = useMasterDataStore((s) => s.customers)
+  const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
+  const updateCustomerLocally = useMasterDataStore((s) => s.updateCustomerLocally)
+
+  const [searchQuery, setSearchQuery] = useState('')
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
 
-  // Customers with outstanding
-  const outstandingCustomers = useMemo(
-    () => mockCustomers.filter((c) => c.currentOutstanding > 0),
-    []
-  )
+  useEffect(() => {
+    fetchCustomers()
+  }, [])
+
+  // Customers with outstanding balance (filtered by search)
+  const outstandingCustomers = useMemo(() => {
+    let result = customers.filter((c) => Number(c.currentOutstanding) > 0)
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.phone?.toLowerCase().includes(q)
+      )
+    }
+
+    return result
+  }, [customers, searchQuery])
 
   // Summary
   const summary = useMemo(() => {
@@ -143,17 +169,15 @@ export default function OutstandingPage() {
     let bucket60plus = 0
 
     for (const customer of outstandingCustomers) {
-      total += customer.currentOutstanding
+      total += Number(customer.currentOutstanding)
       const buckets = getAgingBuckets(customer)
       bucket0to30 += buckets.days0to30
       bucket30to60 += buckets.days30to60
       bucket60plus += buckets.days60plus
     }
 
-    // Adjust any rounding mismatch so the sum uses the actual outstanding values
     const bucketSum = bucket0to30 + bucket30to60 + bucket60plus
     if (bucketSum === 0 && total > 0) {
-      // All invoices are mock-based and recent, fall back to total in first bucket
       bucket0to30 = total
     }
 
@@ -176,13 +200,39 @@ export default function OutstandingPage() {
     setPaymentDialogOpen(true)
   }
 
-  const onSubmitPayment = (values: any) => {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const onSubmitPayment = async (values: any) => {
     if (!selectedCustomer) return
-    const receiptNo = `RCT-${generateId()}`
-    toast.success(
-      `Payment of ${formatCurrency(values.amount)} recorded for ${selectedCustomer.name}. Receipt: ${receiptNo}`
-    )
-    setPaymentDialogOpen(false)
+    try {
+      setIsSubmitting(true)
+      
+      // Optimistic UI update
+      const newOutstanding = Math.max(0, Number(selectedCustomer.currentOutstanding) - values.amount)
+      updateCustomerLocally(selectedCustomer.id, { currentOutstanding: newOutstanding })
+      setPaymentDialogOpen(false)
+
+      await api.post(`/customers/${selectedCustomer.id}/payment`, {
+        amount: values.amount,
+        paymentMode: values.paymentMode,
+        referenceNumber: values.referenceNumber,
+      })
+      const receiptNo = `RCT-${generateId()}`
+      toast.success(
+        `Payment of ${formatCurrency(values.amount)} recorded for ${selectedCustomer.name}. Receipt: ${receiptNo}`
+      )
+      
+      // We don't need to await fetchCustomers here if we trust the optimistic update,
+      // but doing it in background ensures consistency
+      fetchCustomers()
+    } catch (error: any) {
+      toast.error('Failed to record payment')
+      // Rollback optimistic update
+      fetchCustomers()
+      console.error(error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleSendReminder = (customer: Customer) => {
@@ -249,12 +299,22 @@ export default function OutstandingPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" className="gap-1.5" onClick={handleBulkReminders}>
-            <Bell className="h-3.5 w-3.5" />
-            Send Reminders
+        <DataTableFilterBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search customer, phone or area..."
+          resultsCount={outstandingCustomers.length}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkReminders}
+            disabled={outstandingCustomers.length === 0}
+          >
+            <Bell className="mr-2 h-4 w-4" />
+            Bulk Reminders
           </Button>
-        </div>
+        </DataTableFilterBar>
       </div>
 
       {/* Summary Cards */}
@@ -305,60 +365,48 @@ export default function OutstandingPage() {
                     <TableHead className="text-right">0-30 Days</TableHead>
                     <TableHead className="text-right">30-60 Days</TableHead>
                     <TableHead className="text-right">60+ Days</TableHead>
-                    <TableHead>Last Payment</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {outstandingCustomers.map((customer) => {
                     const buckets = getAgingBuckets(customer)
-                    const lastPayment = getLastPaymentDate(customer.id)
                     return (
-                      <TableRow key={customer.id} className="border-b border-border/40">
-                        <TableCell className="font-medium">{customer.name}</TableCell>
-                        <TableCell className="text-right font-mono font-semibold text-red-600 dark:text-red-400">
-                          {formatCurrency(customer.currentOutstanding)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-yellow-600 dark:text-yellow-400">
-                          {buckets.days0to30 > 0 ? formatCurrency(buckets.days0to30) : '-'}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-orange-600 dark:text-orange-400">
-                          {buckets.days30to60 > 0 ? formatCurrency(buckets.days30to60) : '-'}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-red-700 dark:text-red-400 font-semibold">
-                          {buckets.days60plus > 0 ? formatCurrency(buckets.days60plus) : '-'}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {lastPayment ? formatDate(lastPayment) : 'No payment'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="rounded-xl"
-                              onClick={() => handleCollectPayment(customer)}
-                            >
-                              <CreditCard className="mr-1 h-3.5 w-3.5" />
-                              Collect
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => handleSendReminder(customer)}
-                              title="Send Reminder"
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() => toast.info(`Ledger for ${customer.name} - view in Customers page`)}
-                              title="View Ledger"
-                            >
-                              <BookOpen className="h-4 w-4" />
-                            </Button>
+                      <TableRow key={customer.id} className="group transition-colors border-b border-border/40">
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{customer.name}</span>
+                            <span className="text-xs text-muted-foreground">{customer.phone}</span>
                           </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-bold text-red-600 dark:text-red-400 text-sm">
+                          {formatCurrency(Number(customer.currentOutstanding))}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                          {formatCurrency(buckets.days0to30)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                          {formatCurrency(buckets.days30to60)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm font-semibold text-rose-500">
+                          {formatCurrency(buckets.days60plus)}
+                        </TableCell>
+                        <TableCell className="text-right px-4">
+                          <DataTableRowActions
+                            onView={() => toast.info(`Viewing statement for ${customer.name}`)}
+                            customActions={[
+                              {
+                                label: 'Collect Payment',
+                                icon: <CreditCard className="h-4 w-4" />,
+                                onClick: () => handleCollectPayment(customer),
+                              },
+                              {
+                                label: 'Send Reminder',
+                                icon: <Send className="h-4 w-4" />,
+                                onClick: () => handleSendReminder(customer),
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     )
@@ -398,7 +446,7 @@ export default function OutstandingPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Outstanding Amount</span>
                   <span className="font-bold text-red-600 dark:text-red-400 font-mono">
-                    {formatCurrency(selectedCustomer.currentOutstanding)}
+                    {formatCurrency(Number(selectedCustomer.currentOutstanding))}
                   </span>
                 </div>
               </div>
@@ -474,10 +522,12 @@ export default function OutstandingPage() {
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)} disabled={isSubmitting}>
                   Cancel
                 </Button>
-                <Button type="submit">Confirm Payment</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Processing...' : 'Confirm Payment'}
+                </Button>
               </DialogFooter>
             </form>
           )}

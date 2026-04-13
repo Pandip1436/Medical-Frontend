@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -32,7 +32,8 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { mockProducts, mockBatches } from '@/data/mock'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import api from '@/lib/api'
 import { cn, formatCurrency, generateId, generateInvoiceNumber } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -101,29 +102,33 @@ const steps = [
 // ─────────────────────────────────────────────────────────────
 
 export default function StockAdjustmentPage() {
+  const products = useMasterDataStore((s) => s.products)
+  const batches = useMasterDataStore((s) => s.batches)
+  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
+  const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
+
   const [currentStep, setCurrentStep] = useState(1)
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<AdjustmentItem[]>([])
   const [referenceNumber, setReferenceNumber] = useState('')
 
+  useEffect(() => {
+    fetchProducts()
+  }, [])
+
   // Search results for adding products
   const searchResults = useMemo(() => {
     if (!search.trim()) return []
     const q = search.toLowerCase()
-    const matchedProducts = mockProducts.filter(
+    const matchedProducts = products.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.genericName.toLowerCase().includes(q)
     )
-    // Return product+batch combos
-    const results: Array<{
-      product: (typeof mockProducts)[0]
-      batch: (typeof mockBatches)[0]
-    }> = []
+    const results: Array<{ product: any; batch: any }> = []
     matchedProducts.forEach((product) => {
-      const batches = mockBatches.filter((b) => b.productId === product.id)
-      batches.forEach((batch) => {
-        // Don't show already-added items
+      const productBatches = batches.filter((b) => b.productId === product.id)
+      productBatches.forEach((batch) => {
         const alreadyAdded = items.some((i) => i.batchId === batch.id)
         if (!alreadyAdded) {
           results.push({ product, batch })
@@ -131,12 +136,9 @@ export default function StockAdjustmentPage() {
       })
     })
     return results.slice(0, 8)
-  }, [search, items])
+  }, [search, items, products, batches])
 
-  const addItem = (
-    product: (typeof mockProducts)[0],
-    batch: (typeof mockBatches)[0]
-  ) => {
+  const addItem = (product: any, batch: any) => {
     setItems((prev) => [
       ...prev,
       {
@@ -149,7 +151,7 @@ export default function StockAdjustmentPage() {
         adjustment: 0,
         newQty: batch.quantity,
         reason: 'Physical Count',
-        mrp: batch.mrp,
+        mrp: Number(batch.mrp),
       },
     ])
     setSearch('')
@@ -180,13 +182,39 @@ export default function StockAdjustmentPage() {
     return items.reduce((sum, item) => sum + item.adjustment * item.mrp, 0)
   }, [items])
 
-  const requiresApproval = Math.abs(totalValueImpact) > 5000
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleConfirm = () => {
-    const refNo = generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
-    setReferenceNumber(refNo)
-    setCurrentStep(3)
-    toast.success('Stock adjustment saved successfully')
+  const handleConfirm = async () => {
+    try {
+      setIsSubmitting(true)
+      
+      // Optimistic UI updates
+      items.forEach(item => {
+        updateBatchLocally(item.batchId, item.adjustment)
+      })
+      
+      const refNo = generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
+      setReferenceNumber(refNo)
+      setCurrentStep(3)
+
+      // Make all adjustment API calls in parallel in background
+      await Promise.all(
+        items.map(item => 
+          api.post(`/products/${item.productId}/batches/${item.batchId}/adjust`, {
+            adjustmentQty: item.adjustment,
+            reason: item.reason
+          })
+        )
+      )
+
+      toast.success('Stock adjustment saved successfully')
+    } catch (error) {
+      console.error(error)
+      toast.error('Failed to process stock adjustments. Rolling back.')
+      fetchProducts() // Rollback on failure
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleReset = () => {
@@ -276,44 +304,38 @@ export default function StockAdjustmentPage() {
           animate="visible"
           className="space-y-4"
         >
-          {/* Search */}
-          <motion.div variants={itemVariants}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Search & Add Products</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Input
-                  icon={<Search className="h-4 w-4" />}
-                  placeholder="Search products by name or generic name..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+          <DataTableFilterBar
+            searchQuery={search}
+            onSearchChange={setSearch}
+            searchPlaceholder="Search products by name or generic name..."
+            resultsCount={searchResults.length}
+          />
 
-                {/* Search results dropdown */}
-                {searchResults.length > 0 && (
-                  <div className="mt-2 rounded-xl border border-border/60 bg-popover shadow-md">
-                    {searchResults.map(({ product, batch }) => (
-                      <button
-                        key={batch.id}
-                        onClick={() => addItem(product, batch)}
-                        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50"
-                      >
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Batch: <span className="font-mono">{batch.batchNumber}</span> | Qty: <span className="font-mono">{batch.quantity}</span> |
-                            MRP: <span className="font-mono">{formatCurrency(batch.mrp)}</span>
-                          </p>
-                        </div>
-                        <Plus className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    ))}
+          {/* Search results dropdown */}
+          {searchResults.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-2 rounded-xl border border-border/60 bg-popover shadow-md"
+            >
+              {searchResults.map(({ product, batch }) => (
+                <button
+                  key={batch.id}
+                  onClick={() => addItem(product, batch)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50"
+                >
+                  <div>
+                    <p className="font-medium">{product.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Batch: <span className="font-mono">{batch.batchNumber}</span> | Qty: <span className="font-mono">{batch.quantity}</span> |
+                      MRP: <span className="font-mono">{formatCurrency(Number(batch.mrp))}</span>
+                    </p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+                  <Plus className="h-4 w-4 text-muted-foreground" />
+                </button>
+              ))}
+            </motion.div>
+          )}
 
           {/* Adjustment Table */}
           <motion.div variants={itemVariants}>
@@ -572,9 +594,9 @@ export default function StockAdjustmentPage() {
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Back
               </Button>
-              <Button onClick={handleConfirm}>
+              <Button onClick={handleConfirm} disabled={isSubmitting}>
                 <CheckCircle2 className="mr-1 h-4 w-4" />
-                Confirm Adjustment
+                {isSubmitting ? 'Processing...' : 'Confirm Adjustment'}
               </Button>
             </div>
           </motion.div>

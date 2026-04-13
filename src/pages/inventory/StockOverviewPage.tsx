@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Package,
@@ -8,9 +8,10 @@ import {
   Search,
   LayoutGrid,
   TableProperties,
-  MapPin,
 } from 'lucide-react'
 import { differenceInDays } from 'date-fns'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockProducts, mockBatches } from '@/data/mock'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency, formatDate, formatNumber } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -62,8 +63,8 @@ const itemVariants: Variants = {
 type StockStatus = 'healthy' | 'low_stock' | 'out_of_stock' | 'near_expiry' | 'expired'
 
 function getBatchStatus(
-  product: (typeof mockProducts)[0],
-  batch: (typeof mockBatches)[0]
+  product: any,
+  batch: any
 ): StockStatus {
   const today = new Date()
   const expiry = new Date(batch.expiryDate)
@@ -133,15 +134,24 @@ interface StockRow {
 // ─────────────────────────────────────────────────────────────
 
 export default function StockOverviewPage() {
+  const products = useMasterDataStore((s) => s.products)
+  const batches = useMasterDataStore((s) => s.batches)
+  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
+
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
 
+  useEffect(() => {
+    fetchProducts()
+  }, [])
+
   // Build combined data
   const stockRows: StockRow[] = useMemo(() => {
-    return mockBatches.map((batch) => {
-      const product = mockProducts.find((p) => p.id === batch.productId)!
+    return batches.map((batch) => {
+      const product = products.find((p) => p.id === batch.productId)
+      if (!product) return null
       const status = getBatchStatus(product, batch)
       return {
         productId: product.id,
@@ -152,17 +162,16 @@ export default function StockOverviewPage() {
         mfgDate: batch.mfgDate,
         expiryDate: batch.expiryDate,
         quantity: batch.quantity,
-        mrp: batch.mrp,
-        stockValue: batch.quantity * batch.mrp,
+        mrp: Number(batch.mrp),
+        stockValue: batch.quantity * Number(batch.mrp),
         rackLocation: product.rackLocation,
         status,
         totalStock: product.totalStock,
         minStock: product.minStock,
-      }
-    })
-  }, [])
+      } as StockRow
+    }).filter(Boolean) as StockRow[]
+  }, [batches, products])
 
-  // Filter
   const filteredRows = useMemo(() => {
     let rows = stockRows
     const q = search.toLowerCase()
@@ -174,7 +183,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      rows = rows.filter((r) => r.category === categoryFilter)
+      rows = rows.filter((r) => r.category.toLowerCase() === categoryFilter.toLowerCase())
     }
     if (statusFilter !== 'all') {
       rows = rows.filter((r) => r.status === statusFilter)
@@ -184,52 +193,47 @@ export default function StockOverviewPage() {
 
   // Stats
   const stats = useMemo(() => {
-    const totalProducts = mockProducts.length
-    const totalStockValue = mockProducts.reduce(
-      (sum, p) => sum + p.totalStock * p.mrp,
+    const totalProducts = products.length
+    const totalStockValue = products.reduce(
+      (sum, p) => sum + p.totalStock * Number(p.mrp),
       0
     )
-    const lowStockItems = mockProducts.filter(
+    const lowStockItems = products.filter(
       (p) => p.totalStock > 0 && p.totalStock < p.minStock
     ).length
     const today = new Date()
-    const nearExpiry = mockBatches.filter((b) => {
+    const nearExpiry = batches.filter((b) => {
       const days = differenceInDays(new Date(b.expiryDate), today)
       return days >= 0 && days <= 90
     }).length
 
     return { totalProducts, totalStockValue, lowStockItems, nearExpiry }
-  }, [])
+  }, [products, batches])
 
   // Product-level aggregation for card view
   const productCards = useMemo(() => {
-    return mockProducts.map((product) => {
-      const batches = mockBatches.filter((b) => b.productId === product.id)
+    return products.map((product) => {
+      const productBatches = batches.filter((b) => b.productId === product.id)
       const today = new Date()
 
       let productStatus: StockStatus = 'healthy'
       if (product.totalStock === 0) productStatus = 'out_of_stock'
       else if (product.totalStock < product.minStock) productStatus = 'low_stock'
 
-      // Check if any batch is near expiry or expired
-      for (const b of batches) {
+      for (const b of productBatches) {
         const days = differenceInDays(new Date(b.expiryDate), today)
-        if (days < 0) {
-          productStatus = 'expired'
-          break
-        }
-        if (days <= 90) {
-          productStatus = 'near_expiry'
-        }
+        if (days < 0) { productStatus = 'expired'; break }
+        if (days <= 90) productStatus = 'near_expiry'
       }
 
       return {
         ...product,
-        batchCount: batches.length,
+        mrp: Number(product.mrp),
+        batchCount: productBatches.length,
         status: productStatus,
       }
     })
-  }, [])
+  }, [products, batches])
 
   const filteredCards = useMemo(() => {
     let cards = productCards
@@ -242,7 +246,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      cards = cards.filter((c) => c.category === categoryFilter)
+      cards = cards.filter((c) => c.category.toLowerCase() === categoryFilter.toLowerCase())
     }
     if (statusFilter !== 'all') {
       cards = cards.filter((c) => c.status === statusFilter)
@@ -334,70 +338,66 @@ export default function StockOverviewPage() {
       </motion.div>
 
       {/* ── Filters & View Toggle ── */}
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        <motion.div variants={itemVariants}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-1 items-center gap-3">
-              <div className="max-w-xs flex-1">
-                <Input
-                  icon={<Search className="h-4 w-4" />}
-                  placeholder="Search products or batches..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[160px] rounded-xl">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="nephrology">Nephrology</SelectItem>
-                  <SelectItem value="oncology">Oncology</SelectItem>
-                  <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="otc">OTC</SelectItem>
-                  <SelectItem value="surgical">Surgical</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[160px] rounded-xl">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="healthy">Healthy</SelectItem>
-                  <SelectItem value="low_stock">Low Stock</SelectItem>
-                  <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-                  <SelectItem value="near_expiry">Near Expiry</SelectItem>
-                  <SelectItem value="expired">Expired</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center rounded-xl border border-border/60 p-1">
-              <Button
-                variant={viewMode === 'table' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('table')}
-              >
-                <TableProperties className="mr-1 h-4 w-4" />
-                Table
-              </Button>
-              <Button
-                variant={viewMode === 'card' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('card')}
-              >
-                <LayoutGrid className="mr-1 h-4 w-4" />
-                Cards
-              </Button>
-            </div>
+      <DataTableFilterBar
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search products or batches..."
+        resultsCount={viewMode === 'table' ? filteredRows.length : filteredCards.length}
+        activeFilterCount={(categoryFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)}
+        onClearFilters={() => {
+          setCategoryFilter('all');
+          setStatusFilter('all');
+        }}
+        actionNode={
+          <div className="flex items-center rounded-xl border border-border/60 p-1">
+            <Button
+              variant={viewMode === 'table' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+            >
+              <TableProperties className="mr-1 h-4 w-4" />
+              Table
+            </Button>
+            <Button
+              variant={viewMode === 'card' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('card')}
+            >
+              <LayoutGrid className="mr-1 h-4 w-4" />
+              Cards
+            </Button>
           </div>
-        </motion.div>
-      </motion.div>
+        }
+      >
+        <EnumSelect
+          label="Category"
+          value={categoryFilter}
+          onValueChange={setCategoryFilter}
+          onClear={() => setCategoryFilter('all')}
+          options={[
+            { label: 'All Categories', value: 'all' },
+            { label: 'Nephrology', value: 'nephrology' },
+            { label: 'Oncology', value: 'oncology' },
+            { label: 'General', value: 'general' },
+            { label: 'OTC', value: 'otc' },
+            { label: 'Surgical', value: 'surgical' },
+          ]}
+        />
+        <EnumSelect
+          label="Status"
+          value={statusFilter}
+          onValueChange={setStatusFilter}
+          onClear={() => setStatusFilter('all')}
+          options={[
+            { label: 'All Status', value: 'all' },
+            { label: 'Healthy', value: 'healthy' },
+            { label: 'Low Stock', value: 'low_stock' },
+            { label: 'Out of Stock', value: 'out_of_stock' },
+            { label: 'Near Expiry', value: 'near_expiry' },
+            { label: 'Expired', value: 'expired' },
+          ]}
+        />
+      </DataTableFilterBar>
 
       {/* ── Table View ── */}
       {viewMode === 'table' && (
