@@ -284,7 +284,7 @@ export default function ForgotPasswordPage({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="border-0 bg-white/95 shadow-2xl backdrop-blur-xl dark:bg-card/95">
+        <Card className="border-0 bg-gradient-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
           <CardHeader className="space-y-4 pb-2 text-center">
             <div className="flex flex-col items-center gap-2">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
@@ -328,7 +328,7 @@ export default function ForgotPasswordPage({
                         id="emailOrPhone"
                         type="text"
                         placeholder="you@example.com or 9876543210"
-                        icon={<Mail className="h-4 w-4" />}
+                        icon={<Mail className="h-4 w-4 text-black/60" />}
                         error={!!emailForm.formState.errors.emailOrPhone}
                         aria-invalid={!!emailForm.formState.errors.emailOrPhone}
                         aria-describedby={
@@ -336,6 +336,7 @@ export default function ForgotPasswordPage({
                             ? 'emailOrPhone-error'
                             : undefined
                         }
+                        className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40"
                         {...emailForm.register('emailOrPhone')}
                       />
                       {emailForm.formState.errors.emailOrPhone && (
@@ -351,7 +352,7 @@ export default function ForgotPasswordPage({
 
                     <Button
                       type="submit"
-                      className="w-full"
+                      className="w-full cursor-pointer"
                       size="lg"
                       loading={isLoading}
                       disabled={isLoading}
@@ -401,10 +402,10 @@ export default function ForgotPasswordPage({
                           onKeyDown={(e) => handleOtpKeyDown(index, e)}
                           onPaste={index === 0 ? handleOtpPaste : undefined}
                           className={cn(
-                            'h-12 w-11 rounded-xl border bg-transparent text-center text-lg font-semibold shadow-sm transition-all duration-150',
-                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary',
-                            digit ? 'border-primary/60' : 'border-input',
-                            otpError && 'border-rose-400 animate-shake'
+                            'h-12 w-11 rounded-xl border bg-black/5 text-center text-lg font-bold text-black shadow-sm transition-all duration-150',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/40',
+                            digit ? 'border-primary/50' : 'border-black/20',
+                            otpError && 'border-destructive animate-shake'
                           )}
                           aria-label={`Digit ${index + 1}`}
                           disabled={isLoading}
@@ -434,21 +435,21 @@ export default function ForgotPasswordPage({
                         <button
                           type="button"
                           onClick={handleResendOtp}
-                          className="text-xs font-medium text-primary hover:underline"
+                          className="text-xs font-bold text-black hover:underline"
                         >
                           Resend OTP
                         </button>
                       ) : (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs font-medium text-black">
                           Resend code in{' '}
-                          <span className="font-mono font-medium text-foreground">
+                          <span className="font-mono font-bold text-black">
                             {resendTimer}s
                           </span>
                         </p>
                       )}
                     </div>
 
-                    <p className="text-center text-[10px] text-muted-foreground/50">
+                    <p className="text-center text-[10px] font-medium text-black/60">
                       Mock OTP: 123456
                     </p>
                   </div>
@@ -483,9 +484,9 @@ export default function ForgotPasswordPage({
                           id="newPassword"
                           type={showNewPassword ? 'text' : 'password'}
                           placeholder="Min 8 chars, 1 uppercase, 1 number"
-                          icon={<Lock className="h-4 w-4" />}
+                          icon={<Lock className="h-4 w-4 text-black/60" />}
                           error={!!passwordForm.formState.errors.newPassword}
-                          className="pr-10"
+                          className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40 pr-10"
                           aria-invalid={!!passwordForm.formState.errors.newPassword}
                           aria-describedby={
                             passwordForm.formState.errors.newPassword
@@ -497,7 +498,7 @@ export default function ForgotPasswordPage({
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors hover:text-black"
                           aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
                           tabIndex={-1}
                         >
@@ -520,9 +521,9 @@ export default function ForgotPasswordPage({
                           id="confirmPassword"
                           type={showConfirmPassword ? 'text' : 'password'}
                           placeholder="Re-enter your new password"
-                          icon={<Lock className="h-4 w-4" />}
+                          icon={<Lock className="h-4 w-4 text-black/60" />}
                           error={!!passwordForm.formState.errors.confirmPassword}
-                          className="pr-10"
+                          className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40 pr-10"
                           aria-invalid={!!passwordForm.formState.errors.confirmPassword}
                           aria-describedby={
                             passwordForm.formState.errors.confirmPassword
@@ -534,7 +535,7 @@ export default function ForgotPasswordPage({
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors hover:text-black"
                           aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                           tabIndex={-1}
                         >
@@ -598,9 +599,9 @@ export default function ForgotPasswordPage({
                 <button
                   type="button"
                   onClick={onBackToLogin}
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="inline-flex cursor-pointer items-center gap-1 text-xs font-bold text-black transition-colors hover:opacity-80"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <ArrowLeft className="h-3.5 w-3.5 text-black" />
                   Back to Login
                 </button>
               </div>

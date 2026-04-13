@@ -38,7 +38,7 @@ export interface Supplier {
   gstin: string
   drugLicense: string
   address: string
-  paymentTerms: 'Net 30' | 'Net 45' | 'Net 60'
+  paymentTerms: 'NET_30' | 'NET_45' | 'NET_60'
   bankDetails?: string
   isActive: boolean
 }

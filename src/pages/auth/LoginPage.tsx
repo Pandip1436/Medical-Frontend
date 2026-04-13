@@ -96,7 +96,7 @@ export default function LoginPage({
           x: { duration: 0.5, ease: 'easeInOut' },
         }}
       >
-        <Card className="border-0 bg-white/95 shadow-2xl backdrop-blur-xl dark:bg-card/95">
+        <Card className="border-0 bg-gradient-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
           <CardHeader className="space-y-4 pb-4 text-center">
             <div className="flex flex-col items-center gap-3">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
@@ -136,10 +136,11 @@ export default function LoginPage({
                   id="email"
                   type="email"
                   placeholder="you@example.com"
-                  icon={<Mail className="h-4 w-4" />}
+                  icon={<Mail className="h-4 w-4 text-black/60" />}
                   error={!!errors.email}
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? 'email-error' : undefined}
+                  className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40"
                   {...register('email')}
                 />
                 {errors.email && (
@@ -156,24 +157,24 @@ export default function LoginPage({
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Enter your password"
-                    icon={<Lock className="h-4 w-4" />}
+                    icon={<Lock className="h-4 w-4 text-black/60" />}
                     error={!!errors.password}
                     aria-invalid={!!errors.password}
                     aria-describedby={errors.password ? 'password-error' : undefined}
-                    className="pr-10"
+                    className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40 pr-10"
                     {...register('password')}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors hover:text-black"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     tabIndex={-1}
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="h-4 w-4 cursor-pointer" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-4 w-4 cursor-pointer" />
                     )}
                   </button>
                 </div>
@@ -193,6 +194,7 @@ export default function LoginPage({
                       setRememberMe(checked === true)
                     }
                     aria-label="Remember me"
+                    className='cursor-pointer'
                   />
                   <Label
                     htmlFor="remember"
@@ -204,7 +206,7 @@ export default function LoginPage({
                 <button
                   type="button"
                   onClick={onForgotPassword}
-                  className="text-xs font-medium text-primary hover:underline"
+                  className="cursor-pointer text-xs font-bold text-black/70 hover:text-black hover:underline"
                 >
                   Forgot Password?
                 </button>
@@ -212,7 +214,7 @@ export default function LoginPage({
 
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full cursor-pointer"
                 size="lg"
                 loading={isLoading}
                 disabled={isLoading || loginSucceeded}
@@ -223,30 +225,30 @@ export default function LoginPage({
           </CardContent>
 
           <CardFooter className="flex-col gap-2 pb-6">
-            <div className="w-full border-t border-border/40 pt-4">
-              <p className="text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="w-full border-t border-black/10 pt-4">
+              <p className="text-center text-[10px] font-bold uppercase tracking-wider text-black">
                 Test Accounts
               </p>
-              <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[11px] text-muted-foreground/70">
-                <div className="rounded-lg bg-muted/30 px-2.5 py-1.5">
-                  <span className="font-medium text-foreground/80">Admin</span>
-                  <p className="text-[10px] mt-0.5">admin@hospitalsuppliers.com</p>
-                  <p className="text-[10px] font-mono">Admin@123</p>
+              <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[11px] text-black">
+                <div className="rounded-lg bg-black/5 px-2.5 py-1.5">
+                  <span className="font-bold text-black">Admin</span>
+                  <p className="text-[10px] mt-0.5 text-black/80">admin@hospitalsuppliers.com</p>
+                  <p className="text-[10px] font-mono text-black/80">Admin@123</p>
                 </div>
-                <div className="rounded-lg bg-muted/30 px-2.5 py-1.5">
-                  <span className="font-medium text-foreground/80">Pharmacist</span>
-                  <p className="text-[10px] mt-0.5">ravi@hospitalsuppliers.com</p>
-                  <p className="text-[10px] font-mono">Pharma@123</p>
+                <div className="rounded-lg bg-black/5 px-2.5 py-1.5">
+                  <span className="font-bold text-black">Pharmacist</span>
+                  <p className="text-[10px] mt-0.5 text-black/80">ravi@hospitalsuppliers.com</p>
+                  <p className="text-[10px] font-mono text-black/80">Pharma@123</p>
                 </div>
-                <div className="rounded-lg bg-muted/30 px-2.5 py-1.5">
-                  <span className="font-medium text-foreground/80">Inventory</span>
-                  <p className="text-[10px] mt-0.5">kumar@hospitalsuppliers.com</p>
-                  <p className="text-[10px] font-mono">Stock@123</p>
+                <div className="rounded-lg bg-black/5 px-2.5 py-1.5">
+                  <span className="font-bold text-black">Inventory</span>
+                  <p className="text-[10px] mt-0.5 text-black/80">kumar@hospitalsuppliers.com</p>
+                  <p className="text-[10px] font-mono text-black/80">Stock@123</p>
                 </div>
-                <div className="rounded-lg bg-muted/30 px-2.5 py-1.5">
-                  <span className="font-medium text-foreground/80">Accountant</span>
-                  <p className="text-[10px] mt-0.5">priya@hospitalsuppliers.com</p>
-                  <p className="text-[10px] font-mono">Account@123</p>
+                <div className="rounded-lg bg-black/5 px-2.5 py-1.5">
+                  <span className="font-bold text-black">Accountant</span>
+                  <p className="text-[10px] mt-0.5 text-black/80">priya@hospitalsuppliers.com</p>
+                  <p className="text-[10px] font-mono text-black/80">Account@123</p>
                 </div>
               </div>
             </div>

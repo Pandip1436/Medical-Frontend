@@ -281,6 +281,15 @@
     min-height: 100dvh;
   }
 
+  /* Fix for browser autofill white background */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover, 
+  input:-webkit-autofill:focus, 
+  input:-webkit-autofill:active {
+    transition: background-color 9999s ease-in-out 0s;
+    -webkit-text-fill-color: var(--color-foreground) !important;
+  }
+
   /* Focus ring — consistent visible ring for keyboard navigation */
   :focus-visible {
     outline: 2px solid var(--color-ring);

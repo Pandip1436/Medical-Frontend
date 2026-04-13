@@ -27,6 +27,27 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { useForm, Controller } from 'react-hook-form'
+import { z } from 'zod'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -92,6 +113,28 @@ const mockDoctors = [
 ]
 
 // ─────────────────────────────────────────────────────────────
+// CUSTOMER SCHEMA
+// ─────────────────────────────────────────────────────────────
+
+const customerSchema = z.object({
+  name: z.string().min(1, 'Customer name is required'),
+  phone: z
+    .string()
+    .min(10, 'Phone must be 10 digits')
+    .max(10, 'Phone must be 10 digits')
+    .regex(/^\d{10}$/, 'Phone must be exactly 10 digits'),
+  type: z.enum(['walk-in', 'regular', 'hospital', 'wholesale', 'doctor']),
+  email: z.string().email('Invalid email').or(z.literal('')).optional(),
+  address: z.string().optional(),
+  creditLimit: z.coerce.number().min(0, 'Must be 0 or more').default(0),
+  gstin: z.string().optional(),
+  dlNumber: z.string().optional(),
+  notes: z.string().optional(),
+})
+
+type CustomerFormValues = z.input<typeof customerSchema>
+
+// ─────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────
 
@@ -110,6 +153,7 @@ function formatExpiryShort(dateStr: string): string {
   const d = new Date(dateStr)
   return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
 }
+
 
 function createEmptyItem(): BillingItem {
   return {
@@ -240,8 +284,8 @@ function BillingRow({
         productId: product.id,
         productName: product.name,
         gstPercent: product.gstRate,
-        mrp: firstBatch?.mrp ?? product.mrp,
-        rate,
+        mrp: Number(firstBatch?.mrp ?? product.mrp) || 0,
+        rate: Number(rate) || 0,
         schedule: product.schedule,
         batchId: firstBatch?.id ?? '',
         batchNumber: firstBatch?.batchNumber ?? '',
@@ -475,9 +519,9 @@ function BillingRow({
           )}
           disabled={!item.productId}
         />
-        {item.mrp > 0 && item.mrp !== item.rate && (
+        {(Number(item.mrp) || 0) > 0 && Number(item.mrp) !== Number(item.rate) && (
           <div className="text-[10px] text-muted-foreground/50 text-right px-1.5 font-mono line-through">
-            {item.mrp.toFixed(0)}
+            {(Number(item.mrp) || 0).toFixed(0)}
           </div>
         )}
       </td>
@@ -832,6 +876,8 @@ export default function NewSalePage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
+  const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
+
   const [items, setItems] = useState<BillingItem[]>([createEmptyItem()])
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
@@ -936,8 +982,8 @@ export default function NewSalePage() {
           productId: product.id,
           productName: product.name,
           gstPercent: product.gstRate,
-          mrp: firstBatch?.mrp ?? product.mrp,
-          rate,
+          mrp: Number(firstBatch?.mrp ?? product.mrp) || 0,
+          rate: Number(rate) || 0,
           schedule: product.schedule,
           batchId: firstBatch?.id ?? '',
           batchNumber: firstBatch?.batchNumber ?? '',
@@ -1070,7 +1116,7 @@ export default function NewSalePage() {
         customerPhone: selectedCustomer ? selectedCustomer.phone : null,
         doctorName: doctorRef || null,
         paymentMode: paymentMode.toUpperCase(),
-        
+
         subtotal: totals.subtotal,
         productDiscount: totals.productDiscount,
         taxableAmount: totals.taxableAmount,
@@ -1096,16 +1142,16 @@ export default function NewSalePage() {
       }
 
       await api.post('/billing', payload)
-      
+
       alert("Invoice Generated Successfully!")
-      
+
       // Reset form
       setItems([createEmptyItem()])
       setDoctorRef('')
       setPaymentDetails({ ...paymentDetails, amountReceived: 0 })
       // refetch to update stock
       fetchMasterData()
-      
+
     } catch (error) {
       console.error(error)
       alert("Failed to generate invoice. Please check stock limits.")
@@ -1149,6 +1195,47 @@ export default function NewSalePage() {
       'walk-in': 'secondary',
     }
     return map[type] ?? 'secondary'
+  }
+
+  // ── Customer Form ──────────────────────────────────────
+  const customerForm = useForm<CustomerFormValues>({
+    resolver: zodResolver(customerSchema),
+    defaultValues: {
+      name: '',
+      phone: '',
+      type: 'regular',
+      email: '',
+      address: '',
+      creditLimit: 0,
+      gstin: '',
+      dlNumber: '',
+      notes: '',
+    },
+  })
+
+  const handleAddCustomer = async (values: CustomerFormValues) => {
+    try {
+      // Transform type to uppercase to match backend Enum (e.g. 'walk-in' -> 'WALK_IN')
+      const payload = {
+        ...values,
+        type: values.type.toUpperCase().replace('-', '_')
+      }
+      const res = await api.post('/customers', payload)
+      toast.success(`Customer "${values.name}" added successfully`)
+      await fetchMasterData() // Refresh list
+
+      // Auto select the new customer
+      const newlyCreated = res.data
+      if (newlyCreated) {
+        setSelectedCustomer(newlyCreated)
+      }
+
+      customerForm.reset()
+      setAddCustomerDialogOpen(false)
+    } catch (error: any) {
+      console.error(error)
+      toast.error(error?.response?.data?.message || "Failed to add customer")
+    }
   }
 
   // ── Render ──────────────────────────────────────────────
@@ -1203,113 +1290,110 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             SEARCH BAR + CONTEXT ROW
         ═══════════════════════════════════════════════════ */}
-        <motion.div
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.05 }}
-          className="flex items-start gap-3 mb-3"
-        >
-          {/* Hero Product Search */}
-          <div className="flex-1 relative">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-              <input
-                ref={heroSearchRef}
-                value={heroSearch}
-                onChange={(e) => {
-                  setHeroSearch(e.target.value)
-                  setShowHeroResults(true)
-                  setHeroSelectedIdx(0)
-                }}
-                onFocus={() => heroSearch && setShowHeroResults(true)}
-                onKeyDown={handleHeroKeyDown}
-                placeholder="Scan barcode or search products...  (Alt+S)"
-                className={cn(
-                  'w-full h-10 rounded-xl border border-border/60 bg-background pl-9 pr-4 text-sm',
-                  'placeholder:text-muted-foreground/40',
-                  'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50',
-                  'transition-all duration-200'
+        <div className="flex gap-3 mb-3 h-11">
+          {/* ═══════════════════════════════════════════════════
+              TABLE ACTION AREA (Aligned with Table Card)
+          ═══════════════════════════════════════════════════ */}
+          <div className="flex-1 min-w-0 flex items-center gap-3">
+            {/* Hero Product Search (Reduced width) */}
+            <div className="w-[45%] lg:w-[40%] relative">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/60" />
+                <input
+                  ref={heroSearchRef}
+                  value={heroSearch}
+                  onChange={(e) => {
+                    setHeroSearch(e.target.value)
+                    setShowHeroResults(true)
+                    setHeroSelectedIdx(0)
+                  }}
+                  onFocus={() => heroSearch && setShowHeroResults(true)}
+                  onKeyDown={handleHeroKeyDown}
+                  placeholder="Scan barcode or search products...  (Alt+S)"
+                  className={cn(
+                    'w-full h-11 rounded-xl border-2 border-primary/20 bg-background pl-11 pr-4 text-sm shadow-sm',
+                    'placeholder:text-muted-foreground/50 font-medium',
+                    'focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary/60',
+                    'transition-all duration-300 hover:border-primary/30'
+                  )}
+                />
+                {heroSearch && (
+                  <button
+                    type="button"
+                    onClick={() => { setHeroSearch(''); setShowHeroResults(false); heroSearchRef.current?.focus() }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 )}
-              />
-              {heroSearch && (
-                <button
-                  type="button"
-                  onClick={() => { setHeroSearch(''); setShowHeroResults(false); heroSearchRef.current?.focus() }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+              </div>
+
+              {/* Hero search results dropdown */}
+              <AnimatePresence>
+                {showHeroResults && heroResults.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover/95 shadow-2xl backdrop-blur-xl overflow-hidden"
+                  >
+                    <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {heroResults.length} product{heroResults.length > 1 ? 's' : ''} found
+                    </div>
+                    <ScrollArea className="max-h-64">
+                      {heroResults.map((p, idx) => (
+                        <div
+                          key={p.id}
+                          className={cn(
+                            'cursor-pointer px-3 py-2.5 transition-colors flex items-center gap-3',
+                            idx === heroSelectedIdx ? 'bg-primary/8 dark:bg-primary/10' : 'hover:bg-accent/50'
+                          )}
+                          onClick={() => addProductFromSearch(p)}
+                          onMouseEnter={() => setHeroSelectedIdx(idx)}
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                            <Package className="h-4 w-4 text-muted-foreground/60" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">{p.name}</span>
+                              {(p.schedule === 'H' || p.schedule === 'H1') && (
+                                <Badge variant="destructive" size="sm">{p.schedule}</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <span>{p.manufacturer}</span>
+                              <span className="text-border">·</span>
+                              <span>{p.genericName}</span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs font-semibold font-mono">{formatCurrency(billingType === 'wholesale' ? p.wholesaleRate : p.sellingRate)}</div>
+                            <div className="text-[10px] text-muted-foreground">Stk: {p.totalStock}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </ScrollArea>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Hero search results dropdown */}
-            <AnimatePresence>
-              {showHeroResults && heroResults.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.12 }}
-                  className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover/95 shadow-2xl backdrop-blur-xl overflow-hidden"
-                >
-                  <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {heroResults.length} product{heroResults.length > 1 ? 's' : ''} found · Enter to add
-                  </div>
-                  <ScrollArea className="max-h-64">
-                    {heroResults.map((p, idx) => (
-                      <div
-                        key={p.id}
-                        className={cn(
-                          'cursor-pointer px-3 py-2.5 transition-colors flex items-center gap-3',
-                          idx === heroSelectedIdx ? 'bg-primary/8 dark:bg-primary/10' : 'hover:bg-accent/50'
-                        )}
-                        onClick={() => addProductFromSearch(p)}
-                        onMouseEnter={() => setHeroSelectedIdx(idx)}
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
-                          <Package className="h-4 w-4 text-muted-foreground/60" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium truncate">{p.name}</span>
-                            {(p.schedule === 'H' || p.schedule === 'H1') && (
-                              <Badge variant="destructive" size="sm">{p.schedule}</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                            <span>{p.manufacturer}</span>
-                            <span className="text-border">·</span>
-                            <span>{p.genericName}</span>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-xs font-semibold font-mono">{formatCurrency(billingType === 'wholesale' ? p.wholesaleRate : p.sellingRate)}</div>
-                          <div className="text-[10px] text-muted-foreground">Stock: {p.totalStock}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </ScrollArea>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Doctor + Customer compact selectors */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Doctor */}
-            <div ref={doctorRef2} className="relative">
+            {/* Doctor Selector (Increased width) */}
+            <div ref={doctorRef2} className="flex-1 min-w-0 relative h-full">
               <button
                 type="button"
                 onClick={() => setShowDoctorDropdown(!showDoctorDropdown)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 h-10 rounded-xl border border-border/60 bg-background px-3 text-xs transition-all',
+                  'flex items-center gap-1.5 w-full h-full rounded-xl border border-border/60 bg-background px-3 text-xs transition-all',
                   'hover:border-primary/40',
                   doctorRef ? 'text-foreground' : 'text-muted-foreground/60'
                 )}
               >
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 mr-0.5">Dr</span>
-                <span className="max-w-[100px] truncate">{doctorRef || 'Doctor'}</span>
-                <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 mr-0.5 shrink-0">Dr</span>
+                <span className="flex-1 text-left truncate font-medium">{doctorRef || 'Select Doctor'}</span>
+                <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
               </button>
               <AnimatePresence>
                 {showDoctorDropdown && (
@@ -1318,14 +1402,14 @@ export default function NewSalePage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute z-50 right-0 mt-1 w-56 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
+                    className="absolute z-50 left-0 mt-1 w-full min-w-[220px] rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
                   >
                     <div className="p-2 border-b border-border/40">
                       <input
                         value={doctorSearch}
                         onChange={(e) => setDoctorSearch(e.target.value)}
                         placeholder="Search doctor..."
-                        className="w-full h-7 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
+                        className="w-full h-8 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
                         autoFocus
                       />
                     </div>
@@ -1339,7 +1423,7 @@ export default function NewSalePage() {
                       {filteredDoctors.map((doc) => (
                         <div
                           key={doc}
-                          className="cursor-pointer px-3 py-2 text-xs hover:bg-accent/60 transition-colors"
+                          className="cursor-pointer px-3 py-2 text-xs hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0"
                           onClick={() => { setDoctorRef(doc); setDoctorSearch(''); setShowDoctorDropdown(false) }}
                         >
                           {doc}
@@ -1351,28 +1435,44 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
 
-            {/* Customer */}
-            <div ref={customerRef} className="relative">
+            {/* Add Item Button (Aligned to end of table) */}
+            <Button
+              type="button"
+              onClick={addItem}
+              className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add Item</span>
+              <kbd className="ml-1 hidden lg:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
+            </Button>
+          </div>
+
+          {/* ═══════════════════════════════════════════════════
+              SIDEBAR HEADER (Aligned with Grand Total Panel)
+          ═══════════════════════════════════════════════════ */}
+          <div className="w-[300px] lg:w-[320px] shrink-0">
+            {/* Customer (Full width of sidebar) */}
+            <div ref={customerRef} className="relative h-full">
               <button
                 type="button"
                 onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 h-10 rounded-xl border border-border/60 bg-background px-3 text-xs transition-all',
+                  'flex items-center gap-2.5 w-full h-full rounded-xl border border-border/60 bg-background px-3 text-xs transition-all shadow-sm',
                   'hover:border-primary/40'
                 )}
               >
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[9px] font-bold text-primary">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
                   {(selectedCustomer?.name ?? 'W')[0]}
                 </div>
-                <span className="max-w-[120px] truncate font-medium">
-                  {selectedCustomer?.name ?? 'Walk-in'}
+                <span className="flex-1 text-left truncate font-semibold">
+                  {selectedCustomer?.name ?? 'Walk-in Customer'}
                 </span>
                 {selectedCustomer && selectedCustomer.type !== 'walk-in' && (
-                  <Badge variant={customerTypeBadge(selectedCustomer.type)} size="sm" className="text-[9px] px-1.5">
+                  <Badge variant={customerTypeBadge(selectedCustomer.type)} size="sm" className="text-[9px] px-1.5 shrink-0">
                     {selectedCustomer.type}
                   </Badge>
                 )}
-                <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+                <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
               </button>
               <AnimatePresence>
                 {showCustomerDropdown && (
@@ -1388,7 +1488,7 @@ export default function NewSalePage() {
                         value={customerSearch}
                         onChange={(e) => setCustomerSearch(e.target.value)}
                         placeholder="Search name or phone..."
-                        className="w-full h-7 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
+                        className="w-full h-8 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
                         autoFocus
                       />
                     </div>
@@ -1396,7 +1496,7 @@ export default function NewSalePage() {
                       {filteredCustomers.map((cust) => (
                         <div
                           key={cust.id}
-                          className="cursor-pointer px-3 py-2 hover:bg-accent/60 transition-colors"
+                          className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0"
                           onClick={() => {
                             setSelectedCustomer(cust)
                             setCustomerSearch('')
@@ -1404,7 +1504,7 @@ export default function NewSalePage() {
                           }}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium">{cust.name}</span>
+                            <span className="text-xs font-semibold">{cust.name}</span>
                             <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px]">
                               {cust.type}
                             </Badge>
@@ -1415,12 +1515,16 @@ export default function NewSalePage() {
                         </div>
                       ))}
                     </ScrollArea>
-                    <div className="border-t border-border/40 p-2">
+                    <div className="border-t border-border/40 p-2 bg-muted/20">
                       <button
                         type="button"
-                        className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-primary hover:bg-primary/5 transition-colors"
+                        onClick={() => {
+                          setAddCustomerDialogOpen(true)
+                          setShowCustomerDropdown(false)
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-primary hover:bg-primary/5 transition-colors font-semibold"
                       >
-                        <UserPlus className="h-3.5 w-3.5" />
+                        <UserPlus className="h-4 w-4" />
                         Add New Customer
                       </button>
                     </div>
@@ -1429,7 +1533,7 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* ── Credit Warning ── */}
         <AnimatePresence>
@@ -1505,22 +1609,11 @@ export default function NewSalePage() {
                   )}
                 </ScrollArea>
 
-                {/* Add row + item count bar */}
-                <div className="flex items-center justify-between border-t border-border/40 px-3 py-1.5 bg-muted/10">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={addItem}
-                    className="text-primary gap-1 text-xs h-7"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Add Row
-                    <kbd className="ml-1 hidden rounded border border-border/40 bg-muted/30 px-1 text-[9px] font-mono text-muted-foreground sm:inline">Alt+N</kbd>
-                  </Button>
+                {/* item count bar */}
+                <div className="flex items-center justify-end border-t border-border/40 px-3 py-1.5 bg-muted/10">
                   {activeItemCount > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      {activeItemCount} item{activeItemCount !== 1 ? 's' : ''} in cart
                     </span>
                   )}
                 </div>
@@ -1605,9 +1698,9 @@ export default function NewSalePage() {
             <div className="flex flex-col gap-1.5 mt-auto">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="default" 
-                    className="w-full gap-2 h-10 text-sm font-semibold shadow-md shadow-primary/20"
+                  <Button
+                    variant="default"
+                    className="w-full gap-2 h-10 text-sm font-semibold shadow-md shadow-primary/20 cursor-pointer"
                     onClick={submitInvoice}
                     disabled={isSubmitting}
                   >
@@ -1690,6 +1783,104 @@ export default function NewSalePage() {
           ))}
         </motion.div>
       </div>
+
+      {/* ─── Add Customer Dialog ─── */}
+      <Dialog open={addCustomerDialogOpen} onOpenChange={setAddCustomerDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogDescription>Create a new customer profile for billing.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name <span className="text-red-500">*</span></Label>
+                <Input
+                  id="name"
+                  placeholder="e.g. John Doe"
+                  {...customerForm.register('name')}
+                />
+                {customerForm.formState.errors.name && (
+                  <p className="text-[10px] text-destructive font-medium">{customerForm.formState.errors.name.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number <span className="text-red-500">*</span></Label>
+                <Input
+                  id="phone"
+                  placeholder="10-digit mobile"
+                  {...customerForm.register('phone')}
+                />
+                {customerForm.formState.errors.phone && (
+                  <p className="text-[10px] text-destructive font-medium">{customerForm.formState.errors.phone.message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Customer Type <span className="text-red-500">*</span></Label>
+                <Controller
+                  control={customerForm.control}
+                  name="type"
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="regular">Regular</SelectItem>
+                        <SelectItem value="wholesale">Wholesale</SelectItem>
+                        <SelectItem value="hospital">Hospital</SelectItem>
+                        <SelectItem value="doctor">Doctor</SelectItem>
+                        <SelectItem value="walk-in">Walk-in</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="creditLimit">Credit Limit (₹)</Label>
+                <Input
+                  id="creditLimit"
+                  type="number"
+                  placeholder="0.00"
+                  {...customerForm.register('creditLimit')}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address">Address</Label>
+              <Textarea
+                id="address"
+                placeholder="Shipping/Billing address"
+                className="resize-none h-20"
+                {...customerForm.register('address')}
+              />
+            </div>
+
+            <DialogFooter className="pt-4 border-t gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddCustomerDialogOpen(false)}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={customerForm.formState.isSubmitting}
+                className="cursor-pointer"
+              >
+                {customerForm.formState.isSubmitting ? 'Creating...' : 'Create Customer'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   )
 }
