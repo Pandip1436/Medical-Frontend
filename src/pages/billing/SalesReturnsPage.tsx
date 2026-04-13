@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
   Search,
   ChevronRight,

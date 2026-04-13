@@ -8,6 +8,7 @@ import {
   Search,
   LayoutGrid,
   TableProperties,
+  MapPin,
 } from 'lucide-react'
 import { differenceInDays } from 'date-fns'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'

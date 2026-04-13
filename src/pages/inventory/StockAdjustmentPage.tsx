@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { toast } from 'sonner'
 import {
   Search,
@@ -181,6 +182,8 @@ export default function StockAdjustmentPage() {
   const totalValueImpact = useMemo(() => {
     return items.reduce((sum, item) => sum + item.adjustment * item.mrp, 0)
   }, [items])
+  
+  const requiresApproval = Math.abs(totalValueImpact) > 5000
 
   const [isSubmitting, setIsSubmitting] = useState(false)
 

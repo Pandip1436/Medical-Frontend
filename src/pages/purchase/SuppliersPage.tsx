@@ -89,7 +89,7 @@ const supplierSchema = z.object({
     .max(15, 'GSTIN must be 15 characters'),
   drugLicense: z.string().min(5, 'Drug license number required'),
   address: z.string().min(10, 'Address is required'),
-  paymentTerms: z.enum(['Net 30', 'Net 45', 'Net 60'], {
+  paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
     message: 'Select payment terms',
   }),
   bankDetails: z.string().optional(),
@@ -126,9 +126,9 @@ const STATUS_OPTIONS = [
 
 const PAYMENT_TERMS_OPTIONS = [
   { value: 'all', label: 'All Terms' },
-  { value: 'Net 30', label: 'Net 30' },
-  { value: 'Net 45', label: 'Net 45' },
-  { value: 'Net 60', label: 'Net 60' },
+  { value: 'NET_30', label: 'Net 30' },
+  { value: 'NET_45', label: 'Net 45' },
+  { value: 'NET_60', label: 'Net 60' },
 ] as const
 
 // ─────────────────────────────────────────────────────────────
@@ -257,7 +257,7 @@ export default function SuppliersPage() {
       gstin: '',
       drugLicense: '',
       address: '',
-      paymentTerms: 'Net 30',
+      paymentTerms: 'NET_30',
       bankDetails: '',
     },
   })
@@ -272,7 +272,7 @@ export default function SuppliersPage() {
       gstin: '',
       drugLicense: '',
       address: '',
-      paymentTerms: 'Net 30',
+      paymentTerms: 'NET_30',
       bankDetails: '',
     })
     setDialogOpen(true)
@@ -652,18 +652,18 @@ export default function SuppliersPage() {
                   Payment Terms
                 </Label>
                 <Select
-                  defaultValue={editingSupplier?.paymentTerms || 'Net 30'}
+                  defaultValue={editingSupplier?.paymentTerms || 'NET_30'}
                   onValueChange={(val) =>
-                    setValue('paymentTerms', val as 'Net 30' | 'Net 45' | 'Net 60')
+                    setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60')
                   }
                 >
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="Select payment terms" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Net 30">Net 30</SelectItem>
-                    <SelectItem value="Net 45">Net 45</SelectItem>
-                    <SelectItem value="Net 60">Net 60</SelectItem>
+                    <SelectItem value="NET_30">Net 30</SelectItem>
+                    <SelectItem value="NET_45">Net 45</SelectItem>
+                    <SelectItem value="NET_60">Net 60</SelectItem>
                   </SelectContent>
                 </Select>
                 {errors.paymentTerms && (

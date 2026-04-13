@@ -198,7 +198,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const filteredGroups = useMemo(() => {
     const role = user?.role ?? ''
     // Admin sees everything; other roles are filtered by rolePermissions
-    const allowedPaths = role === 'ADMIN' ? null : (rolePermissions[role] ?? [])
+    const allowedPaths = role === 'admin' ? null : (rolePermissions[role] ?? [])
 
     return navigationGroups
       .map((group) => ({

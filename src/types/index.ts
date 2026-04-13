@@ -81,6 +81,7 @@ export interface Batch {
   mrp: number
   purchaseRate: number
   supplierId: string
+  productName?: string
 }
 
 export interface InvoiceItem {
