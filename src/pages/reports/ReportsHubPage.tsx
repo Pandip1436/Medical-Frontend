@@ -149,6 +149,9 @@ import {
 } from '@/components/ui/table'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
+import api from '@/lib/api'
+import * as XLSX from 'xlsx'
+import { useEffect } from 'react'
 
 const dailySalesData = [
   { hour: '9 AM', amount: 12400 },
@@ -251,9 +254,44 @@ allReports.forEach((r) => { reportTitleMap[r.id] = r.name })
 function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: () => void }) {
   const [dateRange, setDateRange] = useState('today')
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('chart')
+  const [reportData, setReportData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const title = reportTitleMap[reportType] || 'Report'
-  const kpis = reportKpis[reportType] || defaultKpis
+
+  useEffect(() => {
+    async function loadReportData() {
+      setIsLoading(true)
+      try {
+        let endpoint = ''
+        if (reportType === 'daily-sales') endpoint = '/reports/sales/daily'
+        else if (reportType === 'product-sales') endpoint = '/reports/sales/products'
+        else if (reportType === 'stock-valuation') endpoint = '/reports/inventory/valuation'
+
+        if (endpoint) {
+          const res = await api.get(endpoint)
+          setReportData(res.data)
+        } else {
+          setReportData(null)
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadReportData()
+  }, [reportType])
+
+  const kpis = reportData?.kpis || defaultKpis
+
+  function handleExcelExport() {
+    if (!reportData?.tableData) return
+    const ws = XLSX.utils.json_to_sheet(reportData.tableData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Report")
+    XLSX.writeFile(wb, `${reportType}_report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
 
   const dateRangeOptions = [
     { key: 'today', label: 'Today' },
@@ -320,13 +358,13 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
             </button>
           </div>
           <div className="h-5 w-px bg-border/60" />
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1">
+          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={() => window.print()}>
             <FileDown className="h-3 w-3" /> PDF
           </Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1">
+          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={handleExcelExport}>
             <FileSpreadsheet className="h-3 w-3" /> Excel
           </Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1">
+          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={() => window.print()}>
             <Printer className="h-3 w-3" /> Print
           </Button>
         </div>
@@ -335,7 +373,7 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
       {/* KPI strip */}
       <div className="shrink-0 border-b border-border/40 bg-muted/10 px-6 py-3 dark:bg-muted/5">
         <div className="grid grid-cols-4 gap-3">
-          {kpis.map((kpi) => (
+          {kpis.map((kpi: KpiDef) => (
             <div key={kpi.label} className="rounded-xl border border-border/40 bg-background px-4 py-2.5">
               <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
               <p className="mt-0.5 text-lg font-bold tabular-nums">{kpi.value}</p>
@@ -347,12 +385,17 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
       {/* Content */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-6">
-          {reportType === 'daily-sales' && (
+          {isLoading ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              <p className="text-sm text-muted-foreground font-medium animate-pulse">Analyzing database records...</p>
+            </div>
+          ) : reportType === 'daily-sales' && reportData ? (
             <>
               {viewMode === 'chart' ? (
                 <div className="rounded-xl border border-border/40 bg-background p-5">
                   <ResponsiveContainer width="100%" height={400}>
-                    <BarChart data={dailySalesData}>
+                    <BarChart data={reportData.chartData}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" vertical={false} />
                       <XAxis dataKey="hour" tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} className="text-muted-foreground" axisLine={false} tickLine={false} />
@@ -371,7 +414,7 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                       <TableRow><TableHead>Invoice #</TableHead><TableHead>Time</TableHead><TableHead>Customer</TableHead><TableHead className="text-right">Amount</TableHead></TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dailySalesTable.map((row) => (
+                      {reportData.tableData.map((row: any) => (
                         <TableRow key={row.invoice}>
                           <TableCell className="font-mono text-xs">{row.invoice}</TableCell>
                           <TableCell>{row.time}</TableCell>
@@ -384,14 +427,12 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                 </div>
               )}
             </>
-          )}
-
-          {reportType === 'product-sales' && (
+          ) : reportType === 'product-sales' && reportData ? (
             <>
               {viewMode === 'chart' ? (
                 <div className="rounded-xl border border-border/40 bg-background p-5">
                   <ResponsiveContainer width="100%" height={400}>
-                    <BarChart data={productSalesData} layout="vertical" margin={{ left: 30 }}>
+                    <BarChart data={reportData.chartData} layout="vertical" margin={{ left: 30 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} className="text-muted-foreground" axisLine={false} tickLine={false} />
                       <YAxis dataKey="product" type="category" tick={{ fontSize: 10 }} width={140} className="text-muted-foreground" axisLine={false} tickLine={false} />
@@ -410,7 +451,7 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                       <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Qty Sold</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead className="text-right">Margin %</TableHead></TableRow>
                     </TableHeader>
                     <TableBody>
-                      {productSalesData.map((row) => (
+                      {reportData.tableData.map((row: any) => (
                         <TableRow key={row.product}>
                           <TableCell className="font-medium">{row.product}</TableCell>
                           <TableCell className="text-right">{row.qtySold}</TableCell>
@@ -425,16 +466,14 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                 </div>
               )}
             </>
-          )}
-
-          {reportType === 'stock-valuation' && (
+          ) : reportType === 'stock-valuation' && reportData ? (
             <>
               {viewMode === 'chart' ? (
                 <div className="rounded-xl border border-border/40 bg-background p-5">
                   <ResponsiveContainer width="100%" height={400}>
                     <RechartsPieChart>
-                      <Pie data={stockValuationData} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="value" nameKey="category">
-                        {stockValuationData.map((_, index) => (
+                      <Pie data={reportData.chartData} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="value" nameKey="category">
+                        {reportData.chartData.map((_: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                         ))}
                       </Pie>
@@ -453,7 +492,7 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                       <TableRow><TableHead>Product</TableHead><TableHead>Batch</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Purchase Value</TableHead><TableHead className="text-right">MRP Value</TableHead></TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockValuationTable.map((row) => (
+                      {reportData.tableData.map((row: any) => (
                         <TableRow key={row.batch}>
                           <TableCell className="font-medium">{row.product}</TableCell>
                           <TableCell className="font-mono text-xs">{row.batch}</TableCell>
@@ -467,9 +506,7 @@ function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: ()
                 </div>
               )}
             </>
-          )}
-
-          {!['daily-sales', 'product-sales', 'stock-valuation'].includes(reportType) && (
+          ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/50">
                 <BarChart3 className="h-7 w-7 text-muted-foreground/50" />
@@ -542,7 +579,14 @@ export default function ReportsHubPage() {
       <div className="shrink-0 border-b border-border/40 bg-background px-6 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold tracking-tight">Reports & Analytics</h1>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-lg font-bold tracking-tight">Reports & Analytics</h1>
+              {filteredReports.length !== totalReports && (
+                <Badge variant="warning" className="px-1.5 py-0 text-[10px] font-medium text-muted-foreground animate-in fade-in slide-in-from-left-1">
+                  {filteredReports.length} found
+                </Badge>
+              )}
+            </div>
             <p className="text-[11px] text-muted-foreground">
               {totalReports} reports available across {categoryKeys.length - 1} categories
             </p>
@@ -554,9 +598,6 @@ export default function ReportsHubPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-56 h-8 text-xs"
-              suffix={filteredReports.length !== totalReports ? (
-                <span className="tabular-nums whitespace-nowrap text-[11px]">{filteredReports.length} found</span>
-              ) : undefined}
             />
             <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as CategoryKey)}>
               <SelectTrigger className="h-8 w-[130px] rounded-lg text-xs">

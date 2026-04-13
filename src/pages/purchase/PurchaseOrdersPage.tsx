@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   Clock,
   Package,
+  RotateCcw,
 } from 'lucide-react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { z } from 'zod'
@@ -63,8 +64,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  PopoverAnchor,
+} from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
-import { mockPurchaseOrders, mockSuppliers, mockProducts } from '@/data/mock'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import api from '@/lib/api'
+import { useEffect } from 'react'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import type { PurchaseOrder } from '@/types'
@@ -153,6 +162,13 @@ export default function PurchaseOrdersPage() {
   // Create PO dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [productSearch, setProductSearch] = useState('')
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
+
+  const { purchaseOrders, suppliers, products, fetchMasterData, isLoading } = useMasterDataStore()
+
+  useEffect(() => {
+    fetchMasterData()
+  }, [])
 
   const clearFilters = () => {
     setPeriod('all')
@@ -167,7 +183,7 @@ export default function PurchaseOrdersPage() {
   // ── Filtering logic ──
 
   const filteredPOs = useMemo(() => {
-    let result = [...mockPurchaseOrders]
+    let result = [...purchaseOrders]
 
     // Period
     const now = new Date()
@@ -218,12 +234,12 @@ export default function PurchaseOrdersPage() {
     if (amountMax) result = result.filter((po) => po.totalAmount <= parseFloat(amountMax))
 
     return result
-  }, [searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax])
+  }, [searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax, purchaseOrders])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const all = mockPurchaseOrders
+    const all = purchaseOrders
     const totalAmount = all.reduce((sum, po) => sum + po.totalAmount, 0)
     const receivedTotal = all
       .filter((po) => po.status === 'fully_received' || po.status === 'closed')
@@ -241,7 +257,7 @@ export default function PurchaseOrdersPage() {
       pendingTotal,
       partialCount,
     }
-  }, [])
+  }, [purchaseOrders])
 
   // ── Pagination ──
 
@@ -325,22 +341,33 @@ export default function PurchaseOrdersPage() {
   }, [watchedItems])
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return []
-    return mockProducts
-      .filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.genericName.toLowerCase().includes(productSearch.toLowerCase()))
-      .slice(0, 8)
-  }, [productSearch])
+    if (!productSearch) return products.slice(0, 50)
+    return products
+      .filter((p) =>
+        p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+        p.genericName.toLowerCase().includes(productSearch.toLowerCase())
+      )
+      .slice(0, 50)
+  }, [productSearch, products])
 
-  function handleProductSelect(index: number, product: (typeof mockProducts)[0]) {
+  function handleProductSelect(index: number, product: any) {
     setValue(`items.${index}.productId`, product.id)
     setValue(`items.${index}.productName`, product.name)
-    setValue(`items.${index}.lastPurchaseRate`, product.purchaseRate)
-    setValue(`items.${index}.expectedRate`, product.purchaseRate)
+    setValue(`items.${index}.lastPurchaseRate`, Number(product.purchaseRate))
+    setValue(`items.${index}.expectedRate`, Number(product.purchaseRate))
     setProductSearch('')
+    setIsSearchFocused(false)
+  }
+
+  function handleClearProduct(index: number) {
+    setValue(`items.${index}.productId`, '')
+    setValue(`items.${index}.productName`, '')
+    setValue(`items.${index}.lastPurchaseRate`, 0)
+    setValue(`items.${index}.expectedRate`, 0)
   }
 
   function handleAutoGenerate() {
-    const lowStockProducts = mockProducts.filter((p) => p.totalStock <= p.minStock).slice(0, 18)
+    const lowStockProducts = products.filter((p) => p.totalStock <= p.minStock).slice(0, 18)
     const newItems = lowStockProducts.map((p) => ({
       productId: p.id, productName: p.name, requiredQty: p.reorderQty,
       lastPurchaseRate: p.purchaseRate, expectedRate: p.purchaseRate,
@@ -351,14 +378,27 @@ export default function PurchaseOrdersPage() {
     toast.success(`Added ${newItems.length} low stock items`)
   }
 
-  function onSubmitPO(data: any, asDraft: boolean) {
-    const supplier = mockSuppliers.find((s) => s.id === data.supplierId)
-    toast.success(asDraft
-      ? `Purchase Order saved as draft for ${supplier?.name || 'supplier'}`
-      : `Purchase Order sent to ${supplier?.name || 'supplier'} successfully`
-    )
-    setCreateDialogOpen(false)
-    reset()
+  async function onSubmitPO(data: any, asDraft: boolean) {
+    try {
+      const payload = {
+        ...data,
+        status: asDraft ? 'draft' : 'sent',
+        date: new Date().toISOString(),
+        poNumber: `PO-${Date.now().toString().slice(-6)}`,
+        totalAmount: poTotal
+      }
+      await api.post('/purchase-orders', payload)
+      toast.success(asDraft
+        ? `Purchase Order saved as draft`
+        : `Purchase Order sent successfully`
+      )
+      setCreateDialogOpen(false)
+      reset()
+      fetchMasterData()
+    } catch (error: any) {
+      console.error(error)
+      toast.error(error.response?.data?.message || 'Failed to create PO')
+    }
   }
 
   return (
@@ -377,11 +417,11 @@ export default function PurchaseOrdersPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting to Excel...')}>
+          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting...')} className="cursor-pointer">
             <Download className="mr-1.5 h-4 w-4" />
             Export
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info('Preparing print view...')}>
+          <Button variant="outline" size="sm" onClick={() => toast.info('Printing...')} className="cursor-pointer">
             <Printer className="mr-1.5 h-4 w-4" />
             Print
           </Button>
@@ -476,15 +516,15 @@ export default function PurchaseOrdersPage() {
           </Button>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)} className="cursor-pointer">
             <Plus className="mr-1.5 h-4 w-4" />
             Create PO
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/grn')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/grn')} className="cursor-pointer">
             <PackageCheck className="mr-1.5 h-4 w-4" />
             Goods Receipt
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/returns')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/returns')} className="cursor-pointer">
             <ClipboardList className="mr-1.5 h-4 w-4" />
             Returns
           </Button>
@@ -537,7 +577,7 @@ export default function PurchaseOrdersPage() {
                       <SelectTrigger><SelectValue placeholder="All Suppliers" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Suppliers</SelectItem>
-                        {mockSuppliers.map((s) => (
+                        {suppliers.map((s) => (
                           <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -585,15 +625,15 @@ export default function PurchaseOrdersPage() {
             <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')} className="cursor-pointer">
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')} className="cursor-pointer">
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')} className="cursor-pointer">
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
@@ -626,7 +666,16 @@ export default function PurchaseOrdersPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {paginatedPOs.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <p className="text-xs text-muted-foreground">Syncing orders...</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedPOs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -679,25 +728,26 @@ export default function PurchaseOrdersPage() {
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm"><MoreHorizontal /></Button>
+                          <Button variant="ghost" size="icon-sm" className="cursor-pointer"><MoreHorizontal /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => handleAction('view', po)}>
+                          <DropdownMenuItem onClick={() => handleAction('view', po)} className="cursor-pointer">
                             <Eye className="mr-2 h-4 w-4" />View
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleAction('send', po)} disabled={po.status !== 'draft'}>
+                          <DropdownMenuItem onClick={() => handleAction('send', po)} disabled={po.status !== 'draft'} className="cursor-pointer">
                             <Send className="mr-2 h-4 w-4" />Send to Supplier
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleAction('receive', po)}
                             disabled={po.status === 'draft' || po.status === 'fully_received' || po.status === 'closed'}
+                            className="cursor-pointer"
                           >
                             <PackageCheck className="mr-2 h-4 w-4" />Receive Goods
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleAction('cancel', po)}
                             disabled={po.status === 'fully_received' || po.status === 'closed'}
-                            className="text-destructive focus:text-destructive"
+                            className="text-destructive focus:text-destructive cursor-pointer"
                           >
                             <XCircle className="mr-2 h-4 w-4" />Cancel
                           </DropdownMenuItem>
@@ -743,13 +793,13 @@ export default function PurchaseOrdersPage() {
           <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</Label>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier <span className="text-red-500">*</span></Label>
                 <Select onValueChange={(val) => setValue('supplierId', val)}>
                   <SelectTrigger className={cn(errors.supplierId && 'border-destructive')}>
                     <SelectValue placeholder="Select supplier..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockSuppliers.map((s) => (
+                    {suppliers.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -757,14 +807,14 @@ export default function PurchaseOrdersPage() {
                 {errors.supplierId && <p className="text-xs text-destructive">{errors.supplierId.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</Label>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery <span className="text-red-500">*</span></Label>
                 <Input type="date" error={!!errors.expectedDelivery} {...register('expectedDelivery')} />
                 {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleAutoGenerate}>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5 cursor-pointer" onClick={handleAutoGenerate}>
                 <Zap className="h-3.5 w-3.5" />Auto-generate from Low Stock
               </Button>
             </div>
@@ -773,20 +823,20 @@ export default function PurchaseOrdersPage() {
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Order Items</Label>
-                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Order Items <span className="text-red-500">*</span></Label>
+                <Button type="button" variant="outline" size="sm" className="gap-1 cursor-pointer" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
                   <Plus className="h-3 w-3" />Add Row
                 </Button>
               </div>
 
-              <div className="rounded-xl border border-border/60 overflow-auto">
+              <div className="rounded-xl border border-border/60">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[200px]">Product</TableHead>
-                      <TableHead className="w-[100px]">Req. Qty</TableHead>
+                      <TableHead className="min-w-[200px]">Product <span className="text-red-500">*</span></TableHead>
+                      <TableHead className="w-[100px]">Req. Qty <span className="text-red-500">*</span></TableHead>
                       <TableHead className="w-[120px]">Last Rate</TableHead>
-                      <TableHead className="w-[120px]">Expected Rate</TableHead>
+                      <TableHead className="w-[120px]">Expected Rate <span className="text-red-500">*</span></TableHead>
                       <TableHead className="min-w-[120px]">Remarks</TableHead>
                       <TableHead className="w-[60px]" />
                     </TableRow>
@@ -796,30 +846,70 @@ export default function PurchaseOrdersPage() {
                       <TableRow key={field.id} className="border-border/40">
                         <TableCell>
                           {watchedItems[index]?.productName ? (
-                            <span className="text-sm font-medium">{watchedItems[index].productName}</span>
-                          ) : (
-                            <div className="relative">
-                              <Input
-                                icon={<Search className="h-3.5 w-3.5" />}
-                                placeholder="Search product..."
-                                value={productSearch}
-                                onChange={(e) => setProductSearch(e.target.value)}
-                                className="h-8"
-                              />
-                              {productSearch && filteredProducts.length > 0 && (
-                                <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover p-1 shadow-lg dark:shadow-black/20">
-                                  {filteredProducts.map((p) => (
-                                    <button
-                                      key={p.id} type="button"
-                                      className="w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                                      onClick={() => handleProductSelect(index, p)}
-                                    >
-                                      {p.name} <span className="font-mono text-xs text-muted-foreground">({formatCurrency(p.purchaseRate)})</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
+                            <div className="flex items-center justify-between gap-2 group/item">
+                              <span className="text-sm font-medium truncate">{watchedItems[index].productName}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                // size="icon-xs" 
+                                onClick={() => handleClearProduct(index)}
+                                className="h-6 w-6 opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
+                              >
+                                <RotateCcw className="h-3 w-3 text-muted-foreground" />
+                              </Button>
                             </div>
+                          ) : (
+                            <Popover open={(isSearchFocused || !!productSearch) && filteredProducts.length > 0} modal={false}>
+                              <PopoverAnchor asChild>
+                                <div className="relative group">
+                                  <Input
+                                    icon={<Search className="h-3.5 w-3.5" />}
+                                    placeholder="Select product..."
+                                    value={productSearch}
+                                    onChange={(e) => setProductSearch(e.target.value)}
+                                    onFocus={() => setIsSearchFocused(true)}
+                                    onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+                                    className="h-8 pr-8"
+                                  />
+                                  {productSearch && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setProductSearch('')}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted cursor-pointer"
+                                    >
+                                      <X className="h-3 w-3 text-muted-foreground" />
+                                    </button>
+                                  )}
+                                </div>
+                              </PopoverAnchor>
+                              <PopoverContent
+                                className="p-1 w-[320px] shadow-xl border-border/60"
+                                align="start"
+                                side="bottom"
+                                sideOffset={5}
+                                onOpenAutoFocus={(e) => e.preventDefault()}
+                              >
+                                <div className="max-h-[300px] overflow-y-auto space-y-0.5 custom-scrollbar">
+                                  {productSearch && filteredProducts.length === 0 ? (
+                                    <div className="py-4 text-center text-xs text-muted-foreground">No products found</div>
+                                  ) : (
+                                    filteredProducts.map((p) => (
+                                      <button
+                                        key={p.id} type="button"
+                                        className="w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent flex flex-col gap-0.5"
+                                        onClick={() => handleProductSelect(index, p)}
+                                      >
+                                        <span className="font-medium">{p.name}</span>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{p.manufacturer}</span>
+                                          <span className="font-mono text-[11px] font-semibold text-primary">{formatCurrency(p.purchaseRate)}</span>
+                                        </div>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           )}
                         </TableCell>
                         <TableCell>
@@ -835,7 +925,7 @@ export default function PurchaseOrdersPage() {
                           <Input className="h-8" placeholder="Optional" {...register(`items.${index}.remarks`)} />
                         </TableCell>
                         <TableCell>
-                          <Button type="button" variant="ghost" size="icon-sm" onClick={() => fields.length > 1 && remove(index)} disabled={fields.length <= 1}>
+                          <Button type="button" variant="ghost" size="icon-sm" onClick={() => fields.length > 1 && remove(index)} disabled={fields.length <= 1} className="cursor-pointer">
                             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                           </Button>
                         </TableCell>
@@ -859,13 +949,18 @@ export default function PurchaseOrdersPage() {
               <span className="text-lg font-bold font-mono">{formatCurrency(poTotal)}</span>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()}>
-                Save as Draft
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="ghost" onClick={() => setCreateDialogOpen(false)} className="cursor-pointer">
+                Cancel
               </Button>
-              <Button type="submit" className="gap-1.5">
-                <Send className="h-3.5 w-3.5" />Send to Supplier
-              </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()} className="cursor-pointer">
+                  Save as Draft
+                </Button>
+                <Button type="submit" className="gap-1.5 cursor-pointer">
+                  <Send className="h-3.5 w-3.5" />Send to Supplier
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>

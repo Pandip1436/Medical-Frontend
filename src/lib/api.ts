@@ -26,9 +26,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear token and force reload to kick user to login page
+      // Clear all auth-related storage to prevent redirect loops
       localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_user');
+      localStorage.removeItem('pbims-auth-storage');
       window.location.href = '/login';
     }
     return Promise.reject(error);
