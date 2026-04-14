@@ -22,11 +22,13 @@ import {
   ChevronDown,
   Layers,
   Keyboard,
+  Receipt,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import {
   Dialog,
   DialogContent,
@@ -56,6 +58,22 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+const MotionTableRow = motion(TableRow)
+
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency, generateInvoiceNumber } from '@/lib/utils'
@@ -81,11 +99,11 @@ interface BillingItem {
   schedule: string
 }
 
-type PaymentMode = 'cash' | 'card' | 'upi' | 'credit' | 'split'
+type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
 
 interface SplitPayment {
   id: string
-  mode: 'cash' | 'card' | 'upi'
+  mode: 'CASH' | 'CARD' | 'UPI'
   amount: number
 }
 
@@ -234,20 +252,16 @@ function BillingRow({
 }) {
   const mockProducts = useMasterDataStore(s => s.products)
   const mockBatches = useMasterDataStore(s => s.batches)
+  const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
-  const productRef = useRef<HTMLTableCellElement>(null)
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (productRef.current && !productRef.current.contains(e.target as Node)) {
-        setShowProductDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+  const productRef = useRef<HTMLTableCellElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const batchRef = useRef<HTMLButtonElement>(null)
+  const qtyRef = useRef<HTMLInputElement>(null)
 
   const filteredProducts = useMemo(() => {
     if (!productSearch) return mockProducts.slice(0, 8)
@@ -298,9 +312,20 @@ function BillingRow({
 
       setProductSearch(product.name)
       setShowProductDropdown(false)
+      setSelectedIndex(0)
       onUpdate(item.id, updates)
+
+      // Auto-focus next field
+      setTimeout(() => {
+        if (batches.length > 1) {
+          batchRef.current?.focus()
+        } else {
+          qtyRef.current?.focus()
+          qtyRef.current?.select()
+        }
+      }, 50)
     },
-    [billingType, item, onUpdate]
+    [billingType, item, onUpdate, mockBatches]
   )
 
   const handleBatchChange = useCallback(
@@ -354,143 +379,204 @@ function BillingRow({
     [item, onUpdate]
   )
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex((prev) => Math.min(prev + 1, filteredProducts.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex((prev) => Math.max(prev - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (filteredProducts[selectedIndex]) {
+        handleProductSelect(filteredProducts[selectedIndex])
+      }
+    } else if (e.key === 'Tab' && showProductDropdown && filteredProducts.length > 0) {
+      // Auto-select highlighted on Tab if dropdown is open
+      handleProductSelect(filteredProducts[selectedIndex])
+    } else if (e.key === 'Escape') {
+      setShowProductDropdown(false)
+    }
+  }
+
   const selectedBatch = mockBatches.find((b) => b.id === item.batchId)
   const qtyExceeds = selectedBatch ? item.quantity > selectedBatch.quantity : false
 
   return (
-    <motion.tr
+    <MotionTableRow
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.15 }}
-      className="group border-b border-border/40 hover:bg-muted/20 transition-colors"
+      className="group transition-colors border-b-border/40 hover:bg-muted/20 data-[state=selected]:bg-muted"
     >
       {/* S.No */}
-      <td className="w-9 px-2 py-1.5 text-center text-[11px] text-muted-foreground/70">
+      <TableCell className="w-9 px-2 py-1.5 text-center text-[11px] text-muted-foreground/70">
         {index + 1}
-      </td>
+      </TableCell>
 
       {/* Product + Schedule */}
-      <td className="min-w-[180px] px-2 py-1.5" ref={productRef}>
-        <div className="relative">
-          <input
-            value={productSearch}
-            onChange={(e) => {
-              setProductSearch(e.target.value)
-              setShowProductDropdown(true)
-            }}
-            onFocus={() => setShowProductDropdown(true)}
-            placeholder="Search product..."
-            className={cn(
-              'w-full h-7 rounded-md border-0 bg-transparent px-1.5 text-xs font-medium',
-              'placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30',
-              'transition-colors'
-            )}
-          />
-          {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
-            <div className="flex items-center gap-1 mt-0.5 text-[10px] text-rose-600 dark:text-rose-400">
-              <ShieldAlert className="h-3 w-3" />
-              Schedule {selectedProduct.schedule}
+      <TableCell className="min-w-[220px] px-2 py-1" ref={productRef}>
+        <Popover open={showProductDropdown} onOpenChange={setShowProductDropdown}>
+          <PopoverTrigger asChild onPointerDown={(e) => e.preventDefault()}>
+            <div className="relative group/search">
+              <input
+                ref={inputRef}
+                value={productSearch}
+                onChange={(e) => {
+                  setProductSearch(e.target.value)
+                  setShowProductDropdown(true)
+                  setSelectedIndex(0)
+                }}
+                onFocus={() => setShowProductDropdown(true)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={handleKeyDown}
+                placeholder="Search product..."
+                className={cn(
+                  'w-full h-8 rounded-lg border border-transparent bg-transparent px-2 text-xs font-semibold transition-all',
+                  'placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/40 focus:border-primary/20',
+                  !item.productId && 'italic font-normal'
+                )}
+              />
+              <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
+              {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
+                <div className="absolute -bottom-4 left-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight text-rose-500/80">
+                  <ShieldAlert className="h-2.5 w-2.5" />
+                  Sch {selectedProduct.schedule}
+                </div>
+              )}
             </div>
-          )}
-          <AnimatePresence>
-            {showProductDropdown && filteredProducts.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.1 }}
-                className="absolute z-50 mt-1 w-80 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl"
-              >
-                <ScrollArea className="max-h-52">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      className="cursor-pointer px-3 py-2 hover:bg-accent/60 transition-colors"
-                      onClick={() => handleProductSelect(p)}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium truncate">{p.name}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {(p.schedule === 'H' || p.schedule === 'H1') && (
-                            <Badge variant="destructive" size="sm">{p.schedule}</Badge>
-                          )}
-                          <span className="text-[10px] text-muted-foreground">
-                            Stk:{p.totalStock}
+          </PopoverTrigger>
+          <PopoverContent 
+            className="p-0 w-[400px] shadow-2xl border-primary/10 bg-popover/95 backdrop-blur-xl" 
+            align="start"
+            sideOffset={4}
+          >
+            <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 flex items-center justify-between">
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                  Syncing database...
+                </span>
+              ) : (
+                <>
+                  {filteredProducts.length} Product{filteredProducts.length !== 1 ? 's' : ''} Found
+                </>
+              )}
+            </div>
+            <ScrollArea className="max-h-[280px]">
+              {filteredProducts.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground italic">
+                  No products found
+                </div>
+              ) : (
+                filteredProducts.map((p, idx) => (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "cursor-pointer px-3 py-2.5 transition-all border-b border-border/5 last:border-0 group/item",
+                      idx === selectedIndex ? "bg-primary/5 text-primary" : "hover:bg-primary/5"
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      handleProductSelect(p)
+                    }}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold truncate group-hover/item:text-primary transition-colors">
+                            {p.name}
                           </span>
+                          {(p.schedule === 'H' || p.schedule === 'H1') && (
+                            <Badge variant="destructive" size="sm" className="h-4 px-1 text-[8px] font-black">{p.schedule}</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/60">
+                          <span className="truncate">{p.manufacturer}</span>
+                          <span className="opacity-20">|</span>
+                          <span className="truncate">{p.genericName}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
-                        <span>{p.manufacturer}</span>
-                        <span className="text-border">·</span>
-                        <span>{p.genericName}</span>
-                        <span className="text-border">·</span>
-                        <span className="font-mono">₹{p.mrp}</span>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
+                        <Badge variant={p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
+                          Stk: {p.totalStock}
+                        </Badge>
                       </div>
                     </div>
-                  ))}
-                </ScrollArea>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </td>
+                  </div>
+                ))
+              )}
+            </ScrollArea>
+          </PopoverContent>
+        </Popover>
+      </TableCell>
 
       {/* Batch + Expiry */}
-      <td className="w-[140px] px-1.5 py-1.5">
-        <select
+      <TableCell className="w-[150px] px-1.5 py-1">
+        <Select
           value={item.batchId}
-          onChange={(e) => handleBatchChange(e.target.value)}
+          onValueChange={handleBatchChange}
           disabled={!item.productId}
-          className={cn(
-            'w-full h-7 rounded-md border-0 bg-transparent text-xs',
-            'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30',
-            'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
-          )}
         >
-          <option value="">Batch</option>
-          {productBatches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.batchNumber} | Qty:{b.quantity}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger 
+            ref={batchRef}
+            className={cn(
+            'h-8 w-full bg-transparent border-0 px-2 text-xs font-medium transition-all focus:ring-1 focus:ring-primary/20',
+            !item.batchId && 'text-muted-foreground/40 italic'
+          )}>
+            <SelectValue placeholder="Select Batch" />
+          </SelectTrigger>
+          <SelectContent className="bg-popover/95 backdrop-blur-xl">
+            {productBatches.map((b) => (
+              <SelectItem key={b.id} value={b.id} className="text-xs">
+                <div className="flex items-center justify-between w-full min-w-[120px]">
+                  <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
+                  <span className="text-[10px] opacity-60 ml-3">Qty: {b.quantity}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {item.expiryDate && (
           <div
             className={cn(
-              'text-[10px] mt-0.5 px-1.5',
+              'text-[9px] mt-0.5 px-2 font-bold uppercase tracking-tight',
               isNearExpiry(item.expiryDate)
-                ? 'text-amber-600 dark:text-amber-400 font-semibold'
-                : 'text-muted-foreground/60'
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-muted-foreground/30'
             )}
           >
             Exp: {formatExpiryShort(item.expiryDate)}
           </div>
         )}
-      </td>
+      </TableCell>
 
       {/* Qty with +/- */}
-      <td className="w-[100px] px-1.5 py-1.5">
-        <div className="flex items-center gap-0.5">
+      <TableCell className="w-[110px] px-1.5 py-1">
+        <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5 border border-border/20 focus-within:border-primary/30 transition-all">
           <button
             type="button"
             onClick={() => handleQtyChange(item.quantity - 1)}
             disabled={!item.productId || item.quantity <= 0}
-            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-30"
+            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
           >
             <Minus className="h-3 w-3" />
           </button>
           <input
+            ref={qtyRef}
             type="number"
             min={0}
             max={selectedBatch?.quantity ?? 9999}
             value={item.quantity || ''}
             onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
             className={cn(
-              'w-full h-7 rounded-md border-0 bg-transparent text-xs text-center font-semibold',
-              'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30',
+              'w-full h-7 border-0 bg-transparent text-xs text-center font-bold font-mono',
+              'focus:outline-none focus:ring-0',
               'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-              qtyExceeds && 'text-rose-600 ring-1 ring-rose-300'
+              qtyExceeds && 'text-rose-600'
             )}
             disabled={!item.productId}
           />
@@ -498,36 +584,38 @@ function BillingRow({
             type="button"
             onClick={() => handleQtyChange(item.quantity + 1)}
             disabled={!item.productId}
-            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors disabled:opacity-30"
+            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
           >
             <Plus className="h-3 w-3" />
           </button>
         </div>
-      </td>
-
+      </TableCell>
+ 
       {/* Rate */}
-      <td className="w-[80px] px-1.5 py-1.5">
-        <input
-          type="number"
-          step={0.01}
-          value={item.rate || ''}
-          onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
-          className={cn(
-            'w-full h-7 rounded-md border-0 bg-transparent text-xs text-right font-mono',
-            'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30',
-            'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+      <TableCell className="w-[100px] px-1.5 py-1">
+        <div className="relative group/rate">
+          <input
+            type="number"
+            step={0.01}
+            value={item.rate || ''}
+            onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
+            className={cn(
+              'w-full h-8 rounded-lg border border-transparent bg-transparent text-xs text-right font-bold font-mono px-2 transition-all',
+              'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30 focus:border-primary/20',
+              'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+            )}
+            disabled={!item.productId}
+          />
+          {(Number(item.mrp) || 0) > 0 && Number(item.mrp) !== Number(item.rate) && (
+            <div className="absolute -bottom-3.5 right-2 text-[9px] text-muted-foreground/40 font-bold font-mono line-through">
+              MRP: {(Number(item.mrp) || 0).toFixed(0)}
+            </div>
           )}
-          disabled={!item.productId}
-        />
-        {(Number(item.mrp) || 0) > 0 && Number(item.mrp) !== Number(item.rate) && (
-          <div className="text-[10px] text-muted-foreground/50 text-right px-1.5 font-mono line-through">
-            {(Number(item.mrp) || 0).toFixed(0)}
-          </div>
-        )}
-      </td>
-
+        </div>
+      </TableCell>
+ 
       {/* Disc% */}
-      <td className="w-[60px] px-1.5 py-1.5">
+      <TableCell className="w-[65px] px-1.5 py-1">
         <input
           type="number"
           min={0}
@@ -536,28 +624,31 @@ function BillingRow({
           value={item.discountPercent || ''}
           onChange={(e) => handleDiscountChange(parseFloat(e.target.value) || 0)}
           className={cn(
-            'w-full h-7 rounded-md border-0 bg-transparent text-xs text-center',
-            'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30',
-            'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+            'w-full h-8 rounded-lg border border-transparent bg-transparent text-xs text-center font-mono transition-all',
+            'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30 focus:border-primary/20',
+            'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
           )}
           disabled={!item.productId}
         />
-      </td>
-
+      </TableCell>
+ 
       {/* GST */}
-      <td className="w-[46px] px-1 py-1.5 text-center text-[11px] text-muted-foreground/60 font-mono">
-        {item.gstPercent ? `${item.gstPercent}%` : ''}
-      </td>
-
+      <TableCell className="w-[50px] px-1 py-1 text-center text-[10px] font-bold text-muted-foreground/50 font-mono">
+        {item.gstPercent ? `${item.gstPercent}%` : '—'}
+      </TableCell>
+ 
       {/* Amount */}
-      <td className="w-[85px] px-2 py-1.5 text-right">
-        <span className={cn('text-xs font-semibold font-mono', item.amount > 0 ? 'text-foreground' : 'text-muted-foreground/40')}>
-          {item.amount > 0 ? formatCurrency(item.amount) : '—'}
+      <TableCell className="w-[110px] px-3 py-1 text-right">
+        <span className={cn(
+          'text-sm font-black font-mono tracking-tight', 
+          item.amount > 0 ? 'text-primary' : 'text-muted-foreground/30'
+        )}>
+          {item.amount > 0 ? formatCurrency(item.amount) : '₹0.00'}
         </span>
-      </td>
+      </TableCell>
 
       {/* Delete */}
-      <td className="w-8 px-1 py-1.5">
+      <TableCell className="w-8 px-1 py-1.5">
         <button
           type="button"
           onClick={() => onRemove(item.id)}
@@ -565,8 +656,8 @@ function BillingRow({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
-      </td>
-    </motion.tr>
+      </TableCell>
+    </MotionTableRow>
   )
 }
 
@@ -590,7 +681,7 @@ function PaymentPanel({
   customer: Customer | null
 }) {
   const changeToReturn = useMemo(() => {
-    if (mode !== 'cash') return 0
+    if (mode !== 'CASH') return 0
     return Math.max(0, details.amountReceived - grandTotal)
   }, [mode, details.amountReceived, grandTotal])
 
@@ -601,11 +692,11 @@ function PaymentPanel({
   const splitRemaining = grandTotal - splitTotal
 
   const paymentModes: { label: string; value: PaymentMode; icon: React.ReactNode; shortcut?: string }[] = [
-    { label: 'Cash', value: 'cash', icon: <Banknote className="h-3.5 w-3.5" /> },
-    { label: 'Card', value: 'card', icon: <CreditCard className="h-3.5 w-3.5" /> },
-    { label: 'UPI', value: 'upi', icon: <Smartphone className="h-3.5 w-3.5" /> },
-    { label: 'Credit', value: 'credit', icon: <Clock className="h-3.5 w-3.5" /> },
-    { label: 'Split', value: 'split', icon: <SplitSquareHorizontal className="h-3.5 w-3.5" /> },
+    { label: 'Cash', value: 'CASH', icon: <Banknote className="h-3.5 w-3.5" /> },
+    { label: 'Card', value: 'CARD', icon: <CreditCard className="h-3.5 w-3.5" /> },
+    { label: 'UPI', value: 'UPI', icon: <Smartphone className="h-3.5 w-3.5" /> },
+    { label: 'Credit', value: 'CREDIT', icon: <Clock className="h-3.5 w-3.5" /> },
+    { label: 'Split', value: 'SPLIT', icon: <SplitSquareHorizontal className="h-3.5 w-3.5" /> },
   ]
 
   const denominations = [50, 100, 200, 500, 1000, 2000]
@@ -633,7 +724,7 @@ function PaymentPanel({
       </div>
 
       {/* Cash */}
-      {mode === 'cash' && (
+      {mode === 'CASH' && (
         <div className="space-y-2">
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -694,7 +785,7 @@ function PaymentPanel({
       )}
 
       {/* Card */}
-      {mode === 'card' && (
+      {mode === 'CARD' && (
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -725,7 +816,7 @@ function PaymentPanel({
       )}
 
       {/* UPI */}
-      {mode === 'upi' && (
+      {mode === 'UPI' && (
         <div>
           <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             UPI Reference #
@@ -740,10 +831,10 @@ function PaymentPanel({
       )}
 
       {/* Credit */}
-      {mode === 'credit' && (
+      {mode === 'CREDIT' && (
         <div className="space-y-2">
-          {customer && customer.type !== 'walk-in' && (
-            <div className="rounded-lg border border-amber-200/60 bg-amber-50/30 dark:border-amber-800/30 dark:bg-amber-900/10 p-2.5 text-[11px] space-y-1">
+          {customer && customer.type !== 'WALK_IN' && (
+-            <div className="rounded-lg border border-amber-200/60 bg-amber-50/30 dark:border-amber-800/30 dark:bg-amber-900/10 p-2.5 text-[11px] space-y-1">
               <div className="flex justify-between">
                 <span className="text-amber-800 dark:text-amber-300">Outstanding</span>
                 <span className="font-semibold font-mono text-amber-900 dark:text-amber-200">
@@ -779,7 +870,7 @@ function PaymentPanel({
       )}
 
       {/* Split */}
-      {mode === 'split' && (
+      {mode === 'SPLIT' && (
         <div className="space-y-2">
           {details.splits.map((split, idx) => (
             <div key={split.id} className="flex items-center gap-1.5">
@@ -787,14 +878,14 @@ function PaymentPanel({
                 value={split.mode}
                 onChange={(e) => {
                   const newSplits = [...details.splits]
-                  newSplits[idx] = { ...split, mode: e.target.value as 'cash' | 'card' | 'upi' }
+                  newSplits[idx] = { ...split, mode: e.target.value as 'CASH' | 'CARD' | 'UPI' }
                   onDetailsChange({ splits: newSplits })
                 }}
                 className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
               >
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-                <option value="upi">UPI</option>
+                <option value="CASH">Cash</option>
+                <option value="CARD">Card</option>
+                <option value="UPI">UPI</option>
               </select>
               <Input
                 type="number"
@@ -827,7 +918,7 @@ function PaymentPanel({
               onDetailsChange({
                 splits: [
                   ...details.splits,
-                  { id: generateRowId(), mode: 'cash', amount: Math.max(0, splitRemaining) },
+                  { id: generateRowId(), mode: 'CASH', amount: Math.max(0, splitRemaining) },
                 ],
               })
             }}
@@ -879,7 +970,7 @@ export default function NewSalePage() {
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
 
   const [items, setItems] = useState<BillingItem[]>([createEmptyItem()])
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash')
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
     amountReceived: 0,
     cardLast4: '',
@@ -1108,37 +1199,42 @@ export default function NewSalePage() {
 
     setIsSubmitting(true)
     try {
-      const payload = {
-        invoiceNumber,
-        date: new Date().toISOString(),
-        customerId: selectedCustomer?.id || null,
+      const payload: any = {
+        type: invoiceType.toUpperCase(),
+        billingType: billingType.toUpperCase(),
         customerName: selectedCustomer ? selectedCustomer.name : 'Walk-in Customer',
-        customerPhone: selectedCustomer ? selectedCustomer.phone : null,
         doctorName: doctorRef || null,
         paymentMode: paymentMode.toUpperCase(),
 
-        subtotal: totals.subtotal,
-        productDiscount: totals.productDiscount,
-        taxableAmount: totals.taxableAmount,
-        cgst: totals.cgst,
-        sgst: totals.sgst,
+        subtotal: Number(totals.subtotal) || 0,
+        productDiscount: Number(totals.productDiscount) || 0,
+        taxableAmount: Number(totals.taxableAmount) || 0,
+        cgst: Number(totals.cgst) || 0,
+        sgst: Number(totals.sgst) || 0,
         igst: 0,
-        roundOff: totals.roundOff,
-        grandTotal: totals.grandTotal,
-        amountPaid: paymentMode === 'cash' ? paymentDetails.amountReceived : totals.grandTotal,
+        roundOff: Number(totals.roundOff) || 0,
+        grandTotal: Number(totals.grandTotal) || 0,
+        amountPaid: Number(paymentMode === 'CASH' ? paymentDetails.amountReceived : totals.grandTotal) || 0,
+        changeReturned: Number(paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
+        status: paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
 
         items: activeItems.map(item => ({
           productId: item.productId,
           productName: item.productName,
           batchId: item.batchId,
           batchNumber: item.batchNumber,
-          quantity: item.quantity,
-          mrp: item.mrp,
-          rate: item.rate,
-          discountPercent: item.discountPercent,
-          gstPercent: item.gstPercent,
-          amount: item.amount
+          expiryDate: new Date(item.expiryDate).toISOString(),
+          quantity: Number(item.quantity) || 1,
+          mrp: Number(item.mrp) || 0,
+          rate: Number(item.rate) || 0,
+          discountPercent: Number(item.discountPercent) || 0,
+          gstPercent: Number(item.gstPercent) || 0,
+          amount: Number(item.amount) || 0
         }))
+      }
+
+      if (selectedCustomer?.id) {
+        payload.customerId = selectedCustomer.id;
       }
 
       await api.post('/billing', payload)
@@ -1152,9 +1248,10 @@ export default function NewSalePage() {
       // refetch to update stock
       fetchMasterData()
 
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || "Failed to generate invoice. Please check stock limits."
       console.error(error)
-      alert("Failed to generate invoice. Please check stock limits.")
+      alert(errorMsg)
     } finally {
       setIsSubmitting(false)
     }
@@ -1467,7 +1564,7 @@ export default function NewSalePage() {
                 <span className="flex-1 text-left truncate font-semibold">
                   {selectedCustomer?.name ?? 'Walk-in Customer'}
                 </span>
-                {selectedCustomer && selectedCustomer.type !== 'walk-in' && (
+                {selectedCustomer && selectedCustomer.type !== 'WALK_IN' && (
                   <Badge variant={customerTypeBadge(selectedCustomer.type)} size="sm" className="text-[9px] px-1.5 shrink-0">
                     {selectedCustomer.type}
                   </Badge>
@@ -1563,22 +1660,22 @@ export default function NewSalePage() {
             <Card className="flex-1 flex flex-col overflow-hidden">
               <CardContent className="p-0 flex-1 flex flex-col">
                 <ScrollArea className="flex-1">
-                  <table className="w-full">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="border-b border-border/40 bg-muted/40 dark:bg-muted/20 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        <th className="w-9 px-2 py-2 text-center">#</th>
-                        <th className="min-w-[180px] px-2 py-2 text-left">Product</th>
-                        <th className="w-[140px] px-1.5 py-2 text-left">Batch / Expiry</th>
-                        <th className="w-[100px] px-1.5 py-2 text-center">Qty</th>
-                        <th className="w-[80px] px-1.5 py-2 text-right">Rate</th>
-                        <th className="w-[60px] px-1.5 py-2 text-center">D%</th>
-                        <th className="w-[46px] px-1 py-2 text-center">GST</th>
-                        <th className="w-[85px] px-2 py-2 text-right">Amount</th>
-                        <th className="w-8 px-1 py-2"></th>
-                      </tr>
-                    </thead>
-                    <AnimatePresence mode="popLayout">
-                      <tbody>
+                  <Table className="w-full">
+                    <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
+                      <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-[0.1em] text-muted-foreground/60 hover:bg-transparent">
+                        <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
+                        <TableHead className="min-w-[220px] px-2 py-3 text-left h-auto">Product Selection</TableHead>
+                        <TableHead className="w-[150px] px-1.5 py-3 text-left h-auto">Batch / Expiry</TableHead>
+                        <TableHead className="w-[110px] px-1.5 py-3 text-center h-auto">Quantity</TableHead>
+                        <TableHead className="w-[100px] px-1.5 py-3 text-right h-auto">Unit Rate</TableHead>
+                        <TableHead className="w-[65px] px-1.5 py-3 text-center h-auto">Disc %</TableHead>
+                        <TableHead className="w-[50px] px-1 py-3 text-center h-auto">GST</TableHead>
+                        <TableHead className="w-[110px] px-3 py-3 text-right h-auto">Amount</TableHead>
+                        <TableHead className="w-8 px-1 py-3 h-auto"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <AnimatePresence mode="popLayout">
                         {items.map((item, idx) => (
                           <BillingRow
                             key={item.id}
@@ -1589,9 +1686,9 @@ export default function NewSalePage() {
                             onRemove={removeItem}
                           />
                         ))}
-                      </tbody>
-                    </AnimatePresence>
-                  </table>
+                      </AnimatePresence>
+                    </TableBody>
+                  </Table>
 
                   {/* Empty state */}
                   {items.length === 1 && !items[0].productId && (
@@ -1626,36 +1723,45 @@ export default function NewSalePage() {
             {/* Summary + Grand Total */}
             <Card className="overflow-hidden">
               <CardContent className="p-0">
-                <div className="px-4 pt-3 pb-2">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                <div className="px-4 py-3 bg-muted/30 border-b border-border/40">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 flex items-center justify-between">
                     Invoice Summary
+                    <Badge variant="outline" className="h-4 px-1 text-[8px] font-mono border-muted-foreground/20">
+                      {activeItemCount} items
+                    </Badge>
                   </h3>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div className="space-y-1.5 text-[11px]">
+                    <div className="flex justify-between items-center text-muted-foreground">
+                      <span>Gross Margin</span>
                       <span className="font-mono">{formatCurrency(totals.subtotal)}</span>
                     </div>
                     {totals.productDiscount > 0 && (
-                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-                        <span>Discount</span>
+                      <div className="flex justify-between items-center text-rose-500 font-medium">
+                        <span className="flex items-center gap-1.5">
+                          Total Discount
+                          {totals.subtotal > 0 && (
+                            <Badge variant="destructive" size="sm" className="h-3.5 px-1 text-[8px]">
+                              -{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
+                            </Badge>
+                          )}
+                        </span>
                         <span className="font-mono">-{formatCurrency(totals.productDiscount)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Taxable</span>
+                    <Separator className="my-1.5 opacity-40" />
+                    <div className="flex justify-between items-center font-medium">
+                      <span className="text-muted-foreground">Taxable Value</span>
                       <span className="font-mono">{formatCurrency(totals.taxableAmount)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">CGST</span>
-                      <span className="font-mono">{formatCurrency(totals.cgst)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">SGST</span>
-                      <span className="font-mono">{formatCurrency(totals.sgst)}</span>
+                    <div className="flex justify-between items-center text-muted-foreground/70">
+                      <span>IGST / CGST / SGST</span>
+                      <span className="font-mono">{formatCurrency(totals.cgst + totals.sgst)}</span>
                     </div>
                     {totals.roundOff !== 0 && (
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Round Off</span>
+                      <div className="flex justify-between items-center text-muted-foreground/50">
+                        <span>Round Off adjustment</span>
                         <span className="font-mono">
                           {totals.roundOff > 0 ? '+' : ''}
                           {totals.roundOff.toFixed(2)}
@@ -1663,14 +1769,25 @@ export default function NewSalePage() {
                       </div>
                     )}
                   </div>
-                </div>
 
-                {/* Grand Total Strip */}
-                <div className="bg-gradient-to-r from-primary/10 via-primary/8 to-primary/5 dark:from-primary/15 dark:via-primary/10 dark:to-primary/5 px-4 py-3 flex justify-between items-center border-t border-primary/10">
-                  <span className="text-xs font-bold uppercase tracking-wider">Grand Total</span>
-                  <span className="text-xl font-bold text-primary font-mono tracking-tight">
-                    {formatCurrency(totals.grandTotal)}
-                  </span>
+                  {/* Grand Total Highlight */}
+                  <div className="relative overflow-hidden rounded-xl bg-primary/10 dark:bg-primary/20 p-4 border border-primary/10">
+                    <div className="relative z-10 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-primary/80">Net Payable</p>
+                        <p className="text-2xl font-black font-mono tracking-tight text-primary">
+                          {formatCurrency(totals.grandTotal)}
+                        </p>
+                      </div>
+                      <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Receipt className="h-6 w-6" />
+                      </div>
+                    </div>
+                    {/* Subtle decorative background detail */}
+                    <div className="absolute -right-2 -bottom-2 opacity-5 scale-150 rotate-12">
+                      <Receipt className="h-20 w-20" />
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1834,7 +1951,7 @@ export default function NewSalePage() {
                         <SelectItem value="wholesale">Wholesale</SelectItem>
                         <SelectItem value="hospital">Hospital</SelectItem>
                         <SelectItem value="doctor">Doctor</SelectItem>
-                        <SelectItem value="walk-in">Walk-in</SelectItem>
+                        <SelectItem value="WALK_IN">Walk-in</SelectItem>
                       </SelectContent>
                     </Select>
                   )}

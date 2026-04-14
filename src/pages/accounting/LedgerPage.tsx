@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
   mockCustomers,
   mockSuppliers,
@@ -63,6 +64,7 @@ export default function LedgerPage() {
   const [dateFrom, setDateFrom] = useState('2026-03-01')
   const [dateTo, setDateTo] = useState('2026-03-31')
   const [partySearch, setPartySearch] = useState('')
+  const [ledgerSearch, setLedgerSearch] = useState('')
 
   // Party list based on type
   const parties = useMemo(() => {
@@ -135,7 +137,7 @@ export default function LedgerPage() {
           credit: po.totalAmount,
         })
         // Mock partial payment for received POs
-        if (po.status === 'fully_received' || po.status === 'closed') {
+        if (po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED') {
           entries.push({
             date: po.date,
             particular: `Payment made for ${po.poNumber}`,
@@ -152,11 +154,18 @@ export default function LedgerPage() {
   // Compute running balance
   const ledgerWithBalance = useMemo(() => {
     let balance = 0
-    return ledgerEntries.map((entry) => {
+    let entries = ledgerEntries.map((entry) => {
       balance += entry.debit - entry.credit
       return { ...entry, balance }
     })
-  }, [ledgerEntries])
+    
+    if (ledgerSearch.trim()) {
+      const q = ledgerSearch.toLowerCase()
+      entries = entries.filter((e) => e.particular.toLowerCase().includes(q))
+    }
+    
+    return entries
+  }, [ledgerEntries, ledgerSearch])
 
   const openingBalance = 0
   const closingBalance =
@@ -205,106 +214,110 @@ export default function LedgerPage() {
         </div>
       </div>
 
-      {/* ── Controls ── */}
-      <Card className="rounded-2xl border-border/60">
-        <CardContent className="pt-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Party Type */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Party Type
-              </span>
-              <div className="flex rounded-xl border border-border/60 overflow-hidden">
-                <button
-                  type="button"
-                  className={cn(
-                    'flex-1 px-4 py-2 text-sm font-medium transition-colors',
-                    partyType === 'customer'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
-                  )}
-                  onClick={() => {
-                    setPartyType('customer')
-                    setSelectedPartyId('')
-                  }}
-                >
-                  Customer
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    'flex-1 px-4 py-2 text-sm font-medium transition-colors',
-                    partyType === 'supplier'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
-                  )}
-                  onClick={() => {
-                    setPartyType('supplier')
-                    setSelectedPartyId('')
-                  }}
-                >
-                  Supplier
-                </button>
-              </div>
-            </div>
-
-            {/* Party Name Select */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Party Name
-              </span>
-              <Select value={selectedPartyId} onValueChange={setSelectedPartyId}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue placeholder="Select party" />
-                </SelectTrigger>
-                <SelectContent>
-                  <div className="px-2 pb-2">
-                    <Input
-                      placeholder="Search..."
-                      icon={<Search className="h-4 w-4" />}
-                      className="h-8 rounded-lg"
-                      value={partySearch}
-                      onChange={(e) => setPartySearch(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                  {filteredParties.map((party) => (
-                    <SelectItem key={party.id} value={party.id}>
-                      {party.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Date From */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                From Date
-              </span>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="rounded-xl"
-              />
-            </div>
-
-            {/* Date To */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                To Date
-              </span>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="rounded-xl"
-              />
+      {/* ── Controls & Filter Bar ── */}
+      <DataTableFilterBar
+        searchQuery={ledgerSearch}
+        onSearchChange={setLedgerSearch}
+        searchPlaceholder="Search ledger particulars..."
+        resultsCount={ledgerWithBalance.length}
+        defaultFiltersOpen={true}
+      >
+        <div className="flex flex-wrap items-center gap-4 w-full">
+          {/* Party Type */}
+          <div className="space-y-1.5 w-full sm:w-auto">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+              Party Type
+            </span>
+            <div className="flex rounded-xl border border-border/60 overflow-hidden h-9">
+              <button
+                type="button"
+                className={cn(
+                  'px-4 text-xs font-medium transition-colors',
+                  partyType === 'customer'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
+                )}
+                onClick={() => {
+                  setPartyType('customer')
+                  setSelectedPartyId('')
+                }}
+              >
+                Customer
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'px-4 text-xs font-medium transition-colors',
+                  partyType === 'supplier'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
+                )}
+                onClick={() => {
+                  setPartyType('supplier')
+                  setSelectedPartyId('')
+                }}
+              >
+                Supplier
+              </button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Party Name Select */}
+          <div className="space-y-1.5 w-full sm:w-[240px]">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Party Name
+            </span>
+            <Select value={selectedPartyId} onValueChange={setSelectedPartyId}>
+              <SelectTrigger className="h-9 rounded-xl">
+                <SelectValue placeholder="Select party" />
+              </SelectTrigger>
+              <SelectContent>
+                <div className="px-2 pb-2">
+                  <Input
+                    placeholder="Search..."
+                    icon={<Search className="h-4 w-4" />}
+                    className="h-8 rounded-lg"
+                    value={partySearch}
+                    onChange={(e) => setPartySearch(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+                {filteredParties.map((party) => (
+                  <SelectItem key={party.id} value={party.id}>
+                    {party.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Date From */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              From Date
+            </span>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 rounded-xl text-xs"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              To Date
+            </span>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 rounded-xl text-xs"
+            />
+          </div>
+        </div>
+      </DataTableFilterBar>
 
       {/* ── Ledger Table ── */}
       {selectedPartyId ? (

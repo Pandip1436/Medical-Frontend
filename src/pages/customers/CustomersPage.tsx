@@ -89,7 +89,7 @@ const customerSchema = z.object({
     .min(10, 'Phone must be 10 digits')
     .max(10, 'Phone must be 10 digits')
     .regex(/^\d{10}$/, 'Phone must be exactly 10 digits'),
-  type: z.enum(['walk-in', 'regular', 'hospital', 'wholesale', 'doctor']),
+  type: z.enum(['WALK_IN', 'REGULAR', 'HOSPITAL', 'WHOLESALE', 'DOCTOR']),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   address: z.string().optional(),
   creditLimit: z.coerce.number().min(0, 'Must be 0 or more').default(0),
@@ -110,11 +110,6 @@ const typeBadgeVariant: Record<string, 'info' | 'purple' | 'success' | 'warning'
   REGULAR: 'success',
   DOCTOR: 'warning',
   WALK_IN: 'secondary',
-  hospital: 'info',
-  wholesale: 'purple',
-  regular: 'success',
-  doctor: 'warning',
-  'walk-in': 'secondary',
 }
 
 // Left border accent colors for customer type
@@ -124,11 +119,6 @@ const typeBorderColor: Record<string, string> = {
   REGULAR: 'border-l-emerald-500',
   DOCTOR: 'border-l-amber-500',
   WALK_IN: 'border-l-gray-400',
-  hospital: 'border-l-blue-500',
-  wholesale: 'border-l-purple-500',
-  regular: 'border-l-emerald-500',
-  doctor: 'border-l-amber-500',
-  'walk-in': 'border-l-gray-400',
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -142,7 +132,7 @@ const mockCreditNotes = [
     invoiceRef: 'HS/2025-26/0438',
     reason: 'Damaged goods returned',
     amount: 7896,
-    status: 'applied',
+    status: 'APPLIED',
   },
   {
     id: 'CN-002',
@@ -150,7 +140,7 @@ const mockCreditNotes = [
     invoiceRef: 'HS/2025-26/0412',
     reason: 'Short expiry medicines returned',
     amount: 3200,
-    status: 'pending',
+    status: 'PENDING',
   },
 ]
 
@@ -209,7 +199,7 @@ export default function CustomersPage() {
     defaultValues: {
       name: '',
       phone: '',
-      type: 'regular',
+      type: 'REGULAR',
       email: '',
       address: '',
       creditLimit: 0,
@@ -221,12 +211,9 @@ export default function CustomersPage() {
 
   const handleAddCustomer = async (values: any) => {
     try {
-      // Transform type to backend enum (WALK_IN, REGULAR, etc)
-      const formattedType = values.type.toUpperCase().replace('-', '_')
-      
       const payload = {
         ...values,
-        type: formattedType,
+        type: values.type,
       }
       
       await addCustomerAction(payload)
@@ -516,11 +503,11 @@ export default function CustomersPage() {
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="regular">Regular</SelectItem>
-                        <SelectItem value="hospital">Hospital</SelectItem>
-                        <SelectItem value="wholesale">Wholesale</SelectItem>
-                        <SelectItem value="doctor">Doctor</SelectItem>
-                        <SelectItem value="walk-in">Walk-in</SelectItem>
+                        <SelectItem value="REGULAR">Regular</SelectItem>
+                        <SelectItem value="HOSPITAL">Hospital</SelectItem>
+                        <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                        <SelectItem value="DOCTOR">Doctor</SelectItem>
+                        <SelectItem value="WALK_IN">Walk-in</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -606,10 +593,10 @@ export default function CustomersPage() {
                   <div
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white',
-                      selectedCustomer.type === 'hospital' ? 'bg-blue-500' :
-                      selectedCustomer.type === 'wholesale' ? 'bg-purple-500' :
-                      selectedCustomer.type === 'regular' ? 'bg-emerald-500' :
-                      selectedCustomer.type === 'doctor' ? 'bg-amber-500' :
+                      selectedCustomer.type === 'HOSPITAL' ? 'bg-blue-500' :
+                      selectedCustomer.type === 'WHOLESALE' ? 'bg-purple-500' :
+                      selectedCustomer.type === 'REGULAR' ? 'bg-emerald-500' :
+                      selectedCustomer.type === 'DOCTOR' ? 'bg-amber-500' :
                       'bg-gray-400'
                     )}
                   >
@@ -765,11 +752,11 @@ export default function CustomersPage() {
                                   size="sm"
                                   dot
                                   variant={
-                                    inv.status === 'paid'
+                                    inv.status === 'PAID'
                                       ? 'success'
-                                      : inv.status === 'credit'
+                                      : inv.status === 'CREDIT'
                                         ? 'warning'
-                                        : inv.status === 'returned'
+                                        : inv.status === 'RETURNED'
                                           ? 'destructive'
                                           : 'secondary'
                                   }

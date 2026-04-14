@@ -106,24 +106,24 @@ const PERIOD_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'sent', label: 'Sent' },
-  { value: 'acknowledged', label: 'Confirmed' },
-  { value: 'partially_received', label: 'Partial' },
-  { value: 'fully_received', label: 'Received' },
-  { value: 'closed', label: 'Closed' },
+  { value: 'DRAFT', label: 'Draft' },
+  { value: 'SENT', label: 'Sent' },
+  { value: 'ACKNOWLEDGED', label: 'Confirmed' },
+  { value: 'PARTIALLY_RECEIVED', label: 'Partial' },
+  { value: 'FULLY_RECEIVED', label: 'Received' },
+  { value: 'CLOSED', label: 'Closed' },
 ] as const
 
 const statusBadgeConfig: Record<
   string,
   { label: string; variant: 'secondary' | 'info' | 'success' | 'destructive' | 'warning' | 'purple' }
 > = {
-  draft: { label: 'Draft', variant: 'secondary' },
-  sent: { label: 'Sent', variant: 'info' },
-  acknowledged: { label: 'Confirmed', variant: 'success' },
-  partially_received: { label: 'Partial', variant: 'warning' },
-  fully_received: { label: 'Received', variant: 'success' },
-  closed: { label: 'Closed', variant: 'purple' },
+  DRAFT: { label: 'Draft', variant: 'secondary' },
+  SENT: { label: 'Sent', variant: 'info' },
+  ACKNOWLEDGED: { label: 'Confirmed', variant: 'success' },
+  PARTIALLY_RECEIVED: { label: 'Partial', variant: 'warning' },
+  FULLY_RECEIVED: { label: 'Received', variant: 'success' },
+  CLOSED: { label: 'Closed', variant: 'purple' },
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -226,18 +226,18 @@ export default function PurchaseOrdersPage() {
     const all = mockPurchaseOrders
     const totalAmount = all.reduce((sum, po) => sum + po.totalAmount, 0)
     const receivedTotal = all
-      .filter((po) => po.status === 'fully_received' || po.status === 'closed')
+      .filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
       .reduce((sum, po) => sum + po.totalAmount, 0)
     const pendingTotal = all
-      .filter((po) => po.status === 'draft' || po.status === 'sent' || po.status === 'acknowledged')
+      .filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
       .reduce((sum, po) => sum + po.totalAmount, 0)
-    const partialCount = all.filter((po) => po.status === 'partially_received').length
+    const partialCount = all.filter((po) => po.status === 'PARTIALLY_RECEIVED').length
     return {
       totalAmount,
       totalCount: all.length,
-      receivedCount: all.filter((po) => po.status === 'fully_received' || po.status === 'closed').length,
+      receivedCount: all.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED').length,
       receivedTotal,
-      pendingCount: all.filter((po) => po.status === 'draft' || po.status === 'sent' || po.status === 'acknowledged').length,
+      pendingCount: all.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED').length,
       pendingTotal,
       partialCount,
     }
@@ -625,13 +625,13 @@ export default function PurchaseOrdersPage() {
                             label: 'Send to Supplier',
                             icon: <Send className="h-4 w-4" />,
                             onClick: () => handleAction('send', po),
-                            disabled: po.status !== 'draft'
+                            disabled: po.status !== 'DRAFT'
                           },
                           {
                             label: 'Receive Goods',
                             icon: <PackageCheck className="h-4 w-4" />,
                             onClick: () => handleAction('receive', po),
-                            disabled: po.status === 'draft' || po.status === 'fully_received' || po.status === 'closed'
+                            disabled: po.status === 'DRAFT' || po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED'
                           }
                         ]}
                       />

@@ -75,34 +75,34 @@ type ExpenseFormValues = z.input<typeof expenseSchema>
 // ─────────────────────────────────────────────────────────────
 
 const categoryBadgeVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' | 'purple'> = {
-  Rent: 'default',
-  Salary: 'warning',
-  Electricity: 'destructive',
-  Transport: 'info',
-  Insurance: 'outline',
-  Maintenance: 'success',
-  'Telephone & Internet': 'purple',
-  'Stationery & Printing': 'outline',
-  'Software & IT': 'info',
-  'License & Compliance': 'warning',
-  Miscellaneous: 'secondary',
+  RENT: 'default',
+  SALARY: 'warning',
+  ELECTRICITY: 'destructive',
+  TRANSPORT: 'info',
+  INSURANCE: 'outline',
+  MAINTENANCE: 'success',
+  'TELEPHONE_INTERNET': 'purple',
+  'STATIONERY_PRINTING': 'outline',
+  'SOFTWARE_IT': 'info',
+  'LICENSE_COMPLIANCE': 'warning',
+  MISCELLANEOUS: 'secondary',
 }
 
 const expenseCategories = [
-  'Rent',
-  'Salary',
-  'Electricity',
-  'Transport',
-  'Insurance',
-  'Maintenance',
-  'Telephone & Internet',
-  'Stationery & Printing',
-  'Software & IT',
-  'License & Compliance',
-  'Miscellaneous',
+  'RENT',
+  'SALARY',
+  'ELECTRICITY',
+  'TRANSPORT',
+  'INSURANCE',
+  'MAINTENANCE',
+  'TELEPHONE_INTERNET',
+  'STATIONERY_PRINTING',
+  'SOFTWARE_IT',
+  'LICENSE_COMPLIANCE',
+  'MISCELLANEOUS',
 ]
 
-const paymentModes = ['Cash', 'Bank Transfer', 'UPI', 'Cheque']
+const paymentModes = ['CASH', 'BANK_TRANSFER', 'UPI', 'CHEQUE']
 
 // ─────────────────────────────────────────────────────────────
 // Component
@@ -180,7 +180,7 @@ export default function ExpensesPage() {
       category: '',
       description: '',
       amount: 0,
-      paymentMode: 'Cash',
+      paymentMode: 'CASH',
     })
     setDialogOpen(true)
   }

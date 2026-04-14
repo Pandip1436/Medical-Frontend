@@ -184,7 +184,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      rows = rows.filter((r) => r.category.toLowerCase() === categoryFilter.toLowerCase())
+      rows = rows.filter((r) => r.category.toUpperCase() === categoryFilter.toUpperCase())
     }
     if (statusFilter !== 'all') {
       rows = rows.filter((r) => r.status === statusFilter)
@@ -247,7 +247,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      cards = cards.filter((c) => c.category.toLowerCase() === categoryFilter.toLowerCase())
+      cards = cards.filter((c) => c.category.toUpperCase() === categoryFilter.toUpperCase())
     }
     if (statusFilter !== 'all') {
       cards = cards.filter((c) => c.status === statusFilter)
@@ -377,11 +377,11 @@ export default function StockOverviewPage() {
           onClear={() => setCategoryFilter('all')}
           options={[
             { label: 'All Categories', value: 'all' },
-            { label: 'Nephrology', value: 'nephrology' },
-            { label: 'Oncology', value: 'oncology' },
-            { label: 'General', value: 'general' },
-            { label: 'OTC', value: 'otc' },
-            { label: 'Surgical', value: 'surgical' },
+            { label: 'Nephrology', value: 'NEPHROLOGY' },
+            { label: 'Oncology', value: 'ONCOLOGY' },
+            { label: 'General', value: 'GENERAL' },
+            { label: 'OTC', value: 'OTC' },
+            { label: 'Surgical', value: 'SURGICAL' },
           ]}
         />
         <EnumSelect

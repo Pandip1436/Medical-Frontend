@@ -129,10 +129,10 @@ const mobileBottomItems: NavItem[] = [
 
 // Role-based ring colors
 const roleRingColors: Record<string, string> = {
-  admin: 'ring-blue-500',
-  pharmacist: 'ring-emerald-500',
-  inventory_manager: 'ring-amber-500',
-  accountant: 'ring-purple-500',
+  ADMIN: 'ring-blue-500',
+  PHARMACIST: 'ring-emerald-500',
+  INVENTORY_MANAGER: 'ring-amber-500',
+  ACCOUNTANT: 'ring-purple-500',
 }
 
 function useIsMobile() {
@@ -196,9 +196,9 @@ export function Sidebar({ currentPath }: SidebarProps) {
   }, [touchStart])
 
   const filteredGroups = useMemo(() => {
-    const role = user?.role ?? ''
+    const role = (user?.role ?? '').toUpperCase().replace(/[\s-]/g, '_')
     // Admin sees everything; other roles are filtered by rolePermissions
-    const allowedPaths = role === 'admin' ? null : (rolePermissions[role] ?? [])
+    const allowedPaths = (role === 'ADMIN' || !role) ? null : (rolePermissions[role] ?? [])
 
     return navigationGroups
       .map((group) => ({

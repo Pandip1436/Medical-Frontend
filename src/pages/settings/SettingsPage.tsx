@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, type Variants } from 'framer-motion'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -64,6 +64,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { mockUsers } from '@/data/mock'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
@@ -149,7 +151,7 @@ const initialGstRates: GstRate[] = [
 interface DiscountRule {
   id: string
   name: string
-  type: 'percentage' | 'flat'
+  type: 'PERCENTAGE' | 'FLAT'
   value: number
   applicableTo: string
   validFrom: string
@@ -158,11 +160,11 @@ interface DiscountRule {
 }
 
 const initialDiscountRules: DiscountRule[] = [
-  { id: 'DR-001', name: 'Hospital Bulk Discount', type: 'percentage', value: 10, applicableTo: 'Hospital Customers', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: true },
-  { id: 'DR-002', name: 'Wholesale Slab Discount', type: 'percentage', value: 15, applicableTo: 'Wholesale Buyers', validFrom: '2026-01-01', validTo: '2026-06-30', isActive: true },
-  { id: 'DR-003', name: 'Near-Expiry Clearance', type: 'percentage', value: 25, applicableTo: 'Expiring in 90 days', validFrom: '2026-03-01', validTo: '2026-03-31', isActive: true },
-  { id: 'DR-004', name: 'Loyalty Reward', type: 'flat', value: 500, applicableTo: 'Loyalty Points > 1000', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: false },
-  { id: 'DR-005', name: 'Oncology Bundle', type: 'percentage', value: 8, applicableTo: 'Oncology Category', validFrom: '2026-02-01', validTo: '2026-05-31', isActive: true },
+  { id: 'DR-001', name: 'Hospital Bulk Discount', type: 'PERCENTAGE', value: 10, applicableTo: 'Hospital Customers', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: true },
+  { id: 'DR-002', name: 'Wholesale Slab Discount', type: 'PERCENTAGE', value: 15, applicableTo: 'Wholesale Buyers', validFrom: '2026-01-01', validTo: '2026-06-30', isActive: true },
+  { id: 'DR-003', name: 'Near-Expiry Clearance', type: 'PERCENTAGE', value: 25, applicableTo: 'Expiring in 90 days', validFrom: '2026-03-01', validTo: '2026-03-31', isActive: true },
+  { id: 'DR-004', name: 'Loyalty Reward', type: 'FLAT', value: 500, applicableTo: 'Loyalty Points > 1000', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: false },
+  { id: 'DR-005', name: 'Oncology Bundle', type: 'PERCENTAGE', value: 8, applicableTo: 'Oncology Category', validFrom: '2026-02-01', validTo: '2026-05-31', isActive: true },
 ]
 
 // ─────────────────────────────────────────────────────────────
@@ -173,18 +175,18 @@ interface BackupEntry {
   id: string
   date: string
   size: string
-  type: 'auto' | 'manual'
-  status: 'completed' | 'failed'
+  type: 'AUTO' | 'MANUAL'
+  status: 'COMPLETED' | 'FAILED'
 }
 
 const backupHistory: BackupEntry[] = [
-  { id: 'BK-001', date: '2026-03-21T06:00:00Z', size: '245 MB', type: 'auto', status: 'completed' },
-  { id: 'BK-002', date: '2026-03-20T06:00:00Z', size: '243 MB', type: 'auto', status: 'completed' },
-  { id: 'BK-003', date: '2026-03-19T14:30:00Z', size: '242 MB', type: 'manual', status: 'completed' },
-  { id: 'BK-004', date: '2026-03-19T06:00:00Z', size: '241 MB', type: 'auto', status: 'failed' },
-  { id: 'BK-005', date: '2026-03-18T06:00:00Z', size: '240 MB', type: 'auto', status: 'completed' },
-  { id: 'BK-006', date: '2026-03-17T06:00:00Z', size: '239 MB', type: 'auto', status: 'completed' },
-  { id: 'BK-007', date: '2026-03-16T11:15:00Z', size: '238 MB', type: 'manual', status: 'completed' },
+  { id: 'BK-001', date: '2026-03-21T06:00:00Z', size: '245 MB', type: 'AUTO', status: 'COMPLETED' },
+  { id: 'BK-002', date: '2026-03-20T06:00:00Z', size: '243 MB', type: 'AUTO', status: 'COMPLETED' },
+  { id: 'BK-003', date: '2026-03-19T14:30:00Z', size: '242 MB', type: 'MANUAL', status: 'COMPLETED' },
+  { id: 'BK-004', date: '2026-03-19T06:00:00Z', size: '241 MB', type: 'AUTO', status: 'FAILED' },
+  { id: 'BK-005', date: '2026-03-18T06:00:00Z', size: '240 MB', type: 'AUTO', status: 'COMPLETED' },
+  { id: 'BK-006', date: '2026-03-17T06:00:00Z', size: '239 MB', type: 'AUTO', status: 'COMPLETED' },
+  { id: 'BK-007', date: '2026-03-16T11:15:00Z', size: '238 MB', type: 'MANUAL', status: 'COMPLETED' },
 ]
 
 // ─────────────────────────────────────────────────────────────
@@ -209,24 +211,24 @@ const auditTrailData: AuditEntry[] = [
   { id: 'AUD-003', timestamp: '2026-03-21T09:45:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Adjust', entity: 'PRD-008', field: 'totalStock', oldValue: '20', newValue: '15' },
   { id: 'AUD-004', timestamp: '2026-03-21T09:30:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Business Profile', field: 'phone', oldValue: '04522345678', newValue: '04522345679' },
   { id: 'AUD-005', timestamp: '2026-03-21T09:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'RCT-00125', field: '-', oldValue: '-', newValue: 'Payment Receipt' },
-  { id: 'AUD-006', timestamp: '2026-03-20T17:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Return', entity: 'INV-00425', field: 'status', oldValue: 'paid', newValue: 'returned' },
+  { id: 'AUD-006', timestamp: '2026-03-20T17:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Return', entity: 'INV-00425', field: 'status', oldValue: 'PAID', newValue: 'RETURNED' },
   { id: 'AUD-007', timestamp: '2026-03-20T16:45:00Z', user: 'Admin', module: 'Users', action: 'Deactivate', entity: 'USR-005', field: 'isActive', oldValue: 'true', newValue: 'false' },
   { id: 'AUD-008', timestamp: '2026-03-20T16:00:00Z', user: 'Kumar Selvam', module: 'Purchase', action: 'Create', entity: 'PO-00089', field: '-', oldValue: '-', newValue: 'New Purchase Order' },
   { id: 'AUD-009', timestamp: '2026-03-20T15:30:00Z', user: 'Admin', module: 'Inventory', action: 'Update', entity: 'PRD-013', field: 'minStock', oldValue: '20', newValue: '25' },
   { id: 'AUD-010', timestamp: '2026-03-20T14:20:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Create', entity: 'INV-00429', field: '-', oldValue: '-', newValue: 'New Invoice' },
   { id: 'AUD-011', timestamp: '2026-03-20T13:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'PV-00047', field: '-', oldValue: '-', newValue: 'Payment Voucher' },
-  { id: 'AUD-012', timestamp: '2026-03-20T11:45:00Z', user: 'Kumar Selvam', module: 'Purchase', action: 'Receive', entity: 'GRN-00034', field: 'status', oldValue: 'draft', newValue: 'received' },
-  { id: 'AUD-013', timestamp: '2026-03-20T10:30:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Tax Config', field: 'taxMode', oldValue: 'inclusive', newValue: 'exclusive' },
+  { id: 'AUD-012', timestamp: '2026-03-20T11:45:00Z', user: 'Kumar Selvam', module: 'Purchase', action: 'Receive', entity: 'GRN-00034', field: 'status', oldValue: 'DRAFT', newValue: 'RECEIVED' },
+  { id: 'AUD-013', timestamp: '2026-03-20T10:30:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Tax Config', field: 'taxMode', oldValue: 'INCLUSIVE', newValue: 'EXCLUSIVE' },
   { id: 'AUD-014', timestamp: '2026-03-19T17:00:00Z', user: 'Ravi Shankar', module: 'Customers', action: 'Create', entity: 'CUS-012', field: '-', oldValue: '-', newValue: 'New Customer' },
   { id: 'AUD-015', timestamp: '2026-03-19T16:15:00Z', user: 'Admin', module: 'Inventory', action: 'Create', entity: 'PRD-023', field: '-', oldValue: '-', newValue: 'New Product' },
   { id: 'AUD-016', timestamp: '2026-03-19T15:00:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Transfer', entity: 'TRF-00012', field: 'rack', oldValue: 'A1-01', newValue: 'A2-03' },
   { id: 'AUD-017', timestamp: '2026-03-19T14:30:00Z', user: 'Admin', module: 'Settings', action: 'Backup', entity: 'System', field: '-', oldValue: '-', newValue: 'Manual Backup' },
-  { id: 'AUD-018', timestamp: '2026-03-19T13:00:00Z', user: 'Priya Lakshmi', module: 'Billing', action: 'Update', entity: 'INV-00420', field: 'paymentMode', oldValue: 'credit', newValue: 'cash' },
+  { id: 'AUD-018', timestamp: '2026-03-19T13:00:00Z', user: 'Priya Lakshmi', module: 'Billing', action: 'Update', entity: 'INV-00420', field: 'paymentMode', oldValue: 'CREDIT', newValue: 'CASH' },
   { id: 'AUD-019', timestamp: '2026-03-19T11:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Create', entity: 'QTN-00015', field: '-', oldValue: '-', newValue: 'New Quotation' },
   { id: 'AUD-020', timestamp: '2026-03-19T10:00:00Z', user: 'Admin', module: 'Users', action: 'Create', entity: 'USR-005', field: '-', oldValue: '-', newValue: 'New User' },
   { id: 'AUD-021', timestamp: '2026-03-18T17:30:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Update', entity: 'PRD-004', field: 'rackLocation', oldValue: 'A2-03', newValue: 'A2-04' },
   { id: 'AUD-022', timestamp: '2026-03-18T16:00:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Discount Rules', field: 'DR-003 value', oldValue: '20', newValue: '25' },
-  { id: 'AUD-023', timestamp: '2026-03-18T14:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Cancel', entity: 'INV-00418', field: 'status', oldValue: 'draft', newValue: 'cancelled' },
+  { id: 'AUD-023', timestamp: '2026-03-18T14:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Cancel', entity: 'INV-00418', field: 'status', oldValue: 'DRAFT', newValue: 'CANCELLED' },
   { id: 'AUD-024', timestamp: '2026-03-18T12:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'EXP-00089', field: '-', oldValue: '-', newValue: 'New Expense' },
   { id: 'AUD-025', timestamp: '2026-03-18T10:00:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'General', field: 'sessionTimeout', oldValue: '30', newValue: '60' },
 ]
@@ -258,7 +260,7 @@ type AddUserForm = z.infer<typeof addUserSchema>
 
 const addDiscountSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  type: z.string().min(1, 'Type is required'),
+  type: z.enum(['PERCENTAGE', 'FLAT']),
   value: z.string().min(1, 'Value is required'),
   applicableTo: z.string().min(1, 'Applicable to is required'),
   validFrom: z.string().min(1, 'Start date is required'),
@@ -609,7 +611,7 @@ function BusinessProfileSection() {
 
 function TaxConfigSection() {
   const [gstRates, setGstRates] = useState(initialGstRates)
-  const [taxMode, setTaxMode] = useState<'inclusive' | 'exclusive'>('exclusive')
+  const [taxMode, setTaxMode] = useState<'INCLUSIVE' | 'EXCLUSIVE'>('EXCLUSIVE')
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu')
 
   const states = [
@@ -680,18 +682,18 @@ function TaxConfigSection() {
             <div className="space-y-0.5">
               <p className="text-sm font-medium text-foreground">Tax Mode</p>
               <p className="text-xs text-muted-foreground">
-                {taxMode === 'inclusive' ? 'Prices include GST' : 'Prices exclude GST'}
+                {taxMode === 'INCLUSIVE' ? 'Prices include GST' : 'Prices exclude GST'}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className={cn('text-sm transition-colors', taxMode === 'inclusive' ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+              <span className={cn('text-sm transition-colors', taxMode === 'INCLUSIVE' ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                 Inclusive
               </span>
               <Switch
-                checked={taxMode === 'exclusive'}
-                onCheckedChange={(checked) => setTaxMode(checked ? 'exclusive' : 'inclusive')}
+                checked={taxMode === 'EXCLUSIVE'}
+                onCheckedChange={(checked) => setTaxMode(checked ? 'EXCLUSIVE' : 'INCLUSIVE')}
               />
-              <span className={cn('text-sm transition-colors', taxMode === 'exclusive' ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+              <span className={cn('text-sm transition-colors', taxMode === 'EXCLUSIVE' ? 'font-medium text-foreground' : 'text-muted-foreground')}>
                 Exclusive
               </span>
             </div>
@@ -744,8 +746,21 @@ function UserManagementSection() {
   )
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery.trim()) return users
+    const q = searchQuery.toLowerCase()
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.role.toLowerCase().includes(q)
+    )
+  }, [users, searchQuery])
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -755,17 +770,17 @@ function UserManagementSection() {
   })
 
   const roleLabels: Record<string, string> = {
-    admin: 'Admin',
-    pharmacist: 'Pharmacist',
-    inventory_manager: 'Inventory Manager',
-    accountant: 'Accountant',
+    ADMIN: 'Admin',
+    PHARMACIST: 'Pharmacist',
+    INVENTORY_MANAGER: 'Inventory Manager',
+    ACCOUNTANT: 'Accountant',
   }
 
   const roleBadgeVariant: Record<string, 'purple' | 'info' | 'warning' | 'success'> = {
-    admin: 'purple',
-    pharmacist: 'info',
-    inventory_manager: 'warning',
-    accountant: 'success',
+    ADMIN: 'purple',
+    PHARMACIST: 'info',
+    INVENTORY_MANAGER: 'warning',
+    ACCOUNTANT: 'success',
   }
 
   const onAddUser = (data: AddUserForm) => {
@@ -774,7 +789,7 @@ function UserManagementSection() {
       name: data.name,
       email: data.email,
       phone: data.phone,
-      role: data.role as 'admin' | 'pharmacist' | 'inventory_manager' | 'accountant',
+      role: data.role as 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT',
       isActive: true,
       lastLogin: '',
     }
@@ -799,8 +814,8 @@ function UserManagementSection() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
-                <Users className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
+                <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <CardTitle>User Management</CardTitle>
@@ -813,7 +828,13 @@ function UserManagementSection() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <DataTableFilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder="Search by name, email, or role..."
+            resultsCount={filteredUsers.length}
+          />
           <div className="rounded-xl border border-border/60 overflow-hidden">
             <Table>
               <TableHeader>
@@ -827,7 +848,7 @@ function UserManagementSection() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.name}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{user.email}</TableCell>
@@ -849,22 +870,16 @@ function UserManagementSection() {
                       {user.lastLogin ? formatDateTime(user.lastLogin) : 'Never'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => setEditingUser(user.id)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => toggleUserStatus(user.id)}
-                        >
-                          <Power className={cn('h-3.5 w-3.5', user.isActive ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')} />
-                        </Button>
-                      </div>
+                      <DataTableRowActions
+                        onEdit={() => setEditingUser(user.id)}
+                        customActions={[
+                          {
+                            label: user.isActive ? 'Deactivate' : 'Activate',
+                            icon: <Power className={cn('h-4 w-4', user.isActive ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')} />,
+                            onClick: () => toggleUserStatus(user.id),
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -915,17 +930,23 @@ function UserManagementSection() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="userRole">Role</Label>
-              <select
-                id="userRole"
-                {...register('role')}
-                className="flex h-9 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 dark:bg-background"
-              >
-                <option value="">Select role</option>
-                <option value="admin">Admin</option>
-                <option value="pharmacist">Pharmacist</option>
-                <option value="inventory_manager">Inventory Manager</option>
-                <option value="accountant">Accountant</option>
-              </select>
+              <Controller
+                name="role"
+                control={control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <SelectTrigger id="userRole" className="h-10">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="PHARMACIST">Pharmacist</SelectItem>
+                      <SelectItem value="INVENTORY_MANAGER">Inventory Manager</SelectItem>
+                      <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
               {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
             </div>
             <DialogFooter>
@@ -1295,7 +1316,7 @@ function DiscountRulesSection() {
     const newRule: DiscountRule = {
       id: `DR-${String(discountRules.length + 1).padStart(3, '0')}`,
       name: data.name,
-      type: data.type as 'percentage' | 'flat',
+      type: data.type as 'PERCENTAGE' | 'FLAT',
       value: Number(data.value),
       applicableTo: data.applicableTo,
       validFrom: data.validFrom,
@@ -1359,12 +1380,12 @@ function DiscountRulesSection() {
                   <TableRow key={rule.id} className={cn(!rule.isActive && 'opacity-50')}>
                     <TableCell className="font-medium">{rule.name}</TableCell>
                     <TableCell>
-                      <Badge variant={rule.type === 'percentage' ? 'info' : 'purple'} size="sm">
-                        {rule.type === 'percentage' ? 'Percentage' : 'Flat'}
+                      <Badge variant={rule.type === 'PERCENTAGE' ? 'info' : 'purple'} size="sm">
+                        {rule.type === 'PERCENTAGE' ? 'Percentage' : 'Flat'}
                       </Badge>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {rule.type === 'percentage' ? `${rule.value}%` : `\u20B9${rule.value}`}
+                      {rule.type === 'PERCENTAGE' ? `${rule.value}%` : `\u20B9${rule.value}`}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{rule.applicableTo}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -1419,8 +1440,8 @@ function DiscountRulesSection() {
                   className="flex h-9 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 dark:bg-background"
                 >
                   <option value="">Select type</option>
-                  <option value="percentage">Percentage</option>
-                  <option value="flat">Flat Amount</option>
+                  <option value="PERCENTAGE">Percentage</option>
+                  <option value="FLAT">Flat Amount</option>
                 </select>
                 {errors.type && <p className="text-xs text-destructive">{errors.type.message}</p>}
               </div>
@@ -1606,17 +1627,17 @@ function BackupDataSection() {
                     <TableCell className="text-xs text-muted-foreground">{formatDateTime(backup.date)}</TableCell>
                     <TableCell className="font-medium">{backup.size}</TableCell>
                     <TableCell>
-                      <Badge variant={backup.type === 'auto' ? 'info' : 'purple'} size="sm">
-                        {backup.type === 'auto' ? 'Automatic' : 'Manual'}
+                      <Badge variant={backup.type === 'AUTO' ? 'info' : 'purple'} size="sm">
+                        {backup.type === 'AUTO' ? 'Automatic' : 'Manual'}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={backup.status === 'completed' ? 'success' : 'destructive'}
+                        variant={backup.status === 'COMPLETED' ? 'success' : 'destructive'}
                         size="sm"
                         dot
                       >
-                        {backup.status === 'completed' ? 'Completed' : 'Failed'}
+                        {backup.status === 'COMPLETED' ? 'Completed' : 'Failed'}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -1686,19 +1707,22 @@ function AuditTrailSection() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filters */}
-          <div className="flex flex-wrap items-center gap-3">
-            <Input
-              icon={<Search />}
-              placeholder="Search entities, actions..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-56"
-            />
+          <DataTableFilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder="Search entities, actions..."
+            resultsCount={filteredAudit.length}
+            activeFilterCount={(filterUser !== 'all' ? 1 : 0) + (filterModule !== 'all' ? 1 : 0)}
+            onClearFilters={() => {
+              setFilterUser('all')
+              setFilterModule('all')
+            }}
+          >
             <div className="flex items-center gap-2">
-              <Label className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User:</Label>
+              <Label className="shrink-0 text-xs font-medium text-muted-foreground">User:</Label>
               <Select value={filterUser} onValueChange={setFilterUser}>
                 <SelectTrigger className="h-8 w-40">
-                  <SelectValue />
+                  <SelectValue placeholder="All Users" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Users</SelectItem>
@@ -1709,10 +1733,10 @@ function AuditTrailSection() {
               </Select>
             </div>
             <div className="flex items-center gap-2">
-              <Label className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Module:</Label>
+              <Label className="shrink-0 text-xs font-medium text-muted-foreground">Module:</Label>
               <Select value={filterModule} onValueChange={setFilterModule}>
                 <SelectTrigger className="h-8 w-40">
-                  <SelectValue />
+                  <SelectValue placeholder="All Modules" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Modules</SelectItem>
@@ -1722,10 +1746,7 @@ function AuditTrailSection() {
                 </SelectContent>
               </Select>
             </div>
-            <Badge variant="info" size="sm">
-              {filteredAudit.length} entries
-            </Badge>
-          </div>
+          </DataTableFilterBar>
 
           {/* Table */}
           <div className="rounded-xl border border-border/60 overflow-hidden">

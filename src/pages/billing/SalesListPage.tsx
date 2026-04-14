@@ -50,9 +50,12 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
-import { mockInvoices, mockCustomers } from '@/data/mock'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
+import api from '@/lib/api'
+import type { Invoice } from '@/types'
+import { useEffect } from 'react'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -71,29 +74,29 @@ const PERIOD_OPTIONS = [
 
 const PAYMENT_MODE_OPTIONS = [
   { value: 'all', label: 'All Modes' },
-  { value: 'cash', label: 'Cash' },
-  { value: 'card', label: 'Card' },
-  { value: 'upi', label: 'UPI' },
-  { value: 'credit', label: 'Credit' },
-  { value: 'split', label: 'Split' },
+  { value: 'CASH', label: 'Cash' },
+  { value: 'CARD', label: 'Card' },
+  { value: 'UPI', label: 'UPI' },
+  { value: 'CREDIT', label: 'Credit' },
+  { value: 'SPLIT', label: 'Split' },
 ] as const
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
-  { value: 'paid', label: 'Paid' },
-  { value: 'credit', label: 'Credit' },
-  { value: 'partial', label: 'Partial' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'returned', label: 'Returned' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'PAID', label: 'Paid' },
+  { value: 'CREDIT', label: 'Credit' },
+  { value: 'PARTIAL', label: 'Partial' },
+  { value: 'DRAFT', label: 'Draft' },
+  { value: 'RETURNED', label: 'Returned' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ] as const
 
 const paymentModeLabels: Record<string, string> = {
-  cash: 'Cash',
-  card: 'Card',
-  upi: 'UPI',
-  credit: 'Credit',
-  split: 'Split',
+  CASH: 'Cash',
+  CARD: 'Card',
+  UPI: 'UPI',
+  CREDIT: 'Credit',
+  SPLIT: 'Split',
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -117,6 +120,32 @@ export default function SalesListPage() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
 
+  // Real Data State
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const { customers, fetchMasterData } = useMasterDataStore()
+
+  useEffect(() => {
+    fetchMasterData()
+  }, [])
+
+  const fetchInvoices = async () => {
+    setIsLoading(true)
+    try {
+      const res = await api.get('/billing')
+      // Ensure it's an array, handle pagination wrapper if present
+      setInvoices(res.data.data || res.data)
+    } catch (error) {
+      toast.error('Failed to load invoices')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchInvoices()
+  }, [])
+
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -134,7 +163,7 @@ export default function SalesListPage() {
   // ── Filtering logic ──
 
   const filteredInvoices = useMemo(() => {
-    let result = [...mockInvoices]
+    let result = [...invoices]
 
     // Period filter
     const now = new Date()
@@ -202,6 +231,7 @@ export default function SalesListPage() {
 
     return result
   }, [
+    invoices,
     searchQuery,
     period,
     dateFrom,
@@ -216,24 +246,24 @@ export default function SalesListPage() {
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const invoices = mockInvoices.filter((inv) => inv.type === 'invoice')
-    const totalSales = invoices.reduce((sum, inv) => sum + inv.grandTotal, 0)
-    const paidTotal = invoices
-      .filter((inv) => inv.status === 'paid')
+    const invs = invoices.filter((inv) => inv.type === 'INVOICE')
+    const totalSales = invs.reduce((sum, inv) => sum + inv.grandTotal, 0)
+    const paidTotal = invs
+      .filter((inv) => inv.status === 'PAID')
       .reduce((sum, inv) => sum + inv.grandTotal, 0)
-    const pendingTotal = invoices
-      .filter((inv) => inv.status === 'credit' || inv.status === 'partial')
+    const pendingTotal = invs
+      .filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL')
       .reduce((sum, inv) => sum + inv.grandTotal, 0)
     return {
       totalSales,
-      totalInvoices: invoices.length,
-      paidCount: invoices.filter((inv) => inv.status === 'paid').length,
+      totalInvoices: invs.length,
+      paidCount: invs.filter((inv) => inv.status === 'PAID').length,
       paidTotal,
-      creditCount: invoices.filter((inv) => inv.status === 'credit' || inv.status === 'partial').length,
+      creditCount: invs.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL').length,
       pendingTotal,
-      returnsCount: invoices.filter((inv) => inv.status === 'returned').length,
+      returnsCount: invs.filter((inv) => inv.status === 'RETURNED').length,
     }
-  }, [])
+  }, [invoices])
 
   // ── Pagination ──
 
@@ -275,9 +305,9 @@ export default function SalesListPage() {
   }
 
   // ── Format invoice number ──
-  const formatInvoiceNumber = (inv: (typeof mockInvoices)[0]) => {
+  const formatInvoiceNumber = (inv: Invoice) => {
     const seq = inv.invoiceNumber.split('/').pop() || '00000'
-    const prefix = inv.type === 'quotation' ? 'QTN' : 'INV'
+    const prefix = inv.type === 'QUOTATION' ? 'QTN' : 'INV'
     return `HS/25-26/${prefix}/${seq.padStart(5, '0')}`
   }
 
@@ -423,7 +453,7 @@ export default function SalesListPage() {
           onClear={() => { setSelectedCustomer('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Customers' },
-            ...mockCustomers.map((c) => ({ value: c.id, label: c.name })),
+            ...customers.map((c) => ({ value: c.id, label: c.name })),
           ]}
         />
 
@@ -527,7 +557,16 @@ export default function SalesListPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {paginatedInvoices.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+                      <p className="text-sm text-muted-foreground animate-pulse">Fetching invoices...</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedInvoices.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -593,9 +632,9 @@ export default function SalesListPage() {
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={inv.paymentMode === 'credit' ? 'warning' : 'outline'}
+                        variant={inv.paymentMode === 'CREDIT' ? 'warning' : 'outline'}
                         size="sm"
-                        dot={inv.paymentMode === 'credit'}
+                        dot={inv.paymentMode === 'CREDIT'}
                         className="capitalize"
                       >
                         {paymentModeLabels[inv.paymentMode] || inv.paymentMode}

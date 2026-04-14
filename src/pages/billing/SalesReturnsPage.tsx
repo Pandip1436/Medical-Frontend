@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
@@ -30,6 +30,15 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -37,11 +46,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { mockInvoices } from '@/data/mock'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
+import api from '@/lib/api'
 import type { Invoice, InvoiceItem } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -105,6 +118,25 @@ export default function SalesReturnsPage() {
   // Step 1
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  
+  // Real Data State
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      setIsLoading(true)
+      try {
+        const res = await api.get('/billing')
+        setInvoices(res.data.data || res.data)
+      } catch (error) {
+        toast.error('Failed to load invoices')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchInvoices()
+  }, [])
 
   // Step 2
   const [returnItems, setReturnItems] = useState<ReturnItemState[]>([])
@@ -124,18 +156,18 @@ export default function SalesReturnsPage() {
   const matchingInvoices = useMemo(() => {
     if (!invoiceSearch.trim()) return []
     const q = invoiceSearch.toLowerCase()
-    return mockInvoices
+    return invoices
       .filter(
         (inv) =>
-          inv.type === 'invoice' &&
-          inv.status !== 'returned' &&
-          inv.status !== 'cancelled' &&
-          inv.status !== 'draft' &&
+          inv.type === 'INVOICE' &&
+          inv.status !== 'RETURNED' &&
+          inv.status !== 'CANCELLED' &&
+          inv.status !== 'DRAFT' &&
           (inv.invoiceNumber.toLowerCase().includes(q) ||
             inv.customerName.toLowerCase().includes(q))
       )
       .slice(0, 8)
-  }, [invoiceSearch])
+  }, [invoiceSearch, invoices])
 
   const handleSelectInvoice = (inv: Invoice) => {
     setSelectedInvoice(inv)
@@ -316,12 +348,14 @@ export default function SalesReturnsPage() {
             >
               {/* Left: Search & Invoice List */}
               <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
-                <DataTableFilterBar
-                  searchQuery={invoiceSearch}
-                  onSearchChange={setInvoiceSearch}
-                  searchPlaceholder="Search by invoice number or customer name..."
-                  resultsCount={matchingInvoices.length}
-                />
+                <div className="shrink-0 border-b border-border/40 p-4 bg-muted/10 dark:bg-muted/5">
+                  <DataTableFilterBar
+                    searchQuery={invoiceSearch}
+                    onSearchChange={setInvoiceSearch}
+                    searchPlaceholder="Search by invoice number or customer name..."
+                    resultsCount={matchingInvoices.length}
+                  />
+                </div>
 
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="p-2">
@@ -512,160 +546,147 @@ export default function SalesReturnsPage() {
                 )}
               </div>
 
-              {/* Items — scrollable */}
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="p-6 space-y-3">
-                  {returnItems.map((ri) => {
-                    const ReasonIcon = ri.reason ? reasonIcons[ri.reason] || HelpCircle : HelpCircle
-                    return (
-                      <div
-                        key={ri.itemId}
-                        className={cn(
-                          'rounded-xl border transition-all',
-                          ri.selected
-                            ? 'border-primary/30 bg-primary/[0.02] shadow-sm dark:bg-primary/[0.04]'
-                            : 'border-border/40 hover:border-border/60'
-                        )}
-                      >
-                        <div className="flex items-start gap-4 p-4">
-                          {/* Checkbox */}
-                          <Checkbox
-                            checked={ri.selected}
-                            onCheckedChange={() => toggleReturnItem(ri.itemId)}
-                            className="mt-1"
-                          />
+              {/* Items — Table View */}
+              <div className="flex-1 overflow-hidden border-t border-border/40">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
+                    <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-[0.1em] text-muted-foreground/60 hover:bg-transparent">
+                      <TableHead className="w-12 px-4 py-3 text-center">
+                        <Checkbox 
+                          checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
+                          onCheckedChange={(checked) => {
+                            setReturnItems(prev => prev.map(ri => ({ 
+                              ...ri, 
+                              selected: !!checked,
+                              returnQty: checked ? ri.maxQty : 0,
+                              reason: checked ? ri.reason || 'Other' : ''
+                            })))
+                          }}
+                        />
+                      </TableHead>
+                      <TableHead className="min-w-[200px] px-4 py-3">Product Details</TableHead>
+                      <TableHead className="w-[100px] px-2 py-3 text-center">Sold Qty</TableHead>
+                      <TableHead className="w-[140px] px-2 py-3 text-center">Return Qty</TableHead>
+                      <TableHead className="w-[200px] px-2 py-3">Return Reason</TableHead>
+                      <TableHead className="w-[120px] px-4 py-3 text-right">Refund Amt</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {returnItems.map((ri) => {
+                      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+                      const lineRefund = lineRate * ri.returnQty
+                      const gstRefund = lineRefund * (ri.item.gstPercent / 100)
+                      const totalRefund = lineRefund + gstRefund
 
-                          {/* Product info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                <p className="text-sm font-semibold">{ri.item.productName}</p>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                                  <span>Batch: <span className="font-mono">{ri.item.batchNumber}</span></span>
-                                  <span>Expiry: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
-                                  <span>MRP: {formatCurrency(ri.item.mrp)}</span>
-                                  <span>Rate: {formatCurrency(ri.item.rate)}</span>
-                                  <span>GST: {ri.item.gstPercent}%</span>
-                                </div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Sold Qty</p>
-                                <p className="text-lg font-bold tabular-nums">{ri.item.quantity}</p>
+                      return (
+                        <TableRow 
+                          key={ri.itemId}
+                          className={cn(
+                            "group transition-colors",
+                            ri.selected ? "bg-primary/[0.03] hover:bg-primary/[0.05]" : "hover:bg-muted/30"
+                          )}
+                        >
+                          <TableCell className="px-4 py-3 text-center">
+                            <Checkbox
+                              checked={ri.selected}
+                              onCheckedChange={() => toggleReturnItem(ri.itemId)}
+                            />
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold leading-none">{ri.item.productName}</p>
+                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                                <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
+                                <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
                               </div>
                             </div>
-
-                            {/* Return controls — only when selected */}
-                            {ri.selected && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.15 }}
-                                className="mt-3 pt-3 border-t border-border/30"
-                              >
-                                <div className="flex flex-wrap items-end gap-4">
-                                  {/* Return Qty */}
-                                  <div className="space-y-1">
-                                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                      Return Qty
-                                    </Label>
-                                    <div className="flex items-center gap-1">
-                                      <Button
-                                        variant="outline"
-                                        size="icon-sm"
-                                        onClick={() => updateReturnQty(ri.itemId, ri.returnQty - 1)}
-                                        disabled={ri.returnQty <= 1}
-                                      >
-                                        <Minus className="h-3 w-3" />
-                                      </Button>
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        max={ri.maxQty}
-                                        value={ri.returnQty}
-                                        onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
-                                        className="h-8 w-16 text-center font-mono font-bold"
-                                      />
-                                      <Button
-                                        variant="outline"
-                                        size="icon-sm"
-                                        onClick={() => updateReturnQty(ri.itemId, ri.returnQty + 1)}
-                                        disabled={ri.returnQty >= ri.maxQty}
-                                      >
-                                        <Plus className="h-3 w-3" />
-                                      </Button>
-                                      <span className="text-[11px] text-muted-foreground ml-1">/ {ri.maxQty}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Reason */}
-                                  <div className="space-y-1 flex-1 min-w-[180px]">
-                                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                      Reason
-                                    </Label>
-                                    <Select
-                                      value={ri.reason}
-                                      onValueChange={(val) => updateReturnReason(ri.itemId, val as ReturnReason)}
-                                    >
-                                      <SelectTrigger className="h-8">
-                                        <SelectValue placeholder="Select reason..." />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {RETURN_REASONS.map((reason) => {
-                                          const Icon = reasonIcons[reason]
-                                          return (
-                                            <SelectItem key={reason} value={reason}>
-                                              <span className="flex items-center gap-2">
-                                                <Icon className="h-3.5 w-3.5" />
-                                                {reason}
-                                              </span>
-                                            </SelectItem>
-                                          )
-                                        })}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-
-                                  {ri.reason === 'Other' && (
-                                    <div className="space-y-1 flex-1 min-w-[180px]">
-                                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                        Specify
-                                      </Label>
-                                      <Input
-                                        placeholder="Enter reason..."
-                                        value={ri.customReason}
-                                        onChange={(e) => updateCustomReason(ri.itemId, e.target.value)}
-                                        className="h-8"
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Line total */}
-                                  <div className="space-y-1 text-right">
-                                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                      Return Value
-                                    </Label>
-                                    <p className="font-mono text-sm font-bold text-primary h-8 flex items-center justify-end">
-                                      {formatCurrency(ri.item.rate * (1 - ri.item.discountPercent / 100) * ri.returnQty)}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {!ri.reason && (
-                                  <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
-                                    Please select a reason to continue
-                                  </p>
-                                )}
-                              </motion.div>
+                          </TableCell>
+                          <TableCell className="px-2 py-3 text-center">
+                            <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.item.quantity}</span>
+                          </TableCell>
+                          <TableCell className="px-2 py-3">
+                            {ri.selected ? (
+                              <div className="flex items-center gap-1 justify-center">
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="h-6 w-6 rounded-md"
+                                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty - 1)}
+                                  disabled={ri.returnQty <= 1}
+                                >
+                                  <Minus className="h-2.5 w-2.5" />
+                                </Button>
+                                <input
+                                  type="number"
+                                  value={ri.returnQty}
+                                  onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
+                                  className="w-10 h-6 bg-transparent border-0 text-[11px] font-black font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary/20 rounded"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="h-6 w-6 rounded-md"
+                                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty + 1)}
+                                  disabled={ri.returnQty >= ri.maxQty}
+                                >
+                                  <Plus className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="text-center text-[10px] text-muted-foreground/20 italic">Select to edit</div>
                             )}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
+                          </TableCell>
+                          <TableCell className="px-2 py-3">
+                            {ri.selected ? (
+                              <div className="space-y-1.5">
+                                <Select
+                                  value={ri.reason}
+                                  onValueChange={(val) => updateReturnReason(ri.itemId, val as ReturnReason)}
+                                >
+                                  <SelectTrigger className="h-7 text-[10px] font-medium border-primary/10 bg-background/50">
+                                    <SelectValue placeholder="Reason..." />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-popover/95 backdrop-blur-xl">
+                                    {RETURN_REASONS.map((reason) => {
+                                      const Icon = reasonIcons[reason]
+                                      return (
+                                        <SelectItem key={reason} value={reason} className="text-[11px]">
+                                          <div className="flex items-center gap-2">
+                                            <Icon className="h-3 w-3 opacity-60" />
+                                            {reason}
+                                          </div>
+                                        </SelectItem>
+                                      )
+                                    })}
+                                  </SelectContent>
+                                </Select>
+                                {ri.reason === 'Other' && (
+                                  <input
+                                    placeholder="Specify reason..."
+                                    value={ri.customReason}
+                                    onChange={(e) => updateCustomReason(ri.itemId, e.target.value)}
+                                    className="w-full h-6 px-2 bg-muted/40 border-0 text-[10px] rounded focus:outline-none focus:ring-1 focus:ring-primary/20"
+                                  />
+                                )}
+                              </div>
+                            ) : (
+                              <div className="h-7" />
+                            )}
+                          </TableCell>
+                          <TableCell className="px-4 py-3 text-right">
+                            <span className={cn(
+                              "text-xs font-black font-mono tracking-tight",
+                              totalRefund > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground/20"
+                            )}>
+                              {totalRefund > 0 ? formatCurrency(totalRefund) : "₹0.00"}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
 
               {/* Fixed bottom bar */}
               <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background px-6 py-3">

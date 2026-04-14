@@ -198,12 +198,12 @@ const EXPIRY_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e']
 // ─────────────────────────────────────────────────────────────
 
 const activityTypeConfig: Record<string, { border: string; bg: string }> = {
-  sale: { border: 'border-l-blue-500', bg: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
-  purchase: { border: 'border-l-purple-500', bg: 'bg-purple-500/15 text-purple-700 dark:text-purple-400' },
-  stock: { border: 'border-l-emerald-500', bg: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
-  payment: { border: 'border-l-amber-500', bg: 'bg-amber-500/15 text-amber-700 dark:text-amber-400' },
-  system: { border: 'border-l-rose-500', bg: 'bg-rose-500/15 text-rose-700 dark:text-rose-400' },
-  customer: { border: 'border-l-cyan-500', bg: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400' },
+  SALE: { border: 'border-l-blue-500', bg: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
+  PURCHASE: { border: 'border-l-purple-500', bg: 'bg-purple-500/15 text-purple-700 dark:text-purple-400' },
+  STOCK: { border: 'border-l-emerald-500', bg: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
+  PAYMENT: { border: 'border-l-amber-500', bg: 'bg-amber-500/15 text-amber-700 dark:text-amber-400' },
+  SYSTEM: { border: 'border-l-rose-500', bg: 'bg-rose-500/15 text-rose-700 dark:text-rose-400' },
+  CUSTOMER: { border: 'border-l-cyan-500', bg: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400' },
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -272,15 +272,50 @@ export default function DashboardPage() {
   const [dashData, setDashData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const fetchDashboard = () => {
+  const fetchDashboard = async () => {
     setIsLoading(true)
-    Promise.all([
+    
+    // Use individual catches or Promise.allSettled to prevent one failure from zeroing the whole dashboard
+    const results = await Promise.allSettled([
       api.get('/reports/dashboard'),
+      api.get('/reports/sales/daily'),
+      api.get('/reports/sales/products'),
+      api.get('/reports/inventory/valuation'),
       fetchProducts(),
     ])
-      .then(([res]) => setDashData(res.data))
-      .catch((err) => console.error('Failed to fetch dashboard data', err))
-      .finally(() => setIsLoading(false))
+
+    const dashRes = results[0].status === 'fulfilled' ? (results[0] as PromiseFulfilledResult<any>).value : null
+    const dailyRes = results[1].status === 'fulfilled' ? (results[1] as PromiseFulfilledResult<any>).value : null
+    const productsRes = results[2].status === 'fulfilled' ? (results[2] as PromiseFulfilledResult<any>).value : null
+    const stockRes = results[3].status === 'fulfilled' ? (results[3] as PromiseFulfilledResult<any>).value : null
+
+    if (dashRes) {
+      const recentInvoices = dashRes.data.recentInvoices || []
+      const recentActivity = recentInvoices.map((inv: any) => ({
+        id: inv.id || inv.invoiceNumber,
+        type: 'SALE',
+        user: inv.createdById || 'System',
+        action: `Invoice ${inv.invoiceNumber} created for ${inv.customerName}`,
+        timestamp: inv.date || new Date().toISOString()
+      }))
+
+      const salesTrend = (dailyRes?.data?.chartData || []).map((d: any) => ({
+        date: d.hour,
+        amount: d.amount
+      }))
+
+      setDashData({
+        ...dashRes.data,
+        recentActivity,
+        salesTrend,
+        topProducts: productsRes?.data?.chartData || [],
+        stockDistribution: stockRes?.data?.chartData || []
+      })
+    } else {
+      console.error('Core dashboard data failed to load')
+    }
+    
+    setIsLoading(false)
   }
 
   useEffect(() => {
@@ -522,9 +557,9 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base">Sales Trend</CardTitle>
-                  <CardDescription>Last 30 days revenue</CardDescription>
+                  <CardDescription>Today's revenue (Hourly)</CardDescription>
                 </div>
-                <Badge variant="info" size="sm">30D</Badge>
+                <Badge variant="info" size="sm">Today</Badge>
               </div>
             </CardHeader>
             <CardContent>
@@ -541,14 +576,10 @@ export default function DashboardPage() {
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 10 }}
-                      tickFormatter={(v: string) => {
-                        const d = new Date(v)
-                        return `${d.getDate()}/${d.getMonth() + 1}`
-                      }}
                       className="text-muted-foreground"
                       axisLine={false}
                       tickLine={false}
-                      interval={4}
+                      interval={0}
                     />
                     <YAxis
                       tick={{ fontSize: 10 }}

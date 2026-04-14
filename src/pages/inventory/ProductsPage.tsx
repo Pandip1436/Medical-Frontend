@@ -77,14 +77,14 @@ const productSchema = z.object({
   name: z.string().min(1, 'Product name is required'),
   genericName: z.string().optional().default(''),
   manufacturer: z.string().optional().default(''),
-  category: z.enum(['nephrology', 'oncology', 'general', 'otc', 'surgical']),
+  category: z.enum(['NEPHROLOGY', 'ONCOLOGY', 'GENERAL', 'OTC', 'SURGICAL']),
   packSize: z.string().optional().default(''),
   unitOfMeasure: z.string().optional().default(''),
   // Regulatory
-  schedule: z.enum(['none', 'H', 'H1', 'X']),
+  schedule: z.enum(['NONE', 'H', 'H1', 'X']),
   hsnCode: z.string().optional().default(''),
   isNarcotic: z.boolean().default(false),
-  storageCondition: z.enum(['room_temp', 'cool_dry', 'refrigerated', 'frozen']),
+  storageCondition: z.enum(['ROOM_TEMP', 'COOL_DRY', 'REFRIGERATED', 'FROZEN']),
   // Pricing
   mrp: z.coerce.number().min(0, 'MRP must be >= 0'),
   purchaseRate: z.coerce.number().min(0),
@@ -109,18 +109,18 @@ const categoryBadgeConfig: Record<
   string,
   { label: string; variant: 'purple' | 'info' | 'secondary' | 'success' | 'default' }
 > = {
-  nephrology: { label: 'Nephrology', variant: 'info' },
-  oncology: { label: 'Oncology', variant: 'purple' },
-  general: { label: 'General', variant: 'secondary' },
-  otc: { label: 'OTC', variant: 'success' },
-  surgical: { label: 'Surgical', variant: 'default' },
+  NEPHROLOGY: { label: 'Nephrology', variant: 'info' },
+  ONCOLOGY: { label: 'Oncology', variant: 'purple' },
+  GENERAL: { label: 'General', variant: 'secondary' },
+  OTC: { label: 'OTC', variant: 'success' },
+  SURGICAL: { label: 'Surgical', variant: 'default' },
 }
 
 const scheduleBadgeConfig: Record<
   string,
   { label: string; variant: 'destructive' | 'warning' } | null
 > = {
-  none: null,
+  NONE: null,
   H: { label: 'H', variant: 'destructive' },
   H1: { label: 'H1', variant: 'destructive' },
   X: { label: 'X', variant: 'warning' },
@@ -199,13 +199,13 @@ export default function ProductsPage() {
       name: '',
       genericName: '',
       manufacturer: '',
-      category: 'general',
+      category: 'GENERAL',
       packSize: '',
       unitOfMeasure: '',
-      schedule: 'none',
+      schedule: 'NONE',
       hsnCode: '',
       isNarcotic: false,
-      storageCondition: 'room_temp',
+      storageCondition: 'ROOM_TEMP',
       mrp: 0,
       purchaseRate: 0,
       sellingRate: 0,
@@ -232,13 +232,13 @@ export default function ProductsPage() {
       name: '',
       genericName: '',
       manufacturer: '',
-      category: 'general',
+      category: 'GENERAL',
       packSize: '',
       unitOfMeasure: '',
-      schedule: 'none',
+      schedule: 'NONE',
       hsnCode: '',
       isNarcotic: false,
-      storageCondition: 'room_temp',
+      storageCondition: 'ROOM_TEMP',
       mrp: 0,
       purchaseRate: 0,
       sellingRate: 0,
@@ -458,9 +458,11 @@ export default function ProductsPage() {
           onClear={() => { setSelectedCategory('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Categories' },
-            { value: 'general', label: 'General' },
-            { value: 'otc', label: 'OTC' },
-            { value: 'surgical', label: 'Surgical' },
+            { value: 'GENERAL', label: 'General' },
+            { value: 'OTC', label: 'OTC' },
+            { value: 'SURGICAL', label: 'Surgical' },
+            { value: 'NEPHROLOGY', label: 'Nephrology' },
+            { value: 'ONCOLOGY', label: 'Oncology' },
           ]}
         />
         <EnumSelect
@@ -470,7 +472,7 @@ export default function ProductsPage() {
           onClear={() => { setSelectedSchedule('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Schedules' },
-            { value: 'none', label: 'None' },
+            { value: 'NONE', label: 'None' },
             { value: 'H', label: 'Schedule H' },
             { value: 'H1', label: 'Schedule H1' },
             { value: 'X', label: 'Schedule X' },
@@ -501,11 +503,11 @@ export default function ProductsPage() {
                 const isLowStock =
                   !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
                 
-                const categoryKey = (product.category || '').toLowerCase()
+                const categoryKey = (product.category || '').toUpperCase()
                 const scheduleKey = (product.schedule || '').toUpperCase()
                 
                 const cat = categoryBadgeConfig[categoryKey]
-                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'none' : scheduleKey]
+                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'NONE' : scheduleKey]
 
               return (
                 <TableRow
@@ -740,11 +742,11 @@ export default function ProductsPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="nephrology">Nephrology</SelectItem>
-                              <SelectItem value="oncology">Oncology</SelectItem>
-                              <SelectItem value="general">General</SelectItem>
-                              <SelectItem value="otc">OTC</SelectItem>
-                              <SelectItem value="surgical">Surgical</SelectItem>
+                              <SelectItem value="NEPHROLOGY">Nephrology</SelectItem>
+                              <SelectItem value="ONCOLOGY">Oncology</SelectItem>
+                              <SelectItem value="GENERAL">General</SelectItem>
+                              <SelectItem value="OTC">OTC</SelectItem>
+                              <SelectItem value="SURGICAL">Surgical</SelectItem>
                             </SelectContent>
                           </Select>
                         )}
@@ -787,14 +789,14 @@ export default function ProductsPage() {
                           onValueChange={field.onChange}
                           className="flex gap-6"
                         >
-                          {(['none', 'H', 'H1', 'X'] as const).map((s) => (
+                          {(['NONE', 'H', 'H1', 'X'] as const).map((s) => (
                             <div key={s} className="flex items-center gap-2">
                               <RadioGroupItem value={s} id={`schedule-${s}`} />
                               <Label
                                 htmlFor={`schedule-${s}`}
                                 className="cursor-pointer font-normal"
                               >
-                                {s === 'none' ? 'None' : s}
+                                {s === 'NONE' ? 'None' : s}
                               </Label>
                             </div>
                           ))}
@@ -850,10 +852,10 @@ export default function ProductsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="room_temp">Room Temperature</SelectItem>
-                            <SelectItem value="cool_dry">Cool & Dry</SelectItem>
-                            <SelectItem value="refrigerated">Refrigerated</SelectItem>
-                            <SelectItem value="frozen">Frozen</SelectItem>
+                            <SelectItem value="ROOM_TEMP">Room Temperature</SelectItem>
+                            <SelectItem value="COOL_DRY">Cool & Dry</SelectItem>
+                            <SelectItem value="REFRIGERATED">Refrigerated</SelectItem>
+                            <SelectItem value="FROZEN">Frozen</SelectItem>
                           </SelectContent>
                         </Select>
                       )}

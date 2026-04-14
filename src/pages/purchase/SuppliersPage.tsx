@@ -120,8 +120,8 @@ const PAGE_SIZE = 10
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
 ] as const
 
 const PAYMENT_TERMS_OPTIONS = [
@@ -177,7 +177,7 @@ export default function SuppliersPage() {
 
     // Status
     if (selectedStatus !== 'all') {
-      const isActive = selectedStatus === 'active'
+      const isActive = selectedStatus === 'ACTIVE'
       result = result.filter((s) => s.isActive === isActive)
     }
 

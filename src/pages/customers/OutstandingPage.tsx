@@ -97,7 +97,7 @@ function getAgingBuckets(customer: Customer) {
   const invoices = mockInvoices.filter(
     (inv) =>
       inv.customerId === customer.id &&
-      (inv.status === 'credit' || inv.status === 'partial')
+      (inv.status === 'CREDIT' || inv.status === 'PARTIAL')
   )
 
   let days0to30 = 0

@@ -44,12 +44,12 @@ const statusBadgeConfig: Record<
   string,
   { label: string; variant: 'secondary' | 'info' | 'success' | 'warning' | 'purple' }
 > = {
-  draft: { label: 'Draft', variant: 'secondary' },
-  sent: { label: 'Sent', variant: 'info' },
-  acknowledged: { label: 'Confirmed', variant: 'success' },
-  partially_received: { label: 'Partial', variant: 'warning' },
-  fully_received: { label: 'Received', variant: 'success' },
-  closed: { label: 'Closed', variant: 'purple' },
+  DRAFT: { label: 'Draft', variant: 'secondary' },
+  SENT: { label: 'Sent', variant: 'info' },
+  ACKNOWLEDGED: { label: 'Confirmed', variant: 'success' },
+  PARTIALLY_RECEIVED: { label: 'Partial', variant: 'warning' },
+  FULLY_RECEIVED: { label: 'Received', variant: 'success' },
+  CLOSED: { label: 'Closed', variant: 'purple' },
 }
 
 function createEmptyItem(): GRNFormItem {
@@ -103,9 +103,9 @@ export default function GRNPage() {
   const selectablePOs = useMemo(() => {
     return mockPurchaseOrders.filter(
       (po) =>
-        po.status === 'sent' ||
-        po.status === 'acknowledged' ||
-        po.status === 'partially_received'
+        po.status === 'SENT' ||
+        po.status === 'ACKNOWLEDGED' ||
+        po.status === 'PARTIALLY_RECEIVED'
     )
   }, [])
 
@@ -520,84 +520,93 @@ export default function GRNPage() {
                     </div>
 
                     {/* Row 2: Editable fields — two-row grid for breathing room */}
-                    <div className="px-4 pb-3 space-y-2">
+                    <div className="px-4 pb-4 space-y-3">
                       {/* Quantities row */}
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Received</Label>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
                             type="number"
-                            className="h-8 font-mono text-xs font-bold"
+                            className="h-9 font-mono text-xs font-black border-primary/10 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.receivedQty || ''}
                             onChange={(e) => updateItem(index, 'receivedQty', Number(e.target.value))}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Free</Label>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Free Qty</Label>
                           <Input
                             type="number"
-                            className="h-8 font-mono text-xs"
+                            className="h-9 font-mono text-xs border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.freeQty || ''}
                             onChange={(e) => updateItem(index, 'freeQty', Number(e.target.value))}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</Label>
-                          <Input
-                            type="number"
-                            className="h-8 font-mono text-xs"
-                            placeholder="0.00"
-                            value={item.purchaseRate || ''}
-                            onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))}
-                          />
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Purchase Rate</Label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
+                            <Input
+                              type="number"
+                              className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                              placeholder="0.00"
+                              value={item.purchaseRate || ''}
+                              onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))}
+                            />
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">MRP</Label>
-                          <Input
-                            type="number"
-                            className="h-8 font-mono text-xs"
-                            placeholder="0.00"
-                            value={item.mrp || ''}
-                            onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))}
-                          />
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">MRP</Label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
+                            <Input
+                              type="number"
+                              className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                              placeholder="0.00"
+                              value={item.mrp || ''}
+                              onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))}
+                            />
+                          </div>
                         </div>
                       </div>
                       {/* Batch & dates row */}
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Batch #</Label>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
-                            className="h-8 font-mono text-xs"
-                            placeholder="BAT-XXX"
+                            className="h-9 font-mono text-xs font-bold tracking-tight border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                            placeholder="B-00000"
                             value={item.batchNumber}
                             onChange={(e) => updateItem(index, 'batchNumber', e.target.value)}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Mfg Date</Label>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Mfg Date</Label>
                           <Input
                             type="date"
-                            className="h-8 text-xs"
+                            className="h-9 text-xs font-medium border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             value={item.mfgDate}
                             onChange={(e) => updateItem(index, 'mfgDate', e.target.value)}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</Label>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
                           <Input
                             type="date"
-                            className="h-8 text-xs"
+                            className={cn(
+                              "h-9 text-xs font-bold border-primary/5 bg-muted/20 focus:bg-background transition-all",
+                              item.expiryDate && "text-primary"
+                            )}
                             value={item.expiryDate}
                             onChange={(e) => updateItem(index, 'expiryDate', e.target.value)}
                           />
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Damage</Label>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Damage/Rej.</Label>
                           <Input
                             type="number"
-                            className="h-8 font-mono text-xs"
+                            className="h-9 font-mono text-xs text-rose-600 border-rose-100 bg-rose-50/20 focus:bg-background dark:border-rose-900/40 dark:bg-rose-900/5 transition-all"
                             placeholder="0"
                             value={item.damageQty || ''}
                             onChange={(e) => updateItem(index, 'damageQty', Number(e.target.value))}

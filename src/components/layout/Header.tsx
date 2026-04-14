@@ -48,35 +48,35 @@ interface HeaderProps {
 }
 
 const notificationIcons: Record<Notification['type'], typeof Package> = {
-  low_stock: Package,
-  expiry: Clock,
-  payment_due: IndianRupee,
-  system: AlertTriangle,
-  approval: ShieldCheck,
+  LOW_STOCK: Package,
+  EXPIRY: Clock,
+  PAYMENT_DUE: IndianRupee,
+  SYSTEM: AlertTriangle,
+  APPROVAL: ShieldCheck,
 }
 
 const notificationStripColors: Record<Notification['type'], string> = {
-  low_stock: 'bg-amber-500',
-  expiry: 'bg-red-500',
-  payment_due: 'bg-blue-500',
-  system: 'bg-amber-500',
-  approval: 'bg-emerald-500',
+  LOW_STOCK: 'bg-amber-500',
+  EXPIRY: 'bg-red-500',
+  PAYMENT_DUE: 'bg-blue-500',
+  SYSTEM: 'bg-amber-500',
+  APPROVAL: 'bg-emerald-500',
 }
 
 const notificationIconColors: Record<Notification['type'], string> = {
-  low_stock: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  expiry: 'bg-red-500/10 text-red-600 dark:text-red-400',
-  payment_due: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  system: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  approval: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  LOW_STOCK: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  EXPIRY: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  PAYMENT_DUE: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  SYSTEM: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  APPROVAL: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
 }
 
 const notificationActionLabels: Record<Notification['type'], string> = {
-  low_stock: 'Create PO',
-  expiry: 'View Item',
-  payment_due: 'View Item',
-  system: 'View',
-  approval: 'Review',
+  LOW_STOCK: 'Create PO',
+  EXPIRY: 'View Item',
+  PAYMENT_DUE: 'View Item',
+  SYSTEM: 'View',
+  APPROVAL: 'Review',
 }
 
 const roleRingColors: Record<string, string> = {

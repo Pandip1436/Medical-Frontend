@@ -38,7 +38,7 @@ function createEmptyBill(): CurrentBill {
   return {
     invoiceNumber: '',
     date: new Date().toISOString().split('T')[0],
-    billingType: 'retail',
+    billingType: 'RETAIL',
     customerName: '',
     items: [],
     subtotal: 0,
@@ -49,7 +49,7 @@ function createEmptyBill(): CurrentBill {
     igst: 0,
     roundOff: 0,
     grandTotal: 0,
-    paymentMode: 'cash',
+    paymentMode: 'CASH',
     amountPaid: 0,
     changeReturned: 0,
   }

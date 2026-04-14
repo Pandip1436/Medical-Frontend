@@ -37,8 +37,8 @@ const demoAccounts = [
   {
     role: 'Admin',
     name: 'Super Admin',
-    email: 'admin@hospitalsuppliers.com',
-    password: 'Admin@123',
+    email: 'admin@pbims.com',
+    password: 'admin123',
     icon: Shield,
     color: 'text-violet-600 dark:text-violet-400',
     bg: 'bg-violet-50 dark:bg-violet-500/10',
@@ -48,8 +48,8 @@ const demoAccounts = [
   {
     role: 'Pharmacist',
     name: 'Ravi Kumar',
-    email: 'ravi@hospitalsuppliers.com',
-    password: 'Pharma@123',
+    email: 'pharmacist@pbims.com',
+    password: 'pharma123',
     icon: FlaskConical,
     color: 'text-emerald-600 dark:text-emerald-400',
     bg: 'bg-emerald-50 dark:bg-emerald-500/10',
@@ -59,8 +59,8 @@ const demoAccounts = [
   {
     role: 'Inventory Manager',
     name: 'Kumar Singh',
-    email: 'kumar@hospitalsuppliers.com',
-    password: 'Stock@123',
+    email: 'inventory@pbims.com',
+    password: 'stock123',
     icon: Package,
     color: 'text-blue-600 dark:text-blue-400',
     bg: 'bg-blue-50 dark:bg-blue-500/10',
@@ -70,8 +70,8 @@ const demoAccounts = [
   {
     role: 'Accountant',
     name: 'Priya Sharma',
-    email: 'priya@hospitalsuppliers.com',
-    password: 'Account@123',
+    email: 'accountant@pbims.com',
+    password: 'account123',
     icon: Calculator,
     color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-50 dark:bg-amber-500/10',
@@ -283,7 +283,7 @@ export default function LoginPage({
                   type="button"
                   id="demo-login-btn"
                   onClick={() => setDemoOpen((v) => !v)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary transition-all hover:bg-primary/10 hover:border-primary/70"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/30 bg-foreground/5 px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-foreground/10 hover:border-foreground/50"
                 >
                   <Sparkles className="h-4 w-4" />
                   Demo Login

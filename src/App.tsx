@@ -77,8 +77,9 @@ export const rolePermissions: Record<string, string[]> = {
 }
 
 function canAccess(role: string | undefined, path: string): boolean {
-  if (!role || role === 'ADMIN') return true
-  const allowed = rolePermissions[role] ?? []
+  const normRole = (role ?? '').toUpperCase().replace(/[\s-]/g, '_')
+  if (!normRole || normRole === 'ADMIN') return true
+  const allowed = rolePermissions[normRole] ?? []
   return allowed.includes(path)
 }
 

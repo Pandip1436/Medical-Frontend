@@ -12,6 +12,7 @@ interface DataTableFilterBarProps {
   searchPlaceholder?: string
   resultsCount?: number
   activeFilterCount?: number
+  defaultFiltersOpen?: boolean
   onClearFilters?: () => void
   children?: React.ReactNode // The filter inputs/dropdowns
   actionNode?: React.ReactNode // Custom actions (e.g. view toggles) aligned right
@@ -23,11 +24,12 @@ export function DataTableFilterBar({
   searchPlaceholder = 'Search...',
   resultsCount,
   activeFilterCount = 0,
+  defaultFiltersOpen = false,
   onClearFilters,
   children,
   actionNode,
 }: DataTableFilterBarProps) {
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(defaultFiltersOpen)
 
   return (
     <div className="space-y-3">

@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'pharmacist' | 'inventory_manager' | 'accountant'
+export type UserRole = 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT'
 
 export interface User {
   id: string
@@ -18,7 +18,7 @@ export interface Customer {
   alternatePhone?: string
   email?: string
   address?: string
-  type: 'walk-in' | 'regular' | 'hospital' | 'wholesale' | 'doctor'
+  type: 'WALK_IN' | 'REGULAR' | 'HOSPITAL' | 'WHOLESALE' | 'DOCTOR'
   doctorRef?: string
   creditLimit: number
   currentOutstanding: number
@@ -48,14 +48,14 @@ export interface Product {
   name: string
   genericName: string
   manufacturer: string
-  category: 'nephrology' | 'oncology' | 'general' | 'otc' | 'surgical'
+  category: 'NEPHROLOGY' | 'ONCOLOGY' | 'GENERAL' | 'OTC' | 'SURGICAL'
   subCategory?: string
   packSize: string
   unitOfMeasure: string
-  schedule: 'none' | 'H' | 'H1' | 'X'
+  schedule: 'NONE' | 'H' | 'H1' | 'X'
   hsnCode: string
   isNarcotic: boolean
-  storageCondition: 'room_temp' | 'cool_dry' | 'refrigerated' | 'frozen'
+  storageCondition: 'ROOM_TEMP' | 'COOL_DRY' | 'REFRIGERATED' | 'FROZEN'
   mrp: number
   purchaseRate: number
   sellingRate: number
@@ -103,8 +103,8 @@ export interface Invoice {
   id: string
   invoiceNumber: string
   date: string
-  type: 'invoice' | 'quotation'
-  billingType: 'retail' | 'wholesale'
+  type: 'INVOICE' | 'QUOTATION'
+  billingType: 'RETAIL' | 'WHOLESALE'
   customerId?: string
   customerName: string
   doctorName?: string
@@ -117,9 +117,9 @@ export interface Invoice {
   igst: number
   roundOff: number
   grandTotal: number
-  paymentMode: 'cash' | 'card' | 'upi' | 'credit' | 'split'
+  paymentMode: 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
   paymentDetails?: Record<string, unknown>
-  status: 'draft' | 'paid' | 'credit' | 'partial' | 'returned' | 'cancelled'
+  status: 'DRAFT' | 'PAID' | 'CREDIT' | 'PARTIAL' | 'RETURNED' | 'CANCELLED'
   amountPaid: number
   changeReturned: number
   createdBy: string
@@ -134,7 +134,7 @@ export interface PurchaseOrder {
   supplierName: string
   items: PurchaseOrderItem[]
   totalAmount: number
-  status: 'draft' | 'sent' | 'acknowledged' | 'partially_received' | 'fully_received' | 'closed'
+  status: 'DRAFT' | 'SENT' | 'ACKNOWLEDGED' | 'PARTIALLY_RECEIVED' | 'FULLY_RECEIVED' | 'CLOSED'
   expectedDelivery: string
   createdBy: string
 }
@@ -177,16 +177,31 @@ export interface GRN {
   supplierInvoiceAmount: number
   items: GRNItem[]
   totalAmount: number
-  status: 'draft' | 'received' | 'verified'
+  status: 'DRAFT' | 'RECEIVED' | 'VERIFIED'
 }
+
+export type ExpenseCategory = 
+  | 'RENT'
+  | 'SALARY'
+  | 'ELECTRICITY'
+  | 'TRANSPORT'
+  | 'INSURANCE'
+  | 'MAINTENANCE'
+  | 'TELEPHONE_INTERNET'
+  | 'STATIONERY_PRINTING'
+  | 'SOFTWARE_IT'
+  | 'LICENSE_COMPLIANCE'
+  | 'MISCELLANEOUS'
+
+export type ExpensePaymentMode = 'CASH' | 'BANK_TRANSFER' | 'UPI' | 'CHEQUE'
 
 export interface Expense {
   id: string
   date: string
-  category: string
+  category: ExpenseCategory
   description: string
   amount: number
-  paymentMode: string
+  paymentMode: ExpensePaymentMode
   receiptImage?: string
 }
 
@@ -196,18 +211,18 @@ export interface ActivityItem {
   userAvatar?: string
   action: string
   timestamp: string
-  type: 'sale' | 'purchase' | 'stock' | 'payment' | 'system' | 'customer'
+  type: 'SALE' | 'PURCHASE' | 'STOCK' | 'PAYMENT' | 'SYSTEM' | 'CUSTOMER'
 }
 
 export interface Notification {
   id: string
   title: string
   message: string
-  type: 'low_stock' | 'expiry' | 'payment_due' | 'system' | 'approval'
+  type: 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'SYSTEM' | 'APPROVAL'
   isRead: boolean
   timestamp: string
   actionUrl?: string
 }
 
-export type PaymentMode = 'cash' | 'card' | 'upi' | 'credit' | 'split'
-export type BillingType = 'retail' | 'wholesale'
+export type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
+export type BillingType = 'RETAIL' | 'WHOLESALE'

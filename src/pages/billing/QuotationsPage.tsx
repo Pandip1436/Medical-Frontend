@@ -56,7 +56,7 @@ import { toast } from 'sonner'
 // MOCK QUOTATION DATA
 // ─────────────────────────────────────────────────────────────
 
-type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'converted'
+type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
 
 interface QuotationItem {
   name: string
@@ -85,7 +85,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Calcium Acetate 667mg Tab', qty: 100, rate: 132.0 },
     ],
     total: 29400.0,
-    status: 'sent',
+    status: 'SENT',
   },
   {
     id: 'QTN-002',
@@ -97,7 +97,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Paclitaxel 260mg Inj', qty: 5, rate: 7900.0 },
     ],
     total: 91500.0,
-    status: 'accepted',
+    status: 'ACCEPTED',
   },
   {
     id: 'QTN-003',
@@ -108,7 +108,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Rituximab 500mg Inj', qty: 4, rate: 23500.0 },
     ],
     total: 94000.0,
-    status: 'converted',
+    status: 'CONVERTED',
   },
   {
     id: 'QTN-004',
@@ -121,7 +121,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Enalapril 5mg Tab', qty: 200, rate: 44.0 },
     ],
     total: 40800.0,
-    status: 'draft',
+    status: 'DRAFT',
   },
   {
     id: 'QTN-005',
@@ -133,7 +133,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Capecitabine 500mg Tab', qty: 10, rate: 1800.0 },
     ],
     total: 22950.0,
-    status: 'rejected',
+    status: 'REJECTED',
   },
   {
     id: 'QTN-006',
@@ -145,7 +145,7 @@ const mockQuotations: Quotation[] = [
       { name: 'Mycophenolate Mofetil 500mg Tab', qty: 20, rate: 445.0 },
     ],
     total: 17750.0,
-    status: 'sent',
+    status: 'SENT',
   },
 ]
 
@@ -165,27 +165,27 @@ const PERIOD_OPTIONS = [
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'sent', label: 'Sent' },
-  { value: 'accepted', label: 'Accepted' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'converted', label: 'Converted' },
+  { value: 'DRAFT', label: 'Draft' },
+  { value: 'SENT', label: 'Sent' },
+  { value: 'ACCEPTED', label: 'Accepted' },
+  { value: 'REJECTED', label: 'Rejected' },
+  { value: 'CONVERTED', label: 'Converted' },
 ] as const
 
 const statusBadgeVariant: Record<QuotationStatus, 'success' | 'warning' | 'info' | 'purple' | 'destructive' | 'secondary'> = {
-  converted: 'success',
-  accepted: 'success',
-  sent: 'info',
-  draft: 'secondary',
-  rejected: 'destructive',
+  CONVERTED: 'success',
+  ACCEPTED: 'success',
+  SENT: 'info',
+  DRAFT: 'secondary',
+  REJECTED: 'destructive',
 }
 
 const statusLabel: Record<QuotationStatus, string> = {
-  converted: 'Converted',
-  accepted: 'Accepted',
-  sent: 'Sent',
-  draft: 'Draft',
-  rejected: 'Rejected',
+  CONVERTED: 'Converted',
+  ACCEPTED: 'Accepted',
+  SENT: 'Sent',
+  DRAFT: 'Draft',
+  REJECTED: 'Rejected',
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -281,18 +281,18 @@ export default function QuotationsPage() {
   const stats = useMemo(() => {
     const total = mockQuotations.reduce((sum, qt) => sum + qt.total, 0)
     const acceptedTotal = mockQuotations
-      .filter((qt) => qt.status === 'accepted' || qt.status === 'converted')
+      .filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED')
       .reduce((sum, qt) => sum + qt.total, 0)
     const pendingTotal = mockQuotations
-      .filter((qt) => qt.status === 'draft' || qt.status === 'sent')
+      .filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT')
       .reduce((sum, qt) => sum + qt.total, 0)
-    const rejectedCount = mockQuotations.filter((qt) => qt.status === 'rejected').length
+    const rejectedCount = mockQuotations.filter((qt) => qt.status === 'REJECTED').length
     return {
       total,
       totalCount: mockQuotations.length,
-      acceptedCount: mockQuotations.filter((qt) => qt.status === 'accepted' || qt.status === 'converted').length,
+      acceptedCount: mockQuotations.filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED').length,
       acceptedTotal,
-      pendingCount: mockQuotations.filter((qt) => qt.status === 'draft' || qt.status === 'sent').length,
+      pendingCount: mockQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT').length,
       pendingTotal,
       rejectedCount,
     }
@@ -642,13 +642,13 @@ export default function QuotationsPage() {
                             label: 'Convert',
                             icon: <ArrowRightLeft className="h-4 w-4" />,
                             onClick: () => toast.success(`Quotation ${qt.quotationNumber} converted to invoice!`),
-                            disabled: qt.status === 'converted' || qt.status === 'rejected'
+                            disabled: qt.status === 'CONVERTED' || qt.status === 'REJECTED'
                           },
                           {
                             label: 'Send',
                             icon: <Send className="h-4 w-4" />,
                             onClick: () => toast.info(`Sending quotation to ${qt.customerName}...`),
-                            disabled: qt.status === 'rejected'
+                            disabled: qt.status === 'REJECTED'
                           },
                           {
                             label: 'Download',
