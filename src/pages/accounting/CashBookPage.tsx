@@ -373,6 +373,51 @@ export default function CashBookPage() {
       {/* ── Transaction Table ── */}
       <Card className="overflow-x-auto rounded-2xl border-border/60">
         <CardContent className="p-0">
+          {/* Mobile card list */}
+          <div className="md:hidden">
+            {isLoading && [...Array(5)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border/40">
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+                  <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+                </div>
+                <div className="h-4 w-16 rounded bg-muted animate-pulse" />
+              </div>
+            ))}
+            {!isLoading && transactionsWithBalance.length === 0 && (
+              <div className="py-8 text-center text-muted-foreground text-sm">
+                No transactions for this date
+              </div>
+            )}
+            <div className="divide-y divide-border/40">
+              {!isLoading && transactionsWithBalance.map((txn) => (
+                <div key={txn.id} className="flex items-start justify-between gap-2 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{txn.particular}</p>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      {typeBadge(txn.type)}
+                      <span className="font-mono text-[10px] text-muted-foreground">{txn.time}</span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {txn.debit > 0 && (
+                      <p className="font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                        +{formatCurrency(txn.debit)}
+                      </p>
+                    )}
+                    {txn.credit > 0 && (
+                      <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
+                        -{formatCurrency(txn.credit)}
+                      </p>
+                    )}
+                    <p className="font-mono text-xs text-muted-foreground">Bal: {formatCurrency(txn.balance)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Desktop table */}
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -453,6 +498,7 @@ export default function CashBookPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

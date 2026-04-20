@@ -437,6 +437,44 @@ export default function StockOverviewPage() {
         >
           <motion.div variants={itemVariants}>
             <div className="rounded-2xl border border-border/60 bg-card shadow">
+
+              {/* Mobile card list */}
+              <div className="md:hidden">
+                {filteredRows.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    No stock records found matching your filters.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border/40">
+                    {filteredRows.map((row) => {
+                      const sc = statusConfig[row.status]
+                      return (
+                        <div key={row.batchId || row.productId} className="flex items-start justify-between gap-2 px-4 py-3">
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <p className="truncate font-medium text-sm">{row.productName}</p>
+                            <p className="font-mono text-xs text-muted-foreground">
+                              {row.batchNumber}{row.rackLocation ? ` · ${row.rackLocation}` : ''}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                              <Badge variant={sc.variant} dot size="sm">{sc.label}</Badge>
+                              {row.expiryDate && (
+                                <span className="text-xs text-muted-foreground">Exp: {formatDate(row.expiryDate)}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-0.5 shrink-0">
+                            <span className="font-mono text-sm font-semibold">{formatCurrency(row.stockValue)}</span>
+                            <span className="text-xs text-muted-foreground">{row.quantity} units · {formatCurrency(row.mrp)} MRP</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -500,6 +538,8 @@ export default function StockOverviewPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
+
             </div>
           </motion.div>
         </motion.div>

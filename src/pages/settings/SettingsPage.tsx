@@ -871,6 +871,42 @@ function UserManagementSection() {
             resultsCount={filteredUsers.length}
           />
           <div className="rounded-xl border border-border/60 overflow-x-auto">
+            {/* Mobile card list */}
+            <div className="md:hidden">
+              {filteredUsers.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">No users found</div>
+              ) : (
+                <div className="divide-y divide-border/40">
+                  {filteredUsers.map((user) => (
+                    <div key={user.id} className="flex items-start justify-between gap-2 px-4 py-3">
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="truncate font-medium text-sm">{user.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                          <Badge variant={roleBadgeVariant[user.role] || 'secondary'} size="sm">
+                            {roleLabels[user.role] || user.role}
+                          </Badge>
+                          <Badge variant={user.isActive ? 'success' : 'secondary'} size="sm" dot>
+                            {user.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="text-xs text-muted-foreground">
+                          {user.lastLogin ? formatDate(user.lastLogin) : 'Never'}
+                        </span>
+                        {user.branch && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">{user.branch.code}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -931,6 +967,7 @@ function UserManagementSection() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </div>
         </CardContent>
       </Card>

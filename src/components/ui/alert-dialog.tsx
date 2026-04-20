@@ -34,12 +34,14 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
+        // Mobile: bottom sheet (alert dialogs are short — no need for full-screen)
         "fixed inset-x-0 bottom-0 z-50 grid w-full gap-4 border-t bg-background p-5 shadow-lg duration-200",
         "rounded-t-2xl",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-        "md:inset-auto md:left-1/2 md:top-1/2 md:bottom-auto md:max-w-lg",
+        // md+: centered compact modal
+        "md:inset-auto md:fixed md:left-1/2 md:top-1/2 md:bottom-auto md:max-w-md",
         "md:-translate-x-1/2 md:-translate-y-1/2",
         "md:rounded-2xl md:border md:p-6",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",

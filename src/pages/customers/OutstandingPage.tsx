@@ -364,6 +364,41 @@ export default function OutstandingPage() {
         <motion.div variants={itemVariants}>
           <Card>
             <CardContent className="p-0">
+              {/* Mobile card list */}
+              <div className="md:hidden">
+                {outstandingCustomers.length === 0 && (
+                  <div className="py-8 text-center text-sm text-muted-foreground">No outstanding receivables</div>
+                )}
+                <div className="divide-y divide-border/40">
+                  {outstandingCustomers.map((customer) => {
+                    const buckets = getAgingBuckets(customer)
+                    return (
+                      <div key={customer.id} className="flex items-start justify-between gap-2 px-4 py-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{customer.name}</p>
+                          <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
+                          {buckets.days60plus > 0 && (
+                            <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(buckets.days60plus)}</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-mono text-sm font-bold text-red-600 dark:text-red-400">
+                            {formatCurrency(Number(customer.currentOutstanding))}
+                          </p>
+                          <button
+                            className="mt-1 text-[10px] text-primary underline"
+                            onClick={() => handleCollectPayment(customer)}
+                          >
+                            Collect
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -427,6 +462,7 @@ export default function OutstandingPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         </motion.div>

@@ -191,6 +191,56 @@ export default function DebitNotesPage() {
                 </div>
               ) : (
                 <Card className="overflow-x-auto border-border/40 shadow-sm">
+                  {/* Mobile card list */}
+                  <div className="md:hidden">
+                    <div className="divide-y divide-border/40">
+                      {pastReturns.map((pr) => (
+                        <div
+                          key={pr.id}
+                          className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                          onClick={() => setSelectedReturnDetails({
+                            id: pr.id,
+                            noteNo: pr.debitNoteNo,
+                            date: pr.date,
+                            partyName: pr.supplierName,
+                            referenceValue: pr.grn?.grnNumber ?? 'Direct',
+                            reason: pr.reason,
+                            items: pr.items,
+                            subtotal: pr.subtotal,
+                            cgst: pr.cgst,
+                            sgst: pr.sgst,
+                            totalAmount: pr.totalAmount,
+                            status: pr.status,
+                            notes: pr.notes,
+                          })}
+                        >
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <p className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</p>
+                            <p className="truncate text-sm font-medium">{pr.supplierName}</p>
+                            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                              <Badge
+                                variant={pr.status === 'SETTLED' ? 'success' : pr.status === 'SENT' ? 'info' : 'secondary'}
+                                size="sm"
+                                dot
+                              >
+                                {pr.status}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">{formatDate(pr.date)}</span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-0.5 shrink-0">
+                            <span className="font-mono font-semibold text-sm text-rose-600 dark:text-rose-400">
+                              {formatCurrency(pr.totalAmount)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{pr.grn?.grnNumber ?? 'Direct'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Desktop table */}
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
@@ -251,6 +301,7 @@ export default function DebitNotesPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 </Card>
               )}
             </div>

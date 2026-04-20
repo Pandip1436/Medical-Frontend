@@ -550,6 +550,44 @@ export default function QuotationsPage() {
 
       {/* ── Table ── */}
       <Card>
+        {/* Mobile card list */}
+        <div className="md:hidden">
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center gap-3 py-10">
+              <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+              <p className="text-sm text-muted-foreground animate-pulse">Fetching quotations...</p>
+            </div>
+          )}
+          {!isLoading && paginatedQuotations.length === 0 && (
+            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <FileText className="h-6 w-6 text-muted-foreground/60" />
+              <p className="text-sm font-medium text-muted-foreground">No quotations found</p>
+            </div>
+          )}
+          <div className="divide-y divide-border/40">
+            {!isLoading && paginatedQuotations.map((qt) => (
+              <div
+                key={qt.id}
+                className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
+                onClick={() => setDetailQt(qt)}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono text-[11px] font-medium">{qt.quotationNumber}</p>
+                  <p className="text-sm font-medium truncate">{qt.customerName}</p>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <Badge variant={statusBadgeVariant[qt.status]} size="sm" dot>
+                      {statusLabel[qt.status]}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground">{formatDate(qt.date)}</span>
+                  </div>
+                </div>
+                <p className="font-mono text-sm font-semibold shrink-0">{formatCurrency(qt.total)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Desktop table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -694,6 +732,7 @@ export default function QuotationsPage() {
             </AnimatePresence>
           </TableBody>
         </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">

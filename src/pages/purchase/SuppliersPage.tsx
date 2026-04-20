@@ -499,6 +499,40 @@ export default function SuppliersPage() {
 
       {/* ── Table ── */}
       <Card>
+
+        {/* Mobile card list */}
+        <div className="md:hidden">
+          {paginatedSuppliers.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">No suppliers found</div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {paginatedSuppliers.map((supplier) => (
+                <div
+                  key={supplier.id}
+                  className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                  onClick={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
+                >
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="truncate font-medium text-sm">{supplier.name}</p>
+                    <p className="text-xs text-muted-foreground">{supplier.contactPerson} · {supplier.phone}</p>
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <Badge variant={supplier.isActive ? 'success' : 'destructive'} dot size="sm">
+                        {supplier.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    <span className="font-mono text-xs text-muted-foreground">{supplier.gstin}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -591,6 +625,7 @@ export default function SuppliersPage() {
             </AnimatePresence>
           </TableBody>
         </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">

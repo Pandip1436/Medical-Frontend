@@ -480,6 +480,52 @@ export default function CustomersPage() {
       <motion.div variants={itemVariants}>
         <Card className="overflow-x-auto">
           <CardContent className="p-0">
+            {/* Mobile card list */}
+            <div className="md:hidden">
+              {isLoading && (
+                <div className="divide-y divide-border/40">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3">
+                      <div className="flex-1 space-y-1.5">
+                        <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+                        <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+                      </div>
+                      <div className="h-4 w-16 rounded bg-muted animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isLoading && filtered.length === 0 && (
+                <div className="py-12 text-center text-sm text-muted-foreground">No customers found</div>
+              )}
+              <div className="divide-y divide-border/40">
+                {!isLoading && filtered.map((customer) => (
+                  <div
+                    key={customer.id}
+                    className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
+                    onClick={() => handleViewDetails(customer)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{customer.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
+                      <div className="mt-0.5">
+                        <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
+                          {customer.type.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={cn('font-mono text-sm font-semibold', outstandingColor(customer.currentOutstanding, customer.creditLimit))}>
+                        {formatCurrency(customer.currentOutstanding)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">outstanding</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Desktop table */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -557,6 +603,7 @@ export default function CustomersPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       </motion.div>

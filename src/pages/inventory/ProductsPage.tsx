@@ -581,6 +581,84 @@ export default function ProductsPage() {
 
       {/* ── Table ── */}
       <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
+
+        {/* Mobile card list */}
+        <div className="md:hidden">
+          {isLoading ? (
+            <div className="divide-y divide-border/40">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 animate-pulse">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-4 w-40 rounded bg-muted" />
+                    <div className="h-3 w-28 rounded bg-muted" />
+                    <div className="h-3 w-20 rounded bg-muted" />
+                  </div>
+                  <div className="h-5 w-16 rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : paginatedProducts.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">No products found</div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {paginatedProducts.map((product) => {
+                const isOutOfStock = (product.totalStock || 0) === 0
+                const isLowStock = !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
+                const categoryKey = (product.category || '').toUpperCase()
+                const scheduleKey = (product.schedule || '').toUpperCase()
+                const cat = categoryBadgeConfig[categoryKey]
+                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'NONE' : scheduleKey]
+                return (
+                  <div
+                    key={product.id}
+                    className={cn(
+                      'flex items-start justify-between gap-2 px-4 py-3',
+                      isOutOfStock && 'bg-rose-50/60 dark:bg-rose-950/20',
+                      isLowStock && 'bg-amber-50/60 dark:bg-amber-950/20'
+                    )}
+                    onClick={() => openEditDialog(product)}
+                  >
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <p className="truncate font-medium text-sm">{product.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{product.genericName}{product.manufacturer ? ` · ${product.manufacturer}` : ''}</p>
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        {cat && <Badge variant={cat.variant} size="sm" dot>{cat.label}</Badge>}
+                        {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
+                        {product.rackLocation && (
+                          <span className="text-xs text-muted-foreground">{product.rackLocation}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="font-mono text-sm font-semibold">{formatCurrency(product.mrp)}</span>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 font-mono text-xs font-semibold',
+                          isOutOfStock && 'text-rose-600 dark:text-rose-400',
+                          isLowStock && 'text-amber-600 dark:text-amber-400',
+                          !isOutOfStock && !isLowStock && 'text-emerald-600 dark:text-emerald-400'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full',
+                            isOutOfStock && 'bg-rose-500',
+                            isLowStock && 'bg-amber-500',
+                            !isOutOfStock && !isLowStock && 'bg-emerald-500'
+                          )}
+                        />
+                        {product.totalStock} units
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -601,10 +679,10 @@ export default function ProductsPage() {
                 const isOutOfStock = (product.totalStock || 0) === 0
                 const isLowStock =
                   !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
-                
+
                 const categoryKey = (product.category || '').toUpperCase()
                 const scheduleKey = (product.schedule || '').toUpperCase()
-                
+
                 const cat = categoryBadgeConfig[categoryKey]
                 const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'NONE' : scheduleKey]
 
@@ -691,6 +769,7 @@ export default function ProductsPage() {
             })}
           </TableBody>
         </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">

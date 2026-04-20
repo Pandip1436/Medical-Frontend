@@ -628,8 +628,96 @@ export default function SalesListPage() {
         )}
       </AnimatePresence>
 
-      {/* ── Table ── */}
+      {/* ── Mobile Cards / Desktop Table ── */}
       <Card>
+        {/* ── MOBILE CARD LIST (hidden on md+) ── */}
+        <div className="md:hidden">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+              <p className="text-sm text-muted-foreground animate-pulse">Fetching invoices...</p>
+            </div>
+          ) : paginatedInvoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
+                <FileX2 className="h-6 w-6 text-muted-foreground/60" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">No invoices found</p>
+              <p className="text-[11px] text-muted-foreground/60">Try adjusting your search or filters</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {paginatedInvoices.map((inv, idx) => (
+                <motion.div
+                  key={inv.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15, delay: idx * 0.02 }}
+                  className="flex flex-col gap-2 p-4 cursor-pointer active:bg-muted/30"
+                  onClick={() => setDetailInvoice(inv)}
+                >
+                  {/* Row 1: Invoice # + Status */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                      <span className="font-mono text-[11px] font-semibold">{formatInvoiceNumber(inv)}</span>
+                      <span className="text-[11px] text-muted-foreground">{formatDate(inv.date)}</span>
+                    </div>
+                    <StatusBadge status={inv.status} />
+                  </div>
+                  {/* Row 2: Customer + Doctor */}
+                  <div>
+                    <p className="text-sm font-medium leading-tight">{inv.customerName}</p>
+                    {inv.doctorName && (
+                      <p className="text-[11px] text-muted-foreground">{inv.doctorName}</p>
+                    )}
+                  </div>
+                  {/* Row 3: Items + Payment + Total + Actions */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" size="sm">{inv.items?.length ?? 0} items</Badge>
+                      <Badge
+                        variant={inv.paymentMode === 'CREDIT' ? 'warning' : 'outline'}
+                        size="sm"
+                        dot={inv.paymentMode === 'CREDIT'}
+                        className="capitalize"
+                      >
+                        {paymentModeLabels[inv.paymentMode] || inv.paymentMode}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-semibold">{formatCurrency(inv.grandTotal)}</span>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <DataTableRowActions
+                          onView={() => setDetailInvoice(inv)}
+                          onPrint={() => printInvoicePdf(inv)}
+                          onDelete={async () => {
+                            try {
+                              await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
+                              toast.success('Invoice cancelled')
+                              fetchInvoices()
+                            } catch {
+                              toast.error('Failed to cancel invoice')
+                            }
+                          }}
+                          deleteLabel="Cancel"
+                          customActions={[
+                            { label: 'Share', icon: <Share2 className="h-4 w-4" />, onClick: () => shareInvoiceViaWhatsApp(inv) },
+                            { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`) },
+                            { label: 'Return', icon: <RotateCcw className="h-4 w-4" />, onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`) },
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── DESKTOP TABLE (hidden on mobile) ── */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -776,8 +864,9 @@ export default function SalesListPage() {
             </AnimatePresence>
           </TableBody>
         </Table>
+        </div>{/* end desktop table */}
 
-        {/* Pagination */}
+        {/* Pagination — shared by both mobile cards and desktop table */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
           <p className="text-[11px] text-muted-foreground">
             Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}

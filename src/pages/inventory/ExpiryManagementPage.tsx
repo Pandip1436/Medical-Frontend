@@ -243,6 +243,41 @@ export default function ExpiryManagementPage() {
   // Table renderer for a bucket
   const renderBatchTable = (batchesToRender: EnrichedBatch[]) => (
     <div className="rounded-2xl border border-border/60 bg-card shadow overflow-x-auto">
+      {/* Mobile card list */}
+      <div className="md:hidden">
+        {batchesToRender.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+            <Search className="mb-3 h-8 w-8 opacity-20" />
+            <p>No batches match your filters in this category</p>
+          </div>
+        )}
+        <div className="divide-y divide-border/40">
+          {batchesToRender.map((batch) => (
+            <div key={batch.batchId} className="flex items-start justify-between gap-2 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{batch.productName}</p>
+                <p className="font-mono text-[10px] text-muted-foreground">{batch.batchNumber}</p>
+                <p className={cn(
+                  'text-[10px] mt-0.5',
+                  batch.daysToExpiry < 0
+                    ? 'text-red-600 dark:text-red-400 font-semibold'
+                    : batch.daysToExpiry <= 30
+                      ? 'text-orange-600 dark:text-orange-400'
+                      : 'text-muted-foreground'
+                )}>
+                  Exp: {formatDate(batch.expiryDate)} ({batch.daysToExpiry < 0 ? `${Math.abs(batch.daysToExpiry)}d ago` : `in ${batch.daysToExpiry}d`})
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="font-mono text-sm font-semibold">{formatCurrency(batch.stockValue)}</p>
+                <p className="text-[10px] text-muted-foreground">Qty: {batch.quantity}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Desktop table */}
+      <div className="hidden md:block">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -277,8 +312,8 @@ export default function ExpiryManagementPage() {
                     {formatDate(batch.expiryDate)}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    {batch.daysToExpiry < 0 
-                      ? `${Math.abs(batch.daysToExpiry)} days ago` 
+                    {batch.daysToExpiry < 0
+                      ? `${Math.abs(batch.daysToExpiry)} days ago`
                       : `in ${batch.daysToExpiry} days`}
                   </span>
                 </div>
@@ -322,6 +357,7 @@ export default function ExpiryManagementPage() {
           <p>No batches match your filters in this category</p>
         </div>
       )}
+      </div>
     </div>
   )
 

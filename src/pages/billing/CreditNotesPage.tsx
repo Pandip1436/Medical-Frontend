@@ -390,6 +390,49 @@ export default function CreditNotesPage() {
 
       {/* ── Table ── */}
       <Card>
+        {/* Mobile card list */}
+        <div className="md:hidden">
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center gap-3 py-10">
+              <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+              <p className="text-sm text-muted-foreground animate-pulse">Loading credit notes...</p>
+            </div>
+          )}
+          {!isLoading && paginated.length === 0 && (
+            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <FileX2 className="h-7 w-7 text-muted-foreground/50" />
+              <p className="text-sm font-medium text-muted-foreground">No credit notes found</p>
+            </div>
+          )}
+          <div className="divide-y divide-border/40">
+            {!isLoading && paginated.map((cn) => {
+              const settlement = settlementConfig[cn.settlementMode]
+              return (
+                <div
+                  key={cn.id}
+                  className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
+                  onClick={() => setDetailNote(cn)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</p>
+                    <p className="text-sm font-medium truncate">{cn.customerName}</p>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
+                        {settlement?.label ?? cn.settlementMode}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">{formatDate(cn.date)}</span>
+                    </div>
+                  </div>
+                  <p className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400 shrink-0">
+                    {formatCurrency(cn.totalAmount)}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {/* Desktop table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -494,6 +537,7 @@ export default function CreditNotesPage() {
             </AnimatePresence>
           </TableBody>
         </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">

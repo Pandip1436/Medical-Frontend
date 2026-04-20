@@ -456,6 +456,35 @@ export default function ExpensesPage() {
       {/* ── Expenses Table ── */}
       <Card className="overflow-x-auto rounded-2xl border-border/60">
         <CardContent className="p-0">
+          {/* Mobile card list */}
+          <div className="md:hidden">
+            {filteredExpenses.length === 0 && (
+              <div className="py-8 text-center text-sm text-muted-foreground">No expenses found</div>
+            )}
+            <div className="divide-y divide-border/40">
+              {filteredExpenses.map((expense) => (
+                <div key={expense.id} className="flex items-start justify-between gap-2 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{expense.description}</p>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <Badge variant={categoryBadgeVariant[expense.category] || 'secondary'} size="sm" dot>
+                        {expense.category}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">{expense.paymentMode}</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(expense.date)}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
+                      {formatCurrency(expense.amount)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Desktop table */}
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -539,6 +568,7 @@ export default function ExpensesPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

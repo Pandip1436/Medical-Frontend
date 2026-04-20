@@ -329,6 +329,35 @@ export default function LedgerPage() {
 
           <Card className="overflow-x-auto rounded-2xl border-border/60">
             <CardContent className="p-0">
+              {/* Mobile card list */}
+              <div className="md:hidden">
+                {ledgerWithBalance.length === 0 && (
+                  <div className="py-8 text-center text-sm text-muted-foreground">No transactions found for the selected period</div>
+                )}
+                <div className="divide-y divide-border/40">
+                  {ledgerWithBalance.map((entry, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-2 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{entry.particular}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(entry.date)}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {entry.debit > 0 && (
+                          <p className="font-mono text-xs text-rose-600 dark:text-rose-400">Dr {formatCurrency(entry.debit)}</p>
+                        )}
+                        {entry.credit > 0 && (
+                          <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(entry.credit)}</p>
+                        )}
+                        <p className={cn('font-mono text-xs font-semibold', entry.balance > 0 ? 'text-rose-600 dark:text-rose-400' : entry.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : '')}>
+                          Bal: {formatCurrency(Math.abs(entry.balance))}{entry.balance > 0 ? ' Dr' : entry.balance < 0 ? ' Cr' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -433,6 +462,7 @@ export default function LedgerPage() {
                   )}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
 

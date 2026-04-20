@@ -850,6 +850,52 @@ export default function PurchaseOrdersPage() {
 
       {/* ── Table ── */}
       <Card>
+
+        {/* Mobile card list */}
+        <div className="md:hidden">
+          {isLoading ? (
+            <div className="divide-y divide-border/40">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 animate-pulse">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-4 w-32 rounded bg-muted" />
+                    <div className="h-3 w-40 rounded bg-muted" />
+                    <div className="h-3 w-20 rounded bg-muted" />
+                  </div>
+                  <div className="h-5 w-16 rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : paginatedPOs.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">No purchase orders found</div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {paginatedPOs.map((po) => (
+                <div
+                  key={po.id}
+                  className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                  onClick={() => setDetailPO(po)}
+                >
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="font-mono text-xs font-medium text-primary">{po.poNumber}</p>
+                    <p className="truncate text-sm font-medium">{po.supplierName}</p>
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      {renderStatusBadge(po.status)}
+                      <span className="text-xs text-muted-foreground">{formatDate(po.date)}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    <span className="font-mono text-sm font-semibold">{formatCurrency(po.totalAmount)}</span>
+                    <span className="text-xs text-muted-foreground">{po.items.length} item{po.items.length !== 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -964,6 +1010,7 @@ export default function PurchaseOrdersPage() {
             </AnimatePresence>
           </TableBody>
         </Table>
+        </div>
 
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
