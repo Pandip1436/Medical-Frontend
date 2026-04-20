@@ -58,7 +58,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
-import api from '@/lib/api'
+import api, { API_SERVER_URL } from '@/lib/api'
 
 interface PrescriptionRecord {
   id: string
@@ -1046,7 +1046,7 @@ export default function CustomersPage() {
                                 size="icon-sm"
                                 variant="ghost"
                                 onClick={() => window.open(
-                                  `${import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') ?? 'http://localhost:3000'}${rx.imageUrl}`,
+                                  `${API_SERVER_URL}${rx.imageUrl}`,
                                   '_blank'
                                 )}
                               >

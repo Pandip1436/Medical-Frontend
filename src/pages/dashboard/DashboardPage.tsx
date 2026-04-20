@@ -44,7 +44,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAuthStore } from '@/stores/authStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate } from '@/lib/router'
-import api from '@/lib/api'
+import api, { API_BASE_URL } from '@/lib/api'
 import { cn, formatCurrency, timeAgo, getInitials } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -326,8 +326,7 @@ export default function DashboardPage() {
     fetchDashboard()
 
     // Establish Server-Sent Events (SSE) stream for real-time dashboard feed
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1'
-    const eventSource = new EventSource(`${baseUrl}/events/dashboard-feed`)
+    const eventSource = new EventSource(`${API_BASE_URL}/events/dashboard-feed`)
     
     eventSource.onmessage = (event) => {
       try {
