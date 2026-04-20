@@ -913,7 +913,7 @@ export default function PurchaseOrdersPage() {
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">{formatDate(po.date)}</span>
                     </TableCell>
-                    <TableCell className="max-w-[180px]">
+                    <TableCell className="max-w-45">
                       <p className="truncate text-sm font-medium">{po.supplierName}</p>
                     </TableCell>
                     <TableCell className="text-center">
@@ -1036,12 +1036,12 @@ export default function PurchaseOrdersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[200px]">Product</TableHead>
-                      <TableHead className="w-[100px]">Req. Qty</TableHead>
-                      <TableHead className="w-[120px]">Last Rate</TableHead>
-                      <TableHead className="w-[120px]">Expected Rate</TableHead>
-                      <TableHead className="min-w-[120px]">Remarks</TableHead>
-                      <TableHead className="w-[60px]" />
+                      <TableHead className="min-w-50">Product</TableHead>
+                      <TableHead className="w-25">Req. Qty</TableHead>
+                      <TableHead className="w-30">Last Rate</TableHead>
+                      <TableHead className="w-30">Expected Rate</TableHead>
+                      <TableHead className="min-w-30">Remarks</TableHead>
+                      <TableHead className="w-15" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>

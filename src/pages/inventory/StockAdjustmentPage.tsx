@@ -356,12 +356,12 @@ export default function StockAdjustmentPage() {
                       <TableHead>Product</TableHead>
                       <TableHead>Batch</TableHead>
                       <TableHead className="text-right">System Qty</TableHead>
-                      <TableHead className="text-center w-[140px]">
+                      <TableHead className="text-center w-35">
                         Adjustment (+/-)
                       </TableHead>
                       <TableHead className="text-right">New Qty</TableHead>
-                      <TableHead className="w-[180px]">Reason</TableHead>
-                      <TableHead className="w-[50px]" />
+                      <TableHead className="w-45">Reason</TableHead>
+                      <TableHead className="w-12.5" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
