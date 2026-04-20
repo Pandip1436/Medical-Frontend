@@ -183,8 +183,11 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
   // Close mobile sidebar on route change
   useEffect(() => {
-    setMobileOpen(false)
-    setMoreSheetOpen(false)
+    const t = setTimeout(() => {
+      setMobileOpen(false)
+      setMoreSheetOpen(false)
+    }, 0)
+    return () => clearTimeout(t)
   }, [currentPath])
 
   // Swipe-to-dismiss for mobile
@@ -230,7 +233,10 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
   // ─── Shared sidebar content ─────────────────────────────────────────────
   const renderLogo = (collapsed: boolean) => (
-    <div className="flex h-16 items-center gap-3 px-4">
+    <a
+      href={hashHref('/dashboard')}
+      className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
+    >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
         <Pill className="h-4 w-4 text-white" />
       </div>
@@ -250,7 +256,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
           </span>
         </motion.div>
       )}
-    </div>
+    </a>
   )
 
   const renderNavGroups = (collapsed: boolean) => (
