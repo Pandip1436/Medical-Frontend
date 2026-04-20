@@ -329,6 +329,7 @@ export default function ProfitLossPage() {
         setMonthlyTrend(data.map((d) => ({ month: d.month, revenue: d.amount, profit: d.amount * 0.2 })))
       })
       .catch(() => setMonthlyTrend([]))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod])
 
   useEffect(() => { fetchPL() }, [fetchPL])
@@ -387,7 +388,7 @@ export default function ProfitLossPage() {
           <div className="flex items-center gap-2">
             {/* Period selector */}
             <Select value={selectedPeriod} onValueChange={(v) => setSelectedPeriod(v as Period)}>
-              <SelectTrigger className="h-8 w-[140px] rounded-lg text-xs">
+              <SelectTrigger className="h-8 w-35 rounded-lg text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -458,7 +459,7 @@ export default function ProfitLossPage() {
         {/* ─── LEFT: P&L Statement (55%) ─────────────────────── */}
         <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
           {/* Statement header */}
-          <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/5 px-5 py-2 dark:bg-muted/[0.02]">
+          <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/5 px-5 py-2 dark:bg-muted/2">
             <span className="text-xs font-semibold text-muted-foreground">
               P&L Statement — {periodLabels[selectedPeriod]}
             </span>
@@ -619,7 +620,7 @@ export default function ProfitLossPage() {
         {/* ─── RIGHT: Visualizations (45%) ───────────────────── */}
         <div className="hidden lg:flex lg:w-[45%] flex-col overflow-hidden">
           {/* Tab switcher */}
-          <div className="shrink-0 flex items-center gap-1 border-b border-border/40 bg-muted/5 px-4 py-2 dark:bg-muted/[0.02]">
+          <div className="shrink-0 flex items-center gap-1 border-b border-border/40 bg-muted/5 px-4 py-2 dark:bg-muted/2">
             <button
               onClick={() => setRightTab('trend')}
               className={cn(

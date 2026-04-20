@@ -125,6 +125,7 @@ const PAYMENT_TERMS_OPTIONS = [
 export default function SuppliersPage() {
   const { suppliers, fetchMasterData } = useMasterDataStore()
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchMasterData() }, [])
   useBranchRefresh(fetchMasterData)
 

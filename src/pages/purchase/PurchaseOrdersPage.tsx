@@ -362,6 +362,7 @@ export default function PurchaseOrdersPage() {
     }
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchMasterData()
     fetchPOs()

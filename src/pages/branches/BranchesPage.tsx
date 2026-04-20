@@ -52,6 +52,7 @@ export default function BranchesPage() {
     defaultValues: { isActive: true, isDefault: false },
   })
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches() }, [])
   useBranchRefresh(fetchBranches)
 

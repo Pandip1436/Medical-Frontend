@@ -203,6 +203,7 @@ export default function QuotationsPage() {
 
   // ── Filtering logic ──
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const filteredQuotations = useMemo(() => {
     let result = [...quotations]
 
@@ -626,7 +627,7 @@ export default function QuotationsPage() {
                         {formatDate(qt.date)}
                       </span>
                     </TableCell>
-                    <TableCell className="max-w-[200px]">
+                    <TableCell className="max-w-50">
                       <p className="truncate text-sm font-medium">{qt.customerName}</p>
                     </TableCell>
                     <TableCell className="text-center">

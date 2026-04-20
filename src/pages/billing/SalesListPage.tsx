@@ -134,6 +134,7 @@ export default function SalesListPage() {
   const [isLoading, setIsLoading] = useState(false)
   const { customers, fetchMasterData } = useMasterDataStore()
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchMasterData()
   }, [])
@@ -150,6 +151,7 @@ export default function SalesListPage() {
     }
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices() }, [])
   useBranchRefresh(fetchInvoices)
 

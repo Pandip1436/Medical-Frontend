@@ -726,7 +726,7 @@ export default function GRNPage() {
         </div>
 
         {/* ─── RIGHT: Context Panel (30%) ──────────────────────── */}
-        <div className="hidden lg:flex lg:w-[30%] flex-col overflow-hidden bg-muted/5 dark:bg-muted/[0.02]">
+        <div className="hidden lg:flex lg:w-[30%] flex-col overflow-hidden bg-muted/5 dark:bg-muted/2">
           <ScrollArea className="min-h-0 flex-1">
             <div className="p-5 space-y-5">
               {/* ── Supplier Invoice ── */}

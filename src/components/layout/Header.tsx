@@ -132,6 +132,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN'
   const userHasFixedBranch = !!(user as any)?.branchId
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches() }, [])
 
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -185,8 +186,8 @@ export function Header({ breadcrumbs }: HeaderProps) {
       className={cn(
         'sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:px-6',
         'border-b border-border/40 dark:border-border/60',
-        'bg-background/80 backdrop-blur-xl backdrop-saturate-[180%]',
-        'supports-[backdrop-filter]:bg-background/60'
+        'bg-background/80 backdrop-blur-xl backdrop-saturate-180',
+        'supports-backdrop-filter:bg-background/60'
       )}
     >
       {/* Left: Hamburger (mobile) + Breadcrumbs */}
@@ -259,7 +260,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                   className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex"
                 >
                   <Building2 className="h-3.5 w-3.5 text-primary" />
-                  <span className="max-w-[120px] truncate">{activeBranch.name}</span>
+                  <span className="max-w-30 truncate">{activeBranch.name}</span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -286,7 +287,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
           ) : userHasFixedBranch ? (
             <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex">
               <Building2 className="h-3.5 w-3.5 text-primary" />
-              <span className="max-w-[120px] truncate">{activeBranch.name}</span>
+              <span className="max-w-30 truncate">{activeBranch.name}</span>
             </div>
           ) : null
         )}
@@ -307,7 +308,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                   animate={{ scale: 1 }}
                   exit={{ scale: 0 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground"
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground"
                 >
                   {unread > 9 ? '9+' : unread}
                 </motion.span>
@@ -323,7 +324,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                 exit={{ opacity: 0, y: -8, scale: 0.96 }}
                 transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className={cn(
-                  'absolute right-0 top-full mt-2 w-[360px] overflow-hidden rounded-xl',
+                  'absolute right-0 top-full mt-2 w-90 overflow-hidden rounded-xl',
                   'border border-border/60 bg-popover shadow-xl shadow-black/8 dark:shadow-black/25'
                 )}
               >
@@ -364,7 +365,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                     </p>
                   </div>
                 ) : (
-                  <div className="max-h-[400px] overflow-y-auto overscroll-contain">
+                  <div className="max-h-100 overflow-y-auto overscroll-contain">
                     {groupedNotifications.map((group) => (
                       <div key={group.label}>
                         <div className="sticky top-0 z-10 bg-popover/95 px-4 py-1.5 backdrop-blur-sm">

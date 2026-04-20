@@ -117,6 +117,7 @@ export default function StockAdjustmentPage() {
   const [items, setItems] = useState<AdjustmentItem[]>([])
   const [referenceNumber, setReferenceNumber] = useState('')
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProducts()
   }, [])

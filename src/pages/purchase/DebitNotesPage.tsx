@@ -198,9 +198,9 @@ export default function DebitNotesPage() {
                         <TableHead className="w-[130px]">Date</TableHead>
                         <TableHead>Supplier</TableHead>
                         <TableHead className="w-[150px]">GRN Reference</TableHead>
-                        <TableHead className="text-right w-[140px]">Debit Amount</TableHead>
+                        <TableHead className="text-right w-35">Debit Amount</TableHead>
                         <TableHead className="w-[110px]">Status</TableHead>
-                        <TableHead className="w-[60px]"></TableHead>
+                        <TableHead className="w-15"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody className="bg-background">
@@ -312,7 +312,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
   })
 
   return (
-    <Card className="overflow-hidden border-border/40 shadow-xl flex flex-col md:flex-row min-h-[600px]">
+    <Card className="overflow-hidden border-border/40 shadow-xl flex flex-col md:flex-row min-h-150">
       {/* Left: Note details */}
       <div className="flex-1 flex flex-col border-r border-border/30">
         <div className="shrink-0 bg-gradient-to-br from-primary/10 via-background to-background p-6 border-b border-border/30">
@@ -354,7 +354,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
           </div>
         </div>
 
-        <ScrollArea className="flex-1 max-h-[400px]">
+        <ScrollArea className="flex-1 max-h-100">
           <div className="p-6">
             <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 rounded-lg bg-muted/50 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 backdrop-blur-sm">
               <div className="col-span-6">Product</div>
@@ -404,7 +404,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
       </div>
 
       {/* Right: Actions Sidebar */}
-      <div className="w-full md:w-[300px] bg-muted/20 p-6 flex flex-col gap-6">
+      <div className="w-full md:w-75 bg-muted/20 p-6 flex flex-col gap-6">
         <div>
           <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Document Actions</h4>
           <div className="grid gap-2">

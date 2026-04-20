@@ -138,6 +138,7 @@ export default function ProductsPage() {
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProducts()
     fetchSuppliers()

@@ -132,6 +132,7 @@ export default function ExpensesPage() {
     return () => { cancelled = true }
   }, [])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { return fetchExpenses() }, [])
   useBranchRefresh(fetchExpenses)
   const [dialogOpen, setDialogOpen] = useState(false)

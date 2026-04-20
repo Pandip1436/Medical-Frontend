@@ -108,6 +108,7 @@ export default function ExpiryManagementPage() {
   const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
   const fetchSuppliers = useMasterDataStore((s) => s.fetchSuppliers)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProducts()
     fetchSuppliers()
@@ -120,6 +121,7 @@ export default function ExpiryManagementPage() {
   const today = new Date()
 
   // Build enriched batch list — only non-zero stock
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const enrichedBatches: EnrichedBatch[] = useMemo(() => {
     return batches.filter(batch => batch.quantity > 0).map((batch) => {
       const supplier = suppliers.find((s) => s.id === batch.supplierId)

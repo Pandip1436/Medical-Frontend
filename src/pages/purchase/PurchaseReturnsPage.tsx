@@ -144,6 +144,7 @@ export default function PurchaseReturnsPage() {
 
   const { batches, products, fetchMasterData } = useMasterDataStore()
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchMasterData() }, [])
 
   const fetchGRNsCallback = useCallback(() => {
@@ -641,7 +642,7 @@ export default function PurchaseReturnsPage() {
                   <div className="flex-1 overflow-hidden border-t border-border/40">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
-                        <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-[0.1em] text-muted-foreground/60 hover:bg-transparent">
+                        <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
                           <TableHead className="w-12 px-4 py-3 text-center">
                             <Checkbox
                               checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
@@ -655,11 +656,11 @@ export default function PurchaseReturnsPage() {
                               }}
                             />
                           </TableHead>
-                          <TableHead className="min-w-[200px] px-4 py-3">Product Details</TableHead>
-                          <TableHead className="w-[100px] px-2 py-3 text-center">Purchased Qty</TableHead>
-                          <TableHead className="w-[140px] px-2 py-3 text-center">Return Qty</TableHead>
-                          <TableHead className="w-[200px] px-2 py-3">Return Reason</TableHead>
-                          <TableHead className="w-[120px] px-4 py-3 text-right">Return Value</TableHead>
+                          <TableHead className="min-w-50 px-4 py-3">Product Details</TableHead>
+                          <TableHead className="w-25 px-2 py-3 text-center">Purchased Qty</TableHead>
+                          <TableHead className="w-35 px-2 py-3 text-center">Return Qty</TableHead>
+                          <TableHead className="w-50 px-2 py-3">Return Reason</TableHead>
+                          <TableHead className="w-30 px-4 py-3 text-right">Return Value</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -670,7 +671,7 @@ export default function PurchaseReturnsPage() {
                               key={ri.productId}
                               className={cn(
                                 'group transition-colors',
-                                ri.selected ? 'bg-primary/[0.03] hover:bg-primary/[0.05]' : 'hover:bg-muted/30'
+                                ri.selected ? 'bg-primary/3 hover:bg-primary/5' : 'hover:bg-muted/30'
                               )}
                             >
                               <TableCell className="px-4 py-3 text-center">
@@ -800,7 +801,7 @@ export default function PurchaseReturnsPage() {
                 >
                   {/* Left: Document Preview */}
                   <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[60%]">
-                    <div className="shrink-0 bg-gradient-to-r from-primary/5 to-primary/[0.02] border-b border-border/40 p-5">
+                    <div className="shrink-0 bg-linear-to-r from-primary/5 to-primary/2 border-b border-border/40 p-5">
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Debit Note</p>
@@ -894,7 +895,7 @@ export default function PurchaseReturnsPage() {
                                 className={cn(
                                   'flex items-start gap-3 rounded-xl border p-3 transition-all cursor-pointer',
                                   settlementOption === opt.value
-                                    ? 'border-primary/30 bg-primary/[0.03] ring-1 ring-primary/10 dark:bg-primary/[0.06]'
+                                    ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
                                     : 'border-border/40 hover:bg-muted/30'
                                 )}
                                 onClick={() => setSettlementOption(opt.value)}

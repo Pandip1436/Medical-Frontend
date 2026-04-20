@@ -247,6 +247,7 @@ export default function CustomersPage() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchCustomers()
   }, [])

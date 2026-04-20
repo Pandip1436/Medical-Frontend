@@ -459,13 +459,13 @@ export default function CreditNotesPage() {
                       <TableCell className="whitespace-nowrap">
                         <span className="text-[11px] text-muted-foreground">{formatDate(cn.date)}</span>
                       </TableCell>
-                      <TableCell className="max-w-[160px]">
+                      <TableCell className="max-w-40">
                         <p className="truncate text-sm font-medium">{cn.customerName}</p>
                       </TableCell>
                       <TableCell>
                         <span className="font-mono text-[11px] text-muted-foreground">{cn.invoiceNumber}</span>
                       </TableCell>
-                      <TableCell className="max-w-[140px]">
+                      <TableCell className="max-w-35">
                         <p className="truncate text-[11px] text-muted-foreground">{cn.reason}</p>
                       </TableCell>
                       <TableCell>

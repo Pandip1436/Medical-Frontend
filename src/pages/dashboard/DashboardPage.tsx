@@ -250,7 +250,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 function ChartEmpty({ label }: { label: string }) {
   return (
-    <div className="flex h-[280px] flex-col items-center justify-center gap-2 text-center">
+    <div className="flex h-70 flex-col items-center justify-center gap-2 text-center">
       <div className="rounded-full bg-muted/40 p-3">
         <Activity className="h-5 w-5 text-muted-foreground/40" />
       </div>
@@ -319,9 +319,11 @@ export default function DashboardPage() {
     setIsLoading(false)
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const fetchDashboardCb = useCallback(() => { fetchDashboard() }, [])
   useBranchRefresh(fetchDashboardCb)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchDashboard()
 
@@ -488,7 +490,7 @@ export default function DashboardPage() {
               <Card
                 hover
                 className={cn(
-                  'group relative cursor-pointer overflow-hidden bg-gradient-to-br',
+                  'group relative cursor-pointer overflow-hidden bg-linear-to-br',
                   kpi.gradient
                 )}
                 onClick={() => navigate(kpi.href)}
@@ -852,7 +854,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[280px]">
+            <ScrollArea className="h-70">
               <div className="space-y-1">
                 {recentActivity.length > 0 ? recentActivity.map((activity: any, idx: number) => {
                   const config = activityTypeConfig[activity.type] ?? activityTypeConfig.system
@@ -884,7 +886,7 @@ export default function DashboardPage() {
                     </motion.div>
                   )
                 }) : (
-                  <div className="flex h-[240px] flex-col items-center justify-center gap-2 text-center">
+                  <div className="flex h-60 flex-col items-center justify-center gap-2 text-center">
                     <Activity className="h-8 w-8 text-muted-foreground/30" />
                     <p className="text-sm text-muted-foreground">No recent activity yet.</p>
                     <p className="text-xs text-muted-foreground/60">Actions like sales and registrations will appear here.</p>
