@@ -706,7 +706,7 @@ export default function SalesListPage() {
                         {formatDate(inv.date)}
                       </span>
                     </TableCell>
-                    <TableCell className="max-w-[180px]">
+                    <TableCell className="max-w-45">
                       <p className="truncate text-sm font-medium">{inv.customerName}</p>
                       {inv.doctorName && (
                         <p className="truncate text-[11px] text-muted-foreground">
