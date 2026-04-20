@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { printHtmlInPage } from '@/lib/printUtils'
 
 /** Convert an array of plain objects to a CSV blob and trigger download */
 export function exportToCsv(rows: Record<string, unknown>[], filename: string) {
@@ -93,10 +94,5 @@ export function printReport(rows: Record<string, unknown>[], title: string) {
   <table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
   </body></html>`
 
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(html)
-  win.document.close()
-  win.focus()
-  win.print()
+  printHtmlInPage(html)
 }

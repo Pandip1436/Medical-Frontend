@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
+import { printHtmlInPage } from '@/lib/printUtils'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -339,9 +340,7 @@ export default function ProductsPage() {
 
   const handlePrintBarcode = (product: Product) => {
     const barcode = product.barcode || product.id
-    const win = window.open('', '_blank', 'width=400,height=300')
-    if (!win) { toast.error('Pop-up blocked — please allow pop-ups'); return }
-    win.document.write(`
+    printHtmlInPage(`
       <!DOCTYPE html><html><head><title>Barcode - ${product.name}</title>
       <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; }
@@ -356,10 +355,8 @@ export default function ProductsPage() {
         <div class="barcode">${barcode}</div>
         <p>MRP: ₹${Number(product.mrp).toFixed(2)}</p>
       </div>
-      <script>window.onload = () => { window.print(); window.close(); }<\/script>
       </body></html>
     `)
-    win.document.close()
   }
 
   const CSV_TEMPLATE_HEADERS = [

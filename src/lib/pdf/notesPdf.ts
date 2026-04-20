@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { printPdfInPage } from '@/lib/printUtils'
 
 const COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
@@ -125,7 +126,7 @@ function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: bo
 
   if (options?.autoPrint) {
     doc.autoPrint()
-    window.open(doc.output('bloburl'), '_blank')
+    printPdfInPage(doc.output('bloburl').toString())
   }
   return doc
 }

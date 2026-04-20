@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { Invoice } from '@/types'
+import { printPdfInPage } from '@/lib/printUtils'
 
 const COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
@@ -142,7 +143,7 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
 
   if (options?.autoPrint) {
     doc.autoPrint()
-    window.open(doc.output('bloburl'), '_blank')
+    printPdfInPage(doc.output('bloburl').toString())
   }
   return doc
 }
@@ -170,5 +171,5 @@ export function shareInvoiceViaWhatsApp(invoice: Invoice, phone?: string) {
   const base = phone
     ? `https://wa.me/${phone.replace(/\D/g, '')}?text=${message}`
     : `https://wa.me/?text=${message}`
-  window.open(base, '_blank')
+  window.open(base, '_blank', 'noopener,noreferrer')
 }

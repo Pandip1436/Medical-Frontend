@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { printHtmlInPage } from '@/lib/printUtils'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   FileX2,
@@ -209,9 +210,7 @@ export default function CreditNotesPage() {
   }
 
   const handlePrint = (cn: CreditNote) => {
-    const win = window.open('', '_blank')
-    if (!win) return
-    win.document.write(`
+    printHtmlInPage(`
       <html><head><title>Credit Note ${cn.creditNoteNo}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 24px; color: #111; font-size: 12px; }
@@ -259,10 +258,8 @@ export default function CreditNotesPage() {
         <div class="row"><span>SGST</span><span>₹${Number(cn.sgst).toFixed(2)}</span></div>
         <div class="row grand"><span>Total Credit</span><span>₹${Number(cn.totalAmount).toFixed(2)}</span></div>
       </div>
-      <script>window.onload = () => { window.print(); window.close(); }</script>
       </body></html>
     `)
-    win.document.close()
   }
 
   return (

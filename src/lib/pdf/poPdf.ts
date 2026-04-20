@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { printPdfInPage } from '@/lib/printUtils'
 
 const COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
@@ -108,7 +109,7 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
 
   if (options?.autoPrint) {
     doc.autoPrint()
-    window.open(doc.output('bloburl'), '_blank')
+    printPdfInPage(doc.output('bloburl').toString())
   }
   return doc
 }
