@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Command } from 'cmdk'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -30,6 +30,7 @@ import {
   Calculator,
 } from 'lucide-react'
 import { navigate } from '@/lib/router'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 
 interface CommandItem {
   id: string
@@ -71,26 +72,6 @@ const allItems: CommandItem[] = [
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings', section: 'Navigation', keywords: 'preferences configuration' },
 ]
 
-const mockProducts: CommandItem[] = [
-  { id: 'prod-1', label: 'Amoxicillin 500mg', icon: Package, href: '/inventory/products', subtitle: 'Stock: 450', section: 'Products', keywords: 'antibiotic capsule' },
-  { id: 'prod-2', label: 'Paracetamol 650mg', icon: Package, href: '/inventory/products', subtitle: 'Stock: 1200', section: 'Products', keywords: 'fever pain tablet' },
-  { id: 'prod-3', label: 'Omeprazole 20mg', icon: Package, href: '/inventory/products', subtitle: 'Stock: 300', section: 'Products', keywords: 'antacid capsule' },
-  { id: 'prod-4', label: 'Metformin 500mg', icon: Package, href: '/inventory/products', subtitle: 'Stock: 800', section: 'Products', keywords: 'diabetes tablet' },
-  { id: 'prod-5', label: 'Atorvastatin 10mg', icon: Package, href: '/inventory/products', subtitle: 'Stock: 250', section: 'Products', keywords: 'cholesterol tablet' },
-]
-
-const mockCustomers: CommandItem[] = [
-  { id: 'cust-1', label: 'City General Hospital', icon: Users, href: '/customers', subtitle: 'Hospital', section: 'Customers', keywords: 'hospital' },
-  { id: 'cust-2', label: 'Dr. Ramesh Kumar', icon: Users, href: '/customers', subtitle: 'Doctor', section: 'Customers', keywords: 'doctor physician' },
-  { id: 'cust-3', label: 'MedPlus Pharmacy', icon: Users, href: '/customers', subtitle: 'Wholesale', section: 'Customers', keywords: 'pharmacy retail' },
-  { id: 'cust-4', label: 'Sri Lakshmi Clinic', icon: Users, href: '/customers', subtitle: 'Regular', section: 'Customers', keywords: 'clinic' },
-]
-
-const mockInvoices: CommandItem[] = [
-  { id: 'inv-1', label: 'HS/25-26/INV/00142', icon: FileText, href: '/billing/sales', subtitle: 'City General Hospital', section: 'Recent Invoices', keywords: '' },
-  { id: 'inv-2', label: 'HS/25-26/INV/00141', icon: FileText, href: '/billing/sales', subtitle: 'Walk-in Customer', section: 'Recent Invoices', keywords: '' },
-  { id: 'inv-3', label: 'HS/25-26/INV/00140', icon: FileText, href: '/billing/sales', subtitle: 'MedPlus Pharmacy', section: 'Recent Invoices', keywords: '' },
-]
 
 const sectionIcons: Record<string, React.ElementType> = {
   'Quick Actions': Star,
@@ -124,11 +105,40 @@ const dialogVariants = {
 export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const storeProducts = useMasterDataStore((s) => s.products)
+  const storeCustomers = useMasterDataStore((s) => s.customers)
+  const fetchMasterData = useMasterDataStore((s) => s.fetchMasterData)
+  const fetchedRef = useRef(false)
 
-  const items = useMemo(
-    () => [...allItems, ...mockProducts, ...mockCustomers, ...mockInvoices],
-    []
-  )
+  // Fetch once when palette opens for the first time
+  useEffect(() => {
+    if (open && !fetchedRef.current) {
+      fetchedRef.current = true
+      fetchMasterData()
+    }
+  }, [open, fetchMasterData])
+
+  const items = useMemo(() => {
+    const productItems: CommandItem[] = storeProducts.slice(0, 8).map((p) => ({
+      id: `prod-${p.id}`,
+      label: p.name,
+      icon: Package,
+      href: '/inventory/products',
+      subtitle: `Stock: ${p.totalStock ?? 0}`,
+      section: 'Products',
+      keywords: `${p.genericName ?? ''} ${p.category ?? ''}`,
+    }))
+    const customerItems: CommandItem[] = storeCustomers.slice(0, 6).map((c) => ({
+      id: `cust-${c.id}`,
+      label: c.name,
+      icon: Users,
+      href: '/customers',
+      subtitle: c.type,
+      section: 'Customers',
+      keywords: c.type,
+    }))
+    return [...allItems, ...productItems, ...customerItems]
+  }, [storeProducts, storeCustomers])
 
   const sections = useMemo(() => {
     const map = new Map<string, CommandItem[]>()

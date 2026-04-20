@@ -1,4 +1,5 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import CountUpModule from 'react-countup'
 // Handle CJS/ESM interop — Vite dev server may double-wrap the default export
@@ -318,6 +319,9 @@ export default function DashboardPage() {
     setIsLoading(false)
   }
 
+  const fetchDashboardCb = useCallback(() => { fetchDashboard() }, [])
+  useBranchRefresh(fetchDashboardCb)
+
   useEffect(() => {
     fetchDashboard()
 
@@ -344,6 +348,11 @@ export default function DashboardPage() {
       } catch (err) {
         console.error('Failed to parse incoming dashboard event', err)
       }
+    }
+
+    eventSource.onerror = () => {
+      // Close and let the user know; browser will not auto-retry when we close.
+      eventSource.close()
     }
 
     return () => {
@@ -428,6 +437,42 @@ export default function DashboardPage() {
           </Button>
         </div>
       </motion.div>
+
+      {/* ── Alert Banners ── */}
+      {((dashData?.expiringBatchesCount ?? 0) > 0 || (dashData?.lowStockAlertsCount ?? 0) > 0) && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col gap-2"
+        >
+          {(dashData?.expiringBatchesCount ?? 0) > 0 && (
+            <div
+              className="flex items-center gap-3 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/30 cursor-pointer hover:bg-amber-100/80 dark:hover:bg-amber-950/50 transition-colors"
+              onClick={() => navigate('/inventory/expiry')}
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                <span className="font-bold">{dashData.expiringBatchesCount}</span> batch
+                {dashData.expiringBatchesCount !== 1 ? 'es' : ''} expiring within 90 days —{' '}
+                <span className="underline underline-offset-2">review expiry report</span>
+              </p>
+            </div>
+          )}
+          {(dashData?.lowStockAlertsCount ?? 0) > 0 && (
+            <div
+              className="flex items-center gap-3 rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-3 dark:border-rose-800/40 dark:bg-rose-950/30 cursor-pointer hover:bg-rose-100/80 dark:hover:bg-rose-950/50 transition-colors"
+              onClick={() => navigate('/inventory')}
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              <p className="text-sm font-medium text-rose-800 dark:text-rose-300">
+                <span className="font-bold">{dashData.lowStockAlertsCount}</span> product
+                {dashData.lowStockAlertsCount !== 1 ? 's' : ''} below minimum stock level —{' '}
+                <span className="underline underline-offset-2">view inventory</span>
+              </p>
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* ── Section 1: KPI Bento Grid ── */}
       <motion.div

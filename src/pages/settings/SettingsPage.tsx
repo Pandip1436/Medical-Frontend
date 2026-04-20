@@ -1,4 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import api from '@/lib/api'
+import { useBranchStore } from '@/stores/branchStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -67,7 +70,6 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { mockUsers } from '@/data/mock'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -254,9 +256,20 @@ const addUserSchema = z.object({
   email: z.string().email('Valid email required'),
   phone: z.string().min(10, 'Valid phone number required'),
   role: z.string().min(1, 'Role is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  branchId: z.string().optional(),
 })
 
 type AddUserForm = z.infer<typeof addUserSchema>
+
+const editUserSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  phone: z.string().min(10, 'Valid phone number required'),
+  role: z.string().min(1, 'Role is required'),
+  branchId: z.string().optional(),
+  newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
+})
+type EditUserForm = z.infer<typeof editUserSchema>
 
 const addDiscountSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -346,7 +359,7 @@ export default function SettingsPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden">
         {/* ─── LEFT: Sidebar Navigation ──────────────────────── */}
-        <div className="hidden lg:flex w-[220px] shrink-0 flex-col border-r border-border/40 bg-muted/5 dark:bg-muted/[0.02]">
+        <div className="hidden lg:flex w-55 shrink-0 flex-col border-r border-border/40 bg-muted/5 dark:bg-muted/2">
           <ScrollArea className="min-h-0 flex-1">
             <nav className="p-3 space-y-0.5">
               {settingsSections.map((section) => {
@@ -733,20 +746,34 @@ function TaxConfigSection() {
 // ─────────────────────────────────────────────────────────────
 
 function UserManagementSection() {
-  const [users, setUsers] = useState(
-    mockUsers.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      phone: u.phone,
-      role: u.role,
-      isActive: u.isActive,
-      lastLogin: u.lastLogin || '',
-    }))
-  )
+  type UserRow = {
+    id: string; name: string; email: string; phone: string; role: string
+    isActive: boolean; lastLogin: string; branchId?: string
+    branch?: { id: string; name: string; code: string } | null
+  }
+  const [users, setUsers] = useState<UserRow[]>([])
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const { branches, fetchBranches } = useBranchStore()
+
+  const fetchUsers = useCallback(() => {
+    fetchBranches()
+    api.get('/users').then((res) => {
+      const rows = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
+      setUsers(rows.map((u: any) => ({
+        id: u.id, name: u.name, email: u.email,
+        phone: u.phone ?? '', role: u.role,
+        isActive: u.isActive ?? true,
+        lastLogin: u.updatedAt ?? '',
+        branchId: u.branchId ?? '',
+        branch: u.branch ?? null,
+      })))
+    }).catch(() => { toast.error('Failed to load users') })
+  }, [fetchBranches])
+
+  useEffect(() => { fetchUsers() }, [fetchUsers])
+  useBranchRefresh(fetchUsers)
 
   const filteredUsers = useMemo(() => {
     if (!searchQuery.trim()) return users
@@ -783,29 +810,37 @@ function UserManagementSection() {
     ACCOUNTANT: 'success',
   }
 
-  const onAddUser = (data: AddUserForm) => {
-    const newUser = {
-      id: `USR-${String(users.length + 1).padStart(3, '0')}`,
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
-      role: data.role as 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT',
-      isActive: true,
-      lastLogin: '',
+  const onAddUser = async (data: AddUserForm) => {
+    try {
+      const res = await api.post('/users', {
+        name: data.name, email: data.email, phone: data.phone,
+        role: data.role, password: (data as any).password,
+        branchId: data.branchId || undefined,
+      })
+      setUsers((prev) => [...prev, {
+        id: res.data.id, name: res.data.name, email: res.data.email,
+        phone: res.data.phone ?? '', role: res.data.role,
+        isActive: res.data.isActive ?? true, lastLogin: '',
+        branchId: res.data.branchId ?? '', branch: res.data.branch ?? null,
+      }])
+      setShowAddDialog(false)
+      reset()
+      toast.success(`User ${data.name} created successfully`)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to create user')
     }
-    setUsers([...users, newUser])
-    setShowAddDialog(false)
-    reset()
-    toast.success(`User ${data.name} created. Auto-generated password sent to email.`)
   }
 
-  const toggleUserStatus = (userId: string) => {
-    setUsers(
-      users.map((u) =>
-        u.id === userId ? { ...u, isActive: !u.isActive } : u
-      )
-    )
-    toast.success('User status updated')
+  const toggleUserStatus = async (userId: string) => {
+    const user = users.find((u) => u.id === userId)
+    if (!user) return
+    try {
+      await api.patch(`/users/${userId}`, { isActive: !user.isActive })
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, isActive: !u.isActive } : u))
+      toast.success('User status updated')
+    } catch {
+      toast.error('Failed to update user status')
+    }
   }
 
   return (
@@ -842,6 +877,7 @@ function UserManagementSection() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Branch</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Last Login</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -857,6 +893,16 @@ function UserManagementSection() {
                         {roleLabels[user.role] || user.role}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {user.branch ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">{user.branch.code}</span>
+                          {user.branch.name}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         variant={user.isActive ? 'success' : 'secondary'}
@@ -871,7 +917,7 @@ function UserManagementSection() {
                     </TableCell>
                     <TableCell className="text-right">
                       <DataTableRowActions
-                        onEdit={() => setEditingUser(user.id)}
+                        onEdit={() => setEditingUser(user)}
                         customActions={[
                           {
                             label: user.isActive ? 'Deactivate' : 'Activate',
@@ -949,6 +995,50 @@ function UserManagementSection() {
               />
               {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="userPassword">Password</Label>
+              <Input
+                id="userPassword"
+                type="password"
+                placeholder="Min. 6 characters"
+                {...register('password')}
+                error={!!(errors as any).password}
+              />
+              {(errors as any).password && <p className="text-xs text-destructive">{(errors as any).password.message}</p>}
+            </div>
+            {branches.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="userBranch">Assign Branch</Label>
+                <Controller
+                  name="branchId"
+                  control={control}
+                  render={({ field }) => (
+                    <Select
+                      onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                      value={field.value || '__none__'}
+                    >
+                      <SelectTrigger id="userBranch" className="h-10">
+                        <SelectValue placeholder="No branch (access all)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No branch (access all)</SelectItem>
+                        {branches.filter(b => b.isActive).map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
+                              {b.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Leave blank to give access to all branches
+                </p>
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
                 Cancel
@@ -958,7 +1048,172 @@ function UserManagementSection() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Edit User Dialog */}
+      {editingUser && (
+        <EditUserDialog
+          user={editingUser}
+          branches={branches}
+          onClose={() => setEditingUser(null)}
+          onSaved={(updated) => {
+            setUsers((prev) => prev.map((u) => u.id === updated.id ? { ...u, ...updated } : u))
+            setEditingUser(null)
+          }}
+        />
+      )}
     </motion.div>
+  )
+}
+
+// ── Edit User Dialog ──────────────────────────────────────────
+function EditUserDialog({
+  user,
+  branches,
+  onClose,
+  onSaved,
+}: {
+  user: { id: string; name: string; email: string; phone: string; role: string; isActive: boolean; lastLogin?: string; branchId?: string; branch?: { id: string; name: string; code: string } | null }
+  branches: { id: string; name: string; code: string; isActive: boolean }[]
+  onClose: () => void
+  onSaved: (updated: any) => void
+}) {
+  const { register, handleSubmit, control, formState: { errors } } = useForm<EditUserForm>({
+    resolver: zodResolver(editUserSchema),
+    defaultValues: {
+      name: user.name,
+      phone: user.phone,
+      role: user.role,
+      branchId: user.branchId ?? '',
+      newPassword: '',
+    },
+  })
+  const [saving, setSaving] = useState(false)
+
+  const onSubmit = async (data: EditUserForm) => {
+    setSaving(true)
+    try {
+      const payload: any = {
+        name: data.name,
+        phone: data.phone,
+        role: data.role,
+        branchId: data.branchId || null,
+      }
+      if (data.newPassword) payload.password = data.newPassword
+      const res = await api.patch(`/users/${user.id}`, payload)
+      const updated = res.data?.data ?? res.data
+      onSaved({
+        id: updated.id,
+        name: updated.name,
+        email: updated.email ?? user.email,
+        phone: updated.phone,
+        role: updated.role,
+        isActive: updated.isActive ?? user.isActive,
+        branchId: updated.branchId ?? '',
+        branch: updated.branch ?? null,
+        lastLogin: user.lastLogin ?? '',
+      })
+      toast.success('User updated successfully')
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to update user')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const roleLabels: Record<string, string> = {
+    ADMIN: 'Admin',
+    PHARMACIST: 'Pharmacist',
+    INVENTORY_MANAGER: 'Inventory Manager',
+    ACCOUNTANT: 'Accountant',
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit User</DialogTitle>
+          <DialogDescription>Update user details and branch assignment for <strong>{user.email}</strong></DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Full Name</Label>
+            <Input {...register('name')} placeholder="Full name" />
+            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label>Phone</Label>
+            <Input {...register('phone')} placeholder="9876543210" />
+            {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label>Role</Label>
+            <Controller
+              name="role"
+              control={control}
+              render={({ field }) => (
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(roleLabels).map(([val, label]) => (
+                      <SelectItem key={val} value={val}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
+          </div>
+          {branches.length > 0 && (
+            <div className="space-y-2">
+              <Label>Assign Branch</Label>
+              <Controller
+                name="branchId"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                    value={field.value || '__none__'}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="No branch (access all)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No branch (access all)</SelectItem>
+                      {branches.filter(b => b.isActive).map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
+                            {b.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Leave blank to give access to all branches
+              </p>
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label>New Password <span className="text-muted-foreground text-[11px]">(leave blank to keep current)</span></Label>
+            <Input
+              {...register('newPassword')}
+              type="password"
+              placeholder="Min. 6 characters"
+            />
+            {errors.newPassword && <p className="text-xs text-destructive">{errors.newPassword.message}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1659,11 +1914,33 @@ function AuditTrailSection() {
   const [filterUser, setFilterUser] = useState('all')
   const [filterModule, setFilterModule] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>(auditTrailData)
 
-  const uniqueUsers = Array.from(new Set(auditTrailData.map((a) => a.user)))
-  const uniqueModules = Array.from(new Set(auditTrailData.map((a) => a.module)))
+  useEffect(() => {
+    api
+      .get('/audit-logs', { params: { limit: 200 } })
+      .then((res) => {
+        const rows = res.data ?? []
+        const mapped: AuditEntry[] = rows.map((r: any) => ({
+          id: r.id,
+          timestamp: r.createdAt,
+          user: r.user?.name || r.userId,
+          module: r.module,
+          action: r.action,
+          entity: r.entityId || '-',
+          field: '-',
+          oldValue: r.oldValue ? JSON.stringify(r.oldValue).slice(0, 80) : '-',
+          newValue: r.newValue ? JSON.stringify(r.newValue).slice(0, 80) : '-',
+        }))
+        if (mapped.length > 0) setAuditEntries(mapped)
+      })
+      .catch(() => { toast.error('Failed to load audit log') })
+  }, [])
 
-  const filteredAudit = auditTrailData.filter((entry) => {
+  const uniqueUsers = Array.from(new Set(auditEntries.map((a) => a.user)))
+  const uniqueModules = Array.from(new Set(auditEntries.map((a) => a.module)))
+
+  const filteredAudit = auditEntries.filter((entry) => {
     if (filterUser !== 'all' && entry.user !== filterUser) return false
     if (filterModule !== 'all' && entry.module !== filterModule) return false
     if (searchQuery) {
@@ -1750,7 +2027,7 @@ function AuditTrailSection() {
 
           {/* Table */}
           <div className="rounded-xl border border-border/60 overflow-hidden">
-            <ScrollArea className="h-[500px]">
+            <ScrollArea className="h-125">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 dark:bg-muted/15">

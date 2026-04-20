@@ -2,9 +2,11 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { toast } from 'sonner'
+import { navigate } from '@/lib/router'
 import {
   Search,
   Plus,
+  Minus,
   Trash2,
   ChevronRight,
   ChevronLeft,
@@ -34,6 +36,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { cn, formatCurrency, generateId, generateInvoiceNumber } from '@/lib/utils'
 
@@ -83,6 +86,7 @@ interface AdjustmentItem {
   batchNumber: string
   systemQty: number
   adjustment: number
+  rawAdjustment: string
   newQty: number
   reason: AdjustmentReason
   mrp: number
@@ -116,6 +120,7 @@ export default function StockAdjustmentPage() {
   useEffect(() => {
     fetchProducts()
   }, [])
+  useBranchRefresh(fetchProducts)
 
   // Search results for adding products
   const searchResults = useMemo(() => {
@@ -150,6 +155,7 @@ export default function StockAdjustmentPage() {
         batchNumber: batch.batchNumber,
         systemQty: batch.quantity,
         adjustment: 0,
+        rawAdjustment: '0',
         newQty: batch.quantity,
         reason: 'Physical Count',
         mrp: Number(batch.mrp),
@@ -162,13 +168,13 @@ export default function StockAdjustmentPage() {
     setItems((prev) => prev.filter((i) => i.id !== id))
   }
 
-  const updateAdjustment = (id: string, value: number) => {
+  const updateAdjustment = (id: string, raw: string) => {
     setItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? { ...item, adjustment: value, newQty: item.systemQty + value }
-          : item
-      )
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const parsed = raw === '' || raw === '-' ? 0 : parseInt(raw) || 0
+        return { ...item, rawAdjustment: raw, adjustment: parsed, newQty: item.systemQty + parsed }
+      })
     )
   }
 
@@ -200,12 +206,12 @@ export default function StockAdjustmentPage() {
       setReferenceNumber(refNo)
       setCurrentStep(3)
 
-      // Make all adjustment API calls in parallel in background
+      // Backend expects adjustedQty (the final quantity), not delta.
       await Promise.all(
-        items.map(item => 
-          api.post(`/products/${item.productId}/batches/${item.batchId}/adjust`, {
-            adjustmentQty: item.adjustment,
-            reason: item.reason
+        items.map(item =>
+          api.patch(`/products/${item.productId}/batches/${item.batchId}/adjust`, {
+            adjustedQty: item.newQty,
+            reason: item.reason,
           })
         )
       )
@@ -371,23 +377,38 @@ export default function StockAdjustmentPage() {
                           {item.systemQty}
                         </TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            value={item.adjustment}
-                            onChange={(e) =>
-                              updateAdjustment(
-                                item.id,
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className={cn(
-                              'h-9 w-full text-center font-mono',
-                              item.adjustment > 0 &&
-                                'border-emerald-500 text-emerald-600 dark:text-emerald-400',
-                              item.adjustment < 0 &&
-                                'border-red-500 text-red-600 dark:text-red-400'
-                            )}
-                          />
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => updateAdjustment(item.id, String(item.adjustment - 1))}
+                              className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-red-50 hover:border-red-400 hover:text-red-600"
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={item.rawAdjustment}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                if (/^-?\d*$/.test(val)) updateAdjustment(item.id, val)
+                              }}
+                              className={cn(
+                                'h-9 w-20 text-center font-mono',
+                                item.adjustment > 0 &&
+                                  'border-emerald-500 text-emerald-600 dark:text-emerald-400',
+                                item.adjustment < 0 &&
+                                  'border-red-500 text-red-600 dark:text-red-400'
+                              )}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => updateAdjustment(item.id, String(item.adjustment + 1))}
+                              className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-600"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -637,7 +658,7 @@ export default function StockAdjustmentPage() {
                   New Adjustment
                 </Button>
                 <Button
-                  onClick={() => toast.info('Navigating to adjustment history...')}
+                  onClick={() => navigate('/reports')}
                 >
                   View History
                 </Button>

@@ -7,6 +7,7 @@ import {
   PlusCircle,
   FileText,
   FileCheck,
+  FileCheck2,
   RotateCcw,
   ShoppingCart,
   PackageCheck,
@@ -26,6 +27,8 @@ import {
   ChevronLeft,
   MoreHorizontal,
   X,
+  Stethoscope,
+  Building2,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -67,8 +70,9 @@ const navigationGroups: NavGroup[] = [
     items: [
       { label: 'New Sale', icon: PlusCircle, href: '/billing/new' },
       { label: 'Sales List', icon: FileText, href: '/billing/sales' },
-      { label: 'Quotations', icon: FileCheck, href: '/billing/quotations' },
-      { label: 'Sales Returns', icon: RotateCcw, href: '/billing/returns' },
+      { label: 'Quotations',   icon: FileCheck,  href: '/billing/quotations' },
+      { label: 'Sales Returns', icon: RotateCcw,  href: '/billing/returns' },
+      { label: 'Credit Notes',  icon: FileCheck2, href: '/billing/credit-notes' },
     ],
   },
   {
@@ -77,6 +81,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders' },
       { label: 'Goods Receipt', icon: PackageCheck, href: '/purchase/grn' },
       { label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns' },
+      { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers' },
     ],
   },
@@ -94,6 +99,7 @@ const navigationGroups: NavGroup[] = [
     items: [
       { label: 'Customer List', icon: Users, href: '/customers' },
       { label: 'Outstanding', icon: IndianRupee, href: '/customers/outstanding' },
+      { label: 'Doctors', icon: Stethoscope, href: '/doctors' },
     ],
   },
   {
@@ -114,6 +120,7 @@ const navigationGroups: NavGroup[] = [
   {
     title: 'SETTINGS',
     items: [
+      { label: 'Branches', icon: Building2, href: '/branches', adminOnly: true },
       { label: 'Settings', icon: Settings, href: '/settings', adminOnly: true },
     ],
   },

@@ -71,6 +71,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Sales Returns',
     breadcrumbs: [{ label: 'Billing' }, { label: 'Sales Returns' }],
   },
+  '/billing/credit-notes': {
+    label: 'Credit Notes',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Credit Notes' }],
+  },
   '/purchase/orders': {
     label: 'Purchase Orders',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Orders' }],
@@ -82,6 +86,10 @@ export const routes: Record<string, RouteConfig> = {
   '/purchase/returns': {
     label: 'Purchase Returns',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Returns' }],
+  },
+  '/purchase/debit-notes': {
+    label: 'Debit Notes',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Debit Notes' }],
   },
   '/purchase/suppliers': {
     label: 'Suppliers',
@@ -134,6 +142,14 @@ export const routes: Record<string, RouteConfig> = {
   '/settings': {
     label: 'Settings',
     breadcrumbs: [{ label: 'Settings' }],
+  },
+  '/doctors': {
+    label: 'Doctors',
+    breadcrumbs: [{ label: 'Doctors' }],
+  },
+  '/branches': {
+    label: 'Branches',
+    breadcrumbs: [{ label: 'Branches' }],
   },
 }
 

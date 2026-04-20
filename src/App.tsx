@@ -16,9 +16,11 @@ const NewSalePage = lazy(() => import('@/pages/billing/NewSalePage'))
 const SalesListPage = lazy(() => import('@/pages/billing/SalesListPage'))
 const QuotationsPage = lazy(() => import('@/pages/billing/QuotationsPage'))
 const SalesReturnsPage = lazy(() => import('@/pages/billing/SalesReturnsPage'))
+const CreditNotesPage = lazy(() => import('@/pages/billing/CreditNotesPage'))
 const PurchaseOrdersPage = lazy(() => import('@/pages/purchase/PurchaseOrdersPage'))
 const GRNPage = lazy(() => import('@/pages/purchase/GRNPage'))
 const PurchaseReturnsPage = lazy(() => import('@/pages/purchase/PurchaseReturnsPage'))
+const DebitNotesPage = lazy(() => import('@/pages/purchase/DebitNotesPage'))
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage'))
 const StockOverviewPage = lazy(() => import('@/pages/inventory/StockOverviewPage'))
@@ -26,12 +28,14 @@ const ExpiryManagementPage = lazy(() => import('@/pages/inventory/ExpiryManageme
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage'))
 const CustomersPage = lazy(() => import('@/pages/customers/CustomersPage'))
 const OutstandingPage = lazy(() => import('@/pages/customers/OutstandingPage'))
-const CashBookPage = lazy(() => import('@/pages/accounting/CashBookPage'))
+const CashBookPage = lazy(() => import('@/pages/accounting/CashbookPage'))
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage'))
 const LedgerPage = lazy(() => import('@/pages/accounting/LedgerPage'))
 const ProfitLossPage = lazy(() => import('@/pages/accounting/ProfitLossPage'))
 const ReportsHubPage = lazy(() => import('@/pages/reports/ReportsHubPage'))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'))
+const DoctorsPage = lazy(() => import('@/pages/doctors/DoctorsPage'))
+const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -43,11 +47,13 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/sales',
     '/billing/quotations',
     '/billing/returns',
+    '/billing/credit-notes',
     '/inventory/products',
     '/inventory/stock',
     '/inventory/expiry',
     '/customers',
     '/customers/outstanding',
+    '/doctors',
   ],
   INVENTORY_MANAGER: [
     '/dashboard',
@@ -58,6 +64,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/orders',
     '/purchase/grn',
     '/purchase/returns',
+    '/purchase/debit-notes',
     '/purchase/suppliers',
   ],
   ACCOUNTANT: [
@@ -65,9 +72,11 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/sales',
     '/billing/quotations',
     '/billing/returns',
+    '/billing/credit-notes',
     '/customers',
     '/customers/outstanding',
     '/purchase/orders',
+    '/purchase/debit-notes',
     '/accounting/cashbook',
     '/accounting/expenses',
     '/accounting/ledger',
@@ -195,12 +204,16 @@ function App() {
         return <QuotationsPage />
       case '/billing/returns':
         return <SalesReturnsPage />
+      case '/billing/credit-notes':
+        return <CreditNotesPage />
       case '/purchase/orders':
         return <PurchaseOrdersPage />
       case '/purchase/grn':
         return <GRNPage />
       case '/purchase/returns':
         return <PurchaseReturnsPage />
+      case '/purchase/debit-notes':
+        return <DebitNotesPage />
       case '/purchase/suppliers':
         return <SuppliersPage />
       case '/inventory/products':
@@ -227,6 +240,10 @@ function App() {
         return <ReportsHubPage />
       case '/settings':
         return <SettingsPage />
+      case '/doctors':
+        return <DoctorsPage />
+      case '/branches':
+        return <BranchesPage />
       default:
         return <DashboardPage />
     }
@@ -239,7 +256,7 @@ function App() {
         breadcrumbs={routeConfig.breadcrumbs}
         title={routeConfig.label}
       >
-        <Suspense fallback={<LoadingFallback />}>
+        <Suspense key={path} fallback={<LoadingFallback />}>
           {renderPage()}
         </Suspense>
       </AppLayout>

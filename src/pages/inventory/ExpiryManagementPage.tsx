@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import { toast } from 'sonner'
+import { navigate } from '@/lib/router'
 import {
   AlertOctagon,
   CalendarClock,
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -110,15 +112,16 @@ export default function ExpiryManagementPage() {
     fetchProducts()
     fetchSuppliers()
   }, [])
+  useBranchRefresh(fetchProducts)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState('all')
 
   const today = new Date()
 
-  // Build enriched batch list
+  // Build enriched batch list — only non-zero stock
   const enrichedBatches: EnrichedBatch[] = useMemo(() => {
-    return batches.map((batch) => {
+    return batches.filter(batch => batch.quantity > 0).map((batch) => {
       const supplier = suppliers.find((s) => s.id === batch.supplierId)
       const daysToExpiry = differenceInDays(new Date(batch.expiryDate), today)
       const bucket = assignBucket(daysToExpiry)
@@ -290,8 +293,8 @@ export default function ExpiryManagementPage() {
               <TableCell className="text-sm">{batch.supplierName}</TableCell>
               <TableCell className="text-right">
                 <DataTableRowActions
-                  onView={() => toast.info(`Viewing details for ${batch.productName}`)}
-                  onEdit={() => toast.info(`Edit batch ${batch.batchNumber}`)}
+                  onView={() => navigate(`/inventory/stock?productId=${batch.productId}`)}
+                  onEdit={() => navigate(`/inventory/stock?productId=${batch.productId}`)}
                   onDelete={() => handleMarkDisposed(batch)}
                   customActions={[
                     {
@@ -360,6 +363,27 @@ export default function ExpiryManagementPage() {
         })}
       </motion.div>
 
+      {/* ── Filters ── */}
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search by product name or batch number..."
+        resultsCount={filteredBatches.filter(b => b.bucket !== null).length}
+        activeFilterCount={selectedSupplier !== 'all' ? 1 : 0}
+        onClearFilters={() => setSelectedSupplier('all')}
+      >
+        <EnumSelect
+          label="Supplier"
+          value={selectedSupplier}
+          onValueChange={setSelectedSupplier}
+          onClear={() => setSelectedSupplier('all')}
+          options={[
+            { value: 'all', label: 'All Suppliers' },
+            ...suppliers.map(s => ({ value: s.name, label: s.name })),
+          ]}
+        />
+      </DataTableFilterBar>
+
       {/* ── Tabs ── */}
       <motion.div
         variants={containerVariants}
@@ -367,15 +391,21 @@ export default function ExpiryManagementPage() {
         animate="visible"
       >
         <motion.div variants={itemVariants}>
-          <Tabs defaultValue="expired">
+          <Tabs defaultValue="all">
             <TabsList>
+              <TabsTrigger value="all">
+                All Batches
+                <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">
+                  {filteredBatches.length}
+                </Badge>
+              </TabsTrigger>
               <TabsTrigger value="expired">
                 Expired
                 {bucketBatches.expired.length > 0 && (
                   <Badge
                     variant="destructive"
                     size="sm"
-                    className="ml-2 h-5 min-w-[20px] px-1.5"
+                    className="ml-2 h-5 min-w-5 px-1.5"
                   >
                     {bucketBatches.expired.length}
                   </Badge>
@@ -387,7 +417,7 @@ export default function ExpiryManagementPage() {
                   <Badge
                     variant="warning"
                     size="sm"
-                    className="ml-2 h-5 min-w-[20px] px-1.5"
+                    className="ml-2 h-5 min-w-5 px-1.5"
                   >
                     {bucketBatches['30d'].length}
                   </Badge>
@@ -399,7 +429,7 @@ export default function ExpiryManagementPage() {
                   <Badge
                     variant="secondary"
                     size="sm"
-                    className="ml-2 h-5 min-w-[20px] px-1.5"
+                    className="ml-2 h-5 min-w-5 px-1.5"
                   >
                     {bucketBatches['60d'].length}
                   </Badge>
@@ -411,7 +441,7 @@ export default function ExpiryManagementPage() {
                   <Badge
                     variant="secondary"
                     size="sm"
-                    className="ml-2 h-5 min-w-[20px] px-1.5"
+                    className="ml-2 h-5 min-w-5 px-1.5"
                   >
                     {bucketBatches['90d'].length}
                   </Badge>
@@ -423,7 +453,7 @@ export default function ExpiryManagementPage() {
                   <Badge
                     variant="info"
                     size="sm"
-                    className="ml-2 h-5 min-w-[20px] px-1.5"
+                    className="ml-2 h-5 min-w-5 px-1.5"
                   >
                     {bucketBatches['180d'].length}
                   </Badge>
@@ -431,6 +461,9 @@ export default function ExpiryManagementPage() {
               </TabsTrigger>
             </TabsList>
 
+            <TabsContent value="all" className="mt-4">
+              {renderBatchTable([...filteredBatches].sort((a, b) => a.daysToExpiry - b.daysToExpiry))}
+            </TabsContent>
             <TabsContent value="expired" className="mt-4">
               {renderBatchTable(bucketBatches.expired)}
             </TabsContent>

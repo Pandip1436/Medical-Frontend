@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -12,7 +12,6 @@ import {
   MapPin,
   IndianRupee,
   TrendingUp,
-  RotateCcw,
   Building2,
   Download,
   Printer,
@@ -65,9 +64,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockSuppliers } from '@/data/mock'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
+import { exportToCsv, printReport } from '@/lib/exportUtils'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import type { Supplier } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -98,21 +100,6 @@ const supplierSchema = z.object({
 type SupplierForm = z.input<typeof supplierSchema>
 
 // ─────────────────────────────────────────────────────────────
-// Mock supplier stats
-// ─────────────────────────────────────────────────────────────
-
-const mockSupplierStats: Record<
-  string,
-  { totalPurchases: number; pendingPayment: number; returnRate: number; ordersThisYear: number }
-> = {
-  'SUP-001': { totalPurchases: 1245000, pendingPayment: 89000, returnRate: 1.2, ordersThisYear: 24 },
-  'SUP-002': { totalPurchases: 985000, pendingPayment: 45000, returnRate: 0.8, ordersThisYear: 18 },
-  'SUP-003': { totalPurchases: 756000, pendingPayment: 112000, returnRate: 2.1, ordersThisYear: 15 },
-  'SUP-004': { totalPurchases: 1890000, pendingPayment: 234000, returnRate: 0.5, ordersThisYear: 32 },
-  'SUP-005': { totalPurchases: 620000, pendingPayment: 0, returnRate: 1.8, ordersThisYear: 12 },
-}
-
-// ─────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────
 
@@ -136,6 +123,11 @@ const PAYMENT_TERMS_OPTIONS = [
 // ─────────────────────────────────────────────────────────────
 
 export default function SuppliersPage() {
+  const { suppliers, fetchMasterData } = useMasterDataStore()
+
+  useEffect(() => { fetchMasterData() }, [])
+  useBranchRefresh(fetchMasterData)
+
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -152,6 +144,26 @@ export default function SuppliersPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
+  const [supplierStats, setSupplierStats] = useState<{
+    totalPurchases: number; pendingPayment: number; ordersThisYear: number
+  } | null>(null)
+
+  const fetchSupplierStats = async (supplierId: string) => {
+    setSupplierStats(null)
+    try {
+      const res = await api.get(`/reports/financial/supplier-ledger/${supplierId}`)
+      const kpis = res.data?.kpis
+      if (kpis) {
+        setSupplierStats({
+          totalPurchases: kpis.totalPurchases ?? 0,
+          pendingPayment: kpis.outstandingBalance ?? 0,
+          ordersThisYear: kpis.totalTransactions ?? 0,
+        })
+      }
+    } catch {
+      setSupplierStats(null)
+    }
+  }
 
   const clearFilters = () => {
     setSelectedStatus('all')
@@ -161,17 +173,17 @@ export default function SuppliersPage() {
   // ── Filtering logic ──
 
   const filteredSuppliers = useMemo(() => {
-    let result = [...mockSuppliers]
+    let result = [...suppliers]
 
     // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter(
         (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.contactPerson.toLowerCase().includes(q) ||
-          s.phone.includes(q) ||
-          s.gstin.toLowerCase().includes(q)
+          (s.name?.toLowerCase().includes(q) || false) ||
+          (s.contactPerson?.toLowerCase().includes(q) || false) ||
+          (s.phone?.includes(q) || false) ||
+          (s.gstin?.toLowerCase().includes(q) || false)
       )
     }
 
@@ -187,18 +199,15 @@ export default function SuppliersPage() {
     }
 
     return result
-  }, [searchQuery, selectedStatus, selectedPaymentTerms])
+  }, [suppliers, searchQuery, selectedStatus, selectedPaymentTerms])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const all = mockSuppliers
-    const activeCount = all.filter((s) => s.isActive).length
-    const inactiveCount = all.filter((s) => !s.isActive).length
-    const totalPurchases = Object.values(mockSupplierStats).reduce((sum, s) => sum + s.totalPurchases, 0)
-    const pendingPayments = Object.values(mockSupplierStats).reduce((sum, s) => sum + s.pendingPayment, 0)
-    return { totalCount: all.length, activeCount, inactiveCount, totalPurchases, pendingPayments }
-  }, [])
+    const activeCount = suppliers.filter((s) => s.isActive).length
+    const inactiveCount = suppliers.filter((s) => !s.isActive).length
+    return { totalCount: suppliers.length, activeCount, inactiveCount }
+  }, [suppliers])
 
   // ── Pagination ──
 
@@ -294,19 +303,32 @@ export default function SuppliersPage() {
     setDialogOpen(true)
   }
 
-  function onSubmit(data: any) {
-    if (editingSupplier) {
-      toast.success(`Supplier "${data.name}" updated successfully`)
-    } else {
-      toast.success(`Supplier "${data.name}" added successfully`)
+  async function onSubmit(data: any) {
+    try {
+      if (editingSupplier) {
+        await api.patch(`/suppliers/${editingSupplier.id}`, data)
+        toast.success(`Supplier "${data.name}" updated successfully`)
+      } else {
+        await api.post('/suppliers', data)
+        toast.success(`Supplier "${data.name}" added successfully`)
+      }
+      setDialogOpen(false)
+      reset()
+      setEditingSupplier(null)
+      await fetchMasterData()
+    } catch {
+      toast.error('Failed to save supplier. Please try again.')
     }
-    setDialogOpen(false)
-    reset()
-    setEditingSupplier(null)
   }
 
-  function handleDeactivate(supplier: Supplier) {
-    toast.warning(`Supplier "${supplier.name}" has been deactivated`)
+  async function handleDeactivate(supplier: Supplier) {
+    try {
+      await api.patch(`/suppliers/${supplier.id}`, { isActive: !supplier.isActive })
+      toast.success(`Supplier "${supplier.name}" ${supplier.isActive ? 'deactivated' : 'activated'} successfully`)
+      await fetchMasterData()
+    } catch {
+      toast.error('Failed to update supplier status.')
+    }
   }
 
   return (
@@ -357,16 +379,16 @@ export default function SuppliersPage() {
           },
           {
             label: 'Total Purchases',
-            value: formatCurrency(stats.totalPurchases),
-            subtitle: 'this year',
+            value: '—',
+            subtitle: 'open supplier to view',
             icon: IndianRupee,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
           },
           {
             label: 'Pending Payments',
-            value: formatCurrency(stats.pendingPayments),
-            subtitle: 'outstanding',
+            value: '—',
+            subtitle: 'open supplier to view',
             icon: AlertCircle,
             iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400',
             borderAccent: 'border-l-red-500',
@@ -424,15 +446,44 @@ export default function SuppliersPage() {
             <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected suppliers...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredSuppliers.filter((s) => selectedIds.has(s.id))
+                  exportToCsv(selected.map((s) => ({
+                    Name: s.name,
+                    Phone: s.phone,
+                    Email: s.email ?? '',
+                    GSTIN: s.gstin,
+                    Status: s.isActive ? 'Active' : 'Inactive',
+                  })), 'suppliers-selected')
+                }}>
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected suppliers...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredSuppliers.filter((s) => selectedIds.has(s.id))
+                  printReport(selected.map((s) => ({
+                    Name: s.name,
+                    Phone: s.phone,
+                    Email: s.email ?? '',
+                    GSTIN: s.gstin,
+                    Status: s.isActive ? 'Active' : 'Inactive',
+                  })), 'Suppliers')
+                }}>
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
-                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => toast.warning(`Deactivating ${selectedIds.size} suppliers...`)}>
+                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={async () => {
+                  try {
+                    await Promise.all(
+                      [...selectedIds].map((id) => api.patch(`/suppliers/${id}`, { isActive: false }))
+                    )
+                    toast.success(`${selectedIds.size} supplier(s) deactivated`)
+                    setSelectedIds(new Set())
+                    await fetchMasterData()
+                  } catch {
+                    toast.error('Failed to deactivate suppliers')
+                  }
+                }}>
                   <UserX className="mr-1 h-3.5 w-3.5" />
                   Deactivate
                 </Button>
@@ -487,7 +538,7 @@ export default function SuppliersPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => setDetailSupplier(supplier)}
+                    onClick={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selectedIds.has(supplier.id)} onCheckedChange={() => toggleSelectOne(supplier.id)} />
@@ -517,7 +568,7 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => setDetailSupplier(supplier)}
+                        onView={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
                         customActions={[
                           {
                             label: 'Edit',
@@ -760,17 +811,22 @@ export default function SuppliersPage() {
               <Separator className="bg-border/60" />
 
               {/* Business summary */}
-              {mockSupplierStats[detailSupplier.id] && (
-                <div className="space-y-3">
-                  <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Business Summary (This Year)
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Business Summary
+                </h4>
+                {supplierStats === null ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <div className="h-4 w-4 rounded-full border-b-2 border-primary animate-spin" />
+                    Loading...
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <Card>
                       <CardContent className="p-3 text-center">
                         <IndianRupee className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
                         <p className="font-mono text-lg font-bold">
-                          {formatCurrency(mockSupplierStats[detailSupplier.id].totalPurchases)}
+                          {formatCurrency(supplierStats.totalPurchases)}
                         </p>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                           Total Purchases
@@ -781,10 +837,10 @@ export default function SuppliersPage() {
                       <CardContent className="p-3 text-center">
                         <TrendingUp className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
                         <p className="font-mono text-lg font-bold">
-                          {mockSupplierStats[detailSupplier.id].ordersThisYear}
+                          {supplierStats.ordersThisYear}
                         </p>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Orders
+                          Transactions
                         </p>
                       </CardContent>
                     </Card>
@@ -792,27 +848,16 @@ export default function SuppliersPage() {
                       <CardContent className="p-3 text-center">
                         <IndianRupee className="mx-auto mb-1 h-4 w-4 text-amber-500" />
                         <p className="font-mono text-lg font-bold">
-                          {formatCurrency(mockSupplierStats[detailSupplier.id].pendingPayment)}
+                          {formatCurrency(supplierStats.pendingPayment)}
                         </p>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Pending Payment
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <RotateCcw className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                        <p className="font-mono text-lg font-bold">
-                          {mockSupplierStats[detailSupplier.id].returnRate}%
-                        </p>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Return Rate
+                          Outstanding
                         </p>
                       </CardContent>
                     </Card>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {detailSupplier.bankDetails && (
                 <>

@@ -47,6 +47,7 @@ export interface Product {
   id: string
   name: string
   genericName: string
+  saltComposition?: string
   manufacturer: string
   category: 'NEPHROLOGY' | 'ONCOLOGY' | 'GENERAL' | 'OTC' | 'SURGICAL'
   subCategory?: string

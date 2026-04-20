@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Package,
@@ -23,10 +24,12 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { mockPurchaseOrders, mockProducts } from '@/data/mock'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import type { GRNItem } from '@/types'
+import { printGrnPdf, downloadGrnPdf, type GrnPdfData } from '@/lib/pdf/grnPdf'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -93,6 +96,13 @@ export default function GRNPage() {
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
 
+  const { purchaseOrders, products, fetchMasterData } = useMasterDataStore()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const fetchData = useCallback(() => { fetchMasterData() }, [fetchMasterData])
+  useEffect(() => { fetchData() }, [fetchData])
+  useBranchRefresh(fetchData)
+
   // Auto-generated GRN number
   const grnNumber = useMemo(
     () => `HS/GRN/2025-26/${String(Math.floor(Math.random() * 900 + 100)).padStart(5, '0')}`,
@@ -101,13 +111,13 @@ export default function GRNPage() {
 
   // ── Selectable POs ──
   const selectablePOs = useMemo(() => {
-    return mockPurchaseOrders.filter(
+    return purchaseOrders.filter(
       (po) =>
         po.status === 'SENT' ||
         po.status === 'ACKNOWLEDGED' ||
         po.status === 'PARTIALLY_RECEIVED'
     )
-  }, [])
+  }, [purchaseOrders])
 
   const filteredPOs = useMemo(() => {
     if (!poSearch.trim()) return selectablePOs
@@ -120,26 +130,26 @@ export default function GRNPage() {
   }, [selectablePOs, poSearch])
 
   const selectedPO = useMemo(() => {
-    return mockPurchaseOrders.find((po) => po.id === selectedPOId)
-  }, [selectedPOId])
+    return purchaseOrders.find((po) => po.id === selectedPOId)
+  }, [purchaseOrders, selectedPOId])
 
   // ── Product search for direct entry ──
   const filteredProducts = useMemo(() => {
     if (!productSearch.trim()) return []
     const existingIds = new Set(grnItems.map((i) => i.productId))
-    return mockProducts
+    return products
       .filter(
         (p) =>
           !existingIds.has(p.id) &&
           (p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-            p.genericName.toLowerCase().includes(productSearch.toLowerCase()))
+            (p.genericName ?? '').toLowerCase().includes(productSearch.toLowerCase()))
       )
       .slice(0, 6)
-  }, [productSearch, grnItems])
+  }, [productSearch, grnItems, products])
 
   // ── Select PO ──
   function handleSelectPO(poId: string) {
-    const po = mockPurchaseOrders.find((p) => p.id === poId)
+    const po = purchaseOrders.find((p) => p.id === poId)
     if (!po) return
     setSelectedPOId(poId)
     setPoSearchOpen(false)
@@ -156,7 +166,7 @@ export default function GRNPage() {
         mfgDate: '',
         expiryDate: '',
         purchaseRate: item.expectedRate,
-        mrp: mockProducts.find((p) => p.id === item.productId)?.mrp || 0,
+        mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
         damageQty: 0,
         shortSupply: false,
       }))
@@ -186,7 +196,7 @@ export default function GRNPage() {
     })
   }
 
-  function addDirectItem(product: (typeof mockProducts)[0]) {
+  function addDirectItem(product: (typeof products)[0]) {
     setGrnItems((prev) => [
       ...prev.filter((i) => i.productId !== ''),
       {
@@ -218,26 +228,108 @@ export default function GRNPage() {
   const totalQty = receivedItems.reduce((s, i) => s + i.receivedQty + (i.freeQty || 0), 0)
   const totalValue = receivedItems.reduce((s, i) => s + i.receivedQty * i.purchaseRate, 0)
   const shortSupplyCount = grnItems.filter((i) => i.shortSupply).length
+  
+  // Real GST calculation per-item based on master product data
+  let cgstSum = 0;
+  let sgstSum = 0;
+  receivedItems.forEach(i => {
+    const prod = products.find(p => p.id === i.productId);
+    const rate = prod?.gstRate ?? 12; // Fallback to 12% if not found
+    const lineTaxable = i.receivedQty * i.purchaseRate;
+    const gstValue = lineTaxable * (rate / 100);
+    cgstSum += gstValue / 2;
+    sgstSum += gstValue / 2;
+  });
+
   const gstBreakdown = {
     taxable: totalValue,
-    cgst: totalValue * 0.06,
-    sgst: totalValue * 0.06,
-    total: totalValue * 1.12,
+    cgst: cgstSum,
+    sgst: sgstSum,
+    total: totalValue + cgstSum + sgstSum,
   }
 
   const canConfirm = receivedItems.length > 0
 
-  function handleConfirm() {
-    toast.success('Goods Receipt Note created successfully!', {
-      description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
-    })
-    setShowConfirm(false)
-    setSourceType('po')
-    setSelectedPOId(null)
-    setGrnItems([])
-    setInvoiceNo('')
-    setInvoiceDate('')
-    setInvoiceAmount(0)
+  async function handleConfirm() {
+    if (!invoiceNo || !invoiceDate) {
+      toast.error('Supplier invoice number and date are required')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const payload = {
+        poId: selectedPOId ?? undefined,
+        supplierId: selectedPO?.supplierId ?? '',
+        supplierName: selectedPO?.supplierName ?? 'Direct',
+        supplierInvoiceNo: invoiceNo,
+        supplierInvoiceDate: new Date(invoiceDate).toISOString(),
+        supplierInvoiceAmount: Number(invoiceAmount) || 0,
+        totalAmount: Number(gstBreakdown.total) || 0,
+        status: 'RECEIVED',
+        items: receivedItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          orderedQty: Number(i.orderedQty || i.receivedQty),
+          receivedQty: Number(i.receivedQty),
+          freeQty: Number(i.freeQty || 0),
+          batchNumber: i.batchNumber,
+          mfgDate: new Date(i.mfgDate).toISOString(),
+          expiryDate: new Date(i.expiryDate).toISOString(),
+          purchaseRate: Number(i.purchaseRate),
+          mrp: Number(i.mrp),
+          damageQty: Number(i.damageQty || 0),
+        })),
+      }
+      await api.post('/grn', payload)
+      toast.success('Goods Receipt Note created successfully!', {
+        description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
+      })
+      setShowConfirm(false)
+      setSourceType('po')
+      setSelectedPOId(null)
+      setGrnItems([])
+      setInvoiceNo('')
+      setInvoiceDate('')
+      setInvoiceAmount(0)
+      await fetchMasterData()
+    } catch (err: any) {
+      const msg = err.response?.data?.message;
+      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save GRN. Please try again.'));
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  function buildGrnPdfData(): GrnPdfData {
+    return {
+      grnNumber,
+      date: new Date(),
+      supplierName: selectedPO?.supplierName ?? 'Direct',
+      supplierInvoiceNo: invoiceNo || undefined,
+      supplierInvoiceDate: invoiceDate || undefined,
+      totalAmount: gstBreakdown.total,
+      items: receivedItems.map((i) => ({
+        productName: i.productName,
+        batchNumber: i.batchNumber,
+        expiryDate: i.expiryDate,
+        orderedQty: i.orderedQty || i.receivedQty,
+        receivedQty: i.receivedQty,
+        freeQty: i.freeQty || 0,
+        damageQty: i.damageQty || 0,
+        purchaseRate: i.purchaseRate,
+        mrp: i.mrp,
+      })),
+    }
+  }
+
+  function handlePrintGrn() {
+    if (!canConfirm) return
+    printGrnPdf(buildGrnPdfData())
+  }
+
+  function handleDownloadGrn() {
+    if (!canConfirm) return
+    downloadGrnPdf(buildGrnPdfData())
   }
 
   function handleDiscard() {
@@ -356,7 +448,7 @@ export default function GRNPage() {
                                     </div>
                                     <div>
                                       <p className="font-mono text-sm font-medium">{po.poNumber}</p>
-                                      <p className="text-[11px] text-muted-foreground">{po.supplierName} &middot; {po.items.length} items</p>
+                                      <p className="text-[11px] text-muted-foreground">{po.supplierName} &middot; {po.items?.length ?? 0} items</p>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -801,11 +893,11 @@ export default function GRNPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm}>
+                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handlePrintGrn}>
                     <Printer className="mr-1.5 h-3.5 w-3.5" />
                     Print GRN
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm}>
+                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handleDownloadGrn}>
                     <Download className="mr-1.5 h-3.5 w-3.5" />
                     Download
                   </Button>
@@ -931,9 +1023,13 @@ export default function GRNPage() {
                 <Button variant="outline" className="flex-1" onClick={() => setShowConfirm(false)}>
                   Go Back
                 </Button>
-                <Button className="flex-1" onClick={handleConfirm}>
-                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                  Confirm & Create GRN
+                <Button className="flex-1" onClick={handleConfirm} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                  )}
+                  {isSubmitting ? 'Saving...' : 'Confirm & Create GRN'}
                 </Button>
               </div>
             </motion.div>

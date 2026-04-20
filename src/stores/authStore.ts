@@ -49,17 +49,27 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.post('/auth/login', { email, password });
           if (response.data && response.data.data) {
             const { user, accessToken } = response.data.data;
-            
-            // Set token
+
             localStorage.setItem('auth_token', accessToken.token);
-            
+
             set({
               user: {
                 ...user,
                 lastLogin: new Date().toISOString(),
               },
               isAuthenticated: true,
-            })
+            });
+
+            // If user has an assigned branch, lock the active branch to it
+            if (user.branchId) {
+              try {
+                const { useBranchStore } = await import('@/stores/branchStore');
+                const branchStore = useBranchStore.getState();
+                await branchStore.fetchBranches();
+                branchStore.setActiveBranch(user.branchId);
+              } catch { /* ignore */ }
+            }
+
             return true;
           }
           return false;

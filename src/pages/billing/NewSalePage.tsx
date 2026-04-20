@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -58,11 +59,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
+import { navigate } from '@/lib/router'
 import {
   Table,
   TableBody,
@@ -76,8 +73,11 @@ const MotionTableRow = motion(TableRow)
 
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchStore } from '@/stores/branchStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, generateInvoiceNumber } from '@/lib/utils'
-import type { Product, Customer } from '@/types'
+import type { Product, Customer, Invoice } from '@/types'
+import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -115,20 +115,6 @@ interface PaymentDetails {
   creditDueDate: string
   splits: SplitPayment[]
 }
-
-// ─────────────────────────────────────────────────────────────
-// MOCK DOCTORS
-// ─────────────────────────────────────────────────────────────
-
-const mockDoctors = [
-  'Dr. Balaji (Nephrologist)',
-  'Dr. Anitha (Oncologist)',
-  'Dr. Venkatesh (Oncologist)',
-  'Dr. Suresh (General Physician)',
-  'Dr. Lakshmi (Nephrologist)',
-  'Dr. Ramesh (Urologist)',
-  'Dr. Priya (Oncologist)',
-]
 
 // ─────────────────────────────────────────────────────────────
 // CUSTOMER SCHEMA
@@ -250,13 +236,14 @@ function BillingRow({
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
 }) {
-  const mockProducts = useMasterDataStore(s => s.products)
-  const mockBatches = useMasterDataStore(s => s.batches)
+  const products = useMasterDataStore(s => s.products)
+  const batches = useMasterDataStore(s => s.batches)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 400 })
 
   const productRef = useRef<HTMLTableCellElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -264,9 +251,9 @@ function BillingRow({
   const qtyRef = useRef<HTMLInputElement>(null)
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return mockProducts.slice(0, 8)
+    if (!productSearch) return products.slice(0, 8)
     const q = productSearch.toLowerCase()
-    return mockProducts.filter(
+    return products.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.genericName.toLowerCase().includes(q) ||
@@ -274,24 +261,38 @@ function BillingRow({
     )
   }, [productSearch])
 
+  // Alternative suggestions: same salt composition, different product, has stock
+  const alternatives = useMemo(() => {
+    const selected = products.find((p) => p.id === item.productId)
+    if (!selected || !selected.saltComposition) return []
+    if (selected.totalStock > selected.minStock) return [] // only show when low/out
+    return products.filter(
+      (p) =>
+        p.id !== selected.id &&
+        p.saltComposition &&
+        p.saltComposition.toLowerCase() === selected.saltComposition!.toLowerCase() &&
+        p.totalStock > 0
+    ).slice(0, 4)
+  }, [item.productId, products])
+
   const productBatches = useMemo(() => {
     if (!item.productId) return []
-    return mockBatches
+    return batches
       .filter((b) => b.productId === item.productId && b.quantity > 0)
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
   }, [item.productId])
 
   const selectedProduct = useMemo(() => {
-    return mockProducts.find((p) => p.id === item.productId)
+    return products.find((p) => p.id === item.productId)
   }, [item.productId])
 
   const handleProductSelect = useCallback(
     (product: Product) => {
-      const batches = mockBatches
+      const productBatches = batches
         .filter((b) => b.productId === product.id && b.quantity > 0)
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
-      const firstBatch = batches[0]
+      const firstBatch = productBatches[0]
       const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
 
       const updates: Partial<BillingItem> = {
@@ -325,12 +326,12 @@ function BillingRow({
         }
       }, 50)
     },
-    [billingType, item, onUpdate, mockBatches]
+    [billingType, item, onUpdate, batches]
   )
 
   const handleBatchChange = useCallback(
     (batchId: string) => {
-      const batch = mockBatches.find((b) => b.id === batchId)
+      const batch = batches.find((b) => b.id === batchId)
       if (!batch) return
       const updates: Partial<BillingItem> = {
         batchId: batch.id,
@@ -347,7 +348,7 @@ function BillingRow({
 
   const handleQtyChange = useCallback(
     (qty: number) => {
-      const selectedBatch = mockBatches.find((b) => b.id === item.batchId)
+      const selectedBatch = batches.find((b) => b.id === item.batchId)
       const maxQty = selectedBatch?.quantity ?? 9999
       const clampedQty = Math.min(Math.max(0, qty), maxQty)
       const updates: Partial<BillingItem> = { quantity: clampedQty }
@@ -399,7 +400,7 @@ function BillingRow({
     }
   }
 
-  const selectedBatch = mockBatches.find((b) => b.id === item.batchId)
+  const selectedBatch = batches.find((b) => b.id === item.batchId)
   const qtyExceeds = selectedBatch ? item.quantity > selectedBatch.quantity : false
 
   return (
@@ -417,101 +418,134 @@ function BillingRow({
 
       {/* Product + Schedule */}
       <TableCell className="min-w-[220px] px-2 py-1" ref={productRef}>
-        <Popover open={showProductDropdown} onOpenChange={setShowProductDropdown}>
-          <PopoverTrigger asChild onPointerDown={(e) => e.preventDefault()}>
-            <div className="relative group/search">
-              <input
-                ref={inputRef}
-                value={productSearch}
-                onChange={(e) => {
-                  setProductSearch(e.target.value)
-                  setShowProductDropdown(true)
-                  setSelectedIndex(0)
-                }}
-                onFocus={() => setShowProductDropdown(true)}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={handleKeyDown}
-                placeholder="Search product..."
-                className={cn(
-                  'w-full h-8 rounded-lg border border-transparent bg-transparent px-2 text-xs font-semibold transition-all',
-                  'placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/40 focus:border-primary/20',
-                  !item.productId && 'italic font-normal'
+        <div className="relative group/search">
+          <input
+            ref={inputRef}
+            value={productSearch}
+            onChange={(e) => {
+              setProductSearch(e.target.value)
+              setShowProductDropdown(true)
+              setSelectedIndex(0)
+            }}
+            onFocus={() => {
+              if (inputRef.current) {
+                const rect = inputRef.current.getBoundingClientRect()
+                setDropdownPos({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: 400 })
+              }
+              setShowProductDropdown(true)
+            }}
+            onBlur={() => setTimeout(() => setShowProductDropdown(false), 150)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search product..."
+            className={cn(
+              'w-full h-8 rounded-lg border border-transparent bg-transparent px-2 text-xs font-semibold transition-all',
+              'placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/40 focus:border-primary/20',
+              !item.productId && 'italic font-normal'
+            )}
+          />
+          <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
+          {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
+            <div className="absolute -bottom-4 left-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight text-rose-500/80">
+              <ShieldAlert className="h-2.5 w-2.5" />
+              Sch {selectedProduct.schedule}
+            </div>
+          )}
+          {showProductDropdown && createPortal(
+            <div
+              style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
+              className="rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
+            >
+              <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30">
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                    Syncing database...
+                  </span>
+                ) : (
+                  <>{filteredProducts.length} Product{filteredProducts.length !== 1 ? 's' : ''} Found</>
                 )}
-              />
-              <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
-              {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
-                <div className="absolute -bottom-4 left-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight text-rose-500/80">
-                  <ShieldAlert className="h-2.5 w-2.5" />
-                  Sch {selectedProduct.schedule}
-                </div>
-              )}
-            </div>
-          </PopoverTrigger>
-          <PopoverContent 
-            className="p-0 w-[400px] shadow-2xl border-primary/10 bg-popover/95 backdrop-blur-xl" 
-            align="start"
-            sideOffset={4}
-          >
-            <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 flex items-center justify-between">
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                  Syncing database...
-                </span>
-              ) : (
-                <>
-                  {filteredProducts.length} Product{filteredProducts.length !== 1 ? 's' : ''} Found
-                </>
-              )}
-            </div>
-            <ScrollArea className="max-h-[280px]">
-              {filteredProducts.length === 0 ? (
-                <div className="p-4 text-center text-xs text-muted-foreground italic">
-                  No products found
-                </div>
-              ) : (
-                filteredProducts.map((p, idx) => (
-                  <div
-                    key={p.id}
-                    className={cn(
-                      "cursor-pointer px-3 py-2.5 transition-all border-b border-border/5 last:border-0 group/item",
-                      idx === selectedIndex ? "bg-primary/5 text-primary" : "hover:bg-primary/5"
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      handleProductSelect(p)
-                    }}
-                    onMouseEnter={() => setSelectedIndex(idx)}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold truncate group-hover/item:text-primary transition-colors">
-                            {p.name}
-                          </span>
-                          {(p.schedule === 'H' || p.schedule === 'H1') && (
-                            <Badge variant="destructive" size="sm" className="h-4 px-1 text-[8px] font-black">{p.schedule}</Badge>
-                          )}
+              </div>
+              <div className="max-h-[280px] overflow-y-auto">
+                {filteredProducts.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground italic">
+                    No products found
+                  </div>
+                ) : (
+                  filteredProducts.map((p, idx) => (
+                    <div
+                      key={p.id}
+                      className={cn(
+                        "cursor-pointer px-3 py-2.5 transition-all border-b border-border/5 last:border-0 group/item",
+                        idx === selectedIndex ? "bg-primary/5 text-primary" : "hover:bg-primary/5"
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleProductSelect(p)
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold truncate group-hover/item:text-primary transition-colors">
+                              {p.name}
+                            </span>
+                            {(p.schedule === 'H' || p.schedule === 'H1') && (
+                              <Badge variant="destructive" size="sm" className="h-4 px-1 text-[8px] font-black">{p.schedule}</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/60">
+                            <span className="truncate">{p.manufacturer}</span>
+                            <span className="opacity-20">|</span>
+                            <span className="truncate">{p.genericName}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/60">
-                          <span className="truncate">{p.manufacturer}</span>
-                          <span className="opacity-20">|</span>
-                          <span className="truncate">{p.genericName}</span>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
+                          <Badge variant={p.totalStock <= p.minStock ? 'destructive' : p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
+                            {p.totalStock === 0 ? 'OUT' : `Stk: ${p.totalStock}`}
+                          </Badge>
                         </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
-                        <Badge variant={p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
-                          Stk: {p.totalStock}
-                        </Badge>
                       </div>
                     </div>
+                  ))
+                )}
+              </div>
+              {/* Alternative drug suggestions */}
+              {alternatives.length > 0 && (
+                <div className="border-t border-amber-200/60 bg-amber-50/40 dark:bg-amber-900/10">
+                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <span>⚡</span> Alternatives with same salt
                   </div>
-                ))
+                  {alternatives.map((p) => (
+                    <div
+                      key={p.id}
+                      className="cursor-pointer px-3 py-2 transition-all border-t border-amber-100/60 dark:border-amber-800/30 hover:bg-amber-100/40 dark:hover:bg-amber-900/20 group/alt"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleProductSelect(p)
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="text-xs font-semibold truncate group-hover/alt:text-amber-700 dark:group-hover/alt:text-amber-300 transition-colors">
+                            {p.name}
+                          </span>
+                          <div className="text-[10px] text-muted-foreground/60 truncate">{p.manufacturer}</div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="text-xs font-bold font-mono">₹{p.mrp}</span>
+                          <Badge variant="success" className="text-[9px] px-1 h-3.5">Stk: {p.totalStock}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </ScrollArea>
-          </PopoverContent>
-        </Popover>
+            </div>,
+            document.body
+          )}
+        </div>
       </TableCell>
 
       {/* Batch + Expiry */}
@@ -834,23 +868,23 @@ function PaymentPanel({
       {mode === 'CREDIT' && (
         <div className="space-y-2">
           {customer && customer.type !== 'WALK_IN' && (
--            <div className="rounded-lg border border-amber-200/60 bg-amber-50/30 dark:border-amber-800/30 dark:bg-amber-900/10 p-2.5 text-[11px] space-y-1">
+            <div className="rounded-lg border border-amber-200/60 bg-amber-50/30 dark:border-amber-800/30 dark:bg-amber-900/10 p-2.5 text-[11px] space-y-1">
               <div className="flex justify-between">
                 <span className="text-amber-800 dark:text-amber-300">Outstanding</span>
                 <span className="font-semibold font-mono text-amber-900 dark:text-amber-200">
-                  {formatCurrency(customer.currentOutstanding)}
+                  {formatCurrency(Number(customer.currentOutstanding) || 0)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-amber-800 dark:text-amber-300">Credit Limit</span>
                 <span className="font-semibold font-mono text-amber-900 dark:text-amber-200">
-                  {formatCurrency(customer.creditLimit)}
+                  {formatCurrency(Number(customer.creditLimit) || 0)}
                 </span>
               </div>
               <div className="flex justify-between border-t border-amber-200/40 dark:border-amber-800/20 pt-1">
                 <span className="text-amber-800 dark:text-amber-300">Available</span>
                 <span className="font-bold font-mono text-amber-900 dark:text-amber-200">
-                  {formatCurrency(Math.max(0, customer.creditLimit - customer.currentOutstanding))}
+                  {formatCurrency(Math.max(0, (Number(customer.creditLimit) || 0) - (Number(customer.currentOutstanding) || 0)))}
                 </span>
               </div>
             </div>
@@ -949,14 +983,128 @@ function PaymentPanel({
 // ─────────────────────────────────────────────────────────────
 
 export default function NewSalePage() {
-  const mockProducts = useMasterDataStore(s => s.products)
-  const mockCustomers = useMasterDataStore(s => s.customers)
-  const mockBatches = useMasterDataStore(s => s.batches)
+  const products = useMasterDataStore(s => s.products)
+  const customers = useMasterDataStore(s => s.customers)
+  const batches = useMasterDataStore(s => s.batches)
   const fetchMasterData = useMasterDataStore(s => s.fetchMasterData)
+  const activeBranchId = useBranchStore(s => s.activeBranchId)
 
   useEffect(() => {
     fetchMasterData()
+    // Read URL params
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('type') === 'quotation') {
+      setInvoiceType('quotation')
+    }
+    const dupId = params.get('duplicateId')
+    if (dupId) {
+      api.get(`/billing/${dupId}`).then((res) => {
+        const inv = res.data
+        // Pre-fill items from the original invoice
+        if (Array.isArray(inv.items) && inv.items.length > 0) {
+          setItems(inv.items.map((it: any) => ({
+            id: crypto.randomUUID(),
+            productId: it.productId ?? '',
+            productName: it.productName ?? '',
+            batchId: it.batchId ?? '',
+            batchNumber: it.batchNumber ?? '',
+            expiryDate: it.expiryDate ?? '',
+            quantity: it.quantity ?? 1,
+            mrp: Number(it.mrp ?? 0),
+            rate: Number(it.rate ?? it.mrp ?? 0),
+            discountPercent: Number(it.discountPercent ?? it.discount ?? 0),
+            gstPercent: Number(it.gstPercent ?? it.gstRate ?? 0),
+            amount: Number(it.amount ?? it.total ?? 0),
+            schedule: it.schedule ?? '',
+          })))
+        }
+      }).catch(() => {/* ignore if not found */})
+    }
   }, [])
+
+  // ── Held Bills ───────────────────────────────────────────
+  const HOLD_KEY = 'pbims_held_bills'
+  interface HeldBill {
+    id: string
+    heldAt: string
+    customerName: string
+    itemCount: number
+    total: number
+    snapshot: {
+      invoiceType: string
+      billingType: string
+      doctorRef: string
+      selectedCustomer: Customer | null
+      items: BillingItem[]
+      paymentMode: PaymentMode
+      paymentDetails: PaymentDetails
+    }
+  }
+  const [heldBills, setHeldBills] = useState<HeldBill[]>(() => {
+    try { return JSON.parse(localStorage.getItem(HOLD_KEY) ?? '[]') } catch { return [] }
+  })
+  const [heldBillsOpen, setHeldBillsOpen] = useState(false)
+
+  const saveHeldBills = (bills: HeldBill[]) => {
+    setHeldBills(bills)
+    localStorage.setItem(HOLD_KEY, JSON.stringify(bills))
+  }
+
+  const holdCurrentBill = () => {
+    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    if (activeItems.length === 0) { toast.info('Nothing to hold'); return }
+    const bill: HeldBill = {
+      id: crypto.randomUUID(),
+      heldAt: new Date().toISOString(),
+      customerName: selectedCustomer?.name ?? 'Walk-in',
+      itemCount: activeItems.length,
+      total: totals.grandTotal,
+      snapshot: { invoiceType, billingType, doctorRef, selectedCustomer, items, paymentMode, paymentDetails },
+    }
+    saveHeldBills([...heldBills, bill])
+    // Clear current bill
+    setItems([createEmptyItem()])
+    setDoctorRef('')
+    setSelectedCustomer(null)
+    setCustomerSearch('')
+    setPaymentMode('CASH')
+    setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
+    toast.success('Bill held — you can resume it anytime')
+  }
+
+  const resumeHeldBill = (bill: HeldBill) => {
+    const s = bill.snapshot
+    setInvoiceType(s.invoiceType as 'invoice' | 'quotation')
+    setBillingType(s.billingType as 'retail' | 'wholesale')
+    setDoctorRef(s.doctorRef)
+    setSelectedCustomer(s.selectedCustomer)
+    setCustomerSearch(s.selectedCustomer?.name ?? '')
+    setItems(s.items)
+    setPaymentMode(s.paymentMode)
+    setPaymentDetails(s.paymentDetails)
+    saveHeldBills(heldBills.filter((b) => b.id !== bill.id))
+    setHeldBillsOpen(false)
+    toast.success(`Resumed bill for ${bill.customerName}`)
+  }
+
+  const discardHeldBill = (id: string) => {
+    saveHeldBills(heldBills.filter((b) => b.id !== id))
+  }
+
+  // ── Doctors (fetched from API) ────────────────────────────
+  const [doctors, setDoctors] = useState<{ id: string; name: string; specialization: string }[]>([])
+
+  const fetchDoctorsCb = useCallback(() => {
+    api.get('/doctors').then((res) => {
+      setDoctors(Array.isArray(res.data) ? res.data : [])
+    }).catch(() => {
+      setDoctors([])
+      toast.error('Could not load doctors list')
+    })
+  }, [])
+
+  useEffect(() => { fetchDoctorsCb() }, [fetchDoctorsCb])
+  useBranchRefresh(fetchDoctorsCb)
 
   // ── State ────────────────────────────────────────────────
   const [invoiceType, setInvoiceType] = useState<'invoice' | 'quotation'>('invoice')
@@ -984,6 +1132,8 @@ export default function NewSalePage() {
   const heroSearchRef = useRef<HTMLInputElement>(null)
   const doctorRef2 = useRef<HTMLDivElement>(null)
   const customerRef = useRef<HTMLDivElement>(null)
+  const lastKeypressTimeRef = useRef<number>(0)
+  const barcodeCharCountRef = useRef<number>(0)
 
   // ── Hero search state ─────────────────────────────────────
   const [heroSearch, setHeroSearch] = useState('')
@@ -1018,26 +1168,28 @@ export default function NewSalePage() {
   const heroResults = useMemo(() => {
     if (!heroSearch) return []
     const q = heroSearch.toLowerCase()
-    return mockProducts.filter(
+    return products.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.genericName.toLowerCase().includes(q) ||
         p.manufacturer.toLowerCase().includes(q) ||
-        p.hsnCode.includes(q)
+        p.hsnCode.includes(q) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q))
     ).slice(0, 8)
   }, [heroSearch])
 
   // ── Filtered lists ──────────────────────────────────────
   const filteredDoctors = useMemo(() => {
-    if (!doctorSearch) return mockDoctors
+    const labels = doctors.map((d) => `${d.name} (${d.specialization})`)
+    if (!doctorSearch) return labels
     const q = doctorSearch.toLowerCase()
-    return mockDoctors.filter((d) => d.toLowerCase().includes(q))
-  }, [doctorSearch])
+    return labels.filter((d) => d.toLowerCase().includes(q))
+  }, [doctors, doctorSearch])
 
   const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return mockCustomers
+    if (!customerSearch) return customers
     const q = customerSearch.toLowerCase()
-    return mockCustomers.filter(
+    return customers.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.phone.includes(q) ||
@@ -1061,11 +1213,11 @@ export default function NewSalePage() {
         )
       } else {
         // Create new pre-filled item
-        const batches = mockBatches
+        const productBatches = batches
           .filter((b) => b.productId === product.id && b.quantity > 0)
           .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
-        const firstBatch = batches[0]
+        const firstBatch = productBatches[0]
         const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
 
         const newItem: BillingItem = {
@@ -1102,21 +1254,58 @@ export default function NewSalePage() {
   // ── Hero keyboard navigation ──────────────────────────────
   const handleHeroKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      const now = Date.now()
+      const delta = now - lastKeypressTimeRef.current
+      lastKeypressTimeRef.current = now
+
+      if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Escape') {
+        // Track rapid keystrokes — barcode scanners fire < 30ms apart
+        barcodeCharCountRef.current = delta < 50 ? barcodeCharCountRef.current + 1 : 1
+      }
+
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setHeroSelectedIdx((prev) => Math.min(prev + 1, heroResults.length - 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         setHeroSelectedIdx((prev) => Math.max(prev - 1, 0))
-      } else if (e.key === 'Enter' && heroResults.length > 0) {
+      } else if (e.key === 'Enter') {
         e.preventDefault()
-        addProductFromSearch(heroResults[heroSelectedIdx])
+        const isBarcodeScanner = barcodeCharCountRef.current >= 4 && delta < 100
+        barcodeCharCountRef.current = 0
+
+        if (isBarcodeScanner) {
+          // Exact barcode match first
+          const barcode = heroSearchRef.current?.value ?? ''
+          const exact = products.find((p) => p.barcode && p.barcode.toLowerCase() === barcode.toLowerCase())
+          if (exact) {
+            addProductFromSearch(exact)
+            toast.success(`Scanned: ${exact.name}`)
+            return
+          }
+          // Fallback: if only one result, add it
+          if (heroResults.length === 1) {
+            addProductFromSearch(heroResults[0])
+            toast.success(`Scanned: ${heroResults[0].name}`)
+            return
+          }
+          if (heroResults.length === 0) {
+            toast.error(`Barcode not found: ${barcode}`)
+            setHeroSearch('')
+            return
+          }
+        }
+
+        if (heroResults.length > 0) {
+          addProductFromSearch(heroResults[heroSelectedIdx])
+        }
       } else if (e.key === 'Escape') {
         setShowHeroResults(false)
         setHeroSearch('')
+        barcodeCharCountRef.current = 0
       }
     },
-    [heroResults, heroSelectedIdx, addProductFromSearch]
+    [heroResults, heroSelectedIdx, addProductFromSearch, products]
   )
 
   // ── Item management ─────────────────────────────────────
@@ -1172,6 +1361,7 @@ export default function NewSalePage() {
       taxableAmount,
       cgst: totalCgst,
       sgst: totalSgst,
+      igst: 0,
       roundOff,
       grandTotal: rounded,
     }
@@ -1180,20 +1370,21 @@ export default function NewSalePage() {
   // ── Credit limit warning ────────────────────────────────
   const showCreditWarning = useMemo(() => {
     if (!selectedCustomer) return false
-    return selectedCustomer.currentOutstanding > selectedCustomer.creditLimit
+    return (Number(selectedCustomer.currentOutstanding) || 0) > (Number(selectedCustomer.creditLimit) || 0)
   }, [selectedCustomer])
 
   // ── Submit Invoice ──────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null)
   const submitInvoice = async () => {
     const activeItems = items.filter((i) => i.productId && i.quantity > 0)
     if (activeItems.length === 0) {
-      alert("Please add items to the bill")
+      toast.error('Please add items to the bill')
       return;
     }
 
     if (showCreditWarning) {
-      alert("Cannot process: Credit limit exceeded")
+      toast.error('Cannot process: Credit limit exceeded')
       return;
     }
 
@@ -1214,9 +1405,13 @@ export default function NewSalePage() {
         igst: 0,
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
-        amountPaid: Number(paymentMode === 'CASH' ? paymentDetails.amountReceived : totals.grandTotal) || 0,
-        changeReturned: Number(paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
-        status: paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
+        amountPaid: invoiceType === 'quotation' ? 0
+          : paymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
+          : paymentMode === 'CREDIT' ? 0          // Nothing collected upfront — outstanding tracked separately
+          : paymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
+          : Number(totals.grandTotal) || 0,       // CARD / UPI — fully paid
+        changeReturned: invoiceType === 'quotation' ? 0 : Number(paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
+        status: invoiceType === 'quotation' ? 'DRAFT' : paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
 
         items: activeItems.map(item => ({
           productId: item.productId,
@@ -1236,22 +1431,31 @@ export default function NewSalePage() {
       if (selectedCustomer?.id) {
         payload.customerId = selectedCustomer.id;
       }
+      if (activeBranchId) {
+        payload.branchId = activeBranchId;
+      }
 
-      await api.post('/billing', payload)
+      const res = await api.post('/billing', payload)
+      const savedInvoice = res.data
+      setLastSavedInvoice(savedInvoice)
 
-      alert("Invoice Generated Successfully!")
-
-      // Reset form
-      setItems([createEmptyItem()])
-      setDoctorRef('')
-      setPaymentDetails({ ...paymentDetails, amountReceived: 0 })
-      // refetch to update stock
-      fetchMasterData()
+      if (invoiceType === 'quotation') {
+        toast.success(`Quotation ${savedInvoice.invoiceNumber} saved successfully`)
+        navigate('/billing/quotations')
+      } else {
+        // Print immediately after save
+        printInvoicePdf(savedInvoice)
+        toast.success('Invoice saved and sent to printer')
+        // refetch to update stock
+        fetchMasterData()
+        // Navigate to sales list
+        navigate('/billing/sales')
+      }
 
     } catch (error: any) {
-      const errorMsg = error.response?.data?.message || "Failed to generate invoice. Please check stock limits."
+      const errorMsg = error.response?.data?.message || 'Failed to generate invoice. Please check stock limits.'
       console.error(error)
-      alert(errorMsg)
+      toast.error(errorMsg)
     } finally {
       setIsSubmitting(false)
     }
@@ -1265,8 +1469,11 @@ export default function NewSalePage() {
         submitInvoice()
       } else if (e.key === 'F9') {
         e.preventDefault()
+        if (lastSavedInvoice) shareInvoiceViaWhatsApp(lastSavedInvoice)
+        else toast.info('Save invoice first before sharing')
       } else if (e.key === 'F10') {
         e.preventDefault()
+        holdCurrentBill()
       } else if (e.ctrlKey && e.key === 's') {
         e.preventDefault()
       } else if (e.altKey && e.key === 's') {
@@ -1438,7 +1645,7 @@ export default function NewSalePage() {
                     <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {heroResults.length} product{heroResults.length > 1 ? 's' : ''} found
                     </div>
-                    <ScrollArea className="max-h-64">
+                    <div className="max-h-64 overflow-y-auto">
                       {heroResults.map((p, idx) => (
                         <div
                           key={p.id}
@@ -1471,7 +1678,7 @@ export default function NewSalePage() {
                           </div>
                         </div>
                       ))}
-                    </ScrollArea>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1510,7 +1717,7 @@ export default function NewSalePage() {
                         autoFocus
                       />
                     </div>
-                    <ScrollArea className="max-h-40">
+                    <div className="max-h-52 overflow-y-auto py-1">
                       <div
                         className="cursor-pointer px-3 py-2 text-xs text-muted-foreground hover:bg-accent/60 transition-colors"
                         onClick={() => { setDoctorRef(''); setDoctorSearch(''); setShowDoctorDropdown(false) }}
@@ -1520,13 +1727,13 @@ export default function NewSalePage() {
                       {filteredDoctors.map((doc) => (
                         <div
                           key={doc}
-                          className="cursor-pointer px-3 py-2 text-xs hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0"
+                          className="cursor-pointer px-3 py-2 text-xs hover:bg-accent/60 transition-colors border-t border-border/5"
                           onClick={() => { setDoctorRef(doc); setDoctorSearch(''); setShowDoctorDropdown(false) }}
                         >
                           {doc}
                         </div>
                       ))}
-                    </ScrollArea>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1567,6 +1774,11 @@ export default function NewSalePage() {
                 {selectedCustomer && selectedCustomer.type !== 'WALK_IN' && (
                   <Badge variant={customerTypeBadge(selectedCustomer.type)} size="sm" className="text-[9px] px-1.5 shrink-0">
                     {selectedCustomer.type}
+                  </Badge>
+                )}
+                {selectedCustomer && (selectedCustomer.loyaltyPoints ?? 0) > 0 && (
+                  <Badge variant="warning" size="sm" className="text-[9px] px-1.5 shrink-0 gap-0.5">
+                    ⭐ {selectedCustomer.loyaltyPoints} pts
                   </Badge>
                 )}
                 <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
@@ -1644,7 +1856,7 @@ export default function NewSalePage() {
               <div className="flex items-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50/30 p-2.5 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-300">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  <strong>{selectedCustomer.name}</strong> outstanding ({formatCurrency(selectedCustomer.currentOutstanding)}) exceeds credit limit ({formatCurrency(selectedCustomer.creditLimit)})
+                  <strong>{selectedCustomer.name}</strong> outstanding ({formatCurrency(Number(selectedCustomer.currentOutstanding) || 0)}) exceeds credit limit ({formatCurrency(Number(selectedCustomer.creditLimit) || 0)})
                 </span>
               </div>
             </motion.div>
@@ -1719,9 +1931,9 @@ export default function NewSalePage() {
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          <div className="w-[300px] shrink-0 flex flex-col gap-3 lg:w-[320px]">
+          <div className="w-[300px] shrink-0 flex flex-col gap-3 lg:w-[320px] overflow-y-auto pb-2">
             {/* Summary + Grand Total */}
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden shrink-0">
               <CardContent className="p-0">
                 <div className="px-4 py-3 bg-muted/30 border-b border-border/40">
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 flex items-center justify-between">
@@ -1733,14 +1945,17 @@ export default function NewSalePage() {
                 </div>
                 <div className="p-4 space-y-3">
                   <div className="space-y-1.5 text-[11px]">
+                    {/* Subtotal (before discount) */}
                     <div className="flex justify-between items-center text-muted-foreground">
-                      <span>Gross Margin</span>
+                      <span>Subtotal</span>
                       <span className="font-mono">{formatCurrency(totals.subtotal)}</span>
                     </div>
+
+                    {/* Discount row — only shown when > 0 */}
                     {totals.productDiscount > 0 && (
                       <div className="flex justify-between items-center text-rose-500 font-medium">
                         <span className="flex items-center gap-1.5">
-                          Total Discount
+                          Discount
                           {totals.subtotal > 0 && (
                             <Badge variant="destructive" size="sm" className="h-3.5 px-1 text-[8px]">
                               -{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
@@ -1750,22 +1965,47 @@ export default function NewSalePage() {
                         <span className="font-mono">-{formatCurrency(totals.productDiscount)}</span>
                       </div>
                     )}
+
                     <Separator className="my-1.5 opacity-40" />
+
+                    {/* Taxable Value */}
                     <div className="flex justify-between items-center font-medium">
                       <span className="text-muted-foreground">Taxable Value</span>
                       <span className="font-mono">{formatCurrency(totals.taxableAmount)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-muted-foreground/70">
-                      <span>IGST / CGST / SGST</span>
-                      <span className="font-mono">{formatCurrency(totals.cgst + totals.sgst)}</span>
-                    </div>
+
+                    {/* GST split: CGST + SGST */}
+                    {totals.cgst > 0 && (
+                      <div className="flex justify-between items-center text-muted-foreground/70">
+                        <span>CGST + SGST</span>
+                        <span className="font-mono">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                      </div>
+                    )}
+                    {totals.igst > 0 && (
+                      <div className="flex justify-between items-center text-muted-foreground/70">
+                        <span>IGST</span>
+                        <span className="font-mono">{formatCurrency(totals.igst)}</span>
+                      </div>
+                    )}
+
+                    {/* Round-off — only shown when non-zero */}
                     {totals.roundOff !== 0 && (
                       <div className="flex justify-between items-center text-muted-foreground/50">
-                        <span>Round Off adjustment</span>
+                        <span>Round Off</span>
                         <span className="font-mono">
-                          {totals.roundOff > 0 ? '+' : ''}
-                          {totals.roundOff.toFixed(2)}
+                          {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
                         </span>
+                      </div>
+                    )}
+
+                    {/* Credit mode indicator */}
+                    {paymentMode === 'CREDIT' && (
+                      <div className="flex justify-between items-center rounded-md bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200/50 dark:border-amber-800/30 px-2 py-1.5 text-amber-800 dark:text-amber-300">
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          Credit Sale
+                        </span>
+                        <span className="font-mono font-semibold">{formatCurrency(totals.grandTotal)} due</span>
                       </div>
                     )}
                   </div>
@@ -1793,7 +2033,7 @@ export default function NewSalePage() {
             </Card>
 
             {/* Payment */}
-            <Card>
+            <Card className="shrink-0">
               <CardContent className="p-4 pt-3">
                 <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Payment
@@ -1812,7 +2052,7 @@ export default function NewSalePage() {
             </Card>
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-1.5 mt-auto">
+            <div className="flex flex-col gap-1.5 mt-auto shrink-0">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1832,13 +2072,24 @@ export default function NewSalePage() {
               <div className="grid grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="secondary" size="sm" className="gap-1.5 text-xs h-8">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-1.5 text-xs h-8"
+                      onClick={() => {
+                        if (!lastSavedInvoice) {
+                          toast.info('Save invoice first before sharing')
+                          return
+                        }
+                        shareInvoiceViaWhatsApp(lastSavedInvoice)
+                      }}
+                    >
                       <Share2 className="h-3.5 w-3.5" />
                       Share
                       <kbd className="ml-auto text-[9px] font-mono opacity-50">F9</kbd>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Share invoice (F9)</TooltipContent>
+                  <TooltipContent>Share invoice via WhatsApp (F9)</TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -1855,7 +2106,12 @@ export default function NewSalePage() {
               <div className="grid grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs h-8"
+                      onClick={holdCurrentBill}
+                    >
                       <Pause className="h-3.5 w-3.5" />
                       Hold
                       <kbd className="ml-auto text-[9px] font-mono opacity-50">F10</kbd>
@@ -1864,9 +2120,19 @@ export default function NewSalePage() {
                   <TooltipContent>Hold bill for later (F10)</TooltipContent>
                 </Tooltip>
 
-                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5 text-xs h-8 hover:text-rose-600 hover:bg-rose-500/10">
-                  <X className="h-3.5 w-3.5" />
-                  Cancel
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground gap-1.5 text-xs h-8 relative"
+                  onClick={() => setHeldBillsOpen(true)}
+                >
+                  <Receipt className="h-3.5 w-3.5" />
+                  Held
+                  {heldBills.length > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">
+                      {heldBills.length}
+                    </span>
+                  )}
                 </Button>
               </div>
             </div>
@@ -1902,6 +2168,51 @@ export default function NewSalePage() {
       </div>
 
       {/* ─── Add Customer Dialog ─── */}
+      {/* ── Held Bills Dialog ── */}
+      <Dialog open={heldBillsOpen} onOpenChange={setHeldBillsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Held Bills ({heldBills.length})</DialogTitle>
+            <DialogDescription>Resume a previously held bill or discard it.</DialogDescription>
+          </DialogHeader>
+          {heldBills.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No held bills</p>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {heldBills.map((bill) => (
+                <div
+                  key={bill.id}
+                  className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{bill.customerName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {bill.itemCount} item{bill.itemCount !== 1 ? 's' : ''} · {formatCurrency(bill.total)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Held at {new Date(bill.heldAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => resumeHeldBill(bill)}>
+                      Resume
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => discardHeldBill(bill.id)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={addCustomerDialogOpen} onOpenChange={setAddCustomerDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

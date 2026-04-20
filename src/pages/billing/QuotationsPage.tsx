@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -48,9 +49,18 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
-import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
+import api from '@/lib/api'
+import { downloadInvoicePdf, printInvoicePdf } from '@/lib/pdf/invoicePdf'
+import { exportToCsv, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // MOCK QUOTATION DATA
@@ -73,81 +83,6 @@ interface Quotation {
   total: number
   status: QuotationStatus
 }
-
-const mockQuotations: Quotation[] = [
-  {
-    id: 'QTN-001',
-    quotationNumber: generateInvoiceNumber('QTN', 87),
-    date: '2026-03-21T10:00:00Z',
-    customerName: 'Apollo Hospital - Madurai',
-    items: [
-      { name: 'Torsemide 20mg Tab', qty: 200, rate: 78.0 },
-      { name: 'Calcium Acetate 667mg Tab', qty: 100, rate: 132.0 },
-    ],
-    total: 29400.0,
-    status: 'SENT',
-  },
-  {
-    id: 'QTN-002',
-    quotationNumber: generateInvoiceNumber('QTN', 86),
-    date: '2026-03-20T14:30:00Z',
-    customerName: 'MIOT Hospital',
-    items: [
-      { name: 'Imatinib 400mg Tab', qty: 20, rate: 2600.0 },
-      { name: 'Paclitaxel 260mg Inj', qty: 5, rate: 7900.0 },
-    ],
-    total: 91500.0,
-    status: 'ACCEPTED',
-  },
-  {
-    id: 'QTN-003',
-    quotationNumber: generateInvoiceNumber('QTN', 85),
-    date: '2026-03-19T09:15:00Z',
-    customerName: 'Meenakshi Mission Hospital',
-    items: [
-      { name: 'Rituximab 500mg Inj', qty: 4, rate: 23500.0 },
-    ],
-    total: 94000.0,
-    status: 'CONVERTED',
-  },
-  {
-    id: 'QTN-004',
-    quotationNumber: generateInvoiceNumber('QTN', 84),
-    date: '2026-03-18T16:45:00Z',
-    customerName: 'MedPlus - Madurai',
-    items: [
-      { name: 'Furosemide 40mg Tab', qty: 500, rate: 25.0 },
-      { name: 'Losartan 50mg Tab', qty: 300, rate: 62.0 },
-      { name: 'Enalapril 5mg Tab', qty: 200, rate: 44.0 },
-    ],
-    total: 40800.0,
-    status: 'DRAFT',
-  },
-  {
-    id: 'QTN-005',
-    quotationNumber: generateInvoiceNumber('QTN', 83),
-    date: '2026-03-17T11:00:00Z',
-    customerName: 'PharmEasy Wholesale',
-    items: [
-      { name: 'Cyclophosphamide 500mg Inj', qty: 30, rate: 165.0 },
-      { name: 'Capecitabine 500mg Tab', qty: 10, rate: 1800.0 },
-    ],
-    total: 22950.0,
-    status: 'REJECTED',
-  },
-  {
-    id: 'QTN-006',
-    quotationNumber: generateInvoiceNumber('QTN', 82),
-    date: '2026-03-16T13:30:00Z',
-    customerName: 'Dr. Balaji Clinic',
-    items: [
-      { name: 'Tacrolimus 1mg Cap', qty: 30, rate: 295.0 },
-      { name: 'Mycophenolate Mofetil 500mg Tab', qty: 20, rate: 445.0 },
-    ],
-    total: 17750.0,
-    status: 'SENT',
-  },
-]
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -197,7 +132,6 @@ export default function QuotationsPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Filters
-
   const [period, setPeriod] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -211,6 +145,53 @@ export default function QuotationsPage() {
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
+  // Real data
+  const [quotations, setQuotations] = useState<Quotation[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [detailQt, setDetailQt] = useState<Quotation | null>(null)
+
+  const fetchQuotations = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await api.get('/billing?type=QUOTATION')
+      const raw: any[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
+      const mapped: Quotation[] = raw
+        .filter((inv: any) => inv.type === 'QUOTATION')
+        .map((inv: any) => ({
+          id: inv.id,
+          quotationNumber: inv.invoiceNumber,
+          date: inv.date,
+          customerName: inv.customerName,
+          items: (inv.items ?? []).map((it: any) => ({
+            name: it.productName,
+            qty: it.quantity,
+            rate: it.rate,
+          })),
+          total: inv.grandTotal,
+          status: inv.status === 'PAID' ? 'CONVERTED' : (inv.status as QuotationStatus),
+        }))
+      setQuotations(mapped)
+    } catch {
+      // keep empty on error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchQuotations() }, [fetchQuotations])
+  useBranchRefresh(fetchQuotations)
+
+  const handleConvert = async (qt: Quotation) => {
+    try {
+      const res = await api.patch(`/billing/${qt.id}/convert`)
+      toast.success(`Quotation ${qt.quotationNumber} converted to invoice`)
+      downloadInvoicePdf(res.data)
+      fetchQuotations()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Conversion failed')
+    }
+  }
+
   const clearFilters = () => {
     setPeriod('all')
     setDateFrom('')
@@ -223,7 +204,7 @@ export default function QuotationsPage() {
   // ── Filtering logic ──
 
   const filteredQuotations = useMemo(() => {
-    let result = [...mockQuotations]
+    let result = [...quotations]
 
     // Period filter
     const now = new Date()
@@ -279,24 +260,24 @@ export default function QuotationsPage() {
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const total = mockQuotations.reduce((sum, qt) => sum + qt.total, 0)
-    const acceptedTotal = mockQuotations
+    const total = quotations.reduce((sum, qt) => sum + qt.total, 0)
+    const acceptedTotal = quotations
       .filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED')
       .reduce((sum, qt) => sum + qt.total, 0)
-    const pendingTotal = mockQuotations
+    const pendingTotal = quotations
       .filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT')
       .reduce((sum, qt) => sum + qt.total, 0)
-    const rejectedCount = mockQuotations.filter((qt) => qt.status === 'REJECTED').length
+    const rejectedCount = quotations.filter((qt) => qt.status === 'REJECTED').length
     return {
       total,
-      totalCount: mockQuotations.length,
-      acceptedCount: mockQuotations.filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED').length,
+      totalCount: quotations.length,
+      acceptedCount: quotations.filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED').length,
       acceptedTotal,
-      pendingCount: mockQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT').length,
+      pendingCount: quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT').length,
       pendingTotal,
       rejectedCount,
     }
-  }, [])
+  }, [quotations])
 
   // ── Pagination ──
 
@@ -348,6 +329,7 @@ export default function QuotationsPage() {
   ].filter(Boolean).length
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
@@ -363,7 +345,7 @@ export default function QuotationsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button onClick={() => toast.info('Opening new quotation form...')}>
+          <Button onClick={() => navigate('/billing/new?type=quotation')}>
             <Plus className="mr-1.5 h-4 w-4" />
             Create Quotation
           </Button>
@@ -517,15 +499,37 @@ export default function QuotationsPage() {
                 {selectedIds.size} selected
               </Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredQuotations.filter((qt) => selectedIds.has(qt.id))
+                  const lines = selected.map((qt) => `${qt.quotationNumber} | ${qt.customerName} | ${formatCurrency(qt.total)}`).join('%0a')
+                  window.open(`https://wa.me/?text=${encodeURIComponent('Quotations:%0a' + lines)}`, '_blank')
+                }}>
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredQuotations.filter((qt) => selectedIds.has(qt.id))
+                  exportToCsv(selected.map((qt) => ({
+                    'Quotation #': qt.quotationNumber,
+                    Date: qt.date?.slice(0, 10) ?? '',
+                    Customer: qt.customerName,
+                    Total: qt.total,
+                    Status: qt.status,
+                  })), 'quotations-selected')
+                }}>
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredQuotations.filter((qt) => selectedIds.has(qt.id))
+                  printReport(selected.map((qt) => ({
+                    'Quotation #': qt.quotationNumber,
+                    Date: qt.date?.slice(0, 10) ?? '',
+                    Customer: qt.customerName,
+                    Total: formatCurrency(qt.total),
+                    Status: qt.status,
+                  })), 'Quotations')
+                }}>
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
@@ -565,7 +569,16 @@ export default function QuotationsPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {paginatedQuotations.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+                      <p className="text-sm text-muted-foreground animate-pulse">Fetching quotations...</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedQuotations.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -592,7 +605,7 @@ export default function QuotationsPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toast.info('Opening quotation details...')}
+                    onClick={() => setDetailQt(qt)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -635,25 +648,41 @@ export default function QuotationsPage() {
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => toast.info('Opening quotation details...')}
-                        onDelete={() => toast.warning(`Quotation ${qt.quotationNumber} deleted`)}
+                        onView={() => setDetailQt(qt)}
+                        onDelete={async () => {
+                          try {
+                            await api.delete(`/billing/${qt.id}`)
+                            toast.success(`Quotation ${qt.quotationNumber} deleted`)
+                            fetchQuotations()
+                          } catch {
+                            toast.error('Failed to delete quotation')
+                          }
+                        }}
                         customActions={[
                           {
                             label: 'Convert',
                             icon: <ArrowRightLeft className="h-4 w-4" />,
-                            onClick: () => toast.success(`Quotation ${qt.quotationNumber} converted to invoice!`),
+                            onClick: () => handleConvert(qt),
                             disabled: qt.status === 'CONVERTED' || qt.status === 'REJECTED'
                           },
                           {
-                            label: 'Send',
+                            label: 'Send (WhatsApp)',
                             icon: <Send className="h-4 w-4" />,
-                            onClick: () => toast.info(`Sending quotation to ${qt.customerName}...`),
+                            onClick: () => {
+                              const text = `Quotation ${qt.quotationNumber} — Total: ₹${qt.total.toLocaleString('en-IN')}`
+                              window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+                            },
                             disabled: qt.status === 'REJECTED'
                           },
                           {
-                            label: 'Download',
+                            label: 'Download PDF',
                             icon: <Download className="h-4 w-4" />,
-                            onClick: () => toast.info(`Downloading PDF for ${qt.quotationNumber}...`)
+                            onClick: () => downloadInvoicePdf(qt as any)
+                          },
+                          {
+                            label: 'Print PDF',
+                            icon: <Printer className="h-4 w-4" />,
+                            onClick: () => printInvoicePdf(qt as any)
                           }
                         ]}
                       />
@@ -697,5 +726,88 @@ export default function QuotationsPage() {
         </div>
       </Card>
     </motion.div>
+
+    {/* ── Quotation Detail Dialog ── */}
+    <Dialog open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
+      <DialogContent className="max-w-2xl">
+        {detailQt && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                {detailQt.quotationNumber}
+              </DialogTitle>
+            </DialogHeader>
+
+            {/* Meta */}
+            <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
+                <p className="mt-0.5 font-medium">{detailQt.customerName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</p>
+                <p className="mt-0.5">{formatDate(detailQt.date)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
+                <Badge size="sm" variant={statusBadgeVariant[detailQt.status]} className="mt-0.5">
+                  {statusLabel[detailQt.status]}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
+                <p className="mt-0.5 font-mono font-bold">{formatCurrency(detailQt.total)}</p>
+              </div>
+            </div>
+
+            {/* Items */}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {detailQt.items.map((item, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{item.name}</TableCell>
+                    <TableCell className="text-right">{item.qty}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(item.rate)}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(item.qty * item.rate)}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="border-t-2 font-semibold">
+                  <TableCell colSpan={3} className="text-right">Total</TableCell>
+                  <TableCell className="text-right font-mono">{formatCurrency(detailQt.total)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => printInvoicePdf(detailQt as any)}>
+                <Printer className="mr-1.5 h-4 w-4" />
+                Print PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => downloadInvoicePdf(detailQt as any)}>
+                <Download className="mr-1.5 h-4 w-4" />
+                Download PDF
+              </Button>
+              {(detailQt.status === 'DRAFT' || detailQt.status === 'SENT' || detailQt.status === 'ACCEPTED') && (
+                <Button size="sm" onClick={() => { handleConvert(detailQt); setDetailQt(null) }}>
+                  <ArrowRightLeft className="mr-1.5 h-4 w-4" />
+                  Convert to Invoice
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

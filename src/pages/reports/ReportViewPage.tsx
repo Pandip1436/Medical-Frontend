@@ -1,4 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import api from '@/lib/api'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
+import { toast } from 'sonner'
 import { motion, type Variants } from 'framer-motion'
 import {
   ArrowLeft,
@@ -7,12 +11,12 @@ import {
   Printer,
   Table2,
   BarChart2,
-  BarChart3,
   Calendar,
   TrendingUp,
   Package,
   Receipt,
   IndianRupee,
+  Loader2,
 } from 'lucide-react'
 import {
   BarChart,
@@ -26,6 +30,8 @@ import {
   Pie,
   Cell,
   Legend,
+  LineChart,
+  Line,
 } from 'recharts'
 
 import { Button } from '@/components/ui/button'
@@ -47,150 +53,61 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 const pageVariants: Variants = {
   hidden: { opacity: 0, y: 24 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] } },
 }
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
 }
 
 const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4, ease: 'easeOut' as const },
-  },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+}
+
+const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6']
+
+const chartTooltipStyle = {
+  borderRadius: '12px',
+  border: '1px solid hsl(var(--border) / 0.6)',
+  background: 'hsl(var(--card))',
+  fontSize: '12px',
+  boxShadow: '0 4px 12px hsl(var(--foreground) / 0.08)',
 }
 
 // ─────────────────────────────────────────────────────────────
-// Mock data - Daily Sales
+// Report endpoints map
 // ─────────────────────────────────────────────────────────────
 
-const dailySalesChartData = [
-  { hour: '9 AM', amount: 12400 },
-  { hour: '10 AM', amount: 18900 },
-  { hour: '11 AM', amount: 23500 },
-  { hour: '12 PM', amount: 15200 },
-  { hour: '1 PM', amount: 8900 },
-  { hour: '2 PM', amount: 19800 },
-  { hour: '3 PM', amount: 22100 },
-  { hour: '4 PM', amount: 17600 },
-  { hour: '5 PM', amount: 25300 },
-  { hour: '6 PM', amount: 14200 },
-]
-
-const dailySalesTableData = [
-  { invoice: 'HS/25-26/INV/00421', time: '09:15 AM', customer: 'Apollo Hospital', amount: 12400 },
-  { invoice: 'HS/25-26/INV/00422', time: '09:45 AM', customer: 'Walk-in Customer', amount: 3250 },
-  { invoice: 'HS/25-26/INV/00423', time: '10:20 AM', customer: 'MIOT Hospital', amount: 18900 },
-  { invoice: 'HS/25-26/INV/00424', time: '11:00 AM', customer: 'MedPlus - Madurai', amount: 8650 },
-  { invoice: 'HS/25-26/INV/00425', time: '11:30 AM', customer: 'Meenakshi Mission', amount: 14850 },
-  { invoice: 'HS/25-26/INV/00426', time: '12:10 PM', customer: 'Walk-in Customer', amount: 2100 },
-  { invoice: 'HS/25-26/INV/00427', time: '02:30 PM', customer: 'PharmEasy Wholesale', amount: 19800 },
-  { invoice: 'HS/25-26/INV/00428', time: '03:15 PM', customer: 'Apollo Hospital', amount: 22100 },
-  { invoice: 'HS/25-26/INV/00429', time: '04:00 PM', customer: 'Dr. Rajesh Clinic', amount: 5400 },
-  { invoice: 'HS/25-26/INV/00430', time: '05:20 PM', customer: 'MIOT Hospital', amount: 25300 },
-]
-
-// ─────────────────────────────────────────────────────────────
-// Mock data - Product-wise Sales
-// ─────────────────────────────────────────────────────────────
-
-const productSalesChartData = [
-  { product: 'Rituximab 500mg', qtySold: 12, revenue: 282000, margin: 23.4 },
-  { product: 'Paclitaxel 260mg', qtySold: 18, revenue: 142200, margin: 26.4 },
-  { product: 'Bevacizumab 400mg', qtySold: 8, revenue: 164000, margin: 29.5 },
-  { product: 'Imatinib 400mg', qtySold: 35, revenue: 91000, margin: 28.8 },
-  { product: 'Gemcitabine 1g', qtySold: 28, revenue: 98000, margin: 28.6 },
-  { product: 'Erythropoietin 4000IU', qtySold: 45, revenue: 51750, margin: 26.1 },
-  { product: 'Carboplatin 450mg', qtySold: 15, revenue: 58500, margin: 28.2 },
-  { product: 'Torsemide 20mg', qtySold: 320, revenue: 24960, margin: 33.3 },
-  { product: 'Tacrolimus 1mg', qtySold: 85, revenue: 25075, margin: 28.8 },
-  { product: 'Darbepoetin 40mcg', qtySold: 20, revenue: 59000, margin: 28.8 },
-]
-
-// ─────────────────────────────────────────────────────────────
-// Mock data - Stock Valuation
-// ─────────────────────────────────────────────────────────────
-
-const stockValuationPieData = [
-  { category: 'Nephrology', value: 485000 },
-  { category: 'Oncology', value: 1250000 },
-  { category: 'General', value: 180000 },
-  { category: 'OTC', value: 95000 },
-]
-
-const stockValuationTableData = [
-  { product: 'Rituximab 500mg Inj', batch: 'RIT2601R', qty: 4, purchaseValue: 72000, mrpValue: 100000 },
-  { product: 'Paclitaxel 260mg Inj', batch: 'PAC2511M', qty: 7, purchaseValue: 40600, mrpValue: 59500 },
-  { product: 'Bevacizumab 400mg Inj', batch: 'BEV2601V', qty: 3, purchaseValue: 46500, mrpValue: 66000 },
-  { product: 'Imatinib 400mg Tab', batch: 'IMA2510V', qty: 30, purchaseValue: 55500, mrpValue: 84000 },
-  { product: 'Torsemide 20mg Tab', batch: 'TOR2502B', qty: 250, purchaseValue: 13000, mrpValue: 21250 },
-  { product: 'Erythropoietin 4000IU', batch: 'EPO2509Y', qty: 35, purchaseValue: 29750, mrpValue: 43750 },
-  { product: 'Tacrolimus 1mg Cap', batch: 'TAC2510F', qty: 18, purchaseValue: 3780, mrpValue: 5760 },
-  { product: 'Losartan 50mg Tab', batch: 'LOS2601Y', qty: 400, purchaseValue: 16000, mrpValue: 27200 },
-  { product: 'Furosemide 40mg Tab', batch: 'FUR2601D', qty: 600, purchaseValue: 9600, mrpValue: 16800 },
-  { product: 'Mycophenolate 500mg', batch: 'MYC2509K', qty: 110, purchaseValue: 34100, mrpValue: 52800 },
-]
-
-const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4']
-
-// ─────────────────────────────────────────────────────────────
-// KPI definitions per report type
-// ─────────────────────────────────────────────────────────────
-
-interface KpiDef {
-  label: string
-  value: string
-  icon: React.ElementType
-  badgeVariant: 'success' | 'warning' | 'info' | 'purple' | 'destructive'
-  badgeLabel: string
+const REPORT_ENDPOINTS: Record<string, string> = {
+  'daily-sales': '/reports/sales/daily',
+  'monthly-sales': '/reports/sales/monthly',
+  'yearly-sales': '/reports/sales/yearly',
+  'product-sales': '/reports/sales/products',
+  'customer-sales': '/reports/sales/customers',
+  'category-sales': '/reports/sales/category',
+  'purchase-summary': '/reports/purchase/summary',
+  'supplier-purchase': '/reports/purchase/by-supplier',
+  'purchase-vs-sales': '/reports/purchase/vs-sales',
+  'current-stock': '/reports/inventory/current-stock',
+  'stock-valuation': '/reports/inventory/valuation',
+  'stock-movement': '/reports/inventory/movement',
+  'dead-stock': '/reports/inventory/aging',
+  'abc-analysis': '/reports/inventory/abc-analysis',
+  'gstr1-summary': '/reports/gst/gstr-1',
+  'gstr3b-summary': '/reports/gst/gstr-3b',
+  'hsn-summary': '/reports/gst/hsn-summary',
+  'cash-book': '/reports/financial/cash-book',
+  'outstanding-receivables': '/reports/financial/outstanding',
+  'profit-loss': '/reports/financial/profit-loss',
+  'expense-report': '/reports/financial/expenses',
 }
-
-const reportKpiMap: Record<string, KpiDef[]> = {
-  'daily-sales': [
-    { label: 'Total Sales', value: '\u20B91,47,832', icon: IndianRupee, badgeVariant: 'success', badgeLabel: '+12.5%' },
-    { label: 'Invoices', value: '23', icon: Receipt, badgeVariant: 'info', badgeLabel: 'Today' },
-    { label: 'Avg. Invoice', value: '\u20B96,427', icon: TrendingUp, badgeVariant: 'purple', badgeLabel: '+3.2%' },
-    { label: 'Returns', value: '\u20B92,400', icon: IndianRupee, badgeVariant: 'destructive', badgeLabel: '2 items' },
-  ],
-  'product-sales': [
-    { label: 'Products Sold', value: '142', icon: Package, badgeVariant: 'info', badgeLabel: '10 SKUs' },
-    { label: 'Total Revenue', value: '\u20B99,96,485', icon: IndianRupee, badgeVariant: 'success', badgeLabel: '+8.1%' },
-    { label: 'Avg. Margin', value: '27.8%', icon: TrendingUp, badgeVariant: 'warning', badgeLabel: 'Stable' },
-    { label: 'Top Category', value: 'Oncology', icon: Package, badgeVariant: 'purple', badgeLabel: '#1' },
-  ],
-  'stock-valuation': [
-    { label: 'Total Items', value: '22', icon: Package, badgeVariant: 'info', badgeLabel: 'In stock' },
-    { label: 'Purchase Value', value: '\u20B920,10,000', icon: IndianRupee, badgeVariant: 'warning', badgeLabel: 'Cost' },
-    { label: 'MRP Value', value: '\u20B928,45,000', icon: IndianRupee, badgeVariant: 'success', badgeLabel: 'Retail' },
-    { label: 'Potential Margin', value: '\u20B98,35,000', icon: TrendingUp, badgeVariant: 'purple', badgeLabel: '41.5%' },
-  ],
-}
-
-const defaultKpis: KpiDef[] = [
-  { label: 'Total Records', value: '156', icon: Receipt, badgeVariant: 'info', badgeLabel: 'All' },
-  { label: 'Period', value: 'Mar 2026', icon: Calendar, badgeVariant: 'purple', badgeLabel: 'Current' },
-  { label: 'Generated By', value: 'Admin', icon: Package, badgeVariant: 'success', badgeLabel: 'Active' },
-  { label: 'Status', value: 'Complete', icon: TrendingUp, badgeVariant: 'success', badgeLabel: 'Done' },
-]
-
-// ─────────────────────────────────────────────────────────────
-// Title map
-// ─────────────────────────────────────────────────────────────
 
 const reportTitleMap: Record<string, string> = {
   'daily-sales': 'Daily Sales Summary',
   'monthly-sales': 'Monthly Sales Summary',
+  'yearly-sales': 'Yearly Sales',
   'product-sales': 'Product-wise Sales',
   'customer-sales': 'Customer-wise Sales',
   'category-sales': 'Category-wise Sales',
@@ -200,7 +117,7 @@ const reportTitleMap: Record<string, string> = {
   'current-stock': 'Current Stock',
   'stock-valuation': 'Stock Valuation',
   'stock-movement': 'Stock Movement',
-  'dead-stock': 'Dead Stock',
+  'dead-stock': 'Dead Stock / Aging',
   'abc-analysis': 'ABC Analysis',
   'gstr1-summary': 'GSTR-1 Summary',
   'gstr3b-summary': 'GSTR-3B Summary',
@@ -212,15 +129,62 @@ const reportTitleMap: Record<string, string> = {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Recharts custom tooltip
+// KPI Cards
 // ─────────────────────────────────────────────────────────────
 
-const chartTooltipStyle = {
-  borderRadius: '12px',
-  border: '1px solid hsl(var(--border) / 0.6)',
-  background: 'hsl(var(--card))',
-  fontSize: '12px',
-  boxShadow: '0 4px 12px hsl(var(--foreground) / 0.08)',
+const KPI_ICONS = [IndianRupee, Receipt, TrendingUp, Package, Calendar]
+
+function KpiCards({ kpis }: { kpis: { label: string; value: string }[] }) {
+  return (
+    <div className={cn('grid gap-4', kpis.length <= 3 ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4')}>
+      {kpis.map((kpi, i) => {
+        const Icon = KPI_ICONS[i % KPI_ICONS.length]
+        return (
+          <Card key={kpi.label} hover>
+            <CardContent className="p-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/15 mb-3">
+                <Icon className="h-4 w-4 text-primary" />
+              </div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
+              <p className="mt-1 text-xl font-bold font-mono tracking-tight">{kpi.value}</p>
+            </CardContent>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Table wrapper
+// ─────────────────────────────────────────────────────────────
+
+function ReportTable({ headers, rows }: { headers: string[]; rows: (string | number)[][] }) {
+  if (!rows.length) return (
+    <p className="py-12 text-center text-sm text-muted-foreground">No data for this period</p>
+  )
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/60">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-muted/40 dark:bg-muted/20">
+            {headers.map((h) => (
+              <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, ri) => (
+            <TableRow key={ri} className="hover:bg-muted/30 transition-colors">
+              {row.map((cell, ci) => (
+                <TableCell key={ci} className="text-sm">{cell}</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -233,53 +197,616 @@ interface ReportViewPageProps {
 }
 
 export default function ReportViewPage({ reportType, onBack }: ReportViewPageProps) {
-  const [dateRange, setDateRange] = useState('today')
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('chart')
+  const [liveData, setLiveData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   const title = reportTitleMap[reportType] || 'Report'
-  const kpis = reportKpiMap[reportType] || defaultKpis
 
-  const dateRangeOptions = [
-    { key: 'today', label: 'Today' },
-    { key: 'week', label: 'This Week' },
-    { key: 'month', label: 'This Month' },
-    { key: 'custom', label: 'Custom' },
-  ]
+  const fetchReport = useCallback(() => {
+    const endpoint = REPORT_ENDPOINTS[reportType]
+    if (!endpoint) { setLiveData(null); return }
+    setIsLoading(true)
+    api.get(endpoint)
+      .then((res) => setLiveData(res.data))
+      .catch(() => setLiveData(null))
+      .finally(() => setIsLoading(false))
+  }, [reportType])
 
-  const handleBack = () => {
-    if (onBack) onBack()
+  useEffect(() => { fetchReport() }, [fetchReport])
+  useBranchRefresh(fetchReport)
+
+  const kpis: { label: string; value: string }[] = liveData?.kpis ?? []
+  const exportRows: Record<string, unknown>[] = liveData?.tableData ?? liveData?.chartData ?? []
+
+  const handleExportPdf = () => {
+    if (!exportRows.length) { toast.info('No data to export'); return }
+    exportToPdf(exportRows, title, `${reportType}-report`)
+  }
+  const handleExportCsv = () => {
+    if (!exportRows.length) { toast.info('No data to export'); return }
+    exportToCsv(exportRows, `${reportType}-report`)
+  }
+  const handlePrint = () => {
+    if (!exportRows.length) { toast.info('No data to print'); return }
+    printReport(exportRows, title)
+  }
+
+  const renderContent = () => {
+    if (isLoading) return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <p className="text-sm">Loading report data…</p>
+      </div>
+    )
+
+    if (!liveData) return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <p className="text-sm text-muted-foreground">No data available for this report.</p>
+      </div>
+    )
+
+    // ── Daily Sales ──
+    if (reportType === 'daily-sales') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="hour" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Sales']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Invoice #', 'Time', 'Customer', 'Amount']} rows={table.map((r: any) => [r.invoice, r.time, r.customer, formatCurrency(r.amount)])} />
+    }
+
+    // ── Monthly Sales ──
+    if (reportType === 'monthly-sales') {
+      const chart = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Month', 'Revenue', 'Invoices']} rows={chart.map((r: any) => [r.month, formatCurrency(r.amount), r.invoices])} />
+    }
+
+    // ── Yearly Sales ──
+    if (reportType === 'yearly-sales') {
+      const chart = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="total" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Year', 'Total Sales', 'Invoices']} rows={chart.map((r: any) => [r.year, formatCurrency(r.total), r.invoiceCount])} />
+    }
+
+    // ── Product-wise Sales ──
+    if (reportType === 'product-sales') {
+      const data = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis dataKey="product" type="category" tick={{ fontSize: 10 }} width={140} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Product', 'Qty Sold', 'Revenue', 'Margin %']} rows={data.map((r: any) => [r.product, r.qtySold, formatCurrency(r.revenue), `${r.margin?.toFixed(1)}%`])} />
+    }
+
+    // ── Customer-wise Sales ──
+    if (reportType === 'customer-sales') {
+      const data = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis dataKey="customer" type="category" tick={{ fontSize: 10 }} width={140} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="revenue" fill="#10b981" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Customer', 'Invoices', 'Revenue']} rows={table.map((r: any) => [r.customer, r.invoices, formatCurrency(r.revenue)])} />
+    }
+
+    // ── Category-wise Sales ──
+    if (reportType === 'category-sales') {
+      const data = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={360}>
+          <PieChart>
+            <Pie data={data} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="revenue" nameKey="category" strokeWidth={2} className="stroke-background">
+              {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
+            <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
+          </PieChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Category', 'Qty Sold', 'Revenue']} rows={data.map((r: any) => [r.category, r.qty, formatCurrency(r.revenue)])} />
+    }
+
+    // ── Purchase Summary ──
+    if (reportType === 'purchase-summary') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="amount" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Date', 'GRN #', 'Supplier', 'Items', 'Amount']} rows={table.map((r: any) => [formatDate(r.date), r.grnNumber, r.supplier, r.items, formatCurrency(r.amount)])} />
+    }
+
+    // ── Supplier-wise Purchase ──
+    if (reportType === 'supplier-purchase') {
+      const data = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis dataKey="supplier" type="category" tick={{ fontSize: 10 }} width={140} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="amount" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Supplier', 'GRNs', 'Total Amount']} rows={table.map((r: any) => [r.supplier, r.grns, formatCurrency(r.amount)])} />
+    }
+
+    // ── Purchase vs Sales ──
+    if (reportType === 'purchase-vs-sales') {
+      const data = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any, n: any) => [formatCurrency(Number(v)), n === 'sales' ? 'Sales' : 'Purchases']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="sales" fill="#3b82f6" radius={[6, 6, 0, 0]} name="sales" />
+            <Bar dataKey="purchases" fill="#8b5cf6" radius={[6, 6, 0, 0]} name="purchases" />
+            <Legend />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Month', 'Sales', 'Purchases']} rows={data.map((r: any) => [r.month, formatCurrency(r.sales), formatCurrency(r.purchases)])} />
+    }
+
+    // ── Current Stock ──
+    if (reportType === 'current-stock') {
+      const table = liveData.tableData ?? []
+      const chart = liveData.chartData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={chart} layout="vertical" margin={{ left: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 12 }} />
+            <YAxis dataKey="product" type="category" tick={{ fontSize: 10 }} width={150} />
+            <Tooltip contentStyle={chartTooltipStyle} />
+            <Bar dataKey="stock" fill="#10b981" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 dark:bg-muted/20">
+                {['Product', 'Category', 'Stock', 'Min Stock', 'MRP', 'Status'].map((h) => (
+                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {table.map((r: any, i: number) => (
+                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="font-medium text-sm">{r.product}</TableCell>
+                  <TableCell className="text-sm">{r.category}</TableCell>
+                  <TableCell className="font-mono text-sm">{r.totalStock}</TableCell>
+                  <TableCell className="font-mono text-sm text-muted-foreground">{r.minStock}</TableCell>
+                  <TableCell className="font-mono text-sm">{formatCurrency(r.mrp)}</TableCell>
+                  <TableCell>
+                    <Badge variant={r.status === 'OUT' ? 'destructive' : r.status === 'LOW' ? 'warning' : 'success'} size="sm" dot>
+                      {r.status === 'OUT' ? 'Out of Stock' : r.status === 'LOW' ? 'Low Stock' : 'OK'}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )
+    }
+
+    // ── Stock Valuation ──
+    if (reportType === 'stock-valuation') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <PieChart>
+            <Pie data={chart} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="value" nameKey="category" strokeWidth={2} className="stroke-background">
+              {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Value']} contentStyle={chartTooltipStyle} />
+            <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
+          </PieChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Product', 'Batch', 'Qty', 'Purchase Value', 'MRP Value']} rows={table.map((r: any) => [r.product, r.batch, r.qty, formatCurrency(r.purchaseValue), formatCurrency(r.mrpValue)])} />
+    }
+
+    // ── Stock Movement ──
+    if (reportType === 'stock-movement') {
+      const table = liveData.tableData ?? []
+      const kpiData = liveData.kpis ?? []
+      if (viewMode === 'chart') {
+        const chartData = [
+          { label: 'Purchases In', value: Number(kpiData[0]?.value ?? 0) },
+          { label: 'Sales Out', value: Number(kpiData[1]?.value ?? 0) },
+          { label: 'Sales Returns', value: Number(kpiData[2]?.value ?? 0) },
+          { label: 'Purchase Returns', value: Number(kpiData[3]?.value ?? 0) },
+        ]
+        return (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip contentStyle={chartTooltipStyle} />
+              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
+      return <ReportTable headers={['Product', 'In Qty', 'Out Qty', 'Net']} rows={table.map((r: any) => [r.product, r.inQty, r.outQty, r.net > 0 ? `+${r.net}` : r.net])} />
+    }
+
+    // ── Dead Stock / Aging ──
+    if (reportType === 'dead-stock') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Value']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+              {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Product', 'Batch', 'Qty', 'Age (Days)', 'Bucket', 'Value']} rows={table.map((r: any) => [r.product, r.batch, r.qty, r.ageDays, r.bucket, formatCurrency(r.value)])} />
+    }
+
+    // ── ABC Analysis ──
+    if (reportType === 'abc-analysis') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart data={chart}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="category" tick={{ fontSize: 12 }} />
+            <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+            <Tooltip formatter={(v: any, n: any) => [n === 'revenue' ? formatCurrency(Number(v)) : v, n === 'revenue' ? 'Revenue' : 'SKUs']} contentStyle={chartTooltipStyle} />
+            <Bar yAxisId="left" dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} name="revenue" />
+            <Bar yAxisId="right" dataKey="count" fill="#10b981" radius={[6, 6, 0, 0]} name="count" />
+            <Legend />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 dark:bg-muted/20">
+                {['Product', 'Revenue', 'Cum %', 'Class'].map((h) => (
+                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {table.map((r: any, i: number) => (
+                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="font-medium text-sm">{r.product}</TableCell>
+                  <TableCell className="font-mono text-sm">{formatCurrency(r.revenue)}</TableCell>
+                  <TableCell className="font-mono text-sm">{r.cumPct}%</TableCell>
+                  <TableCell>
+                    <Badge variant={r.abc === 'A' ? 'success' : r.abc === 'B' ? 'warning' : 'secondary'} size="sm">{r.abc}</Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )
+    }
+
+    // ── GSTR-1 ──
+    if (reportType === 'gstr1-summary') {
+      const table = liveData.tableData ?? []
+      const totals = liveData.totals ?? {}
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart data={table}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+            <XAxis dataKey="gstRate" tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <Tooltip formatter={(v: any, n: any) => [formatCurrency(Number(v)), n === 'taxable' ? 'Taxable' : n === 'cgst' ? 'CGST' : 'SGST']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="taxable" fill="#3b82f6" radius={[6, 6, 0, 0]} name="taxable" />
+            <Bar dataKey="cgst" fill="#10b981" radius={[6, 6, 0, 0]} name="cgst" />
+            <Bar dataKey="sgst" fill="#f59e0b" radius={[6, 6, 0, 0]} name="sgst" />
+            <Legend />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return (
+        <>
+          <ReportTable
+            headers={['GST Rate', 'Taxable Value', 'CGST', 'SGST', 'IGST']}
+            rows={table.map((r: any) => [`${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.cgst), formatCurrency(r.sgst), formatCurrency(r.igst)])}
+          />
+          {totals.taxable !== undefined && (
+            <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
+              <span>Total Taxable: <strong className="font-mono">{formatCurrency(totals.taxable)}</strong></span>
+              <span>CGST: <strong className="font-mono">{formatCurrency(totals.cgst)}</strong></span>
+              <span>SGST: <strong className="font-mono">{formatCurrency(totals.sgst)}</strong></span>
+            </div>
+          )}
+        </>
+      )
+    }
+
+    // ── GSTR-3B ──
+    if (reportType === 'gstr3b-summary') {
+      const out = liveData.outwardSupplies ?? {}
+      const inw = liveData.inwardSupplies ?? {}
+      const rows = [
+        ['Outward Taxable Value', formatCurrency(out.taxableValue ?? 0)],
+        ['CGST', formatCurrency(out.cgst ?? 0)],
+        ['SGST', formatCurrency(out.sgst ?? 0)],
+        ['IGST', formatCurrency(out.igst ?? 0)],
+        ['Total Tax Payable', formatCurrency(out.totalTax ?? 0)],
+        ['Inward Supplies (Purchases)', formatCurrency(inw.totalValue ?? 0)],
+      ]
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 dark:bg-muted/20">
+                <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Particulars</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map(([label, value]) => (
+                <TableRow key={label} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="text-sm">{label}</TableCell>
+                  <TableCell className="text-right font-mono text-sm font-semibold">{value}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )
+    }
+
+    // ── HSN Summary ──
+    if (reportType === 'hsn-summary') {
+      const table = liveData.tableData ?? []
+      const totals = liveData.totals ?? {}
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={table.slice(0, 12)} layout="vertical" margin={{ left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+            <YAxis dataKey="hsn" type="category" tick={{ fontSize: 10 }} width={90} />
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Taxable']} contentStyle={chartTooltipStyle} />
+            <Bar dataKey="taxable" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )
+      return (
+        <>
+          <ReportTable
+            headers={['HSN Code', 'UQC', 'Qty', 'GST Rate', 'Taxable', 'Tax']}
+            rows={table.map((r: any) => [r.hsn, r.uqc, r.qty, `${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.tax)])}
+          />
+          {totals.taxable !== undefined && (
+            <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
+              <span>Total Qty: <strong className="font-mono">{totals.qty}</strong></span>
+              <span>Taxable: <strong className="font-mono">{formatCurrency(totals.taxable)}</strong></span>
+              <span>Tax: <strong className="font-mono">{formatCurrency(totals.tax)}</strong></span>
+            </div>
+          )}
+        </>
+      )
+    }
+
+    // ── Cash Book ──
+    if (reportType === 'cash-book') {
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') {
+        const grouped = table.reduce((acc: { date: string; receipts: number; payments: number }[], r: any) => {
+          const d = r.date ? String(r.date).slice(0, 10) : ''
+          const ex = acc.find((a) => a.date === d)
+          if (ex) { if (r.type === 'RECEIPT') ex.receipts += r.amount; else ex.payments += r.amount }
+          else acc.push({ date: d, receipts: r.type === 'RECEIPT' ? r.amount : 0, payments: r.type === 'PAYMENT' ? r.amount : 0 })
+          return acc
+        }, [])
+        return (
+          <ResponsiveContainer width="100%" height={360}>
+            <LineChart data={grouped}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: any, n: any) => [formatCurrency(Number(v)), n === 'receipts' ? 'Receipts' : 'Payments']} contentStyle={chartTooltipStyle} />
+              <Line type="monotone" dataKey="receipts" stroke="#10b981" strokeWidth={2} dot={false} name="receipts" />
+              <Line type="monotone" dataKey="payments" stroke="#ef4444" strokeWidth={2} dot={false} name="payments" />
+              <Legend />
+            </LineChart>
+          </ResponsiveContainer>
+        )
+      }
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 dark:bg-muted/20">
+                {['Date', 'Ref', 'Description', 'Receipt', 'Payment', 'Balance'].map((h) => (
+                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {table.map((r: any, i: number) => (
+                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="text-sm">{formatDate(r.date)}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{r.ref}</TableCell>
+                  <TableCell className="text-sm">{r.description}</TableCell>
+                  <TableCell className="font-mono text-sm text-green-600 dark:text-green-400">{r.type === 'RECEIPT' ? formatCurrency(r.amount) : '—'}</TableCell>
+                  <TableCell className="font-mono text-sm text-red-600 dark:text-red-400">{r.type === 'PAYMENT' ? formatCurrency(r.amount) : '—'}</TableCell>
+                  <TableCell className="font-mono text-sm font-semibold">{formatCurrency(r.balance)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )
+    }
+
+    // ── Outstanding Receivables ──
+    if (reportType === 'outstanding-receivables') {
+      const table = liveData.tableData ?? []
+      const aging = liveData.agingSummary ?? {}
+      if (viewMode === 'chart') {
+        const bucketData = Object.entries(aging).map(([k, v]) => ({ bucket: k, amount: Number(v) }))
+        return (
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={bucketData}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+              <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Outstanding']} contentStyle={chartTooltipStyle} />
+              <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                {bucketData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
+      return <ReportTable
+        headers={['Customer', 'Phone', 'Outstanding', 'Credit Limit', 'Current', '0-30', '31-60', '61-90', '90+']}
+        rows={table.map((r: any) => [r.customer, r.phone, formatCurrency(r.outstanding), formatCurrency(r.creditLimit), formatCurrency(r.current), formatCurrency(r['0-30']), formatCurrency(r['31-60']), formatCurrency(r['61-90']), formatCurrency(r['90+'])])}
+      />
+    }
+
+    // ── Profit & Loss ──
+    if (reportType === 'profit-loss') {
+      const lineItems = liveData.lineItems ?? []
+      return (
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 dark:bg-muted/20">
+                <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Particulars</TableHead>
+                <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lineItems.map((item: any, i: number) => (
+                <TableRow key={i} className={cn('hover:bg-muted/30 transition-colors', item.emphasis && 'bg-muted/20 font-semibold')}>
+                  <TableCell className={cn('text-sm', item.emphasis && 'font-semibold')}>{item.label}</TableCell>
+                  <TableCell className={cn('text-right font-mono text-sm', item.amount < 0 ? 'text-red-600 dark:text-red-400' : item.emphasis ? 'text-foreground font-bold' : '')}>
+                    {formatCurrency(Math.abs(item.amount))}
+                    {item.amount < 0 && <span className="ml-1 text-xs">(Dr)</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )
+    }
+
+    // ── Expense Report ──
+    if (reportType === 'expense-report') {
+      const chart = liveData.chartData ?? []
+      const table = liveData.tableData ?? []
+      if (viewMode === 'chart') return (
+        <ResponsiveContainer width="100%" height={360}>
+          <PieChart>
+            <Pie data={chart} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="amount" nameKey="category" strokeWidth={2} className="stroke-background">
+              {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
+            <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
+          </PieChart>
+        </ResponsiveContainer>
+      )
+      return <ReportTable headers={['Date', 'Category', 'Description', 'Amount', 'Payment Mode']} rows={table.map((r: any) => [formatDate(r.date), r.category, r.description, formatCurrency(r.amount), r.paymentMode])} />
+    }
+
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground">No renderer for this report type.</div>
+    )
   }
 
   return (
-    <motion.div
-      variants={pageVariants}
-      initial="hidden"
-      animate="visible"
-    >
-      <motion.div
-        className="space-y-6"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
+    <motion.div variants={pageVariants} initial="hidden" animate="visible">
+      <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
+
         {/* ── Header ── */}
         <motion.div variants={itemVariants}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleBack}
-                className="rounded-xl border border-border/60"
-              >
+              <Button variant="ghost" size="icon-sm" onClick={onBack} className="rounded-xl border border-border/60">
                 <ArrowLeft />
               </Button>
               <div>
                 <div className="flex items-center gap-2.5">
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">{title}</h1>
-                  <Badge variant="info" size="sm" dot>
-                    Live
-                  </Badge>
+                  <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+                  <Badge variant="info" size="sm" dot>Live</Badge>
                 </div>
                 <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Generated on {formatDate(new Date().toISOString())}
@@ -287,343 +814,57 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60">
-                <FileDown className="h-3.5 w-3.5" />
-                PDF
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportPdf}>
+                <FileDown className="h-3.5 w-3.5" />PDF
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60">
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                Excel
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportCsv}>
+                <FileSpreadsheet className="h-3.5 w-3.5" />Excel
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60">
-                <Printer className="h-3.5 w-3.5" />
-                Print
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handlePrint}>
+                <Printer className="h-3.5 w-3.5" />Print
               </Button>
             </div>
           </div>
         </motion.div>
 
-        {/* ── Date Range Selector ── */}
-        <motion.div variants={itemVariants}>
-          <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1 w-fit border border-border/60 dark:bg-muted/30">
-            {dateRangeOptions.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setDateRange(opt.key)}
-                className={cn(
-                  'rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
-                  dateRange === opt.key
-                    ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
         {/* ── KPI Cards ── */}
-        <motion.div className="grid grid-cols-2 gap-4 lg:grid-cols-4" variants={itemVariants}>
-          {kpis.map((kpi) => {
-            const Icon = kpi.icon
-            return (
-              <Card key={kpi.label} hover>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/15">
-                      <Icon className="h-4 w-4 text-primary" />
-                    </div>
-                    <Badge variant={kpi.badgeVariant} size="sm" dot>
-                      {kpi.badgeLabel}
-                    </Badge>
-                  </div>
-                  <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {kpi.label}
-                  </p>
-                  <p className="mt-1 text-xl font-bold font-mono tracking-tight text-foreground">
-                    {kpi.value}
-                  </p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </motion.div>
+        {kpis.length > 0 && (
+          <motion.div variants={itemVariants}>
+            <KpiCards kpis={kpis} />
+          </motion.div>
+        )}
 
         {/* ── View Toggle ── */}
-        <motion.div variants={itemVariants}>
-          <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1 w-fit border border-border/60 dark:bg-muted/30">
-            <button
-              onClick={() => setViewMode('chart')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
-                viewMode === 'chart'
-                  ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <BarChart2 className="h-3.5 w-3.5" />
-              Chart
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
-                viewMode === 'table'
-                  ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Table2 className="h-3.5 w-3.5" />
-              Table
-            </button>
-          </div>
-        </motion.div>
+        {reportType !== 'profit-loss' && reportType !== 'gstr3b-summary' && (
+          <motion.div variants={itemVariants}>
+            <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1 w-fit border border-border/60 dark:bg-muted/30">
+              <button
+                onClick={() => setViewMode('chart')}
+                className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                  viewMode === 'chart' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <BarChart2 className="h-3.5 w-3.5" />Chart
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                  viewMode === 'table' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground')}
+              >
+                <Table2 className="h-3.5 w-3.5" />Table
+              </button>
+            </div>
+          </motion.div>
+        )}
 
-        {/* ── Chart / Table Content ── */}
+        {/* ── Content ── */}
         <motion.div variants={itemVariants}>
           <Card>
             <CardContent className="p-6">
-              {/* ── Daily Sales Report ── */}
-              {reportType === 'daily-sales' && (
-                <>
-                  {viewMode === 'chart' ? (
-                    <ResponsiveContainer width="100%" height={400}>
-                      <BarChart data={dailySalesChartData}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
-                        <XAxis
-                          dataKey="hour"
-                          tick={{ fontSize: 12 }}
-                          className="text-muted-foreground"
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`}
-                          className="text-muted-foreground"
-                        />
-                        <Tooltip
-                          formatter={(value: any, name: any) => [formatCurrency(Number(value)), name === 'amount' ? 'Sales' : String(name)]}
-                          contentStyle={chartTooltipStyle}
-                        />
-                        <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-border/60">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40 dark:bg-muted/20">
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Invoice #
-                            </TableHead>
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Time
-                            </TableHead>
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Customer
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Amount
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {dailySalesTableData.map((row) => (
-                            <TableRow key={row.invoice} className="hover:bg-muted/30 transition-colors">
-                              <TableCell className="font-mono text-xs text-muted-foreground">
-                                {row.invoice}
-                              </TableCell>
-                              <TableCell className="text-sm">{row.time}</TableCell>
-                              <TableCell className="text-sm font-medium">{row.customer}</TableCell>
-                              <TableCell className="text-right font-mono font-semibold tabular-nums">
-                                {formatCurrency(row.amount)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Product-wise Sales Report ── */}
-              {reportType === 'product-sales' && (
-                <>
-                  {viewMode === 'chart' ? (
-                    <ResponsiveContainer width="100%" height={400}>
-                      <BarChart data={productSalesChartData} layout="vertical" margin={{ left: 30 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
-                        <XAxis
-                          type="number"
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`}
-                          className="text-muted-foreground"
-                        />
-                        <YAxis
-                          dataKey="product"
-                          type="category"
-                          tick={{ fontSize: 10 }}
-                          width={140}
-                          className="text-muted-foreground"
-                        />
-                        <Tooltip
-                          formatter={(value: any, name: any) => [formatCurrency(Number(value)), name === 'revenue' ? 'Revenue' : String(name)]}
-                          contentStyle={chartTooltipStyle}
-                        />
-                        <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-border/60">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40 dark:bg-muted/20">
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Product
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Qty Sold
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Revenue
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Margin %
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {productSalesChartData.map((row) => (
-                            <TableRow key={row.product} className="hover:bg-muted/30 transition-colors">
-                              <TableCell className="font-medium text-sm">{row.product}</TableCell>
-                              <TableCell className="text-right font-mono tabular-nums">
-                                {row.qtySold}
-                              </TableCell>
-                              <TableCell className="text-right font-mono font-semibold tabular-nums">
-                                {formatCurrency(row.revenue)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Badge
-                                  variant={row.margin > 28 ? 'success' : row.margin > 25 ? 'warning' : 'destructive'}
-                                  size="sm"
-                                  dot
-                                >
-                                  {row.margin}%
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Stock Valuation Report ── */}
-              {reportType === 'stock-valuation' && (
-                <>
-                  {viewMode === 'chart' ? (
-                    <ResponsiveContainer width="100%" height={400}>
-                      <PieChart>
-                        <Pie
-                          data={stockValuationPieData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={80}
-                          outerRadius={130}
-                          paddingAngle={3}
-                          dataKey="value"
-                          nameKey="category"
-                          strokeWidth={2}
-                          className="stroke-background"
-                        >
-                          {stockValuationPieData.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(value: any, name: any) => [formatCurrency(Number(value)), String(name)]}
-                          contentStyle={chartTooltipStyle}
-                        />
-                        <Legend
-                          verticalAlign="bottom"
-                          height={36}
-                          formatter={(value: string) => (
-                            <span className="text-xs text-foreground">{value}</span>
-                          )}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-border/60">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/40 dark:bg-muted/20">
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Product
-                            </TableHead>
-                            <TableHead className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Batch
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Qty
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Purchase Value
-                            </TableHead>
-                            <TableHead className="text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              MRP Value
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {stockValuationTableData.map((row) => (
-                            <TableRow key={row.batch} className="hover:bg-muted/30 transition-colors">
-                              <TableCell className="font-medium text-sm">{row.product}</TableCell>
-                              <TableCell className="font-mono text-xs text-muted-foreground">
-                                {row.batch}
-                              </TableCell>
-                              <TableCell className="text-right font-mono tabular-nums">
-                                {row.qty}
-                              </TableCell>
-                              <TableCell className="text-right font-mono tabular-nums">
-                                {formatCurrency(row.purchaseValue)}
-                              </TableCell>
-                              <TableCell className="text-right font-mono font-semibold tabular-nums">
-                                {formatCurrency(row.mrpValue)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ── Generic fallback ── */}
-              {!['daily-sales', 'product-sales', 'stock-valuation'].includes(reportType) && (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/60 dark:bg-muted/30">
-                    <BarChart3 className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="mb-1 text-lg font-semibold text-foreground">{title}</h3>
-                  <p className="mb-4 max-w-sm text-sm text-muted-foreground">
-                    This report is being prepared. The detailed view for this report type will be available soon.
-                  </p>
-                  <Badge variant="warning" size="sm" dot className="mb-4">
-                    Coming Soon
-                  </Badge>
-                  <Button variant="outline" onClick={handleBack} className="rounded-xl border-border/60">
-                    Back to Reports Hub
-                  </Button>
-                </div>
-              )}
+              {renderContent()}
             </CardContent>
           </Card>
         </motion.div>
+
       </motion.div>
     </motion.div>
   )

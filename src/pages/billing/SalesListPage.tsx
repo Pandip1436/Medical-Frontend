@@ -1,15 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search,
   Download,
   Printer,
-  MoreHorizontal,
-  Eye,
   Share2,
   Copy,
   RotateCcw,
-  XCircle,
   IndianRupee,
   CheckCircle2,
   Undo2,
@@ -19,7 +16,11 @@ import {
   Receipt,
   FileX2,
   Clock,
-  SlidersHorizontal,
+  User,
+  Stethoscope,
+  CalendarDays,
+  CreditCard,
+  Wallet,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -43,9 +44,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -54,8 +57,14 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import type { Invoice } from '@/types'
-import { useEffect } from 'react'
+import {
+  downloadInvoicePdf,
+  printInvoicePdf,
+  shareInvoiceViaWhatsApp,
+} from '@/lib/pdf/invoicePdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { navigate } from '@/lib/router'
+import { exportToCsv, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -129,25 +138,50 @@ export default function SalesListPage() {
     fetchMasterData()
   }, [])
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     setIsLoading(true)
     try {
       const res = await api.get('/billing')
-      // Ensure it's an array, handle pagination wrapper if present
       setInvoices(res.data.data || res.data)
     } catch (error) {
       toast.error('Failed to load invoices')
     } finally {
       setIsLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchInvoices()
   }, [])
+
+  useEffect(() => { fetchInvoices() }, [])
+  useBranchRefresh(fetchInvoices)
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  // Detail dialog
+  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null)
+
+  // Collect payment
+  const [collectAmount, setCollectAmount] = useState('')
+  const [collectMode, setCollectMode] = useState('CASH')
+  const [collectSubmitting, setCollectSubmitting] = useState(false)
+
+  const handleCollectPayment = async () => {
+    if (!detailInvoice || !collectAmount) return
+    setCollectSubmitting(true)
+    try {
+      const res = await api.patch(`/billing/${detailInvoice.id}/collect-payment`, {
+        amountReceived: parseFloat(collectAmount),
+        paymentMode: collectMode,
+      })
+      toast.success('Payment collected successfully')
+      setCollectAmount('')
+      setDetailInvoice(res.data)
+      fetchInvoices()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to collect payment')
+    } finally {
+      setCollectSubmitting(false)
+    }
+  }
 
   const clearFilters = () => {
     setPeriod('all')
@@ -247,13 +281,13 @@ export default function SalesListPage() {
 
   const stats = useMemo(() => {
     const invs = invoices.filter((inv) => inv.type === 'INVOICE')
-    const totalSales = invs.reduce((sum, inv) => sum + inv.grandTotal, 0)
+    const totalSales = invs.reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     const paidTotal = invs
       .filter((inv) => inv.status === 'PAID')
-      .reduce((sum, inv) => sum + inv.grandTotal, 0)
+      .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     const pendingTotal = invs
       .filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL')
-      .reduce((sum, inv) => sum + inv.grandTotal, 0)
+      .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     return {
       totalSales,
       totalInvoices: invs.length,
@@ -339,13 +373,52 @@ export default function SalesListPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.info('Exporting to Excel...')}>
+          <Button variant="outline" size="sm" onClick={() => {
+            if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
+            exportToCsv(filteredInvoices.map((inv) => ({
+              Invoice: inv.invoiceNumber,
+              Date: formatDate(inv.date),
+              Customer: inv.customerName,
+              Total: inv.grandTotal,
+              Paid: inv.amountPaid,
+              Status: inv.status,
+            })), 'sales-invoices')
+          }}>
             <Download className="mr-1.5 h-4 w-4" />
-            Export
+            CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast.info('Preparing print view...')}>
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              const token = localStorage.getItem('auth_token')
+              const res = await fetch('/api/v1/billing/export/tally-xml', {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+              if (!res.ok) throw new Error('Export failed')
+              const blob = await res.blob()
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = 'tally-export.xml'
+              a.click()
+              URL.revokeObjectURL(url)
+              toast.success('Tally XML downloaded')
+            } catch {
+              toast.error('Failed to export Tally XML')
+            }
+          }}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Tally XML
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
+              filteredInvoices.forEach((inv) => printInvoicePdf(inv))
+            }}
+          >
             <Printer className="mr-1.5 h-4 w-4" />
-            Print
+            Print All
           </Button>
         </div>
       </div>
@@ -512,11 +585,30 @@ export default function SalesListPage() {
                 {selectedIds.size} selected
               </Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id))
+                  printReport(selected.map((inv) => ({
+                    Invoice: inv.invoiceNumber,
+                    Date: inv.date?.slice(0, 10) ?? '',
+                    Customer: inv.customerName,
+                    Amount: inv.grandTotal,
+                    Status: inv.status,
+                  })), 'Sales Invoices')
+                }}>
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id))
+                  exportToCsv(selected.map((inv) => ({
+                    Invoice: inv.invoiceNumber,
+                    Date: inv.date?.slice(0, 10) ?? '',
+                    Customer: inv.customerName,
+                    Amount: inv.grandTotal,
+                    'Payment Mode': inv.paymentMode,
+                    Status: inv.status,
+                  })), 'sales-invoices-selected')
+                }}>
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
@@ -593,7 +685,7 @@ export default function SalesListPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toast.info('Opening invoice details...')}
+                    onClick={() => setDetailInvoice(inv)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -624,7 +716,7 @@ export default function SalesListPage() {
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
-                        {inv.items.length}
+                        {inv.items?.length ?? 0}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm font-semibold">
@@ -645,25 +737,33 @@ export default function SalesListPage() {
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => toast.info('Opening invoice details...')}
-                        onPrint={() => toast.info('Preparing print...')}
-                        onDelete={() => toast.warning('Invoice cancelled')}
+                        onView={() => setDetailInvoice(inv)}
+                        onPrint={() => printInvoicePdf(inv)}
+                        onDelete={async () => {
+                          try {
+                            await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
+                            toast.success('Invoice cancelled')
+                            fetchInvoices()
+                          } catch {
+                            toast.error('Failed to cancel invoice')
+                          }
+                        }}
                         deleteLabel="Cancel"
                         customActions={[
                           {
                             label: 'Share',
                             icon: <Share2 className="h-4 w-4" />,
-                            onClick: () => toast.info('Sharing invoice...')
+                            onClick: () => shareInvoiceViaWhatsApp(inv)
                           },
                           {
                             label: 'Duplicate',
                             icon: <Copy className="h-4 w-4" />,
-                            onClick: () => toast.info('Invoice duplicated')
+                            onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`)
                           },
                           {
                             label: 'Return',
                             icon: <RotateCcw className="h-4 w-4" />,
-                            onClick: () => toast.info('Initiating return...')
+                            onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`)
                           }
                         ]}
                       />
@@ -706,6 +806,177 @@ export default function SalesListPage() {
           </div>
         </div>
       </Card>
+
+      {/* ── Invoice Detail Dialog ── */}
+      <Dialog open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {detailInvoice && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <DialogTitle className="font-mono text-base">
+                      {formatInvoiceNumber(detailInvoice)}
+                    </DialogTitle>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatDate(detailInvoice.date)}
+                    </p>
+                  </div>
+                  <StatusBadge status={detailInvoice.status} />
+                </div>
+              </DialogHeader>
+
+              {/* Meta info */}
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <User className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer</p>
+                    <p className="font-medium">{detailInvoice.customerName}</p>
+                  </div>
+                </div>
+                {detailInvoice.doctorName && (
+                  <div className="flex items-center gap-2">
+                    <Stethoscope className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Doctor</p>
+                      <p className="font-medium">{detailInvoice.doctorName}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Payment</p>
+                    <p className="font-medium">{detailInvoice.paymentMode}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Billing Type</p>
+                    <p className="font-medium">{detailInvoice.billingType}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items table */}
+              <div className="overflow-hidden rounded-xl border border-border/40">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Batch</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">GST%</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detailInvoice.items.map((item, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+                        <TableCell>
+                          <p className="text-sm font-medium">{item.productName}</p>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{item.batchNumber}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{item.quantity}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.rate)}</TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
+                        <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(item.amount)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Totals */}
+              <div className="space-y-1.5 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+                {[
+                  { label: 'Subtotal', value: detailInvoice.subtotal },
+                  detailInvoice.productDiscount > 0 ? { label: 'Discount', value: -detailInvoice.productDiscount } : null,
+                  { label: 'Taxable', value: detailInvoice.taxableAmount },
+                  { label: 'CGST', value: detailInvoice.cgst },
+                  { label: 'SGST', value: detailInvoice.sgst },
+                  detailInvoice.igst > 0 ? { label: 'IGST', value: detailInvoice.igst } : null,
+                  Math.abs(detailInvoice.roundOff) > 0 ? { label: 'Round Off', value: detailInvoice.roundOff } : null,
+                ].filter(Boolean).map((row) => (
+                  <div key={row!.label} className="flex justify-between text-muted-foreground">
+                    <span>{row!.label}</span>
+                    <span className="font-mono">{formatCurrency(row!.value)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
+                  <span>Grand Total</span>
+                  <span className="font-mono text-base">{formatCurrency(detailInvoice.grandTotal)}</span>
+                </div>
+                {detailInvoice.amountPaid > 0 && (
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                    <span>Paid</span>
+                    <span className="font-mono">{formatCurrency(detailInvoice.amountPaid)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Collect Payment — shown only for unpaid invoices */}
+              {(detailInvoice.status === 'CREDIT' || detailInvoice.status === 'PARTIAL') && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                    Collect Payment — Outstanding: {formatCurrency(detailInvoice.grandTotal - detailInvoice.amountPaid)}
+                  </p>
+                  <div className="flex gap-2">
+                    <Select value={collectMode} onValueChange={setCollectMode}>
+                      <SelectTrigger className="w-32 h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      placeholder="Amount"
+                      className="h-9 text-sm"
+                      value={collectAmount}
+                      onChange={(e) => setCollectAmount(e.target.value)}
+                      max={detailInvoice.grandTotal - detailInvoice.amountPaid}
+                    />
+                    <Button
+                      size="sm"
+                      className="gap-1.5 shrink-0"
+                      disabled={collectSubmitting || !collectAmount}
+                      onClick={handleCollectPayment}
+                    >
+                      <Wallet className="h-4 w-4" />
+                      {collectSubmitting ? 'Saving...' : 'Collect'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button className="flex-1 gap-2" onClick={() => printInvoicePdf(detailInvoice)}>
+                  <Printer className="h-4 w-4" />
+                  Print
+                </Button>
+                <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadInvoicePdf(detailInvoice)}>
+                  <Download className="h-4 w-4" />
+                  Download PDF
+                </Button>
+                <Button variant="outline" className="gap-2" onClick={() => shareInvoiceViaWhatsApp(detailInvoice)}>
+                  <Share2 className="h-4 w-4" />
+                  Share
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </motion.div>
   )
 }

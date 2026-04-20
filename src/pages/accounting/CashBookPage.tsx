@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import api from '@/lib/api'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -49,7 +51,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockInvoices, mockExpenses } from '@/data/mock'
 import { cn, formatCurrency, generateId } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -105,69 +106,48 @@ export default function CashBookPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
   const [extraExpenses, setExtraExpenses] = useState<CashTransaction[]>([])
+  const [apiTransactions, setApiTransactions] = useState<CashTransaction[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Build cash transactions from invoices and expenses for the selected date
+  const fetchCashbook = useCallback(() => {
+    let cancelled = false
+    setIsLoading(true)
+    api
+      .get('/reports/financial/cash-book', { params: { from: selectedDate, to: selectedDate } })
+      .then((res) => {
+        if (cancelled) return
+        const rows = res.data?.tableData ?? []
+        const mapped: CashTransaction[] = rows.map((r: any, i: number) => ({
+          id: `${r.ref}-${i}`,
+          time: new Date(r.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          particular: r.description,
+          type: r.type === 'RECEIPT' ? 'Sale' : 'Expense',
+          refNumber: r.ref,
+          debit: r.type === 'RECEIPT' ? Number(r.amount) : 0,
+          credit: r.type === 'PAYMENT' ? Number(r.amount) : 0,
+        }))
+        setApiTransactions(mapped)
+      })
+      .catch(() => { if (!cancelled) setApiTransactions([]) })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedDate])
+
+  useEffect(() => { return fetchCashbook() }, [fetchCashbook])
+  useBranchRefresh(fetchCashbook)
+
   const transactions = useMemo(() => {
-    const txns: CashTransaction[] = []
-
-    // Invoices for the selected date (cash sales / receipts)
-    const dateInvoices = mockInvoices.filter((inv) => {
-      const invDate = new Date(inv.date).toISOString().split('T')[0]
-      return invDate === selectedDate && inv.amountPaid > 0
-    })
-
-    for (const inv of dateInvoices) {
-      txns.push({
-        id: inv.id,
-        time: new Date(inv.date).toLocaleTimeString('en-IN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-        particular: `Sale to ${inv.customerName}`,
-        type: 'Sale',
-        refNumber: inv.invoiceNumber,
-        debit: inv.amountPaid,
-        credit: 0,
-      })
-    }
-
-    // Expenses for the selected date
-    const dateExpenses = mockExpenses.filter((exp) => {
-      const expDate = new Date(exp.date).toISOString().split('T')[0]
-      return expDate === selectedDate
-    })
-
-    for (const exp of dateExpenses) {
-      txns.push({
-        id: exp.id,
-        time: new Date(exp.date).toLocaleTimeString('en-IN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-        particular: `${exp.category} - ${exp.description}`,
-        type: 'Expense',
-        refNumber: exp.id,
-        debit: 0,
-        credit: exp.amount,
-      })
-    }
-
-    // Add user-added expenses
-    txns.push(...extraExpenses)
-
-    // Sort by time
+    const txns = [...apiTransactions, ...extraExpenses]
     txns.sort((a, b) => a.time.localeCompare(b.time))
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      return txns.filter(t => 
-        t.particular.toLowerCase().includes(q) || 
-        t.refNumber.toLowerCase().includes(q)
+      return txns.filter(
+        (t) =>
+          t.particular.toLowerCase().includes(q) || t.refNumber.toLowerCase().includes(q),
       )
     }
-
     return txns
-  }, [selectedDate, extraExpenses, searchQuery])
+  }, [apiTransactions, extraExpenses, searchQuery])
 
   // Summary calculations
   const summary = useMemo(() => {
@@ -434,7 +414,16 @@ export default function CashBookPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactionsWithBalance.map((txn) => (
+              {isLoading && [...Array(5)].map((_, i) => (
+                <TableRow key={i}>
+                  {[...Array(7)].map((__, j) => (
+                    <TableCell key={j}>
+                      <div className="h-4 rounded bg-muted animate-pulse" style={{ width: j === 1 ? '140px' : '60px' }} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+              {!isLoading && transactionsWithBalance.map((txn) => (
                 <TableRow key={txn.id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {txn.time}
@@ -455,7 +444,7 @@ export default function CashBookPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {transactionsWithBalance.length === 0 && (
+              {!isLoading && transactionsWithBalance.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     No transactions for this date

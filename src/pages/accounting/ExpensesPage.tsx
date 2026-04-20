@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -52,8 +53,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockExpenses } from '@/data/mock'
-import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import api from '@/lib/api'
 import type { Expense } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -109,7 +110,30 @@ const paymentModes = ['CASH', 'BANK_TRANSFER', 'UPI', 'CHEQUE']
 // ─────────────────────────────────────────────────────────────
 
 export default function ExpensesPage() {
-  const [expenses, setExpenses] = useState<Expense[]>(mockExpenses)
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(false)
+
+  const fetchExpenses = useCallback(() => {
+    let cancelled = false
+    setIsLoading(true)
+    setFetchError(false)
+    api.get('/expenses')
+      .then((res) => {
+        if (!cancelled) setExpenses(Array.isArray(res.data) ? res.data : [])
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFetchError(true)
+          toast.error('Failed to load expenses')
+        }
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => { return fetchExpenses() }, [])
+  useBranchRefresh(fetchExpenses)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
 
@@ -197,44 +221,39 @@ export default function ExpensesPage() {
     setDialogOpen(true)
   }
 
-  const handleDelete = (expense: Expense) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== expense.id))
-    toast.success(`Expense "${expense.description}" deleted`)
+  const handleDelete = async (expense: Expense) => {
+    try {
+      await api.delete(`/expenses/${expense.id}`)
+      setExpenses((prev) => prev.filter((e) => e.id !== expense.id))
+      toast.success(`Expense "${expense.description}" deleted`)
+    } catch {
+      toast.error('Failed to delete expense')
+    }
   }
 
-  const handleSubmit = (values: any) => {
-    if (editingExpense) {
-      // Update
-      setExpenses((prev) =>
-        prev.map((e) =>
-          e.id === editingExpense.id
-            ? {
-                ...e,
-                date: new Date(values.date).toISOString(),
-                category: values.category,
-                description: values.description,
-                amount: values.amount,
-                paymentMode: values.paymentMode,
-              }
-            : e
-        )
-      )
-      toast.success(`Expense updated successfully`)
-    } else {
-      // Add
-      const newExpense: Expense = {
-        id: generateId('EXP'),
+  const handleSubmit = async (values: any) => {
+    try {
+      const payload = {
         date: new Date(values.date).toISOString(),
         category: values.category,
         description: values.description,
         amount: values.amount,
         paymentMode: values.paymentMode,
       }
-      setExpenses((prev) => [newExpense, ...prev])
-      toast.success(`Expense of ${formatCurrency(values.amount)} added`)
+      if (editingExpense) {
+        const res = await api.patch(`/expenses/${editingExpense.id}`, payload)
+        setExpenses((prev) => prev.map((e) => e.id === editingExpense.id ? res.data : e))
+        toast.success('Expense updated successfully')
+      } else {
+        const res = await api.post('/expenses', payload)
+        setExpenses((prev) => [res.data, ...prev])
+        toast.success(`Expense of ${formatCurrency(values.amount)} added`)
+      }
+      form.reset()
+      setDialogOpen(false)
+    } catch {
+      toast.error('Failed to save expense')
     }
-    form.reset()
-    setDialogOpen(false)
   }
 
   // Filtered and sorted expenses
@@ -279,6 +298,53 @@ export default function ExpensesPage() {
           Add Expense
         </Button>
       </div>
+
+      {/* ── Loading / Error states ── */}
+      {isLoading && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Card key={i} className="rounded-2xl border-border/60">
+                <CardContent className="p-6">
+                  <div className="h-4 w-24 rounded bg-muted animate-pulse mb-3" />
+                  <div className="h-7 w-32 rounded bg-muted animate-pulse" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="overflow-hidden rounded-2xl border-border/60">
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/40">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-4 py-3">
+                    <div className="h-4 w-20 rounded bg-muted animate-pulse" />
+                    <div className="h-5 w-24 rounded bg-muted animate-pulse" />
+                    <div className="h-4 flex-1 rounded bg-muted animate-pulse" />
+                    <div className="h-4 w-16 rounded bg-muted animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+      {fetchError && !isLoading && (
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+          <Receipt className="h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">Failed to load expenses.</p>
+          <Button variant="outline" size="sm" onClick={() => {
+            setFetchError(false)
+            setIsLoading(true)
+            api.get('/expenses')
+              .then((res) => setExpenses(Array.isArray(res.data) ? res.data : []))
+              .catch(() => { setFetchError(true); toast.error('Failed to load expenses') })
+              .finally(() => setIsLoading(false))
+          }}>Retry</Button>
+        </div>
+      )}
+
+      {/* ── Main content (hidden while loading / errored) ── */}
+      {!isLoading && !fetchError && <>
 
       {/* ── Monthly Summary Cards ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -501,6 +567,8 @@ export default function ExpensesPage() {
           ))}
         </CardContent>
       </Card>
+
+      </>}
 
       {/* ─── Add/Edit Expense Dialog ─── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

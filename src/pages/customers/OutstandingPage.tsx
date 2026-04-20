@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -50,10 +51,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { mockInvoices } from '@/data/mock'
 import api from '@/lib/api'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
+import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -89,43 +90,24 @@ const paymentSchema = z.object({
 type PaymentFormValues = z.input<typeof paymentSchema>
 
 // ─────────────────────────────────────────────────────────────
-// Helpers – aging buckets
+// Helpers – aging buckets are sourced from backend via /reports/financial/outstanding
 // ─────────────────────────────────────────────────────────────
 
-function getAgingBuckets(customer: Customer) {
-  const now = new Date()
-  const invoices = mockInvoices.filter(
-    (inv) =>
-      inv.customerId === customer.id &&
-      (inv.status === 'CREDIT' || inv.status === 'PARTIAL')
-  )
-
-  let days0to30 = 0
-  let days30to60 = 0
-  let days60plus = 0
-
-  for (const inv of invoices) {
-    const invDate = new Date(inv.date)
-    const daysDiff = Math.floor((now.getTime() - invDate.getTime()) / (1000 * 60 * 60 * 24))
-    const outstanding = inv.grandTotal - inv.amountPaid
-
-    if (daysDiff <= 30) {
-      days0to30 += outstanding
-    } else if (daysDiff <= 60) {
-      days30to60 += outstanding
-    } else {
-      days60plus += outstanding
-    }
-  }
-
-  return { days0to30, days30to60, days60plus }
+type AgingRow = {
+  customerId: string
+  customer: string
+  phone: string
+  outstanding: number
+  creditLimit: number
+  current: number
+  '0-30': number
+  '31-60': number
+  '61-90': number
+  '90+': number
 }
 
-function getLastPaymentDate(customerId: string): string | null {
-  const paidInvoices = mockInvoices
-    .filter((inv) => inv.customerId === customerId && inv.amountPaid > 0)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  return paidInvoices.length > 0 ? paidInvoices[0].date : null
+function getLastPaymentDate(_customerId: string): string | null {
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -141,9 +123,33 @@ export default function OutstandingPage() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
 
-  useEffect(() => {
+  const [agingRows, setAgingRows] = useState<AgingRow[]>([])
+
+  const fetchData = useCallback(() => {
     fetchCustomers()
-  }, [])
+    api
+      .get('/reports/financial/outstanding')
+      .then((res) => setAgingRows(res.data?.tableData ?? []))
+      .catch(() => setAgingRows([]))
+  }, [fetchCustomers])
+
+  useEffect(() => { fetchData() }, [fetchData])
+  useBranchRefresh(fetchData)
+
+  const agingByCustomer = useMemo(() => {
+    const map = new Map<string, AgingRow>()
+    for (const r of agingRows) map.set(r.customerId, r)
+    return map
+  }, [agingRows])
+
+  const getAgingBuckets = (customer: Customer) => {
+    const r = agingByCustomer.get(customer.id)
+    return {
+      days0to30: (r?.current ?? 0) + (r?.['0-30'] ?? 0),
+      days30to60: (r?.['31-60'] ?? 0),
+      days60plus: (r?.['61-90'] ?? 0) + (r?.['90+'] ?? 0),
+    }
+  }
 
   // Customers with outstanding balance (filtered by search)
   const outstandingCustomers = useMemo(() => {
@@ -182,7 +188,8 @@ export default function OutstandingPage() {
     }
 
     return { total, bucket0to30, bucket30to60, bucket60plus }
-  }, [outstandingCustomers])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outstandingCustomers, agingByCustomer])
 
   // Payment form
   const form = useForm<PaymentFormValues>({
@@ -393,7 +400,7 @@ export default function OutstandingPage() {
                         </TableCell>
                         <TableCell className="text-right px-4">
                           <DataTableRowActions
-                            onView={() => toast.info(`Viewing statement for ${customer.name}`)}
+                            onView={() => navigate(`/accounting/ledger?customerId=${customer.id}&name=${encodeURIComponent(customer.name)}`)}
                             customActions={[
                               {
                                 label: 'Collect Payment',

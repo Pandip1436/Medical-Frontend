@@ -1,4 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -11,13 +14,10 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card'
 import {
   Table,
@@ -34,14 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
-import {
-  mockCustomers,
-  mockSuppliers,
-  mockInvoices,
-  mockPurchaseOrders,
-} from '@/data/mock'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Ledger entry type
@@ -66,89 +60,79 @@ export default function LedgerPage() {
   const [partySearch, setPartySearch] = useState('')
   const [ledgerSearch, setLedgerSearch] = useState('')
 
-  // Party list based on type
+  const { customers, suppliers, fetchMasterData } = useMasterDataStore()
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([])
+
+  useBranchRefresh(fetchMasterData)
+
+  useEffect(() => {
+    if (customers.length === 0 || suppliers.length === 0) {
+      fetchMasterData()
+    }
+    // Read ?customerId=&name= from URL (navigated from OutstandingPage)
+    const params = new URLSearchParams(window.location.search)
+    const cid = params.get('customerId')
+    if (cid) {
+      setPartyType('customer')
+      setSelectedPartyId(cid)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const parties = useMemo(() => {
     if (partyType === 'customer') {
-      return mockCustomers.map((c) => ({ id: c.id, name: c.name }))
+      return customers.map((c) => ({ id: c.id, name: c.name }))
     }
-    return mockSuppliers.map((s) => ({ id: s.id, name: s.name }))
-  }, [partyType])
+    return suppliers.map((s) => ({ id: s.id, name: s.name }))
+  }, [partyType, customers, suppliers])
 
-  // Filtered party list for searchable select
   const filteredParties = useMemo(() => {
     if (!partySearch.trim()) return parties
     const q = partySearch.toLowerCase()
     return parties.filter((p) => p.name.toLowerCase().includes(q))
   }, [parties, partySearch])
 
-  // Build ledger entries
-  const ledgerEntries = useMemo((): LedgerEntry[] => {
-    if (!selectedPartyId) return []
-
-    const entries: LedgerEntry[] = []
-    const from = new Date(dateFrom)
-    const to = new Date(dateTo)
-    to.setHours(23, 59, 59)
-
-    if (partyType === 'customer') {
-      // Customer ledger from invoices
-      const customerInvoices = mockInvoices
-        .filter((inv) => {
-          if (inv.customerId !== selectedPartyId) return false
-          const d = new Date(inv.date)
-          return d >= from && d <= to
-        })
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-      for (const inv of customerInvoices) {
-        // Sale entry (debit = customer owes us)
-        entries.push({
-          date: inv.date,
-          particular: `Invoice ${inv.invoiceNumber}`,
-          debit: inv.grandTotal,
-          credit: 0,
-        })
-        // Payment entry if paid
-        if (inv.amountPaid > 0) {
-          entries.push({
-            date: inv.date,
-            particular: `Payment received - ${inv.paymentMode.toUpperCase()}`,
-            debit: 0,
-            credit: inv.amountPaid,
-          })
-        }
-      }
-    } else {
-      // Supplier ledger from purchase orders
-      const supplierPOs = mockPurchaseOrders
-        .filter((po) => {
-          if (po.supplierId !== selectedPartyId) return false
-          const d = new Date(po.date)
-          return d >= from && d <= to
-        })
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-      for (const po of supplierPOs) {
-        // Purchase entry (credit = we owe supplier)
-        entries.push({
-          date: po.date,
-          particular: `Purchase Order ${po.poNumber}`,
-          debit: 0,
-          credit: po.totalAmount,
-        })
-        // Mock partial payment for received POs
-        if (po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED') {
-          entries.push({
-            date: po.date,
-            particular: `Payment made for ${po.poNumber}`,
-            debit: po.totalAmount,
-            credit: 0,
-          })
-        }
-      }
+  useEffect(() => {
+    if (!selectedPartyId) {
+      setLedgerEntries([])
+      return
     }
 
-    return entries
+    if (partyType === 'customer') {
+      api
+        .get(`/reports/financial/ledger/${selectedPartyId}`, {
+          params: { from: dateFrom, to: dateTo },
+        })
+        .then((res) => {
+          const rows = res.data?.tableData ?? []
+          setLedgerEntries(
+            rows.map((r: any) => ({
+              date: r.date,
+              particular: `${r.description} (${r.ref})`,
+              debit: Number(r.debit),
+              credit: Number(r.credit),
+            })),
+          )
+        })
+        .catch(() => setLedgerEntries([]))
+    } else {
+      api
+        .get(`/reports/financial/supplier-ledger/${selectedPartyId}`, {
+          params: { from: dateFrom, to: dateTo },
+        })
+        .then((res) => {
+          const rows = res.data?.tableData ?? []
+          setLedgerEntries(
+            rows.map((r: any) => ({
+              date: r.date,
+              particular: `${r.description} (${r.ref})`,
+              debit: Number(r.debit),
+              credit: Number(r.credit),
+            })),
+          )
+        })
+        .catch(() => setLedgerEntries([]))
+    }
   }, [selectedPartyId, partyType, dateFrom, dateTo])
 
   // Compute running balance
@@ -174,7 +158,18 @@ export default function LedgerPage() {
       : 0
 
   const handleExport = (format: string) => {
-    toast.info(`${format} export - coming soon`)
+    if (!ledgerWithBalance.length) { toast.info('No ledger data to export'); return }
+    const title = `Party Ledger — ${selectedPartyName}`
+    const rows = ledgerWithBalance.map((e) => ({
+      Date: formatDate(e.date),
+      Particular: e.particular,
+      Debit: e.debit,
+      Credit: e.credit,
+      Balance: e.balance,
+    }))
+    if (format === 'PDF') exportToPdf(rows, title, `ledger-${selectedPartyName}`)
+    else if (format === 'Excel') exportToCsv(rows, `ledger-${selectedPartyName}`)
+    else if (format === 'Print') printReport(rows, title)
   }
 
   // Find the selected party name for display
@@ -214,18 +209,12 @@ export default function LedgerPage() {
         </div>
       </div>
 
-      {/* ── Controls & Filter Bar ── */}
-      <DataTableFilterBar
-        searchQuery={ledgerSearch}
-        onSearchChange={setLedgerSearch}
-        searchPlaceholder="Search ledger particulars..."
-        resultsCount={ledgerWithBalance.length}
-        defaultFiltersOpen={true}
-      >
-        <div className="flex flex-wrap items-center gap-4 w-full">
+      {/* ── Controls ── */}
+      <div className="rounded-2xl border border-border/60 bg-card p-4">
+        <div className="flex flex-wrap items-end gap-4">
           {/* Party Type */}
-          <div className="space-y-1.5 w-full sm:w-auto">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               Party Type
             </span>
             <div className="flex rounded-xl border border-border/60 overflow-hidden h-9">
@@ -237,10 +226,7 @@ export default function LedgerPage() {
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
                 )}
-                onClick={() => {
-                  setPartyType('customer')
-                  setSelectedPartyId('')
-                }}
+                onClick={() => { setPartyType('customer'); setSelectedPartyId('') }}
               >
                 Customer
               </button>
@@ -252,19 +238,16 @@ export default function LedgerPage() {
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
                 )}
-                onClick={() => {
-                  setPartyType('supplier')
-                  setSelectedPartyId('')
-                }}
+                onClick={() => { setPartyType('supplier'); setSelectedPartyId('') }}
               >
                 Supplier
               </button>
             </div>
           </div>
 
-          {/* Party Name Select */}
-          <div className="space-y-1.5 w-full sm:w-[240px]">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {/* Party Name */}
+          <div className="space-y-1.5 w-55">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               Party Name
             </span>
             <Select value={selectedPartyId} onValueChange={setSelectedPartyId}>
@@ -291,9 +274,9 @@ export default function LedgerPage() {
             </Select>
           </div>
 
-          {/* Date From */}
+          {/* From Date */}
           <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               From Date
             </span>
             <Input
@@ -304,9 +287,9 @@ export default function LedgerPage() {
             />
           </div>
 
-          {/* Date To */}
+          {/* To Date */}
           <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               To Date
             </span>
             <Input
@@ -316,8 +299,22 @@ export default function LedgerPage() {
               className="h-9 rounded-xl text-xs"
             />
           </div>
+
+          {/* Ledger Search */}
+          <div className="space-y-1.5 flex-1 min-w-45">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+              Search
+            </span>
+            <Input
+              icon={<Search className="h-4 w-4" />}
+              placeholder="Search ledger particulars..."
+              value={ledgerSearch}
+              onChange={(e) => setLedgerSearch(e.target.value)}
+              className="h-9 rounded-xl"
+            />
+          </div>
         </div>
-      </DataTableFilterBar>
+      </div>
 
       {/* ── Ledger Table ── */}
       {selectedPartyId ? (

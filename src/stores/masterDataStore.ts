@@ -9,6 +9,7 @@ interface MasterDataState {
   suppliers: Supplier[]
   purchaseOrders: PurchaseOrder[]
   isLoading: boolean
+  hasLoaded: boolean   // true once at least one successful fetch completed
   fetchMasterData: () => Promise<void>
   fetchProducts: () => Promise<void>
   fetchCustomers: () => Promise<void>
@@ -26,28 +27,45 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   suppliers: [],
   purchaseOrders: [],
   isLoading: false,
+  hasLoaded: false,
 
   fetchMasterData: async () => {
+    if (get().isLoading) return  // prevent duplicate in-flight calls
     set({ isLoading: true })
     try {
-      const [prodRes, custRes, suppRes, poRes] = await Promise.all([
+      const results = await Promise.allSettled([
         api.get('/products'),
         api.get('/customers'),
         api.get('/suppliers'),
-        api.get('/purchase-orders')
+        api.get('/purchase-orders'),
       ])
 
-      const products = prodRes.data.data || prodRes.data // Handle pagination wrapper
-      const customers = custRes.data
-      const suppliers = suppRes.data
-      const purchaseOrders = poRes.data
-      const batches = products.flatMap((p: any) =>
+      const [prodRes, custRes, suppRes, poRes] = results
+
+      const products: Product[] = prodRes.status === 'fulfilled'
+        ? (prodRes.value.data?.data ?? prodRes.value.data ?? [])
+        : get().products
+
+      const customers: Customer[] = custRes.status === 'fulfilled'
+        ? (Array.isArray(custRes.value.data) ? custRes.value.data : [])
+        : get().customers
+
+      const suppliers: Supplier[] = suppRes.status === 'fulfilled'
+        ? (Array.isArray(suppRes.value.data) ? suppRes.value.data : [])
+        : get().suppliers
+
+      const purchaseOrders: PurchaseOrder[] = poRes.status === 'fulfilled'
+        ? (Array.isArray(poRes.value.data) ? poRes.value.data : (poRes.value.data?.data ?? []))
+        : get().purchaseOrders
+
+      const batches: Batch[] = products.flatMap((p: any) =>
         (p.batches || []).map((b: any) => ({ ...b, productName: p.name }))
       )
 
-      set({ products, customers, suppliers, purchaseOrders, batches, isLoading: false })
+      set({ products, customers, suppliers, purchaseOrders, batches, hasLoaded: true })
     } catch (error) {
-      console.error("Failed to fetch master data", error)
+      console.error('Failed to fetch master data', error)
+    } finally {
       set({ isLoading: false })
     }
   },
@@ -56,14 +74,14 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await api.get('/products')
-      const products = res.data.data || res.data // Handle pagination wrapper
-      // Enrich each batch with its parent product name for easy display
-      const batches = products.flatMap((p: any) =>
+      const products: Product[] = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+      const batches: Batch[] = products.flatMap((p: any) =>
         (p.batches || []).map((b: any) => ({ ...b, productName: p.name }))
       )
-      set({ products, batches, isLoading: false })
+      set({ products, batches, hasLoaded: true })
     } catch (error) {
-      console.error("Failed to fetch products", error)
+      console.error('Failed to fetch products', error)
+    } finally {
       set({ isLoading: false })
     }
   },
@@ -72,9 +90,11 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await api.get('/customers')
-      set({ customers: res.data, isLoading: false })
+      const customers: Customer[] = Array.isArray(res.data) ? res.data : []
+      set({ customers })
     } catch (error) {
-      console.error("Failed to fetch customers", error)
+      console.error('Failed to fetch customers', error)
+    } finally {
       set({ isLoading: false })
     }
   },
@@ -83,9 +103,11 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await api.get('/suppliers')
-      set({ suppliers: res.data, isLoading: false })
+      const suppliers: Supplier[] = Array.isArray(res.data) ? res.data : []
+      set({ suppliers })
     } catch (error) {
-      console.error("Failed to fetch suppliers", error)
+      console.error('Failed to fetch suppliers', error)
+    } finally {
       set({ isLoading: false })
     }
   },

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -65,7 +65,9 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency } from '@/lib/utils'
+import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
 import type { Product } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ const productSchema = z.object({
   // Basic Info
   name: z.string().min(1, 'Product name is required'),
   genericName: z.string().optional().default(''),
+  saltComposition: z.string().optional().default(''),
   manufacturer: z.string().optional().default(''),
   category: z.enum(['NEPHROLOGY', 'ONCOLOGY', 'GENERAL', 'OTC', 'SURGICAL']),
   packSize: z.string().optional().default(''),
@@ -128,17 +131,23 @@ const scheduleBadgeConfig: Record<
 
 // ─────────────────────────────────────────────────────────────
 export default function ProductsPage() {
-  const mockProducts = useMasterDataStore(s => s.products)
+  const products = useMasterDataStore(s => s.products)
+  const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchProducts = useMasterDataStore(s => s.fetchProducts)
+  const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   useEffect(() => {
     fetchProducts()
+    fetchSuppliers()
   }, [])
 
   const manufacturers = useMemo(() => {
-    return [...new Set(mockProducts.map((p) => p.manufacturer))].sort()
-  }, [mockProducts])
+    // Collect unique manufacturer names from both products AND suppliers
+    const fromSuppliers = suppliers.map(s => s.name);
+    const fromProducts = products.map(p => p.manufacturer);
+    return [...new Set([...fromSuppliers, ...fromProducts])].sort()
+  }, [products, suppliers])
 
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -147,10 +156,18 @@ export default function ProductsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [activeTab, setActiveTab] = useState('basic')
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
   const PAGE_SIZE = 10
 
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
   const [totalCount, setTotalCount] = useState(0)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const refreshPage = useCallback(() => setRefreshKey(k => k + 1), [])
+  useBranchRefresh(refreshPage)
 
   // Fetch paginated data independently from the global store cache
   useEffect(() => {
@@ -158,12 +175,12 @@ export default function ProductsPage() {
     const fetchData = async () => {
       try {
         const res = await api.get('/products', {
-          params: { 
-            q: search, 
-            category: selectedCategory,
-            schedule: selectedSchedule,
-            skip: (currentPage - 1) * PAGE_SIZE, 
-            take: PAGE_SIZE 
+          params: {
+            q: search || undefined,
+            category: selectedCategory !== 'all' ? selectedCategory : undefined,
+            schedule: selectedSchedule !== 'all' ? selectedSchedule : undefined,
+            skip: (currentPage - 1) * PAGE_SIZE,
+            take: PAGE_SIZE
           }
         })
         if (isSubscribed) {
@@ -176,18 +193,18 @@ export default function ProductsPage() {
     }
     fetchData()
     return () => { isSubscribed = false }
-  }, [search, currentPage, isLoading]) // re-runs if global isLoading toggles (e.g. after add/edit)
+  }, [search, selectedCategory, selectedSchedule, currentPage, refreshKey])
 
   // Summary stats (approximated from paginated data since global array might be large)
   const summaryStats = useMemo(() => {
     const total = totalCount
-    const lowStock = mockProducts.filter(
+    const lowStock = products.filter(
       (p) => p.totalStock > 0 && p.totalStock < p.minStock
     ).length
-    const outOfStock = mockProducts.filter((p) => p.totalStock === 0).length
-    const categories = [...new Set(mockProducts.map((p) => p.category))].length
+    const outOfStock = products.filter((p) => p.totalStock === 0).length
+    const categories = [...new Set(products.map((p) => p.category))].length
     return { total, lowStock, outOfStock, categories }
-  }, [totalCount, mockProducts])
+  }, [totalCount, products])
 
   // Pagination metadata
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
@@ -198,6 +215,7 @@ export default function ProductsPage() {
     defaultValues: {
       name: '',
       genericName: '',
+      saltComposition: '',
       manufacturer: '',
       category: 'GENERAL',
       packSize: '',
@@ -231,6 +249,7 @@ export default function ProductsPage() {
     form.reset({
       name: '',
       genericName: '',
+      saltComposition: '',
       manufacturer: '',
       category: 'GENERAL',
       packSize: '',
@@ -259,6 +278,7 @@ export default function ProductsPage() {
     form.reset({
       name: product.name,
       genericName: product.genericName,
+      saltComposition: product.saltComposition ?? '',
       manufacturer: product.manufacturer,
       category: product.category,
       packSize: product.packSize,
@@ -299,7 +319,8 @@ export default function ProductsPage() {
         toast.success(`Product "${values.name}" added successfully`)
       }
       setDialogOpen(false)
-      fetchProducts()
+      refreshPage() // Refreshes local pagination table
+      fetchProducts() // Syncs global master data for other pages (like Purchase Orders)
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Operation failed")
     }
@@ -310,14 +331,81 @@ export default function ProductsPage() {
     try {
       await api.delete(`/products/${product.id}`)
       toast.success(`Product "${product.name}" deleted`)
-      fetchProducts()
+      refreshPage()
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Failed to delete product")
     }
   }
 
   const handlePrintBarcode = (product: Product) => {
-    toast.info(`Printing barcode for "${product.name}"`)
+    const barcode = product.barcode || product.id
+    const win = window.open('', '_blank', 'width=400,height=300')
+    if (!win) { toast.error('Pop-up blocked — please allow pop-ups'); return }
+    win.document.write(`
+      <!DOCTYPE html><html><head><title>Barcode - ${product.name}</title>
+      <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; }
+        .label { border: 1px solid #ccc; display: inline-block; padding: 16px 24px; border-radius: 8px; }
+        h3 { margin: 0 0 4px; font-size: 14px; }
+        p { margin: 2px 0; font-size: 11px; color: #555; }
+        .barcode { font-family: monospace; font-size: 18px; letter-spacing: 4px; margin: 10px 0 4px; }
+      </style></head><body>
+      <div class="label">
+        <h3>${product.name}</h3>
+        <p>${product.genericName ?? ''}</p>
+        <div class="barcode">${barcode}</div>
+        <p>MRP: ₹${Number(product.mrp).toFixed(2)}</p>
+      </div>
+      <script>window.onload = () => { window.print(); window.close(); }<\/script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
+  const CSV_TEMPLATE_HEADERS = [
+    'name', 'genericname', 'saltcomposition', 'manufacturer', 'category', 'subcategory',
+    'packsize', 'unitofmeasure', 'schedule', 'hsncode', 'isnarcotic', 'storagecondition',
+    'mrp', 'purchaserate', 'sellingrate', 'wholesalerate', 'gstrate',
+    'minstock', 'maxstock', 'reorderqty', 'racklocation', 'barcode',
+  ]
+  const CSV_TEMPLATE_EXAMPLE = [
+    'Paracetamol 500mg', 'Paracetamol', '', 'ABC Pharma', 'GENERAL', '',
+    '10 Tabs', 'TAB', 'H', '3004', 'false', 'ROOM_TEMPERATURE',
+    '25', '12', '20', '18', '12',
+    '10', '500', '50', 'A-01', '',
+  ]
+
+  const handleDownloadTemplate = () => {
+    const rows = [CSV_TEMPLATE_HEADERS.join(','), CSV_TEMPLATE_EXAMPLE.join(',')]
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'products-import-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImport = async () => {
+    if (!importFile) { toast.error('Please select a CSV file'); return }
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', importFile)
+      const res = await api.post('/products/import-csv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setImportResult(res.data)
+      if (res.data.created > 0) {
+        refreshPage()
+        toast.success(`Imported ${res.data.created} product(s)`)
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Import failed')
+    } finally {
+      setImporting(false)
+    }
   }
 
   const generateBarcode = () => {
@@ -345,7 +433,7 @@ export default function ProductsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toast.info('Import CSV coming soon')}
+            onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}
           >
             <Upload className="mr-1.5 h-4 w-4" />
             Import
@@ -358,11 +446,24 @@ export default function ProductsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => toast.info('Exporting CSV...')}>
+              <DropdownMenuItem onClick={() => {
+                const rows = paginatedProducts.map((p) => ({
+                  Name: p.name, Generic: p.genericName, Category: p.category,
+                  MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
+                  HSN: p.hsnCode, GST: p.gstRate,
+                }))
+                exportToCsv(rows, 'products')
+              }}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
                 Export as CSV
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.info('Exporting PDF...')}>
+              <DropdownMenuItem onClick={() => {
+                const rows = paginatedProducts.map((p) => ({
+                  Name: p.name, Generic: p.genericName, Category: p.category,
+                  MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
+                }))
+                exportToPdf(rows, 'Products List', 'products')
+              }}>
                 <FileDown className="mr-2 h-4 w-4" />
                 Export as PDF
               </DropdownMenuItem>
@@ -575,7 +676,7 @@ export default function ProductsPage() {
                   </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => toast.info(`Viewing "${product.name}"`)}
+                        onView={() => openEditDialog(product)}
                         onEdit={() => openEditDialog(product)}
                         onDelete={() => handleDelete(product)}
                         customActions={[
@@ -695,28 +796,35 @@ export default function ProductsPage() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="manufacturer">Manufacturer</Label>
-                    <Controller
-                      control={form.control}
-                      name="manufacturer"
-                      render={({ field }) => (
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select manufacturer" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {manufacturers.map((m) => (
-                              <SelectItem key={m} value={m}>
-                                {m}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                    <Label htmlFor="saltComposition">Salt Composition</Label>
+                    <Input
+                      id="saltComposition"
+                      placeholder="e.g. Paracetamol 500mg + Caffeine 65mg"
+                      {...form.register('saltComposition')}
                     />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="manufacturer">Manufacturer</Label>
+                    <div className="relative">
+                      <Input
+                        id="manufacturer"
+                        list="manufacturer-list"
+                        placeholder="Select or type manufacturer..."
+                        autoComplete="off"
+                        error={!!form.formState.errors.manufacturer}
+                        {...form.register('manufacturer')}
+                      />
+                      <datalist id="manufacturer-list">
+                        {manufacturers.map((m) => (
+                          <option key={m} value={m} />
+                        ))}
+                      </datalist>
+                    </div>
+                    {form.formState.errors.manufacturer && (
+                      <p className="text-xs text-rose-500">
+                        {form.formState.errors.manufacturer.message}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1049,6 +1157,60 @@ export default function ProductsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CSV Import Dialog ── */}
+      <Dialog open={importDialogOpen} onOpenChange={(open) => { if (!open) { setImportFile(null); setImportResult(null) } setImportDialogOpen(open) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Products from CSV</DialogTitle>
+            <DialogDescription>
+              Upload a CSV file to bulk-import products. Download the template first to see the required format.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Button variant="outline" size="sm" className="w-full" onClick={handleDownloadTemplate}>
+              <FileDown className="mr-1.5 h-4 w-4" />
+              Download CSV Template
+            </Button>
+
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Select CSV File
+              </Label>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="block w-full cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-xs file:font-semibold file:text-primary-foreground"
+                onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setImportResult(null) }}
+              />
+            </div>
+
+            {importResult && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
+                <p className="font-semibold">Import complete</p>
+                <p className="text-green-600 dark:text-green-400">Created: {importResult.created}</p>
+                <p className="text-muted-foreground">Skipped (duplicate barcode): {importResult.skipped}</p>
+                {importResult.errors.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-destructive font-medium">Errors ({importResult.errors.length}):</p>
+                    <ul className="mt-1 max-h-28 overflow-y-auto space-y-0.5 text-xs text-destructive">
+                      {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Close</Button>
+            <Button onClick={handleImport} disabled={!importFile || importing}>
+              {importing ? 'Importing…' : 'Import'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </motion.div>

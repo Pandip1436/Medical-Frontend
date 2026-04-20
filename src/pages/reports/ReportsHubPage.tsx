@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn, formatDate } from '@/lib/utils'
+import ReportViewPage from './ReportViewPage'
 
 // ─────────────────────────────────────────────────────────────
 // Report definitions
@@ -62,6 +63,7 @@ const allReports: ReportDef[] = [
   // Sales
   { id: 'daily-sales', name: 'Daily Sales Summary', description: 'Hourly breakdown of today\'s sales performance', icon: BarChart3, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales', popular: true },
   { id: 'monthly-sales', name: 'Monthly Sales Summary', description: 'Month-over-month sales trend analysis', icon: TrendingUp, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
+  { id: 'yearly-sales', name: 'Yearly Sales', description: 'Year-over-year sales trend across all years', icon: TrendingUp, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
   { id: 'product-sales', name: 'Product-wise Sales', description: 'Revenue and margin breakdown by product', icon: Package, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales', popular: true },
   { id: 'customer-sales', name: 'Customer-wise Sales', description: 'Sales volume and outstanding per customer', icon: Users, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
   { id: 'category-sales', name: 'Category-wise Sales', description: 'Sales distribution across product categories', icon: PieChart, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
@@ -97,7 +99,7 @@ const categoryConfig: Record<CategoryKey, { label: string; color: string; badge:
 
 const categoryKeys: CategoryKey[] = ['All', 'Sales', 'Purchase', 'Inventory', 'Accounting', 'Customers']
 
-// Recently generated reports (mock)
+// Recently generated reports (localStorage-backed)
 interface RecentReport {
   id: string
   name: string
@@ -106,422 +108,30 @@ interface RecentReport {
   category: CategoryKey
 }
 
-const recentReports: RecentReport[] = [
-  { id: 'RR-001', name: 'Daily Sales Summary', generatedAt: '2026-03-21T10:30:00Z', reportType: 'daily-sales', category: 'Sales' },
-  { id: 'RR-002', name: 'Stock Valuation', generatedAt: '2026-03-21T09:15:00Z', reportType: 'stock-valuation', category: 'Inventory' },
-  { id: 'RR-003', name: 'GSTR-1 Summary', generatedAt: '2026-03-20T16:45:00Z', reportType: 'gstr1-summary', category: 'Accounting' },
-  { id: 'RR-004', name: 'Product-wise Sales', generatedAt: '2026-03-20T14:20:00Z', reportType: 'product-sales', category: 'Sales' },
-  { id: 'RR-005', name: 'Outstanding Receivables', generatedAt: '2026-03-19T11:00:00Z', reportType: 'outstanding-receivables', category: 'Customers' },
-]
+const RECENT_REPORTS_KEY = 'recentReports'
+const MAX_RECENT = 5
 
-// ─────────────────────────────────────────────────────────────
-// Inline ReportViewPage
-// ─────────────────────────────────────────────────────────────
-
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart as RechartsPieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts'
-import {
-  ArrowLeft,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
-  Table2,
-  BarChart2,
-} from 'lucide-react'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { Card, CardContent } from '@/components/ui/card'
-import { formatCurrency } from '@/lib/utils'
-import api from '@/lib/api'
-import * as XLSX from 'xlsx'
-import { useEffect } from 'react'
-
-const dailySalesData = [
-  { hour: '9 AM', amount: 12400 },
-  { hour: '10 AM', amount: 18900 },
-  { hour: '11 AM', amount: 23500 },
-  { hour: '12 PM', amount: 15200 },
-  { hour: '1 PM', amount: 8900 },
-  { hour: '2 PM', amount: 19800 },
-  { hour: '3 PM', amount: 22100 },
-  { hour: '4 PM', amount: 17600 },
-  { hour: '5 PM', amount: 25300 },
-  { hour: '6 PM', amount: 14200 },
-]
-
-const dailySalesTable = [
-  { invoice: 'HS/25-26/INV/00421', time: '09:15 AM', customer: 'Apollo Hospital', amount: 12400 },
-  { invoice: 'HS/25-26/INV/00422', time: '09:45 AM', customer: 'Walk-in Customer', amount: 3250 },
-  { invoice: 'HS/25-26/INV/00423', time: '10:20 AM', customer: 'MIOT Hospital', amount: 18900 },
-  { invoice: 'HS/25-26/INV/00424', time: '11:00 AM', customer: 'MedPlus - Madurai', amount: 8650 },
-  { invoice: 'HS/25-26/INV/00425', time: '11:30 AM', customer: 'Meenakshi Mission', amount: 14850 },
-  { invoice: 'HS/25-26/INV/00426', time: '12:10 PM', customer: 'Walk-in Customer', amount: 2100 },
-  { invoice: 'HS/25-26/INV/00427', time: '02:30 PM', customer: 'PharmEasy Wholesale', amount: 19800 },
-  { invoice: 'HS/25-26/INV/00428', time: '03:15 PM', customer: 'Apollo Hospital', amount: 22100 },
-  { invoice: 'HS/25-26/INV/00429', time: '04:00 PM', customer: 'Dr. Rajesh Clinic', amount: 5400 },
-  { invoice: 'HS/25-26/INV/00430', time: '05:20 PM', customer: 'MIOT Hospital', amount: 25300 },
-]
-
-const productSalesData = [
-  { product: 'Rituximab 500mg', qtySold: 12, revenue: 282000, margin: 23.4 },
-  { product: 'Paclitaxel 260mg', qtySold: 18, revenue: 142200, margin: 26.4 },
-  { product: 'Bevacizumab 400mg', qtySold: 8, revenue: 164000, margin: 29.5 },
-  { product: 'Imatinib 400mg', qtySold: 35, revenue: 91000, margin: 28.8 },
-  { product: 'Gemcitabine 1g', qtySold: 28, revenue: 98000, margin: 28.6 },
-  { product: 'Erythropoietin 4000IU', qtySold: 45, revenue: 51750, margin: 26.1 },
-  { product: 'Carboplatin 450mg', qtySold: 15, revenue: 58500, margin: 28.2 },
-  { product: 'Torsemide 20mg', qtySold: 320, revenue: 24960, margin: 33.3 },
-  { product: 'Tacrolimus 1mg', qtySold: 85, revenue: 25075, margin: 28.8 },
-  { product: 'Darbepoetin 40mcg', qtySold: 20, revenue: 59000, margin: 28.8 },
-]
-
-const stockValuationData = [
-  { category: 'Nephrology', value: 485000 },
-  { category: 'Oncology', value: 1250000 },
-  { category: 'General', value: 180000 },
-  { category: 'OTC', value: 95000 },
-]
-
-const stockValuationTable = [
-  { product: 'Rituximab 500mg Inj', batch: 'RIT2601R', qty: 4, purchaseValue: 72000, mrpValue: 100000 },
-  { product: 'Paclitaxel 260mg Inj', batch: 'PAC2511M', qty: 7, purchaseValue: 40600, mrpValue: 59500 },
-  { product: 'Bevacizumab 400mg Inj', batch: 'BEV2601V', qty: 3, purchaseValue: 46500, mrpValue: 66000 },
-  { product: 'Imatinib 400mg Tab', batch: 'IMA2510V', qty: 30, purchaseValue: 55500, mrpValue: 84000 },
-  { product: 'Torsemide 20mg Tab', batch: 'TOR2502B', qty: 250, purchaseValue: 13000, mrpValue: 21250 },
-  { product: 'Erythropoietin 4000IU', batch: 'EPO2509Y', qty: 35, purchaseValue: 29750, mrpValue: 43750 },
-  { product: 'Tacrolimus 1mg Cap', batch: 'TAC2510F', qty: 18, purchaseValue: 3780, mrpValue: 5760 },
-  { product: 'Losartan 50mg Tab', batch: 'LOS2601Y', qty: 400, purchaseValue: 16000, mrpValue: 27200 },
-  { product: 'Furosemide 40mg Tab', batch: 'FUR2601D', qty: 600, purchaseValue: 9600, mrpValue: 16800 },
-  { product: 'Mycophenolate 500mg', batch: 'MYC2509K', qty: 110, purchaseValue: 34100, mrpValue: 52800 },
-]
-
-const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4']
-
-interface KpiDef { label: string; value: string }
-
-const reportKpis: Record<string, KpiDef[]> = {
-  'daily-sales': [
-    { label: 'Total Sales', value: '\u20B91,47,832' },
-    { label: 'Invoices', value: '23' },
-    { label: 'Avg. Invoice', value: '\u20B96,427' },
-    { label: 'Returns', value: '\u20B92,400' },
-  ],
-  'product-sales': [
-    { label: 'Products Sold', value: '142' },
-    { label: 'Total Revenue', value: '\u20B99,96,485' },
-    { label: 'Avg. Margin', value: '27.8%' },
-    { label: 'Top Category', value: 'Oncology' },
-  ],
-  'stock-valuation': [
-    { label: 'Total Items', value: '22' },
-    { label: 'Purchase Value', value: '\u20B920,10,000' },
-    { label: 'MRP Value', value: '\u20B928,45,000' },
-    { label: 'Potential Margin', value: '\u20B98,35,000' },
-  ],
+function loadRecentReports(): RecentReport[] {
+  try {
+    const raw = localStorage.getItem(RECENT_REPORTS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
 }
 
-const defaultKpis: KpiDef[] = [
-  { label: 'Total Records', value: '156' },
-  { label: 'Period', value: 'Mar 2026' },
-  { label: 'Generated By', value: 'Admin' },
-  { label: 'Status', value: 'Complete' },
-]
-
-const reportTitleMap: Record<string, string> = {}
-allReports.forEach((r) => { reportTitleMap[r.id] = r.name })
-
-// ─────────────────────────────────────────────────────────────
-// Report View Page (embedded)
-// ─────────────────────────────────────────────────────────────
-
-function ReportViewPage({ reportType, onBack }: { reportType: string; onBack: () => void }) {
-  const [dateRange, setDateRange] = useState('today')
-  const [viewMode, setViewMode] = useState<'table' | 'chart'>('chart')
-  const [reportData, setReportData] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-
-  const title = reportTitleMap[reportType] || 'Report'
-
-  useEffect(() => {
-    async function loadReportData() {
-      setIsLoading(true)
-      try {
-        let endpoint = ''
-        if (reportType === 'daily-sales') endpoint = '/reports/sales/daily'
-        else if (reportType === 'product-sales') endpoint = '/reports/sales/products'
-        else if (reportType === 'stock-valuation') endpoint = '/reports/inventory/valuation'
-
-        if (endpoint) {
-          const res = await api.get(endpoint)
-          setReportData(res.data)
-        } else {
-          setReportData(null)
-        }
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    loadReportData()
-  }, [reportType])
-
-  const kpis = reportData?.kpis || defaultKpis
-
-  function handleExcelExport() {
-    if (!reportData?.tableData) return
-    const ws = XLSX.utils.json_to_sheet(reportData.tableData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Report")
-    XLSX.writeFile(wb, `${reportType}_report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+function saveRecentReport(report: ReportDef): RecentReport[] {
+  const existing = loadRecentReports().filter((r) => r.reportType !== report.id)
+  const entry: RecentReport = {
+    id: `RR-${Date.now()}`,
+    name: report.name,
+    generatedAt: new Date().toISOString(),
+    reportType: report.id,
+    category: report.category,
   }
-
-  const dateRangeOptions = [
-    { key: 'today', label: 'Today' },
-    { key: 'week', label: 'This Week' },
-    { key: 'month', label: 'This Month' },
-    { key: 'custom', label: 'Custom' },
-  ]
-
-  return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
-      {/* Header */}
-      <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-background px-6 py-2.5">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">{title}</h1>
-            <p className="text-[11px] text-muted-foreground">
-              Generated on {formatDate(new Date().toISOString())}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Date range */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5">
-            {dateRangeOptions.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setDateRange(opt.key)}
-                className={cn(
-                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
-                  dateRange === opt.key
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <div className="h-5 w-px bg-border/60" />
-          {/* View toggle */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5">
-            <button
-              onClick={() => setViewMode('chart')}
-              className={cn(
-                'flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
-                viewMode === 'chart' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <BarChart2 className="h-3 w-3" />
-              Chart
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
-                viewMode === 'table' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Table2 className="h-3 w-3" />
-              Table
-            </button>
-          </div>
-          <div className="h-5 w-px bg-border/60" />
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={() => window.print()}>
-            <FileDown className="h-3 w-3" /> PDF
-          </Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={handleExcelExport}>
-            <FileSpreadsheet className="h-3 w-3" /> Excel
-          </Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-lg text-[11px] gap-1 cursor-pointer" onClick={() => window.print()}>
-            <Printer className="h-3 w-3" /> Print
-          </Button>
-        </div>
-      </div>
-
-      {/* KPI strip */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/10 px-6 py-3 dark:bg-muted/5">
-        <div className="grid grid-cols-4 gap-3">
-          {kpis.map((kpi: KpiDef) => (
-            <div key={kpi.label} className="rounded-xl border border-border/40 bg-background px-4 py-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
-              <p className="mt-0.5 text-lg font-bold tabular-nums">{kpi.value}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Content */}
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-6">
-          {isLoading ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-4">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-sm text-muted-foreground font-medium animate-pulse">Analyzing database records...</p>
-            </div>
-          ) : reportType === 'daily-sales' && reportData ? (
-            <>
-              {viewMode === 'chart' ? (
-                <div className="rounded-xl border border-border/40 bg-background p-5">
-                  <ResponsiveContainer width="100%" height={400}>
-                    <BarChart data={reportData.chartData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" vertical={false} />
-                      <XAxis dataKey="hour" tick={{ fontSize: 11 }} className="text-muted-foreground" axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} className="text-muted-foreground" axisLine={false} tickLine={false} />
-                      <Tooltip
-                        formatter={(value: any) => [formatCurrency(Number(value)), 'Sales']}
-                        contentStyle={{ borderRadius: '10px', border: '1px solid hsl(var(--border) / 0.6)', fontSize: '12px' }}
-                      />
-                      <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border/40 bg-background overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>Invoice #</TableHead><TableHead>Time</TableHead><TableHead>Customer</TableHead><TableHead className="text-right">Amount</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportData.tableData.map((row: any) => (
-                        <TableRow key={row.invoice}>
-                          <TableCell className="font-mono text-xs">{row.invoice}</TableCell>
-                          <TableCell>{row.time}</TableCell>
-                          <TableCell>{row.customer}</TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(row.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </>
-          ) : reportType === 'product-sales' && reportData ? (
-            <>
-              {viewMode === 'chart' ? (
-                <div className="rounded-xl border border-border/40 bg-background p-5">
-                  <ResponsiveContainer width="100%" height={400}>
-                    <BarChart data={reportData.chartData} layout="vertical" margin={{ left: 30 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} className="text-muted-foreground" axisLine={false} tickLine={false} />
-                      <YAxis dataKey="product" type="category" tick={{ fontSize: 10 }} width={140} className="text-muted-foreground" axisLine={false} tickLine={false} />
-                      <Tooltip
-                        formatter={(value: any) => [formatCurrency(Number(value)), 'Revenue']}
-                        contentStyle={{ borderRadius: '10px', border: '1px solid hsl(var(--border) / 0.6)', fontSize: '12px' }}
-                      />
-                      <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border/40 bg-background overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Qty Sold</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead className="text-right">Margin %</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportData.tableData.map((row: any) => (
-                        <TableRow key={row.product}>
-                          <TableCell className="font-medium">{row.product}</TableCell>
-                          <TableCell className="text-right">{row.qtySold}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.revenue)}</TableCell>
-                          <TableCell className="text-right">
-                            <Badge variant={row.margin > 28 ? 'success' : 'warning'} size="sm">{row.margin}%</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </>
-          ) : reportType === 'stock-valuation' && reportData ? (
-            <>
-              {viewMode === 'chart' ? (
-                <div className="rounded-xl border border-border/40 bg-background p-5">
-                  <ResponsiveContainer width="100%" height={400}>
-                    <RechartsPieChart>
-                      <Pie data={reportData.chartData} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="value" nameKey="category">
-                        {reportData.chartData.map((_: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: any) => [formatCurrency(Number(value)), 'Value']}
-                        contentStyle={{ borderRadius: '10px', border: '1px solid hsl(var(--border) / 0.6)', fontSize: '12px' }}
-                      />
-                      <Legend verticalAlign="bottom" height={36} formatter={(value: string) => (<span className="text-xs text-foreground">{value}</span>)} />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border/40 bg-background overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>Product</TableHead><TableHead>Batch</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Purchase Value</TableHead><TableHead className="text-right">MRP Value</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reportData.tableData.map((row: any) => (
-                        <TableRow key={row.batch}>
-                          <TableCell className="font-medium">{row.product}</TableCell>
-                          <TableCell className="font-mono text-xs">{row.batch}</TableCell>
-                          <TableCell className="text-right">{row.qty}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.purchaseValue)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(row.mrpValue)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/50">
-                <BarChart3 className="h-7 w-7 text-muted-foreground/50" />
-              </div>
-              <h3 className="mb-1 text-base font-semibold">{title}</h3>
-              <p className="mb-4 max-w-sm text-sm text-muted-foreground">
-                This report is being prepared. Detailed view coming soon.
-              </p>
-              <Button variant="outline" size="sm" onClick={onBack}>Back to Reports</Button>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  )
+  const updated = [entry, ...existing].slice(0, MAX_RECENT)
+  localStorage.setItem(RECENT_REPORTS_KEY, JSON.stringify(updated))
+  return updated
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -534,6 +144,11 @@ export default function ReportsHubPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [activeReport, setActiveReport] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<ReportDef | null>(null)
+  const [recentReports, setRecentReports] = useState<RecentReport[]>([])
+
+  useEffect(() => {
+    setRecentReports(loadRecentReports())
+  }, [])
 
   const totalReports = allReports.length
   const popularReports = allReports.filter((r) => r.popular)
@@ -564,6 +179,11 @@ export default function ReportsHubPage() {
   }, [filteredReports])
 
   const handleGenerate = (reportId: string) => {
+    const report = allReports.find((r) => r.id === reportId)
+    if (report) {
+      const updated = saveRecentReport(report)
+      setRecentReports(updated)
+    }
     setActiveReport(reportId)
   }
 

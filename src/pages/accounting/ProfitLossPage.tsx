@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
-import { toast } from 'sonner'
+import api from '@/lib/api'
+import dayjs from 'dayjs'
 import {
   Bar,
   Line,
@@ -42,6 +44,7 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn, formatCurrency } from '@/lib/utils'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Period definitions
@@ -78,81 +81,52 @@ interface PLData {
   netProfitPercent: number
 }
 
-function computePLData(period: Period): PLData {
-  const multipliers: Record<Period, number> = {
-    this_month: 1,
-    last_month: 0.92,
-    this_quarter: 3.1,
-    this_year: 12.5,
-    custom: 1,
+function periodToRange(period: Period): { from: string; to: string } {
+  const now = dayjs()
+  if (period === 'last_month') {
+    const lm = now.subtract(1, 'month')
+    return { from: lm.startOf('month').format('YYYY-MM-DD'), to: lm.endOf('month').format('YYYY-MM-DD') }
   }
+  if (period === 'this_quarter') {
+    const qStart = now.startOf('month').subtract((now.month() % 3), 'month')
+    return { from: qStart.format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
+  }
+  if (period === 'this_year') {
+    return { from: now.startOf('year').format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
+  }
+  return { from: now.startOf('month').format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
+}
 
-  const m = multipliers[period]
-
-  const salesRevenue = Math.round(1845320 * m)
-  const salesReturns = Math.round(42100 * m)
-  const netRevenue = salesRevenue - salesReturns
-
-  const openingStock = Math.round(1250000 * (period === 'this_year' ? 1 : m * 0.4))
-  const purchases = Math.round(1420000 * m)
-  const purchaseReturns = Math.round(35000 * m)
-  const closingStock = Math.round(1380000 * (period === 'this_year' ? 1 : m * 0.4))
-  const cogs = openingStock + purchases - purchaseReturns - closingStock
-
-  const grossProfit = netRevenue - cogs
-  const grossProfitPercent = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0
-
-  const expenseMultiplier = period === 'this_month' ? 1 : period === 'last_month' ? 0.95 : period === 'this_quarter' ? 2.8 : 11.5
-  const expenses: Record<string, number> = period === 'this_month'
-    ? { Rent: 25000, Salaries: 120000, Electricity: 8500, Transport: 12000, Others: 15200 }
-    : {
-        Rent: Math.round(25000 * expenseMultiplier),
-        Salaries: Math.round(120000 * expenseMultiplier),
-        Electricity: Math.round(8500 * expenseMultiplier),
-        Transport: Math.round(12000 * expenseMultiplier),
-        Others: Math.round(15200 * expenseMultiplier),
-      }
-
-  const totalExpenses = Object.values(expenses).reduce((s, v) => s + v, 0)
-  const netProfit = grossProfit - totalExpenses
-  const netProfitPercent = netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0
-
+function mapPLResponse(resp: any): PLData {
+  const lineItems: Array<{ label: string; amount: number }> = resp.lineItems ?? []
+  const byLabel = Object.fromEntries(lineItems.map((li) => [li.label, li.amount]))
+  const grossSales = byLabel['Gross Sales'] ?? 0
+  const salesReturns = Math.abs(byLabel['Sales Returns'] ?? 0)
+  const netRevenue = byLabel['Net Sales'] ?? grossSales - salesReturns
+  const cogs = Math.abs(byLabel['Cost of Goods Sold'] ?? 0)
+  const grossProfit = byLabel['Gross Profit'] ?? netRevenue - cogs
+  const totalExpenses = Math.abs(byLabel['Operating Expenses'] ?? 0)
+  const netProfit = byLabel['Net Profit'] ?? grossProfit - totalExpenses
+  const grossPurchases = Number(resp.extras?.grossPurchases ?? 0)
+  const purchaseReturns = Number(resp.extras?.purchaseReturn ?? 0)
   return {
-    salesRevenue, salesReturns, netRevenue,
-    openingStock, purchases, purchaseReturns, closingStock, cogs,
-    grossProfit, grossProfitPercent,
-    expenses, totalExpenses,
-    netProfit, netProfitPercent,
+    salesRevenue: grossSales,
+    salesReturns,
+    netRevenue,
+    openingStock: 0,
+    purchases: grossPurchases,
+    purchaseReturns,
+    closingStock: 0,
+    cogs,
+    grossProfit,
+    grossProfitPercent: netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0,
+    expenses: { 'Operating Expenses': totalExpenses },
+    totalExpenses,
+    netProfit,
+    netProfitPercent: netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0,
   }
 }
 
-// Previous period % change (mock)
-function getPrevChange(period: Period) {
-  const changes: Record<Period, { revenue: number; gross: number; expenses: number; net: number }> = {
-    this_month: { revenue: 8.2, gross: 6.5, expenses: 3.1, net: 12.4 },
-    last_month: { revenue: -2.1, gross: -3.4, expenses: 1.8, net: -5.6 },
-    this_quarter: { revenue: 12.5, gross: 10.2, expenses: 5.6, net: 18.3 },
-    this_year: { revenue: 15.8, gross: 14.1, expenses: 8.3, net: 22.7 },
-    custom: { revenue: 0, gross: 0, expenses: 0, net: 0 },
-  }
-  return changes[period]
-}
-
-// Monthly trend data
-const monthlyTrend = [
-  { month: 'Apr', revenue: 1520000, expenses: 1235000, profit: 285000 },
-  { month: 'May', revenue: 1680000, expenses: 1360000, profit: 320000 },
-  { month: 'Jun', revenue: 1590000, expenses: 1292000, profit: 298000 },
-  { month: 'Jul', revenue: 1740000, expenses: 1400000, profit: 340000 },
-  { month: 'Aug', revenue: 1650000, expenses: 1340000, profit: 310000 },
-  { month: 'Sep', revenue: 1820000, expenses: 1464000, profit: 356000 },
-  { month: 'Oct', revenue: 1780000, expenses: 1435000, profit: 345000 },
-  { month: 'Nov', revenue: 1690000, expenses: 1365000, profit: 325000 },
-  { month: 'Dec', revenue: 1900000, expenses: 1520000, profit: 380000 },
-  { month: 'Jan', revenue: 1750000, expenses: 1402000, profit: 348000 },
-  { month: 'Feb', revenue: 1800000, expenses: 1440000, profit: 360000 },
-  { month: 'Mar', revenue: 1845320, expenses: 1477800, profit: 367520 },
-]
 
 // Expense colors for donut
 const expenseColors = ['#6366f1', '#8b5cf6', '#06b6d4', '#f59e0b', '#94a3b8']
@@ -320,8 +294,55 @@ export default function ProfitLossPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('this_month')
   const [rightTab, setRightTab] = useState<'trend' | 'breakdown'>('trend')
 
-  const plData = useMemo(() => computePLData(selectedPeriod), [selectedPeriod])
-  const prevChange = useMemo(() => getPrevChange(selectedPeriod), [selectedPeriod])
+  const emptyPL: PLData = {
+    salesRevenue: 0, salesReturns: 0, netRevenue: 0,
+    openingStock: 0, purchases: 0, purchaseReturns: 0, closingStock: 0, cogs: 0,
+    grossProfit: 0, grossProfitPercent: 0,
+    expenses: {}, totalExpenses: 0, netProfit: 0, netProfitPercent: 0,
+  }
+  const [plData, setPlData] = useState<PLData>(emptyPL)
+  const [prevPlData, setPrevPlData] = useState<PLData>(emptyPL)
+  const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; revenue: number; profit: number }[]>([])
+
+  const fetchPL = useCallback(() => {
+    const { from, to } = periodToRange(selectedPeriod)
+    api
+      .get('/reports/financial/profit-loss', { params: { from, to } })
+      .then((res) => setPlData(mapPLResponse(res.data)))
+      .catch(() => setPlData(emptyPL))
+
+    // Previous period for % change
+    const dur = dayjs(to).diff(dayjs(from), 'day') + 1
+    const prevFrom = dayjs(from).subtract(dur, 'day').format('YYYY-MM-DD')
+    const prevTo = dayjs(from).subtract(1, 'day').format('YYYY-MM-DD')
+    api
+      .get('/reports/financial/profit-loss', { params: { from: prevFrom, to: prevTo } })
+      .then((res) => setPrevPlData(mapPLResponse(res.data)))
+      .catch(() => setPrevPlData(emptyPL))
+
+    // Monthly trend for current year
+    const year = dayjs(from).year()
+    api
+      .get('/reports/sales/monthly', { params: { year } })
+      .then((res) => {
+        const data: { month: string; amount: number }[] = res.data?.chartData ?? []
+        setMonthlyTrend(data.map((d) => ({ month: d.month, revenue: d.amount, profit: d.amount * 0.2 })))
+      })
+      .catch(() => setMonthlyTrend([]))
+  }, [selectedPeriod])
+
+  useEffect(() => { fetchPL() }, [fetchPL])
+  useBranchRefresh(fetchPL)
+
+  const prevChange = useMemo(() => {
+    const pct = (cur: number, prev: number) => prev > 0 ? parseFloat(((cur - prev) / prev * 100).toFixed(1)) : 0
+    return {
+      revenue: pct(plData.netRevenue, prevPlData.netRevenue),
+      gross: pct(plData.grossProfit, prevPlData.grossProfit),
+      expenses: pct(plData.totalExpenses, prevPlData.totalExpenses),
+      net: pct(plData.netProfit, prevPlData.netProfit),
+    }
+  }, [plData, prevPlData])
   const waterfallData = useMemo(() => getWaterfallData(plData), [plData])
 
   const expenseDonutData = useMemo(
@@ -335,7 +356,20 @@ export default function ProfitLossPage() {
   )
 
   const handleExport = (format: string) => {
-    toast.info(`${format} export — coming soon`)
+    const title = `Profit & Loss Statement`
+    const rows = [
+      { Item: 'Sales Revenue', Amount: plData.salesRevenue },
+      { Item: 'Less: Sales Returns', Amount: -plData.salesReturns },
+      { Item: 'Net Revenue', Amount: plData.netRevenue },
+      { Item: 'Cost of Goods Sold', Amount: -plData.cogs },
+      { Item: 'Gross Profit', Amount: plData.grossProfit },
+      ...Object.entries(plData.expenses).map(([cat, amt]) => ({ Item: `  ${cat}`, Amount: -(amt as number) })),
+      { Item: 'Total Expenses', Amount: -plData.totalExpenses },
+      { Item: 'Net Profit', Amount: plData.netProfit },
+    ]
+    if (format === 'PDF') exportToPdf(rows, title, 'profit-loss')
+    else if (format === 'Excel') exportToCsv(rows, 'profit-loss')
+    else if (format === 'Print') printReport(rows, title)
   }
 
   return (
@@ -670,7 +704,7 @@ export default function ProfitLossPage() {
                     {/* Monthly Trend */}
                     <div className="rounded-xl border border-border/40 bg-background p-4">
                       <p className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Monthly P&L Trend (FY 2025-26)
+                        Monthly Revenue Trend
                       </p>
                       <div className="h-56">
                         <ResponsiveContainer width="100%" height="100%">

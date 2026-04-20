@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -23,7 +25,7 @@ import {
   Clock,
   Package,
 } from 'lucide-react'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, useWatch, type Control } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -64,10 +66,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { mockPurchaseOrders, mockSuppliers, mockProducts } from '@/data/mock'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
+import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
 import type { PurchaseOrder } from '@/types'
+import api from '@/lib/api'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // ─────────────────────────────────────────────────────────────
 // Create PO Schema
@@ -127,15 +132,246 @@ const statusBadgeConfig: Record<
 }
 
 // ─────────────────────────────────────────────────────────────
+// ROW COMPONENT (Isolating state per row)
+// ─────────────────────────────────────────────────────────────
+
+interface POItemRowProps {
+  index: number
+  register: any
+  onSelectProduct: (index: number, product: any) => void
+  control: Control<CreatePOForm>
+  remove: (index: number) => void
+  errors: any
+  products: any[]
+  isRemovable: boolean
+}
+
+function POItemRow({ index, register, onSelectProduct, control, remove, errors, products, isRemovable }: POItemRowProps) {
+  // Local row state for search UI
+  const [productSearch, setProductSearch] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 })
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Use localized watch for better reactivity in field arrays
+  const watchedItem = useWatch({
+    control,
+    name: `items.${index}`,
+  })
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return []
+    const q = productSearch.toLowerCase()
+    return products
+      .filter((p) => 
+        p.name.toLowerCase().includes(q) || 
+        (p.genericName ?? '').toLowerCase().includes(q)
+      )
+      .slice(0, 8)
+  }, [productSearch, products])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setShowDropdown(true)
+      setSelectedIndex(prev => Math.min(prev + 1, filteredProducts.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex(prev => Math.max(prev - 1, 0))
+    } else if (e.key === 'Enter') {
+      if (showDropdown && filteredProducts[selectedIndex]) {
+        e.preventDefault()
+        onSelectProduct(index, filteredProducts[selectedIndex])
+        setProductSearch('')
+        setShowDropdown(false)
+      }
+    } else if (e.key === 'Escape') {
+      setShowDropdown(false)
+    }
+  }
+
+  const updateDropdownPos = () => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect()
+      setDropdownPos({ 
+        top: rect.bottom, 
+        left: rect.left, 
+        width: rect.width 
+      })
+    }
+  }
+
+  return (
+    <TableRow className="border-border/40">
+      <TableCell className="relative">
+        {watchedItem?.productId ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">{watchedItem.productName}</span>
+            <button
+              type="button"
+              className="w-fit text-[10px] text-primary hover:underline font-semibold"
+              onClick={() => {
+                onSelectProduct(index, null) // Clear selection
+              }}
+            >
+              Change Product
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <Input
+              ref={inputRef}
+              icon={<Search className="h-3.5 w-3.5" />}
+              placeholder="Search product..."
+              value={productSearch}
+              onChange={(e) => {
+                setProductSearch(e.target.value)
+                setShowDropdown(true)
+                setSelectedIndex(0)
+                updateDropdownPos()
+              }}
+              onFocus={() => {
+                updateDropdownPos()
+                setShowDropdown(true)
+              }}
+              onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
+              onKeyDown={handleKeyDown}
+              className="h-8"
+              error={!!errors.items?.[index]?.productId}
+            />
+            {showDropdown && productSearch && filteredProducts.length > 0 && createPortal(
+              <div
+                style={{
+                  position: 'fixed',
+                  top: dropdownPos.top + 4,
+                  left: dropdownPos.left,
+                  width: dropdownPos.width,
+                  zIndex: 10000
+                }}
+                className="rounded-xl border border-border/60 bg-popover p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="px-2 py-1.5 border-b border-border/40 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 mb-1 rounded-t-lg">
+                  Select Product
+                </div>
+                {filteredProducts.map((p, i) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={cn(
+                      "w-full rounded-lg px-2 py-2 text-left text-sm transition-all border border-transparent",
+                      i === selectedIndex ? "bg-primary/10 border-primary/20 text-primary shadow-sm" : "hover:bg-accent"
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault() // Prevent blur
+                      onSelectProduct(index, p)
+                      setProductSearch('')
+                      setShowDropdown(false)
+                    }}
+                    onMouseEnter={() => setSelectedIndex(i)}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-bold line-clamp-1">{p.name}</span>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground line-clamp-1">
+                        <span className="opacity-70">{p.genericName}</span>
+                        <span className="opacity-20">|</span>
+                        <span className="font-mono">{formatCurrency((p as any).purchaseRate || 0)}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>,
+              document.body
+            )}
+          </div>
+        )}
+      </TableCell>
+      <TableCell>
+        <Input 
+          type="number" 
+          className="h-8 w-20 font-mono" 
+          error={!!errors.items?.[index]?.requiredQty} 
+          {...register(`items.${index}.requiredQty`, { valueAsNumber: true })} 
+        />
+      </TableCell>
+      <TableCell>
+        <span className="font-mono text-sm text-muted-foreground">
+          {formatCurrency(Number(watchedItem?.lastPurchaseRate) || 0)}
+        </span>
+      </TableCell>
+      <TableCell>
+        <Input 
+          type="number" 
+          className="h-8 w-24 font-mono" 
+          error={!!errors.items?.[index]?.expectedRate} 
+          {...register(`items.${index}.expectedRate`, { valueAsNumber: true })} 
+        />
+      </TableCell>
+      <TableCell>
+        <Input className="h-8" placeholder="Optional" {...register(`items.${index}.remarks`)} />
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          {watchedItem?.productId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onSelectProduct(index, null)}
+              title="Clear product"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => remove(index)}
+            disabled={!isRemovable}
+          >
+            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
 export default function PurchaseOrdersPage() {
+  const { suppliers, products, fetchMasterData } = useMasterDataStore()
+
+  // Real data
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  const fetchPOs = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await api.get('/purchase-orders')
+      setPurchaseOrders(Array.isArray(res.data) ? res.data : (res.data.data ?? []))
+    } catch {
+      toast.error('Failed to load purchase orders')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchMasterData()
+    fetchPOs()
+  }, [])
+  useBranchRefresh(fetchPOs)
+
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
   // Filters
-
   const [period, setPeriod] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -152,7 +388,7 @@ export default function PurchaseOrdersPage() {
 
   // Create PO dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [productSearch, setProductSearch] = useState('')
+  const [detailPO, setDetailPO] = useState<(typeof purchaseOrders)[0] | null>(null)
 
   const clearFilters = () => {
     setPeriod('all')
@@ -167,7 +403,7 @@ export default function PurchaseOrdersPage() {
   // ── Filtering logic ──
 
   const filteredPOs = useMemo(() => {
-    let result = [...mockPurchaseOrders]
+    let result = [...purchaseOrders]
 
     // Period
     const now = new Date()
@@ -218,19 +454,19 @@ export default function PurchaseOrdersPage() {
     if (amountMax) result = result.filter((po) => po.totalAmount <= parseFloat(amountMax))
 
     return result
-  }, [searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax])
+  }, [purchaseOrders, searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
-    const all = mockPurchaseOrders
-    const totalAmount = all.reduce((sum, po) => sum + po.totalAmount, 0)
+    const all = purchaseOrders
+    const totalAmount = all.reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
     const receivedTotal = all
       .filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
-      .reduce((sum, po) => sum + po.totalAmount, 0)
+      .reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
     const pendingTotal = all
       .filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
-      .reduce((sum, po) => sum + po.totalAmount, 0)
+      .reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
     const partialCount = all.filter((po) => po.status === 'PARTIALLY_RECEIVED').length
     return {
       totalAmount,
@@ -241,7 +477,7 @@ export default function PurchaseOrdersPage() {
       pendingTotal,
       partialCount,
     }
-  }, [])
+  }, [purchaseOrders])
 
   // ── Pagination ──
 
@@ -287,12 +523,25 @@ export default function PurchaseOrdersPage() {
   ].filter(Boolean).length
 
   // ── Actions ──
-  function handleAction(action: string, po: PurchaseOrder) {
+  async function handleAction(action: string, po: PurchaseOrder) {
     switch (action) {
-      case 'view': toast.info(`Viewing PO ${po.poNumber}`); break
-      case 'send': toast.success(`PO ${po.poNumber} sent to ${po.supplierName}`); break
-      case 'receive': toast.info(`Navigate to GRN for PO ${po.poNumber}`); break
-      case 'cancel': toast.warning(`PO ${po.poNumber} has been cancelled`); break
+      case 'send':
+        try {
+          await api.patch(`/purchase-orders/${po.id}`, { status: 'SENT' })
+          toast.success(`PO ${po.poNumber} marked as sent`)
+          fetchPOs()
+        } catch { toast.error('Failed to update PO status') }
+        break
+      case 'receive':
+        navigate('/purchase/grn')
+        break
+      case 'cancel':
+        try {
+          await api.patch(`/purchase-orders/${po.id}`, { status: 'CLOSED' })
+          toast.success(`PO ${po.poNumber} cancelled`)
+          fetchPOs()
+        } catch { toast.error('Failed to cancel PO') }
+        break
     }
   }
 
@@ -324,41 +573,70 @@ export default function PurchaseOrdersPage() {
     )
   }, [watchedItems])
 
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) return []
-    return mockProducts
-      .filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.genericName.toLowerCase().includes(productSearch.toLowerCase()))
-      .slice(0, 8)
-  }, [productSearch])
-
-  function handleProductSelect(index: number, product: (typeof mockProducts)[0]) {
-    setValue(`items.${index}.productId`, product.id)
-    setValue(`items.${index}.productName`, product.name)
-    setValue(`items.${index}.lastPurchaseRate`, product.purchaseRate)
-    setValue(`items.${index}.expectedRate`, product.purchaseRate)
-    setProductSearch('')
-  }
-
   function handleAutoGenerate() {
-    const lowStockProducts = mockProducts.filter((p) => p.totalStock <= p.minStock).slice(0, 18)
+    const lowStockProducts = products.filter((p) => (p.totalStock ?? 0) <= (p.minStock ?? 0)).slice(0, 18)
     const newItems = lowStockProducts.map((p) => ({
-      productId: p.id, productName: p.name, requiredQty: p.reorderQty,
-      lastPurchaseRate: p.purchaseRate, expectedRate: p.purchaseRate,
-      remarks: `Stock: ${p.totalStock}/${p.minStock}`,
+      productId: p.id, productName: p.name,
+      requiredQty: p.reorderQty ?? 10,
+      lastPurchaseRate: p.purchaseRate ?? 0,
+      expectedRate: p.purchaseRate ?? 0,
+      remarks: `Stock: ${p.totalStock ?? 0}/${p.minStock ?? 0}`,
     }))
     if (newItems.length === 0) { toast.info('No low stock items found'); return }
-    setValue('items', newItems.length > 0 ? newItems : fields as never)
+    setValue('items', newItems)
     toast.success(`Added ${newItems.length} low stock items`)
   }
 
-  function onSubmitPO(data: any, asDraft: boolean) {
-    const supplier = mockSuppliers.find((s) => s.id === data.supplierId)
-    toast.success(asDraft
-      ? `Purchase Order saved as draft for ${supplier?.name || 'supplier'}`
-      : `Purchase Order sent to ${supplier?.name || 'supplier'} successfully`
-    )
-    setCreateDialogOpen(false)
-    reset()
+  async function onSubmitPO(data: any, asDraft: boolean) {
+    const supplier = suppliers.find((s) => s.id === data.supplierId)
+    try {
+      await api.post('/purchase-orders', {
+        supplierId: data.supplierId,
+        supplierName: supplier?.name ?? '',
+        expectedDelivery: new Date(data.expectedDelivery).toISOString(),
+        status: asDraft ? 'DRAFT' : 'SENT',
+        totalAmount: data.items.reduce((sum: number, it: any) => sum + (Number(it.requiredQty) || 0) * (Number(it.expectedRate) || 0), 0),
+        items: data.items.map((it: any) => ({
+          productId: it.productId,
+          productName: it.productName,
+          requiredQty: Number(it.requiredQty),
+          lastPurchaseRate: Number(it.lastPurchaseRate) || 0,
+          expectedRate: Number(it.expectedRate),
+          remarks: it.remarks ?? '',
+        })),
+      })
+      toast.success(asDraft
+        ? `Draft PO saved for ${supplier?.name || 'supplier'}`
+        : `PO sent to ${supplier?.name || 'supplier'} successfully`
+      )
+      setCreateDialogOpen(false)
+      reset()
+      fetchPOs()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to create purchase order')
+    }
+  }
+
+  const handleSelectProduct = (index: number, product: any) => {
+    if (!product) {
+      setValue(`items.${index}.productId`, '', { shouldValidate: true })
+      setValue(`items.${index}.productName`, '', { shouldValidate: true })
+      return
+    }
+    
+    setValue(`items.${index}.productId`, product.id, { shouldDirty: true, shouldValidate: true })
+    setValue(`items.${index}.productName`, product.name, { shouldDirty: true, shouldValidate: true })
+    setValue(`items.${index}.lastPurchaseRate`, product.purchaseRate ?? 0, { shouldDirty: true, shouldValidate: true })
+    setValue(`items.${index}.expectedRate`, product.purchaseRate ?? 0, { shouldDirty: true, shouldValidate: true })
+    
+    // Relay focus to Qty
+    setTimeout(() => {
+      const qtyInput = document.getElementsByName(`items.${index}.requiredQty`)[0] as HTMLInputElement
+      if (qtyInput) {
+        qtyInput.focus()
+        qtyInput.select()
+      }
+    }, 150)
   }
 
   return (
@@ -489,7 +767,7 @@ export default function PurchaseOrdersPage() {
           onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Suppliers' },
-            ...mockSuppliers.map((s) => ({ value: s.id, label: s.name })),
+            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
           ]}
         />
 
@@ -524,15 +802,39 @@ export default function PurchaseOrdersPage() {
             <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Sending selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredPOs.filter((po) => selectedIds.has(po.id))
+                  const lines = selected.map((po) => `PO# ${po.poNumber} | ${po.supplierName} | ${formatCurrency(po.totalAmount)} | ${po.status}`).join('%0a')
+                  window.open(`https://wa.me/?text=${encodeURIComponent('Purchase Orders:%0a' + lines)}`, '_blank')
+                }}>
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Exporting selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredPOs.filter((po) => selectedIds.has(po.id))
+                  exportToCsv(selected.map((po) => ({
+                    'PO Number': po.poNumber,
+                    Date: po.date.slice(0, 10),
+                    Supplier: po.supplierName,
+                    Items: po.items.length,
+                    Amount: po.totalAmount,
+                    Status: po.status,
+                  })), 'purchase-orders-selected')
+                }}>
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Export
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => toast.info('Printing selected...')}>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const selected = filteredPOs.filter((po) => selectedIds.has(po.id))
+                  printReport(selected.map((po) => ({
+                    'PO Number': po.poNumber,
+                    Date: po.date.slice(0, 10),
+                    Supplier: po.supplierName,
+                    Items: po.items.length,
+                    Amount: formatCurrency(po.totalAmount),
+                    Status: po.status,
+                  })), 'Purchase Orders')
+                }}>
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
@@ -565,7 +867,16 @@ export default function PurchaseOrdersPage() {
           </TableHeader>
           <TableBody>
             <AnimatePresence mode="popLayout">
-              {paginatedPOs.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+                      <p className="text-sm text-muted-foreground animate-pulse">Fetching purchase orders...</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedPOs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
@@ -588,7 +899,7 @@ export default function PurchaseOrdersPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => toast.info(`Viewing PO ${po.poNumber}`)}
+                    onClick={() => setDetailPO(po)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selectedIds.has(po.id)} onCheckedChange={() => toggleSelectOne(po.id)} />
@@ -632,6 +943,16 @@ export default function PurchaseOrdersPage() {
                             icon: <PackageCheck className="h-4 w-4" />,
                             onClick: () => handleAction('receive', po),
                             disabled: po.status === 'DRAFT' || po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED'
+                          },
+                          {
+                            label: 'Download PDF',
+                            icon: <Download className="h-4 w-4" />,
+                            onClick: () => downloadPoPdf({ poNumber: po.poNumber, date: po.date, supplierName: po.supplierName, expectedDelivery: po.expectedDelivery, status: po.status, totalAmount: po.totalAmount, items: po.items })
+                          },
+                          {
+                            label: 'Print PO',
+                            icon: <Printer className="h-4 w-4" />,
+                            onClick: () => printPoPdf({ poNumber: po.poNumber, date: po.date, supplierName: po.supplierName, expectedDelivery: po.expectedDelivery, status: po.status, totalAmount: po.totalAmount, items: po.items })
                           }
                         ]}
                       />
@@ -681,7 +1002,7 @@ export default function PurchaseOrdersPage() {
                     <SelectValue placeholder="Select supplier..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockSuppliers.map((s) => (
+                    {suppliers.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -725,53 +1046,17 @@ export default function PurchaseOrdersPage() {
                   </TableHeader>
                   <TableBody>
                     {fields.map((field, index) => (
-                      <TableRow key={field.id} className="border-border/40">
-                        <TableCell>
-                          {watchedItems[index]?.productName ? (
-                            <span className="text-sm font-medium">{watchedItems[index].productName}</span>
-                          ) : (
-                            <div className="relative">
-                              <Input
-                                icon={<Search className="h-3.5 w-3.5" />}
-                                placeholder="Search product..."
-                                value={productSearch}
-                                onChange={(e) => setProductSearch(e.target.value)}
-                                className="h-8"
-                              />
-                              {productSearch && filteredProducts.length > 0 && (
-                                <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover p-1 shadow-lg dark:shadow-black/20">
-                                  {filteredProducts.map((p) => (
-                                    <button
-                                      key={p.id} type="button"
-                                      className="w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                                      onClick={() => handleProductSelect(index, p)}
-                                    >
-                                      {p.name} <span className="font-mono text-xs text-muted-foreground">({formatCurrency(p.purchaseRate)})</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Input type="number" className="h-8 w-20 font-mono" error={!!errors.items?.[index]?.requiredQty} {...register(`items.${index}.requiredQty`, { valueAsNumber: true })} />
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-sm text-muted-foreground">{formatCurrency(Number(watchedItems[index]?.lastPurchaseRate) || 0)}</span>
-                        </TableCell>
-                        <TableCell>
-                          <Input type="number" className="h-8 w-24 font-mono" error={!!errors.items?.[index]?.expectedRate} {...register(`items.${index}.expectedRate`, { valueAsNumber: true })} />
-                        </TableCell>
-                        <TableCell>
-                          <Input className="h-8" placeholder="Optional" {...register(`items.${index}.remarks`)} />
-                        </TableCell>
-                        <TableCell>
-                          <Button type="button" variant="ghost" size="icon-sm" onClick={() => fields.length > 1 && remove(index)} disabled={fields.length <= 1}>
-                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+                      <POItemRow
+                        key={field.id}
+                        index={index}
+                        register={register}
+                        onSelectProduct={handleSelectProduct}
+                        control={control}
+                        remove={remove}
+                        errors={errors}
+                        products={products}
+                        isRemovable={fields.length > 1}
+                      />
                     ))}
                   </TableBody>
                 </Table>
@@ -800,6 +1085,89 @@ export default function PurchaseOrdersPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── PO Detail Dialog ── */}
+      <Dialog open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          {detailPO && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-muted-foreground" />
+                  {detailPO.poNumber}
+                </DialogTitle>
+                <DialogDescription>
+                  {formatDate(detailPO.date)} · {detailPO.supplierName}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
+                  <p className="mt-0.5 font-medium">{detailPO.supplierName}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
+                  <div className="mt-0.5">{renderStatusBadge(detailPO.status)}</div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</p>
+                  <p className="mt-0.5">{detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Amount</p>
+                  <p className="mt-0.5 font-mono font-bold">{formatCurrency(detailPO.totalAmount)}</p>
+                </div>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Ordered</TableHead>
+                    <TableHead className="text-right">Received</TableHead>
+                    <TableHead className="text-right">Rate</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {detailPO.items.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.productName}</TableCell>
+                      <TableCell className="text-right">{item.requiredQty}</TableCell>
+                      <TableCell className="text-right">{item.receivedQty}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(item.expectedRate)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(item.requiredQty * item.expectedRate)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="border-t-2 font-semibold">
+                    <TableCell colSpan={4} className="text-right">Total</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(detailPO.totalAmount)}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDetailPO(null)}>Close</Button>
+                <Button variant="outline" size="sm" onClick={() => printPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
+                  <Printer className="mr-1.5 h-4 w-4" />
+                  Print
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => downloadPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
+                  <Download className="mr-1.5 h-4 w-4" />
+                  Download PDF
+                </Button>
+                {detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED' ? (
+                  <Button onClick={() => { navigate(`/purchase/grn?poId=${detailPO.id}`); setDetailPO(null) }}>
+                    <PackageCheck className="mr-1.5 h-4 w-4" />
+                    Receive Goods
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </motion.div>

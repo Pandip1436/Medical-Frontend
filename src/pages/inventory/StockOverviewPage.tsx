@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate, formatNumber } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -147,30 +148,56 @@ export default function StockOverviewPage() {
   useEffect(() => {
     fetchProducts()
   }, [])
+  useBranchRefresh(fetchProducts)
 
-  // Build combined data
+  // Build combined data — products without any batch get a synthetic out_of_stock row
   const stockRows: StockRow[] = useMemo(() => {
-    return batches.map((batch) => {
-      const product = products.find((p) => p.id === batch.productId)
-      if (!product) return null
-      const status = getBatchStatus(product, batch)
-      return {
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        batchId: batch.id,
-        batchNumber: batch.batchNumber,
-        mfgDate: batch.mfgDate,
-        expiryDate: batch.expiryDate,
-        quantity: batch.quantity,
-        mrp: Number(batch.mrp),
-        stockValue: batch.quantity * Number(batch.mrp),
-        rackLocation: product.rackLocation,
-        status,
-        totalStock: product.totalStock,
-        minStock: product.minStock,
-      } as StockRow
-    }).filter(Boolean) as StockRow[]
+    const rows: StockRow[] = []
+
+    for (const product of products) {
+      const productBatches = batches.filter((b) => b.productId === product.id)
+      if (productBatches.length === 0) {
+        // No batches at all — show as out of stock
+        rows.push({
+          productId: product.id,
+          productName: product.name,
+          category: product.category,
+          batchId: '',
+          batchNumber: '—',
+          mfgDate: '',
+          expiryDate: '',
+          quantity: 0,
+          mrp: Number(product.mrp),
+          stockValue: 0,
+          rackLocation: product.rackLocation,
+          status: 'out_of_stock',
+          totalStock: 0,
+          minStock: product.minStock,
+        })
+      } else {
+        for (const batch of productBatches) {
+          const status = getBatchStatus(product, batch)
+          rows.push({
+            productId: product.id,
+            productName: product.name,
+            category: product.category,
+            batchId: batch.id,
+            batchNumber: batch.batchNumber,
+            mfgDate: batch.mfgDate,
+            expiryDate: batch.expiryDate,
+            quantity: batch.quantity,
+            mrp: Number(batch.mrp),
+            stockValue: batch.quantity * Number(batch.mrp),
+            rackLocation: product.rackLocation,
+            status,
+            totalStock: product.totalStock,
+            minStock: product.minStock,
+          })
+        }
+      }
+    }
+
+    return rows
   }, [batches, products])
 
   const filteredRows = useMemo(() => {

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -15,6 +16,9 @@ import {
   IndianRupee,
   Trash2,
   AlertCircle,
+  Upload,
+  FileImage,
+  X,
 } from 'lucide-react'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -52,9 +56,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { mockInvoices } from '@/data/mock'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
+import api from '@/lib/api'
+
+interface PrescriptionRecord {
+  id: string
+  doctorName: string
+  notes?: string | null
+  imageUrl?: string | null
+  validUntil?: string | null
+  isActive: boolean
+  createdAt: string
+}
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -125,25 +139,6 @@ const typeBorderColor: Record<string, string> = {
 // Mock credit notes
 // ─────────────────────────────────────────────────────────────
 
-const mockCreditNotes = [
-  {
-    id: 'CN-001',
-    date: '2026-03-10T10:00:00Z',
-    invoiceRef: 'HS/2025-26/0438',
-    reason: 'Damaged goods returned',
-    amount: 7896,
-    status: 'APPLIED',
-  },
-  {
-    id: 'CN-002',
-    date: '2026-02-25T14:00:00Z',
-    invoiceRef: 'HS/2025-26/0412',
-    reason: 'Short expiry medicines returned',
-    amount: 3200,
-    status: 'PENDING',
-  },
-]
-
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -167,12 +162,95 @@ export default function CustomersPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+
+  // Customer invoices + credit notes for detail dialog
+  const [customerInvoices, setCustomerInvoices] = useState<any[]>([])
+  const [customerCreditNotes, setCustomerCreditNotes] = useState<any[]>([])
+
+  const fetchCustomerInvoices = async (customerId: string) => {
+    try {
+      const res = await api.get(`/billing?customerId=${customerId}`)
+      setCustomerInvoices(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setCustomerInvoices([])
+    }
+  }
+
+  const fetchCustomerCreditNotes = async (customerId: string) => {
+    try {
+      const res = await api.get(`/credit-notes?customerId=${customerId}`)
+      setCustomerCreditNotes(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setCustomerCreditNotes([])
+    }
+  }
+
+  // Prescriptions
+  const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([])
+  const [prescLoading, setPrescLoading] = useState(false)
+  const [prescUploadOpen, setPrescUploadOpen] = useState(false)
+  const [prescFile, setPrescFile] = useState<File | null>(null)
+  const [prescDoctorName, setPrescDoctorName] = useState('')
+  const [prescNotes, setPrescNotes] = useState('')
+  const [prescValidUntil, setPrescValidUntil] = useState('')
+  const [prescUploading, setPrescUploading] = useState(false)
+
+  const fetchPrescriptions = async (customerId: string) => {
+    setPrescLoading(true)
+    try {
+      const res = await api.get(`/prescriptions?customerId=${customerId}`)
+      setPrescriptions(res.data)
+    } catch {
+      setPrescriptions([])
+    } finally {
+      setPrescLoading(false)
+    }
+  }
+
+  const handlePrescUpload = async () => {
+    if (!prescFile || !prescDoctorName || !selectedCustomer) return
+    setPrescUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', prescFile)
+      form.append('customerId', selectedCustomer.id)
+      form.append('doctorName', prescDoctorName)
+      if (prescNotes) form.append('notes', prescNotes)
+      if (prescValidUntil) form.append('validUntil', prescValidUntil)
+      await api.post('/prescriptions/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      toast.success('Prescription uploaded successfully')
+      setPrescUploadOpen(false)
+      setPrescFile(null)
+      setPrescDoctorName('')
+      setPrescNotes('')
+      setPrescValidUntil('')
+      fetchPrescriptions(selectedCustomer.id)
+    } catch {
+      toast.error('Failed to upload prescription')
+    } finally {
+      setPrescUploading(false)
+    }
+  }
+
+  const handlePrescDelete = async (id: string) => {
+    try {
+      await api.delete(`/prescriptions/${id}`)
+      toast.success('Prescription deleted')
+      if (selectedCustomer) fetchPrescriptions(selectedCustomer.id)
+    } catch {
+      toast.error('Failed to delete prescription')
+    }
+  }
 
   useEffect(() => {
     fetchCustomers()
   }, [])
+  useBranchRefresh(fetchCustomers)
 
   // Stats
   const stats = useMemo(() => {
@@ -235,18 +313,52 @@ export default function CustomersPage() {
     }
   }
 
+  const handleOpenEdit = (customer: Customer) => {
+    setEditingCustomer(customer)
+    form.reset({
+      name: customer.name,
+      phone: customer.phone,
+      type: customer.type as any,
+      email: customer.email ?? '',
+      address: customer.address ?? '',
+      creditLimit: customer.creditLimit ?? 0,
+      gstin: customer.gstin ?? '',
+      dlNumber: customer.dlNumber ?? '',
+      notes: customer.notes ?? '',
+    })
+    setAddDialogOpen(true)
+  }
+
+  const handleSaveCustomer = async (values: any) => {
+    try {
+      if (editingCustomer) {
+        await api.patch(`/customers/${editingCustomer.id}`, values)
+        toast.success(`Customer "${values.name}" updated`)
+      } else {
+        await addCustomerAction(values)
+        toast.success(`Customer "${values.name}" added successfully`)
+      }
+      form.reset()
+      setEditingCustomer(null)
+      setAddDialogOpen(false)
+      fetchCustomers()
+    } catch {
+      toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer. Please try again.')
+    }
+  }
+
   const handleViewDetails = (customer: Customer) => {
     setSelectedCustomer(customer)
     setDetailDialogOpen(true)
+    setCustomerInvoices([])
+    setCustomerCreditNotes([])
+    fetchPrescriptions(customer.id)
+    fetchCustomerInvoices(customer.id)
+    fetchCustomerCreditNotes(customer.id)
   }
 
-  // Get invoices for a customer
-  const getCustomerInvoices = (customerId: string) =>
-    mockInvoices.filter((inv) => inv.customerId === customerId)
-
-  // Build ledger entries from invoices
-  const buildLedger = (customerId: string) => {
-    const invoices = getCustomerInvoices(customerId)
+  // Build ledger entries from loaded invoices
+  const buildLedger = () => {
     const entries: {
       date: string
       particular: string
@@ -257,12 +369,11 @@ export default function CustomersPage() {
     }[] = []
 
     let balance = 0
-    const sorted = [...invoices].sort(
+    const sorted = [...customerInvoices].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     )
 
     for (const inv of sorted) {
-      // Sale entry
       balance += inv.grandTotal
       entries.push({
         date: inv.date,
@@ -272,7 +383,6 @@ export default function CustomersPage() {
         credit: 0,
         balance,
       })
-      // Payment entry if paid
       if (inv.amountPaid > 0) {
         balance -= inv.amountPaid
         entries.push({
@@ -423,7 +533,7 @@ export default function CustomersPage() {
                             {
                               label: 'Edit',
                               icon: <Pencil className="h-4 w-4" />,
-                              onClick: () => toast.info(`Edit ${customer.name} - coming soon`),
+                              onClick: () => handleOpenEdit(customer),
                             },
                             {
                               label: 'Delete',
@@ -451,13 +561,13 @@ export default function CustomersPage() {
       </motion.div>
 
       {/* ─── Add Customer Dialog ─── */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setEditingCustomer(null); form.reset() } setAddDialogOpen(open) }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</DialogTitle>
             <DialogDescription>Enter customer details below.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(handleAddCustomer)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="name" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -574,10 +684,10 @@ export default function CustomersPage() {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setAddDialogOpen(false) }}>
                 Cancel
               </Button>
-              <Button type="submit">Save Customer</Button>
+              <Button type="submit">{editingCustomer ? 'Update Customer' : 'Save Customer'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -619,11 +729,12 @@ export default function CustomersPage() {
               </DialogHeader>
 
               <Tabs defaultValue="overview" className="mt-4">
-                <TabsList className="grid w-full grid-cols-4 rounded-xl">
+                <TabsList className="grid w-full grid-cols-5 rounded-xl">
                   <TabsTrigger value="overview" className="rounded-lg text-xs">Overview</TabsTrigger>
                   <TabsTrigger value="purchases" className="rounded-lg text-xs">Purchases</TabsTrigger>
                   <TabsTrigger value="ledger" className="rounded-lg text-xs">Ledger</TabsTrigger>
                   <TabsTrigger value="credit-notes" className="rounded-lg text-xs">Credit Notes</TabsTrigger>
+                  <TabsTrigger value="prescriptions" className="rounded-lg text-xs">Rx</TabsTrigger>
                 </TabsList>
 
                 {/* Overview Tab */}
@@ -685,7 +796,7 @@ export default function CustomersPage() {
                       </p>
                       <p className="mt-1 text-xl font-bold font-mono">
                         {formatCurrency(
-                          getCustomerInvoices(selectedCustomer.id).reduce(
+                          customerInvoices.reduce(
                             (sum, inv) => sum + inv.grandTotal,
                             0
                           )
@@ -738,7 +849,7 @@ export default function CustomersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {getCustomerInvoices(selectedCustomer.id).map((inv) => (
+                          {customerInvoices.map((inv) => (
                             <TableRow key={inv.id}>
                               <TableCell className="font-mono text-sm">
                                 {inv.invoiceNumber}
@@ -767,7 +878,7 @@ export default function CustomersPage() {
                               <TableCell className="capitalize text-muted-foreground">{inv.paymentMode}</TableCell>
                             </TableRow>
                           ))}
-                          {getCustomerInvoices(selectedCustomer.id).length === 0 && (
+                          {customerInvoices.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
                                 No purchase history
@@ -796,7 +907,7 @@ export default function CustomersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {buildLedger(selectedCustomer.id).map((entry, idx) => (
+                          {buildLedger().map((entry, idx) => (
                             <TableRow key={idx}>
                               <TableCell className="text-muted-foreground">{formatDate(entry.date)}</TableCell>
                               <TableCell>{entry.particular}</TableCell>
@@ -825,7 +936,7 @@ export default function CustomersPage() {
                               </TableCell>
                             </TableRow>
                           ))}
-                          {buildLedger(selectedCustomer.id).length === 0 && (
+                          {buildLedger().length === 0 && (
                             <TableRow>
                               <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                                 No ledger entries
@@ -854,22 +965,28 @@ export default function CustomersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {mockCreditNotes.map((cn) => (
+                          {customerCreditNotes.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                                No credit notes found
+                              </TableCell>
+                            </TableRow>
+                          ) : customerCreditNotes.map((cn) => (
                             <TableRow key={cn.id}>
-                              <TableCell className="font-mono text-sm">{cn.id}</TableCell>
+                              <TableCell className="font-mono text-sm">{cn.creditNoteNo}</TableCell>
                               <TableCell className="text-muted-foreground">{formatDate(cn.date)}</TableCell>
-                              <TableCell className="font-mono text-sm">{cn.invoiceRef}</TableCell>
-                              <TableCell>{cn.reason}</TableCell>
+                              <TableCell className="font-mono text-sm">{cn.invoiceNumber}</TableCell>
+                              <TableCell>{cn.reason ?? '—'}</TableCell>
                               <TableCell className="text-right font-mono text-sm">
-                                {formatCurrency(cn.amount)}
+                                {formatCurrency(Number(cn.totalAmount))}
                               </TableCell>
                               <TableCell>
                                 <Badge
                                   size="sm"
                                   dot
-                                  variant={cn.status === 'applied' ? 'success' : 'warning'}
+                                  variant={cn.settlementMode === 'CREDIT' ? 'success' : 'warning'}
                                 >
-                                  {cn.status.charAt(0).toUpperCase() + cn.status.slice(1)}
+                                  {cn.settlementMode ?? 'REFUND'}
                                 </Badge>
                               </TableCell>
                             </TableRow>
@@ -878,6 +995,136 @@ export default function CustomersPage() {
                       </Table>
                     </CardContent>
                   </Card>
+                </TabsContent>
+                {/* Prescriptions Tab */}
+                <TabsContent value="prescriptions" className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} on file
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs h-8"
+                      onClick={() => setPrescUploadOpen(true)}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Upload Rx
+                    </Button>
+                  </div>
+
+                  {prescLoading ? (
+                    <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
+                      Loading...
+                    </div>
+                  ) : prescriptions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground">
+                      <FileImage className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">No prescriptions uploaded yet</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {prescriptions.map((rx) => (
+                        <div
+                          key={rx.id}
+                          className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3"
+                        >
+                          <FileImage className="h-8 w-8 shrink-0 text-muted-foreground/50" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">Dr. {rx.doctorName}</p>
+                            {rx.notes && (
+                              <p className="text-[11px] text-muted-foreground truncate">{rx.notes}</p>
+                            )}
+                            <p className="text-[10px] text-muted-foreground/60">
+                              {formatDate(rx.createdAt)}
+                              {rx.validUntil && ` · Valid until ${formatDate(rx.validUntil)}`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {rx.imageUrl && (
+                              <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                onClick={() => window.open(
+                                  `${import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') ?? 'http://localhost:3000'}${rx.imageUrl}`,
+                                  '_blank'
+                                )}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handlePrescDelete(rx.id)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Upload dialog */}
+                  <Dialog open={prescUploadOpen} onOpenChange={setPrescUploadOpen}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Upload Prescription</DialogTitle>
+                        <DialogDescription>
+                          Upload a prescription image or PDF for {selectedCustomer?.name}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <Label>Doctor Name <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="Dr. Ramesh Kumar"
+                            value={prescDoctorName}
+                            onChange={(e) => setPrescDoctorName(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Prescription File <span className="text-destructive">*</span></Label>
+                          <Input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,application/pdf"
+                            onChange={(e) => setPrescFile(e.target.files?.[0] ?? null)}
+                          />
+                          <p className="text-[10px] text-muted-foreground">JPG, PNG, WEBP or PDF · max 5 MB</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Valid Until</Label>
+                          <Input
+                            type="date"
+                            value={prescValidUntil}
+                            onChange={(e) => setPrescValidUntil(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Notes</Label>
+                          <Textarea
+                            placeholder="Any notes about this prescription..."
+                            rows={2}
+                            value={prescNotes}
+                            onChange={(e) => setPrescNotes(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setPrescUploadOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handlePrescUpload}
+                          disabled={prescUploading || !prescFile || !prescDoctorName}
+                        >
+                          {prescUploading ? 'Uploading...' : 'Upload'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </TabsContent>
               </Tabs>
             </>

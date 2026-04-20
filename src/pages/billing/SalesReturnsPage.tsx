@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
@@ -56,6 +57,7 @@ import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import type { Invoice, InvoiceItem } from '@/types'
+import { printCreditNotePdf, downloadCreditNotePdf, type NoteData } from '@/lib/pdf/notesPdf'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES & CONSTANTS
@@ -123,20 +125,20 @@ export default function SalesReturnsPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  useEffect(() => {
-    const fetchInvoices = async () => {
-      setIsLoading(true)
-      try {
-        const res = await api.get('/billing')
-        setInvoices(res.data.data || res.data)
-      } catch (error) {
-        toast.error('Failed to load invoices')
-      } finally {
-        setIsLoading(false)
-      }
+  const fetchInvoices = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await api.get('/billing')
+      setInvoices(res.data.data || res.data)
+    } catch (error) {
+      toast.error('Failed to load invoices')
+    } finally {
+      setIsLoading(false)
     }
-    fetchInvoices()
   }, [])
+
+  useEffect(() => { fetchInvoices() }, [])
+  useBranchRefresh(fetchInvoices)
 
   // Step 2
   const [returnItems, setReturnItems] = useState<ReturnItemState[]>([])
@@ -242,22 +244,118 @@ export default function SalesReturnsPage() {
     return { subtotal, gstReversal: totalGst, total: subtotal + totalGst }
   }, [selectedReturnItems])
 
-  const handleConfirmReturn = () => {
-    toast.success(`Credit Note ${creditNoteNumber} created successfully!`, {
-      description: `${formatCurrency(creditSummary.total)} will be processed as ${
-        settlementOption === 'refund'
-          ? 'a refund to the customer'
-          : settlementOption === 'adjust'
-          ? 'adjustment against outstanding balance'
-          : 'store credit'
-      }.`,
+  const buildCreditNoteData = (): NoteData | null => {
+    if (!selectedInvoice) return null
+    const reasonSummary = Array.from(
+      new Set(
+        selectedReturnItems.map((ri) =>
+          ri.reason === 'Other' && ri.customReason ? ri.customReason : ri.reason,
+        ),
+      ),
+    ).join(', ')
+    return {
+      noteNo: creditNoteNumber,
+      date: new Date().toISOString(),
+      partyLabel: 'Customer',
+      partyName: selectedInvoice.customerName,
+      referenceLabel: 'Invoice',
+      referenceValue: fmtInvoiceNum(selectedInvoice),
+      reason: reasonSummary || '-',
+      items: selectedReturnItems.map((ri) => {
+        const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+        const lineAmount = lineRate * ri.returnQty
+        const gstAmount = lineAmount * (ri.item.gstPercent / 100)
+        return {
+          productName: ri.item.productName,
+          batchNumber: ri.item.batchNumber,
+          expiryDate: ri.item.expiryDate,
+          returnedQty: ri.returnQty,
+          rate: Number(lineRate.toFixed(2)),
+          gstPercent: Number(ri.item.gstPercent),
+          amount: Number((lineAmount + gstAmount).toFixed(2)),
+        }
+      }),
+      subtotal: Number(creditSummary.subtotal.toFixed(2)),
+      cgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
+      sgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
+      totalAmount: Number(creditSummary.total.toFixed(2)),
+      footerLine: 'Goods returned under credit note. Subject to Madurai jurisdiction.',
+    }
+  }
+
+  const handlePrintCreditNote = () => {
+    const data = buildCreditNoteData()
+    if (!data || data.items.length === 0) {
+      toast.error('Select at least one item to return before printing')
+      return
+    }
+    printCreditNotePdf(data)
+  }
+
+  const handleDownloadCreditNote = () => {
+    const data = buildCreditNoteData()
+    if (!data || data.items.length === 0) {
+      toast.error('Select at least one item to return before downloading')
+      return
+    }
+    downloadCreditNotePdf(data)
+  }
+
+  const handleConfirmReturn = async () => {
+    if (!selectedInvoice) return
+    const settlementMode =
+      settlementOption === 'refund' ? 'REFUND' : settlementOption === 'adjust' ? 'CREDIT' : 'REPLACEMENT'
+
+    const payloadItems = selectedReturnItems.map((ri) => {
+      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+      const lineAmount = lineRate * ri.returnQty
+      const gstAmount = lineAmount * (ri.item.gstPercent / 100)
+      return {
+        productId: ri.item.productId,
+        productName: ri.item.productName,
+        batchId: ri.item.batchId,
+        batchNumber: ri.item.batchNumber,
+        expiryDate: new Date(ri.item.expiryDate).toISOString(),
+        returnedQty: ri.returnQty,
+        rate: Number(lineRate.toFixed(2)),
+        gstPercent: Number(ri.item.gstPercent),
+        amount: Number((lineAmount + gstAmount).toFixed(2)),
+      }
     })
-    setCurrentStep(1)
-    setDirection(-1)
-    setSelectedInvoice(null)
-    setReturnItems([])
-    setInvoiceSearch('')
-    setSettlementOption('refund')
+
+    const reasonSummary = Array.from(
+      new Set(
+        selectedReturnItems.map((ri) =>
+          ri.reason === 'Other' && ri.customReason ? ri.customReason : ri.reason,
+        ),
+      ),
+    ).join(', ')
+
+    const payload = {
+      invoiceId: selectedInvoice.id,
+      reason: reasonSummary,
+      items: payloadItems,
+      subtotal: Number(creditSummary.subtotal.toFixed(2)),
+      cgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
+      sgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
+      totalAmount: Number(creditSummary.total.toFixed(2)),
+      settlementMode,
+    }
+
+    try {
+      const res = await api.post('/credit-notes', payload)
+      toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} created successfully`, {
+        description: `${formatCurrency(creditSummary.total)} processed as ${settlementMode.toLowerCase()}.`,
+      })
+      setCurrentStep(1)
+      setDirection(-1)
+      setSelectedInvoice(null)
+      setReturnItems([])
+      setInvoiceSearch('')
+      setSettlementOption('refund')
+    } catch {
+      // api.ts already surfaces a toast for the error
+    }
   }
 
   const fmtInvoiceNum = (inv: Invoice) => {
@@ -890,11 +988,11 @@ export default function SalesReturnsPage() {
                         After Creating
                       </p>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1">
+                        <Button variant="outline" size="sm" className="flex-1" onClick={handlePrintCreditNote}>
                           <Printer className="mr-1.5 h-3.5 w-3.5" />
                           Print
                         </Button>
-                        <Button variant="outline" size="sm" className="flex-1">
+                        <Button variant="outline" size="sm" className="flex-1" onClick={handleDownloadCreditNote}>
                           <Download className="mr-1.5 h-3.5 w-3.5" />
                           Download
                         </Button>

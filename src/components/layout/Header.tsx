@@ -19,11 +19,14 @@ import {
   Menu,
   CheckCircle2,
   ExternalLink,
+  Building2,
+  ChevronDown,
 } from 'lucide-react'
 import { cn, getInitials, timeAgo } from '@/lib/utils'
 import { navigate as routerNavigate, href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useBranchStore } from '@/stores/branchStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -124,6 +127,12 @@ export function Header({ breadcrumbs }: HeaderProps) {
     useAuthStore()
   const { notifications, unreadCount, markAsRead, markAllAsRead } =
     useNotificationStore()
+  const { branches, activeBranch, setActiveBranch, fetchBranches } = useBranchStore()
+
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN'
+  const userHasFixedBranch = !!(user as any)?.branchId
+
+  useEffect(() => { fetchBranches() }, [])
 
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const notificationsRef = useRef<HTMLDivElement>(null)
@@ -239,6 +248,48 @@ export function Header({ breadcrumbs }: HeaderProps) {
             Ctrl+K
           </kbd>
         </Button>
+
+        {/* Branch indicator/selector — non-admins see a locked badge; admins get a switcher */}
+        {activeBranch && (
+          isAdmin && branches.length > 1 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex"
+                >
+                  <Building2 className="h-3.5 w-3.5 text-primary" />
+                  <span className="max-w-[120px] truncate">{activeBranch.name}</span>
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel>Switch Branch</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {branches.filter(b => b.isActive).map((b) => (
+                  <DropdownMenuItem
+                    key={b.id}
+                    onClick={() => setActiveBranch(b.id)}
+                    className={cn(activeBranch.id === b.id && 'bg-accent font-medium')}
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[9px] font-bold bg-muted">
+                        {b.code}
+                      </div>
+                      <span className="truncate flex-1">{b.name}</span>
+                      {b.isDefault && <span className="text-[10px] text-muted-foreground">default</span>}
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : userHasFixedBranch ? (
+            <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex">
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              <span className="max-w-[120px] truncate">{activeBranch.name}</span>
+            </div>
+          ) : null
+        )}
 
         {/* Notification Bell */}
         <div className="relative" ref={notificationsRef}>
