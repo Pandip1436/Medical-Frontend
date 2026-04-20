@@ -537,7 +537,7 @@ export default function StockOverviewPage() {
                       />
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-y-3 text-sm">
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-y-3 text-sm">
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                           Total Stock

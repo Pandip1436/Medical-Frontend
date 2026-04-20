@@ -614,7 +614,7 @@ export default function GRNPage() {
                     {/* Row 2: Editable fields — two-row grid for breathing room */}
                     <div className="px-4 pb-4 space-y-3">
                       {/* Quantities row */}
-                      <div className="grid grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
@@ -663,7 +663,7 @@ export default function GRNPage() {
                         </div>
                       </div>
                       {/* Batch & dates row */}
-                      <div className="grid grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
@@ -749,7 +749,7 @@ export default function GRNPage() {
                       onChange={(e) => setInvoiceNo(e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date</Label>
                       <Input
@@ -787,7 +787,7 @@ export default function GRNPage() {
                 </div>
 
                 {/* Metric cards */}
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                   <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
                     <p className="font-mono text-lg font-bold">{totalItems}</p>
                     <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
@@ -958,7 +958,7 @@ export default function GRNPage() {
 
               {/* Summary */}
               <div className="rounded-xl bg-muted/30 p-4 space-y-3 mb-5 dark:bg-muted/15">
-                <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
                   <div>
                     <p className="font-mono text-xl font-bold">{totalItems}</p>
                     <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>

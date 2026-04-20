@@ -825,7 +825,7 @@ function PaymentPanel({
 
       {/* Card */}
       {mode === 'CARD' && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Last 4 Digits
@@ -1943,7 +1943,7 @@ export default function NewSalePage() {
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
           <div className="w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2">
             {/* Summary + Grand Total */}
-            <Card className="overflow-hidden shrink-0">
+            <Card className="overflow-x-auto shrink-0">
               <CardContent className="p-0">
                 <div className="px-4 py-3 bg-muted/30 border-b border-border/40">
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 flex items-center justify-between">
@@ -2079,7 +2079,7 @@ export default function NewSalePage() {
                 <TooltipContent>Save and print invoice (F8)</TooltipContent>
               </Tooltip>
 
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -2113,7 +2113,7 @@ export default function NewSalePage() {
                 </Tooltip>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -2231,7 +2231,7 @@ export default function NewSalePage() {
           </DialogHeader>
 
           <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name <span className="text-red-500">*</span></Label>
                 <Input
@@ -2256,7 +2256,7 @@ export default function NewSalePage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer Type <span className="text-red-500">*</span></Label>
                 <Controller

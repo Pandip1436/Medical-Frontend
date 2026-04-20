@@ -217,7 +217,7 @@ export default function LedgerPage() {
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               Party Type
             </span>
-            <div className="flex rounded-xl border border-border/60 overflow-hidden h-9">
+            <div className="flex rounded-xl border border-border/60 overflow-x-auto h-9">
               <button
                 type="button"
                 className={cn(
@@ -327,7 +327,7 @@ export default function LedgerPage() {
             <span className="text-sm font-medium">{selectedPartyName}</span>
           </div>
 
-          <Card className="overflow-hidden rounded-2xl border-border/60">
+          <Card className="overflow-x-auto rounded-2xl border-border/60">
             <CardContent className="p-0">
               <Table>
                 <TableHeader>

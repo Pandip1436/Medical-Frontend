@@ -242,7 +242,7 @@ export default function ExpiryManagementPage() {
 
   // Table renderer for a bucket
   const renderBatchTable = (batchesToRender: EnrichedBatch[]) => (
-    <div className="rounded-2xl border border-border/60 bg-card shadow overflow-hidden">
+    <div className="rounded-2xl border border-border/60 bg-card shadow overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

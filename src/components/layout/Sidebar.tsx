@@ -163,9 +163,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentPath }: SidebarProps) {
-  const { user, sidebarCollapsed, toggleSidebar } = useAuthStore()
+  const { user, sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
   const isMobile = useIsMobile()
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileOpen = mobileSidebarOpen
+  const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
 
   // Keyboard shortcut: [ to toggle sidebar

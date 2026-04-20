@@ -647,7 +647,7 @@ function TaxConfigSection() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -870,7 +870,7 @@ function UserManagementSection() {
             searchPlaceholder="Search by name, email, or role..."
             resultsCount={filteredUsers.length}
           />
-          <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -1618,7 +1618,7 @@ function DiscountRulesSection() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -1866,7 +1866,7 @@ function BackupDataSection() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -2026,7 +2026,7 @@ function AuditTrailSection() {
           </DataTableFilterBar>
 
           {/* Table */}
-          <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-x-auto">
             <ScrollArea className="h-125">
               <Table>
                 <TableHeader>

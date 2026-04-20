@@ -190,7 +190,7 @@ export default function DebitNotesPage() {
                   )}
                 </div>
               ) : (
-                <Card className="overflow-hidden border-border/40 shadow-sm">
+                <Card className="overflow-x-auto border-border/40 shadow-sm">
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
@@ -312,7 +312,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
   })
 
   return (
-    <Card className="overflow-hidden border-border/40 shadow-xl flex flex-col md:flex-row min-h-150">
+    <Card className="overflow-x-auto border-border/40 shadow-xl flex flex-col md:flex-row min-h-150">
       {/* Left: Note details */}
       <div className="flex-1 flex flex-col border-r border-border/30">
         <div className="shrink-0 bg-gradient-to-br from-primary/10 via-background to-background p-6 border-b border-border/30">
@@ -336,7 +336,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
               <p className="font-mono text-sm font-bold">{data.referenceValue}</p>
             </div>
           </div>
-          <div className="mt-6 grid grid-cols-3 gap-6">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1">Supplier / Payee</p>
               <p className="text-lg font-bold text-foreground/80">{data.partyName}</p>

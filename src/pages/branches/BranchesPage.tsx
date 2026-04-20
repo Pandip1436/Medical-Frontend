@@ -223,7 +223,7 @@ export default function BranchesPage() {
                     )}
                   </div>
                   {bStats && (
-                    <div className="border-t pt-2 grid grid-cols-3 gap-2 text-center">
+                    <div className="border-t pt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="text-[11px] text-muted-foreground">Invoices</p>
                         <p className="text-sm font-semibold">{bStats.invoiceCount}</p>
@@ -254,7 +254,7 @@ export default function BranchesPage() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Branch Name *</Label>
                 <Input {...register('name')} placeholder="Main Branch" />
@@ -270,7 +270,7 @@ export default function BranchesPage() {
               <Label>Address</Label>
               <Textarea {...register('address')} placeholder="Full address" rows={2} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Phone</Label>
                 <Input {...register('phone')} placeholder="9876543210" />
@@ -281,7 +281,7 @@ export default function BranchesPage() {
                 {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>GSTIN</Label>
                 <Input {...register('gstin')} placeholder="22AAAAA0000A1Z5" />

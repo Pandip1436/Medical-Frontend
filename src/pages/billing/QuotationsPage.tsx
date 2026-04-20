@@ -741,7 +741,7 @@ export default function QuotationsPage() {
             </DialogHeader>
 
             {/* Meta */}
-            <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
                 <p className="mt-0.5 font-medium">{detailQt.customerName}</p>

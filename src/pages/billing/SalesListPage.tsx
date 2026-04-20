@@ -829,7 +829,7 @@ export default function SalesListPage() {
               </DialogHeader>
 
               {/* Meta info */}
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
                 <div className="flex items-center gap-2">
                   <User className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
                   <div>

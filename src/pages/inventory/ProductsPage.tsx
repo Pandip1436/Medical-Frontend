@@ -755,7 +755,7 @@ export default function ProductsPage() {
 
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="w-full grid grid-cols-4">
+              <TabsList className="w-full grid grid-cols-2 sm:grid-cols-4">
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
                 <TabsTrigger value="regulatory">Regulatory</TabsTrigger>
                 <TabsTrigger value="pricing">Pricing</TabsTrigger>
@@ -833,7 +833,7 @@ export default function ProductsPage() {
                 </p>
 
                 <div className="grid gap-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label>Category</Label>
                       <Controller
@@ -976,7 +976,7 @@ export default function ProductsPage() {
                   Price Configuration
                 </p>
                 <div className="grid gap-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="mrp">MRP</Label>
                       <Input
@@ -997,7 +997,7 @@ export default function ProductsPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="sellingRate">Selling Rate</Label>
                       <Input
@@ -1077,7 +1077,7 @@ export default function ProductsPage() {
                   Stock Levels
                 </p>
                 <div className="grid gap-4">
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="minStock">Min Stock</Label>
                       <Input

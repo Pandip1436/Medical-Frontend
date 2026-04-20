@@ -313,7 +313,7 @@ export default function ExpensesPage() {
               </Card>
             ))}
           </div>
-          <Card className="overflow-hidden rounded-2xl border-border/60">
+          <Card className="overflow-x-auto rounded-2xl border-border/60">
             <CardContent className="p-0">
               <div className="divide-y divide-border/40">
                 {[...Array(6)].map((_, i) => (
@@ -454,7 +454,7 @@ export default function ExpensesPage() {
       </DataTableFilterBar>
 
       {/* ── Expenses Table ── */}
-      <Card className="overflow-hidden rounded-2xl border-border/60">
+      <Card className="overflow-x-auto rounded-2xl border-border/60">
         <CardContent className="p-0">
           <Table>
             <TableHeader>

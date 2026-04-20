@@ -528,7 +528,7 @@ export default function CreditNotesPage() {
               </DialogHeader>
 
               {/* Meta grid */}
-              <div className="grid grid-cols-3 gap-4 rounded-xl border border-border/60 bg-muted/30 p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl border border-border/60 bg-muted/30 p-4">
                 {[
                   { label: 'Date', value: formatDate(detailNote.date) },
                   { label: 'Customer', value: detailNote.customerName },
@@ -545,7 +545,7 @@ export default function CreditNotesPage() {
               </div>
 
               {/* Items table */}
-              <div className="rounded-xl border border-border/60 overflow-hidden">
+              <div className="rounded-xl border border-border/60 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40">

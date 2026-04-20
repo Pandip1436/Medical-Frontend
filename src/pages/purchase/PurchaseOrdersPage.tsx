@@ -995,7 +995,7 @@ export default function PurchaseOrdersPage() {
           </DialogHeader>
 
           <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</Label>
                 <Select onValueChange={(val) => setValue('supplierId', val)}>

@@ -371,7 +371,7 @@ export default function CashBookPage() {
       </Card>
 
       {/* ── Transaction Table ── */}
-      <Card className="overflow-hidden rounded-2xl border-border/60">
+      <Card className="overflow-x-auto rounded-2xl border-border/60">
         <CardContent className="p-0">
           <Table>
             <TableHeader>

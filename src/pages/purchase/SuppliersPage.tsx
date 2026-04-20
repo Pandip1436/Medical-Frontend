@@ -625,7 +625,7 @@ export default function SuppliersPage() {
           </DialogHeader>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Company Name
@@ -646,7 +646,7 @@ export default function SuppliersPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Phone
@@ -667,7 +667,7 @@ export default function SuppliersPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   GSTIN
@@ -698,7 +698,7 @@ export default function SuppliersPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Payment Terms
@@ -764,7 +764,7 @@ export default function SuppliersPage() {
 
             <div className="space-y-6">
               {/* Contact Info */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <Phone className="h-4 w-4 text-muted-foreground" />
                   <span className="font-mono">{detailSupplier.phone}</span>
@@ -782,7 +782,7 @@ export default function SuppliersPage() {
               <Separator className="bg-border/60" />
 
               {/* Compliance */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN</span>
                   <p className="mt-1 font-mono">{detailSupplier.gstin}</p>

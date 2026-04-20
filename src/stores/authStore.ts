@@ -16,6 +16,7 @@ interface AuthState {
   // Preferences
   theme: Theme
   sidebarCollapsed: boolean
+  mobileSidebarOpen: boolean
   language: Language
   hasCompletedOnboarding: boolean
 
@@ -25,6 +26,8 @@ interface AuthState {
   setTheme: (theme: Theme) => void
   resolvedTheme: () => 'light' | 'dark'
   toggleSidebar: () => void
+  toggleMobileSidebar: () => void
+  setMobileSidebarOpen: (open: boolean) => void
   setLanguage: (language: Language) => void
   setOnboardingComplete: () => void
 }
@@ -40,6 +43,7 @@ export const useAuthStore = create<AuthState>()(
       // Preference state
       theme: 'system' as Theme,
       sidebarCollapsed: false,
+      mobileSidebarOpen: false,
       language: 'en' as Language,
       hasCompletedOnboarding: false,
 
@@ -105,6 +109,14 @@ export const useAuthStore = create<AuthState>()(
 
       toggleSidebar: () => {
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))
+      },
+
+      toggleMobileSidebar: () => {
+        set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen }))
+      },
+
+      setMobileSidebarOpen: (open: boolean) => {
+        set({ mobileSidebarOpen: open })
       },
 
       setLanguage: (language: Language) => {

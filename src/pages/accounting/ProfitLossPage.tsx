@@ -416,7 +416,7 @@ export default function ProfitLossPage() {
       {/* KPI STRIP                                                  */}
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="shrink-0 border-b border-border/40 bg-muted/10 px-6 py-3 dark:bg-muted/5">
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KPICard
             label="Net Revenue"
             value={plData.netRevenue}
@@ -488,7 +488,7 @@ export default function ProfitLossPage() {
               </PLSection>
 
               {/* ── GROSS PROFIT HIGHLIGHT ── */}
-              <div className="mx-4 my-3 flex items-center justify-between rounded-xl bg-gradient-to-r from-indigo-500/5 via-indigo-500/10 to-purple-500/5 border border-indigo-500/20 px-4 py-3">
+              <div className="mx-4 my-3 flex items-center justify-between rounded-xl bg-linear-to-r from-indigo-500/5 via-indigo-500/10 to-purple-500/5 border border-indigo-500/20 px-4 py-3">
                 <div className="flex items-center gap-2.5">
                   <div className={cn(
                     'flex h-8 w-8 items-center justify-center rounded-lg',
@@ -536,8 +536,8 @@ export default function ProfitLossPage() {
               <div className={cn(
                 'mx-4 my-3 flex items-center justify-between rounded-xl border-2 px-4 py-4',
                 plData.netProfit >= 0
-                  ? 'border-emerald-500/30 bg-gradient-to-r from-emerald-500/5 via-emerald-500/10 to-teal-500/5'
-                  : 'border-rose-500/30 bg-gradient-to-r from-rose-500/5 via-rose-500/10 to-red-500/5'
+                  ? 'border-emerald-500/30 bg-linear-to-r from-emerald-500/5 via-emerald-500/10 to-teal-500/5'
+                  : 'border-rose-500/30 bg-linear-to-r from-rose-500/5 via-rose-500/10 to-red-500/5'
               )}>
                 <div className="flex items-center gap-3">
                   <div className={cn(
@@ -777,7 +777,7 @@ export default function ProfitLossPage() {
                     </div>
 
                     {/* Margin trend mini-cards */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="rounded-xl border border-border/40 bg-background p-3 text-center">
                         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Gross Margin</p>
                         <p className="mt-1 font-mono text-lg font-bold text-indigo-600 dark:text-indigo-400">

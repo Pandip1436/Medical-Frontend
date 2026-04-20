@@ -478,7 +478,7 @@ export default function CustomersPage() {
 
       {/* ─── Customers Table ─── */}
       <motion.div variants={itemVariants}>
-        <Card className="overflow-hidden">
+        <Card className="overflow-x-auto">
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -730,7 +730,7 @@ export default function CustomersPage() {
               </DialogHeader>
 
               <Tabs defaultValue="overview" className="mt-4">
-                <TabsList className="grid w-full grid-cols-5 rounded-xl">
+                <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 rounded-xl">
                   <TabsTrigger value="overview" className="rounded-lg text-xs">Overview</TabsTrigger>
                   <TabsTrigger value="purchases" className="rounded-lg text-xs">Purchases</TabsTrigger>
                   <TabsTrigger value="ledger" className="rounded-lg text-xs">Ledger</TabsTrigger>
@@ -837,7 +837,7 @@ export default function CustomersPage() {
 
                 {/* Purchase History Tab */}
                 <TabsContent value="purchases" className="mt-4">
-                  <Card className="overflow-hidden">
+                  <Card className="overflow-x-auto">
                     <CardContent className="p-0">
                       <Table>
                         <TableHeader>
@@ -894,7 +894,7 @@ export default function CustomersPage() {
 
                 {/* Ledger Tab */}
                 <TabsContent value="ledger" className="mt-4">
-                  <Card className="overflow-hidden">
+                  <Card className="overflow-x-auto">
                     <CardContent className="p-0">
                       <Table>
                         <TableHeader>
@@ -952,7 +952,7 @@ export default function CustomersPage() {
 
                 {/* Credit Notes Tab */}
                 <TabsContent value="credit-notes" className="mt-4">
-                  <Card className="overflow-hidden">
+                  <Card className="overflow-x-auto">
                     <CardContent className="p-0">
                       <Table>
                         <TableHeader>

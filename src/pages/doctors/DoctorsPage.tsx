@@ -339,7 +339,7 @@ export default function DoctorsPage() {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: 'Total Doctors', value: stats.total },
           { label: 'Active', value: stats.active },
@@ -473,7 +473,7 @@ export default function DoctorsPage() {
               {errors.specialization && <p className="text-xs text-destructive">{errors.specialization.message}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Phone */}
               <div className="space-y-1.5">
                 <Label htmlFor="phone">Phone</Label>

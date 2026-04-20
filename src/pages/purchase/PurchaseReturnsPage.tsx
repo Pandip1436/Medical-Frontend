@@ -555,7 +555,7 @@ export default function PurchaseReturnsPage() {
                             </div>
                             <Badge variant="success" size="sm" dot>Received</Badge>
                           </div>
-                          <div className="mt-3 grid grid-cols-3 gap-4">
+                          <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
                               <p className="mt-0.5 text-sm font-medium">{selectedGRN.supplierName}</p>
@@ -812,7 +812,7 @@ export default function PurchaseReturnsPage() {
                           <p className="font-mono text-sm font-medium">{selectedGRN.grnNumber}</p>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
                           <p className="mt-0.5 font-medium">{selectedGRN.supplierName}</p>

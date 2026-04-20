@@ -123,7 +123,7 @@ function groupNotificationsByTime(notifications: Notification[]) {
 }
 
 export function Header({ breadcrumbs }: HeaderProps) {
-  const { user, theme, setTheme, resolvedTheme, language, setLanguage, logout, toggleSidebar } =
+  const { user, theme, setTheme, resolvedTheme, language, setLanguage, logout, toggleMobileSidebar } =
     useAuthStore()
   const { notifications, unreadCount, markAsRead, markAllAsRead } =
     useNotificationStore()
@@ -197,7 +197,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0 md:hidden"
-          onClick={toggleSidebar}
+          onClick={toggleMobileSidebar}
         >
           <Menu className="h-4 w-4" />
         </Button>

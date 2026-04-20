@@ -548,7 +548,7 @@ export default function SalesReturnsPage() {
                           {selectedInvoice.status}
                         </Badge>
                       </div>
-                      <div className="mt-3 grid grid-cols-3 gap-4">
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
                           <p className="mt-0.5 text-sm font-medium">{selectedInvoice.customerName}</p>
@@ -838,7 +838,7 @@ export default function SalesReturnsPage() {
                       <p className="font-mono text-sm font-medium">{fmtInvoiceNum(selectedInvoice)}</p>
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
                       <p className="mt-0.5 font-medium">{selectedInvoice.customerName}</p>

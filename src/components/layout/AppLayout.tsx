@@ -1,9 +1,21 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuthStore } from '@/stores/authStore'
 import { navigate } from '@/lib/router'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)')
+    const onChange = (e: MediaQueryList | MediaQueryListEvent) => setIsMobile(e.matches)
+    onChange(mql)
+    mql.addEventListener('change', onChange as (e: MediaQueryListEvent) => void)
+    return () => mql.removeEventListener('change', onChange as (e: MediaQueryListEvent) => void)
+  }, [])
+  return isMobile
+}
 
 interface BreadcrumbItem {
   label: string
@@ -38,6 +50,7 @@ export default function AppLayout({
   currentPath,
 }: AppLayoutProps) {
   const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
+  const isMobile = useIsMobile()
 
   // Apply theme class to document
   useEffect(() => {
@@ -78,9 +91,9 @@ export default function AppLayout({
       {/* Main Area - shifts based on sidebar width on desktop, full width on mobile */}
       <motion.div
         initial={false}
-        animate={{ marginLeft: sidebarWidth }}
+        animate={{ marginLeft: isMobile ? 0 : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex flex-1 flex-col max-md:ml-0!"
+        className="flex flex-1 flex-col"
       >
         {/* Header - sticky at top of content area */}
         <Header breadcrumbs={breadcrumbs} />
