@@ -1876,13 +1876,13 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             MAIN TWO-PANEL LAYOUT
         ═══════════════════════════════════════════════════ */}
-        <div className="flex gap-3 flex-1 min-h-0">
+        <div className="flex flex-col gap-3 flex-1 min-h-0 md:flex-row">
           {/* ── LEFT: Items Table ────────────────── */}
-          <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 min-w-0 flex flex-col min-h-0">
             <Card className="flex-1 flex flex-col overflow-hidden">
               <CardContent className="p-0 flex-1 flex flex-col">
-                <ScrollArea className="flex-1">
-                  <Table className="w-full">
+                <ScrollArea className="flex-1 overflow-x-auto">
+                  <Table className="w-full min-w-[600px]">
                     <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
                       <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
                         <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
@@ -1941,7 +1941,7 @@ export default function NewSalePage() {
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          <div className="w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2">
+          <div className="w-full md:w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2">
             {/* Summary + Grand Total */}
             <Card className="overflow-x-auto shrink-0">
               <CardContent className="p-0">
