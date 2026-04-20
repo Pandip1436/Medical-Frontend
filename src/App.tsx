@@ -28,7 +28,7 @@ const ExpiryManagementPage = lazy(() => import('@/pages/inventory/ExpiryManageme
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage'))
 const CustomersPage = lazy(() => import('@/pages/customers/CustomersPage'))
 const OutstandingPage = lazy(() => import('@/pages/customers/OutstandingPage'))
-const CashBookPage = lazy(() => import('@/pages/accounting/CashbookPage'))
+const CashBookPage = lazy(() => import('@/pages/accounting/CashBookPage'))
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage'))
 const LedgerPage = lazy(() => import('@/pages/accounting/LedgerPage'))
 const ProfitLossPage = lazy(() => import('@/pages/accounting/ProfitLossPage'))
