@@ -206,15 +206,15 @@ export default function StockAdjustmentPage() {
       setReferenceNumber(refNo)
       setCurrentStep(3)
 
-      // Backend expects adjustedQty (the final quantity), not delta.
-      await Promise.all(
-        items.map(item =>
-          api.patch(`/products/${item.productId}/batches/${item.batchId}/adjust`, {
-            adjustedQty: item.newQty,
-            reason: item.reason,
-          })
-        )
-      )
+      // Single atomic transaction — all batches succeed or all fail together
+      await api.post('/products/bulk-adjust', {
+        items: items.map(item => ({
+          productId: item.productId,
+          batchId: item.batchId,
+          adjustedQty: item.newQty,
+          reason: item.reason,
+        })),
+      })
 
       toast.success('Stock adjustment saved successfully')
     } catch (error) {
