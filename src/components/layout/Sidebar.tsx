@@ -237,7 +237,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
       href={hashHref('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
         <Pill className="h-4 w-4 text-white" />
       </div>
       {!collapsed && (
@@ -297,7 +297,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
                   {active && (
                     <motion.div
                       layoutId="sidebar-indicator"
-                      className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-blue-500"
+                      className="absolute left-0 top-1.5 bottom-1.5 w-0.75 rounded-r-full bg-blue-500"
                       style={{
                         boxShadow: '0 0 8px 1px rgba(59, 130, 246, 0.4)',
                       }}
@@ -308,7 +308,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
                       }}
                     />
                   )}
-                  <Icon className="h-[18px] w-[18px] shrink-0" />
+                  <Icon className="h-4.5 w-4.5 shrink-0" />
                   {!collapsed && (
                     <motion.span
                       initial={{ opacity: 0 }}
@@ -432,12 +432,12 @@ export function Sidebar({ currentPath }: SidebarProps) {
                 animate={{ x: 0 }}
                 exit={{ x: -280 }}
                 transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-                className="fixed left-0 top-0 z-50 flex h-full w-[280px] flex-col bg-sidebar text-sidebar-foreground"
+                className="fixed left-0 top-0 z-50 flex h-full w-70 flex-col bg-sidebar text-sidebar-foreground"
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
               >
                 {/* Subtle gradient overlay */}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+                <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/2 to-transparent" />
                 <div className="relative flex flex-col h-full">
                   {/* Header with close */}
                   <div className="flex items-center justify-between pr-3">
@@ -558,7 +558,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
         className="fixed left-0 top-0 z-40 flex h-screen flex-col bg-sidebar text-sidebar-foreground"
       >
         {/* Subtle gradient overlay - barely visible */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.02] via-transparent to-black/[0.02]" />
+        <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/2 via-transparent to-black/2" />
 
         <div className="relative flex h-full flex-col">
           {/* Logo */}

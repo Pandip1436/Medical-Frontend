@@ -80,7 +80,7 @@ export default function AppLayout({
         initial={false}
         animate={{ marginLeft: sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex flex-1 flex-col max-md:!ml-0"
+        className="flex flex-1 flex-col max-md:ml-0!"
       >
         {/* Header - sticky at top of content area */}
         <Header breadcrumbs={breadcrumbs} />
