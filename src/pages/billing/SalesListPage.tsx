@@ -125,6 +125,8 @@ export default function SalesListPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [amountMin, setAmountMin] = useState('')
   const [amountMax, setAmountMax] = useState('')
+  const [selectedSalespersonId, setSelectedSalespersonId] = useState<string>('all')
+  const [salespersonsList, setSalespersonsList] = useState<{ id: string; name: string }[]>([])
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -154,6 +156,12 @@ export default function SalesListPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices() }, [])
   useBranchRefresh(fetchInvoices)
+
+  useEffect(() => {
+    api.get('/salespersons').then((res) => {
+      setSalespersonsList(Array.isArray(res.data) ? res.data.map((s: any) => ({ id: s.id, name: s.name })) : [])
+    }).catch(() => setSalespersonsList([]))
+  }, [])
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -194,6 +202,7 @@ export default function SalesListPage() {
     setSelectedStatus('all')
     setAmountMin('')
     setAmountMax('')
+    setSelectedSalespersonId('all')
   }
 
   // ── Filtering logic ──
@@ -257,6 +266,11 @@ export default function SalesListPage() {
       result = result.filter((inv) => inv.status === selectedStatus)
     }
 
+    // Salesperson
+    if (selectedSalespersonId && selectedSalespersonId !== 'all') {
+      result = result.filter((inv) => inv.salespersonId === selectedSalespersonId)
+    }
+
     // Amount range
     if (amountMin) {
       result = result.filter((inv) => inv.grandTotal >= parseFloat(amountMin))
@@ -277,6 +291,7 @@ export default function SalesListPage() {
     selectedStatus,
     amountMin,
     amountMax,
+    selectedSalespersonId,
   ])
 
   // ── Stats ──
@@ -357,6 +372,7 @@ export default function SalesListPage() {
     selectedStatus !== 'all' ? selectedStatus : '',
     amountMin,
     amountMax,
+    selectedSalespersonId !== 'all' ? selectedSalespersonId : '',
   ].filter(Boolean).length
 
   return (
@@ -367,14 +383,14 @@ export default function SalesListPage() {
       className="space-y-5"
     >
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Sales & Invoices</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             View and manage all sales transactions
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => {
             if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
             exportToCsv(filteredInvoices.map((inv) => ({
@@ -548,6 +564,19 @@ export default function SalesListPage() {
           options={STATUS_OPTIONS}
         />
 
+        {salespersonsList.length > 0 && (
+          <EnumSelect
+            label="Salesperson"
+            value={selectedSalespersonId}
+            onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
+            options={[
+              { value: 'all', label: 'All Salespersons' },
+              ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+        )}
+
         {/* Amount range */}
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -582,7 +611,7 @@ export default function SalesListPage() {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>
                 {selectedIds.size} selected
               </Badge>
@@ -866,10 +895,10 @@ export default function SalesListPage() {
         </Table>
         </div>{/* end desktop table */}
 
-        {/* Pagination — shared by both mobile cards and desktop table */}
-        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
+        {/* Pagination — shared */}
+        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
           <p className="text-[11px] text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}
+            Showing <span className="font-medium text-foreground">{rangeStart}–{rangeEnd}</span> of{' '}
             <span className="font-medium text-foreground">{filteredInvoices.length}</span> results
           </p>
           <div className="flex items-center gap-2">
@@ -879,11 +908,11 @@ export default function SalesListPage() {
               disabled={currentPage <= 1}
               onClick={() => setCurrentPage((p) => p - 1)}
             >
-              <ChevronLeft className="mr-1 h-4 w-4" />
-              Prev
+              <ChevronLeft className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1">Prev</span>
             </Button>
             <span className="text-[11px] text-muted-foreground tabular-nums">
-              Page {currentPage} of {totalPages || 1}
+              {currentPage} / {totalPages || 1}
             </span>
             <Button
               variant="outline"
@@ -891,8 +920,8 @@ export default function SalesListPage() {
               disabled={currentPage >= totalPages}
               onClick={() => setCurrentPage((p) => p + 1)}
             >
-              Next
-              <ChevronRight className="ml-1 h-4 w-4" />
+              <span className="hidden sm:inline mr-1">Next</span>
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>

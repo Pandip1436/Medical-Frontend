@@ -335,8 +335,8 @@ export default function SettingsPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 border-b border-border/40 bg-background px-6 py-3">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/15">
               <Settings className="h-4.5 w-4.5 text-primary" />
@@ -405,7 +405,7 @@ export default function SettingsPage() {
         {/* ─── RIGHT: Content Area ───────────────────────────── */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Section sub-header */}
-          <div className="shrink-0 flex items-center gap-2.5 border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
+          <div className="shrink-0 flex items-center gap-2.5 border-b border-border/40 bg-muted/10 px-4 py-2 sm:px-6 dark:bg-muted/5">
             <div className={cn(
               'flex h-7 w-7 items-center justify-center rounded-lg',
               activeSection === 'business' ? 'bg-primary/10 text-primary' :
@@ -847,7 +847,7 @@ function UserManagementSection() {
     <motion.div variants={itemVariants}>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
                 <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
@@ -1638,7 +1638,7 @@ function DiscountRulesSection() {
     <motion.div variants={itemVariants}>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 dark:bg-amber-500/15">
                 <Percent className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />

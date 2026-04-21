@@ -196,8 +196,8 @@ export default function ReportsHubPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 border-b border-border/40 bg-background px-6 py-3">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-baseline gap-3">
               <h1 className="text-lg font-bold tracking-tight">Reports & Analytics</h1>
@@ -220,7 +220,7 @@ export default function ReportsHubPage() {
               className="w-56 h-8 text-xs"
             />
             <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as CategoryKey)}>
-              <SelectTrigger className="h-8 w-[130px] rounded-lg text-xs">
+              <SelectTrigger className="h-8 w-full sm:w-32.5 rounded-lg text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

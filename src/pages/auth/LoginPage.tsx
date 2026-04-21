@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mail, Lock, Eye, EyeOff, Pill, ChevronDown, Sparkles, Shield, FlaskConical, Package, Calculator } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, Pill, ChevronDown, Sparkles, Shield, FlaskConical, Package, Calculator, UserCheck } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,6 +77,17 @@ const demoAccounts = [
     bg: 'bg-amber-50 dark:bg-amber-500/10',
     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
     description: 'Finance & ledger',
+  },
+  {
+    role: 'Salesperson',
+    name: 'Arjun Sales',
+    email: 'salesperson@pbims.com',
+    password: 'sales123',
+    icon: UserCheck,
+    color: 'text-orange-600 dark:text-orange-400',
+    bg: 'bg-orange-50 dark:bg-orange-500/10',
+    badge: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+    description: 'Sales & customers view',
   },
 ]
 

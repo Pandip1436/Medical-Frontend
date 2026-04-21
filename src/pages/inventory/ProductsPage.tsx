@@ -310,6 +310,7 @@ export default function ProductsPage() {
       category: values.category.toUpperCase(),
       schedule: values.schedule.toUpperCase(),
       storageCondition: values.storageCondition.toUpperCase(),
+      barcode: values.barcode?.trim() || undefined,
     }
 
     try {
@@ -321,6 +322,7 @@ export default function ProductsPage() {
         toast.success(`Product "${values.name}" added successfully`)
       }
       setDialogOpen(false)
+      setCurrentPage(1)
       refreshPage() // Refreshes local pagination table
       fetchProducts() // Syncs global master data for other pages (like Purchase Orders)
     } catch (error: any) {
@@ -772,7 +774,7 @@ export default function ProductsPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
+        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
           <p className="text-sm text-muted-foreground">
             Showing{' '}
             {totalCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}

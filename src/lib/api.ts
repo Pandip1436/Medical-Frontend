@@ -49,15 +49,9 @@ api.interceptors.request.use(
       if (config.method === 'get') {
         config.params = { ...config.params, branchId };
       }
-      // POST/PUT/PATCH: inject into body (only if body is a plain object without branchId)
-      if (['post', 'put', 'patch'].includes(config.method ?? '') && config.data) {
-        try {
-          const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
-          if (typeof body === 'object' && !Array.isArray(body) && !body.branchId) {
-            body.branchId = branchId;
-            config.data = typeof config.data === 'string' ? JSON.stringify(body) : body;
-          }
-        } catch { /* ignore malformed body */ }
+      // POST/PUT/PATCH: inject as query param so ValidationPipe whitelist doesn't strip it
+      if (['post', 'put', 'patch'].includes(config.method ?? '')) {
+        config.params = { ...config.params, branchId };
       }
     }
 

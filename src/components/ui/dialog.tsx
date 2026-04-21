@@ -36,28 +36,26 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        // Mobile: true full-screen — covers entire viewport
-        "fixed inset-0 z-50 flex flex-col w-full h-full gap-0 border-0 bg-background p-0 shadow-lg duration-200 overflow-y-auto",
+        // Mobile: full-screen (below md)
+        "fixed inset-0 z-50 flex flex-col w-full h-dvh bg-background p-5 shadow-lg duration-200 overflow-y-auto",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-        // md+: centered modal with rounded corners, auto size
-        "md:inset-auto md:fixed md:left-1/2 md:top-1/2 md:h-auto md:max-h-[90vh] md:w-full md:max-w-lg",
-        "md:-translate-x-1/2 md:-translate-y-1/2",
-        "md:rounded-2xl md:border md:p-6 md:shadow-xl md:overflow-y-auto",
+        // md+: EXACT original desktop layout — centered, rounded, max-w-lg, gap-4
+        "md:inset-auto md:h-auto md:left-1/2 md:top-1/2 md:grid md:max-w-lg md:w-full md:translate-x-[-50%] md:translate-y-[-50%] md:gap-4 md:border md:p-6 md:rounded-lg md:overflow-visible",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
-        "md:data-[state=closed]:slide-out-to-bottom-0 md:data-[state=open]:slide-in-from-bottom-0",
+        "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=open]:slide-in-from-left-1/2",
+        "md:data-[state=closed]:slide-out-to-top-[48%] md:data-[state=open]:slide-in-from-top-[48%]",
         className
       )}
       {...props}
     >
-      <div className="relative flex flex-col flex-1 p-5 md:p-0">
-        {children}
-        <DialogPrimitive.Close className="absolute right-0 top-0 flex h-9 w-9 items-center justify-center rounded-full bg-muted opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground md:right-4 md:top-4">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
-      </div>
+      {children}
+      {/* Close button: top-right corner on both mobile and desktop */}
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+        <X className="h-4 w-4" />
+        <span className="sr-only">Close</span>
+      </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
 ))
@@ -83,7 +81,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col gap-2 md:flex-row md:justify-end md:gap-0 md:space-x-2",
+      "flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-0 sm:space-x-2",
       className
     )}
     {...props}

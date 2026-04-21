@@ -378,8 +378,8 @@ export default function ProfitLossPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 border-b border-border/40 bg-background px-6 py-3">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg font-bold tracking-tight">Profit & Loss Statement</h1>
             <p className="text-[11px] text-muted-foreground">Revenue, expenses, and profitability analysis</p>
@@ -415,7 +415,7 @@ export default function ProfitLossPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* KPI STRIP                                                  */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/10 px-6 py-3 dark:bg-muted/5">
+      <div className="shrink-0 border-b border-border/40 bg-muted/10 px-4 py-3 sm:px-6 dark:bg-muted/5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KPICard
             label="Net Revenue"

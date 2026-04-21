@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT'
+export type UserRole = 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON'
 
 export interface User {
   id: string
@@ -9,6 +9,19 @@ export interface User {
   avatar?: string
   isActive: boolean
   lastLogin?: string
+  commissionRate?: number
+}
+
+export interface Salesperson {
+  id: string
+  name: string
+  email: string
+  phone: string
+  isActive: boolean
+  commissionRate: number
+  branchId?: string
+  lastLogin?: string
+  createdAt: string
 }
 
 export interface Customer {
@@ -123,6 +136,8 @@ export interface Invoice {
   status: 'DRAFT' | 'PAID' | 'CREDIT' | 'PARTIAL' | 'RETURNED' | 'CANCELLED'
   amountPaid: number
   changeReturned: number
+  salespersonId?: string
+  salespersonName?: string
   createdBy: string
   createdAt: string
 }

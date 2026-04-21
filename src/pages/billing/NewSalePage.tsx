@@ -1112,12 +1112,20 @@ export default function NewSalePage() {
   useEffect(() => { fetchDoctorsCb() }, [fetchDoctorsCb])
   useBranchRefresh(fetchDoctorsCb)
 
+  useEffect(() => {
+    api.get('/salespersons').then((res) => {
+      setSalespersons(Array.isArray(res.data) ? res.data.filter((s: any) => s.isActive).map((s: any) => ({ id: s.id, name: s.name })) : [])
+    }).catch(() => setSalespersons([]))
+  }, [])
+
   // ── State ────────────────────────────────────────────────
   const [invoiceType, setInvoiceType] = useState<'invoice' | 'quotation'>('invoice')
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [doctorRef, setDoctorRef] = useState('')
   const [doctorSearch, setDoctorSearch] = useState('')
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false)
+  const [selectedSalesperson, setSelectedSalesperson] = useState<{ id: string; name: string } | null>(null)
+  const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
@@ -1443,6 +1451,10 @@ export default function NewSalePage() {
       if (activeBranchId) {
         payload.branchId = activeBranchId;
       }
+      if (selectedSalesperson) {
+        payload.salespersonId = selectedSalesperson.id;
+        payload.salespersonName = selectedSalesperson.name;
+      }
 
       const res = await api.post('/billing', payload)
       const savedInvoice = res.data
@@ -1749,6 +1761,25 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
 
+            {/* Salesperson Selector */}
+            {salespersons.length > 0 && (
+              <div className="flex-1 min-w-0 relative h-full">
+                <select
+                  value={selectedSalesperson?.id ?? ''}
+                  onChange={(e) => {
+                    const sp = salespersons.find((s) => s.id === e.target.value)
+                    setSelectedSalesperson(sp ?? null)
+                  }}
+                  className="flex items-center gap-1.5 w-full h-full rounded-xl border border-border/60 bg-background px-3 text-xs text-muted-foreground/80 focus:outline-none focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  <option value="">No Salesperson</option>
+                  {salespersons.map((sp) => (
+                    <option key={sp.id} value={sp.id}>{sp.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Add Item Button (Aligned to end of table) */}
             <Button
               type="button"
@@ -1882,7 +1913,7 @@ export default function NewSalePage() {
             <Card className="flex-1 flex flex-col overflow-hidden">
               <CardContent className="p-0 flex-1 flex flex-col">
                 <ScrollArea className="flex-1 overflow-x-auto">
-                  <Table className="w-full min-w-[600px]">
+                  <Table className="w-full min-w-150">
                     <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
                       <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
                         <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>

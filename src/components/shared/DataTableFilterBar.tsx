@@ -33,8 +33,9 @@ export function DataTableFilterBar({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="w-full max-w-sm">
+      <div className="flex items-center gap-2">
+        {/* Search — grows to fill available space */}
+        <div className="min-w-0 flex-1">
           <Input
             icon={<Search className="h-4 w-4" />}
             suffix={
@@ -50,8 +51,9 @@ export function DataTableFilterBar({
           />
         </div>
 
+        {/* Filter toggle + clear — always visible, never wraps off-screen */}
         {children && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
             <Button
               variant={filtersOpen ? 'default' : 'outline'}
               size="sm"
@@ -59,30 +61,30 @@ export function DataTableFilterBar({
               onClick={() => setFiltersOpen(!filtersOpen)}
             >
               <SlidersHorizontal className="h-4 w-4" />
-              Filters
+              <span className="hidden sm:inline">Filters</span>
               {activeFilterCount > 0 && (
                 <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
                   {activeFilterCount}
                 </Badge>
               )}
             </Button>
-            
-            {onClearFilters && (
+
+            {onClearFilters && activeFilterCount > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="text-muted-foreground hover:text-foreground"
                 onClick={onClearFilters}
               >
-                <X className="mr-1 h-3 w-3" />
-                Clear
+                <X className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Clear</span>
               </Button>
             )}
           </div>
         )}
 
         {actionNode && (
-          <div className="ml-auto flex items-center">
+          <div className="shrink-0">
             {actionNode}
           </div>
         )}

@@ -89,7 +89,7 @@ export default function DebitNotesPage() {
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border/40 bg-background px-6 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -145,9 +145,9 @@ export default function DebitNotesPage() {
           /* ── List View ── */
           <div className="flex flex-col h-full">
             {/* Search bar */}
-            <div className="border-b border-border/40 bg-background/60 px-6 py-3 backdrop-blur-sm">
-              <div className="flex items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-sm">
+            <div className="border-b border-border/40 bg-background/60 px-4 py-3 sm:px-6 backdrop-blur-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="relative flex-1 min-w-0">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Search by note number or supplier..."
@@ -244,12 +244,12 @@ export default function DebitNotesPage() {
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead className="w-[190px]">Note Number</TableHead>
-                        <TableHead className="w-[130px]">Date</TableHead>
+                        <TableHead className="w-47.5">Note Number</TableHead>
+                        <TableHead className="w-32.5">Date</TableHead>
                         <TableHead>Supplier</TableHead>
-                        <TableHead className="w-[150px]">GRN Reference</TableHead>
+                        <TableHead className="w-37.5">GRN Reference</TableHead>
                         <TableHead className="text-right w-35">Debit Amount</TableHead>
-                        <TableHead className="w-[110px]">Status</TableHead>
+                        <TableHead className="w-27.5">Status</TableHead>
                         <TableHead className="w-15"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -366,7 +366,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
     <Card className="overflow-x-auto border-border/40 shadow-xl flex flex-col md:flex-row min-h-150">
       {/* Left: Note details */}
       <div className="flex-1 flex flex-col border-r border-border/30">
-        <div className="shrink-0 bg-gradient-to-br from-primary/10 via-background to-background p-6 border-b border-border/30">
+        <div className="shrink-0 bg-linear-to-br from-primary/10 via-background to-background p-6 border-b border-border/30">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Debit Note</p>

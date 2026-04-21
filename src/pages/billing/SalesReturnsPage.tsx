@@ -367,7 +367,7 @@ export default function SalesReturnsPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* ── Fixed Header ── */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border/40 bg-background px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-border/40 bg-background px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -627,7 +627,7 @@ export default function SalesReturnsPage() {
               className="absolute inset-0 flex flex-col"
             >
               {/* Sub-header */}
-              <div className="flex shrink-0 items-center justify-between border-b border-border/40 px-6 py-3">
+              <div className="flex shrink-0 items-center justify-between border-b border-border/40 px-4 py-3 sm:px-6">
                 <div className="flex items-center gap-3">
                   <p className="text-sm text-muted-foreground">
                     Returning items from
@@ -788,7 +788,7 @@ export default function SalesReturnsPage() {
               </div>
 
               {/* Fixed bottom bar */}
-              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background px-6 py-3">
+              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background px-4 py-3 sm:px-6">
                 <Button variant="outline" size="sm" onClick={() => goToStep(1)}>
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Back

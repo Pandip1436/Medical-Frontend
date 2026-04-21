@@ -99,7 +99,7 @@ export default function AppLayout({
         <Header breadcrumbs={breadcrumbs} />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentPath}
@@ -107,7 +107,7 @@ export default function AppLayout({
               initial="initial"
               animate="animate"
               exit="exit"
-              className="content-area p-3 pb-24 md:p-4 lg:p-6"
+              className="content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6"
             >
               {title && (
                 <h1 className="sr-only">{title}</h1>

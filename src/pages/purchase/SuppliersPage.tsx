@@ -340,14 +340,14 @@ export default function SuppliersPage() {
       className="space-y-5"
     >
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Manage your supplier directory and relationships
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={openAddDialog}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add Supplier
@@ -444,7 +444,7 @@ export default function SuppliersPage() {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
                 <Button variant="ghost" size="sm" onClick={() => {
@@ -628,7 +628,7 @@ export default function SuppliersPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
+        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
           <p className="text-[11px] text-muted-foreground">
             Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}
             <span className="font-medium text-foreground">{filteredSuppliers.length}</span> results

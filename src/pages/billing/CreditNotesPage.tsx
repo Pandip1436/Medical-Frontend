@@ -270,14 +270,14 @@ export default function CreditNotesPage() {
       className="space-y-5"
     >
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Credit Notes</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             All sales return credit notes issued to customers
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => {
             if (!filtered.length) { toast.info('No credit notes to export'); return }
             exportToCsv(filtered.map(cn => ({
@@ -540,7 +540,7 @@ export default function CreditNotesPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
+        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
           <p className="text-[11px] text-muted-foreground">
             Showing <span className="font-medium text-foreground">{rangeStart}–{rangeEnd}</span> of{' '}
             <span className="font-medium text-foreground">{filtered.length}</span> results

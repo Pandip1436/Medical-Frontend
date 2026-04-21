@@ -29,6 +29,7 @@ import {
   X,
   Stethoscope,
   Building2,
+  UserCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -118,6 +119,13 @@ const navigationGroups: NavGroup[] = [
     ],
   },
   {
+    title: 'SALESPERSONS',
+    items: [
+      { label: 'Salespersons', icon: UserCheck, href: '/salespersons' },
+      { label: 'Sales Report', icon: TrendingUp, href: '/salespersons/report' },
+    ],
+  },
+  {
     title: 'SETTINGS',
     items: [
       { label: 'Branches', icon: Building2, href: '/branches', adminOnly: true },
@@ -126,13 +134,21 @@ const navigationGroups: NavGroup[] = [
   },
 ]
 
-// Bottom mobile nav items (first 4 + More)
-const mobileBottomItems: NavItem[] = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-  { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
-  { label: 'Products', icon: Package, href: '/inventory/products' },
-  { label: 'Customers', icon: Users, href: '/customers' },
-]
+// Bottom mobile nav items by role
+const mobileBottomItemsByRole: Record<string, NavItem[]> = {
+  default: [
+    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
+    { label: 'Products', icon: Package, href: '/inventory/products' },
+    { label: 'Customers', icon: Users, href: '/customers' },
+  ],
+  SALESPERSON: [
+    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    { label: 'Customers', icon: Users, href: '/customers' },
+    { label: 'Products', icon: Package, href: '/inventory/products' },
+    { label: 'Sales', icon: FileText, href: '/billing/sales' },
+  ],
+}
 
 // Role-based ring colors
 const roleRingColors: Record<string, string> = {
@@ -140,6 +156,7 @@ const roleRingColors: Record<string, string> = {
   PHARMACIST: 'ring-emerald-500',
   INVENTORY_MANAGER: 'ring-amber-500',
   ACCOUNTANT: 'ring-purple-500',
+  SALESPERSON: 'ring-orange-500',
 }
 
 function useIsMobile() {
@@ -518,7 +535,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
         {/* Bottom tab bar */}
         <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-1 pb-[env(safe-area-inset-bottom)] h-16">
-          {mobileBottomItems.map((item) => {
+          {(mobileBottomItemsByRole[user?.role ?? ''] ?? mobileBottomItemsByRole.default).map((item) => {
             const active = isActive(item)
             const Icon = item.icon
             return (

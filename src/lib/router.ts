@@ -151,6 +151,14 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Branches',
     breadcrumbs: [{ label: 'Branches' }],
   },
+  '/salespersons': {
+    label: 'Salespersons',
+    breadcrumbs: [{ label: 'Salespersons' }],
+  },
+  '/salespersons/report': {
+    label: 'Sales Report',
+    breadcrumbs: [{ label: 'Salespersons', href: '#/salespersons' }, { label: 'Sales Report' }],
+  },
 }
 
 /** Get route config for a given path, with fallback to dashboard */
