@@ -259,7 +259,7 @@ function BillingRow({
         p.genericName.toLowerCase().includes(q) ||
         p.manufacturer.toLowerCase().includes(q)
     )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productSearch])
 
   // Alternative suggestions: same salt composition, different product, has stock
@@ -560,12 +560,12 @@ function BillingRow({
           onValueChange={handleBatchChange}
           disabled={!item.productId}
         >
-          <SelectTrigger 
+          <SelectTrigger
             ref={batchRef}
             className={cn(
-            'h-8 w-full bg-transparent border-0 px-2 text-xs font-medium transition-all focus:ring-1 focus:ring-primary/20',
-            !item.batchId && 'text-muted-foreground/40 italic'
-          )}>
+              'h-8 w-full bg-transparent border-0 px-2 text-xs font-medium transition-all focus:ring-1 focus:ring-primary/20',
+              !item.batchId && 'text-muted-foreground/40 italic'
+            )}>
             <SelectValue placeholder="Select Batch" />
           </SelectTrigger>
           <SelectContent className="bg-popover/95 backdrop-blur-xl">
@@ -629,7 +629,7 @@ function BillingRow({
           </button>
         </div>
       </TableCell>
- 
+
       {/* Rate */}
       <TableCell className="w-25 px-1.5 py-1">
         <div className="relative group/rate">
@@ -652,7 +652,7 @@ function BillingRow({
           )}
         </div>
       </TableCell>
- 
+
       {/* Disc% */}
       <TableCell className="w-16.25 px-1.5 py-1">
         <input
@@ -670,16 +670,16 @@ function BillingRow({
           disabled={!item.productId}
         />
       </TableCell>
- 
+
       {/* GST */}
       <TableCell className="w-12.5 px-1 py-1 text-center text-[10px] font-bold text-muted-foreground/50 font-mono">
         {item.gstPercent ? `${item.gstPercent}%` : '—'}
       </TableCell>
- 
+
       {/* Amount */}
       <TableCell className="w-27.5 px-3 py-1 text-right">
         <span className={cn(
-          'text-sm font-black font-mono tracking-tight', 
+          'text-sm font-black font-mono tracking-tight',
           item.amount > 0 ? 'text-primary' : 'text-muted-foreground/30'
         )}>
           {item.amount > 0 ? formatCurrency(item.amount) : '₹0.00'}
@@ -691,7 +691,7 @@ function BillingRow({
         <button
           type="button"
           onClick={() => onRemove(item.id)}
-          className="rounded-md p-1 text-muted-foreground/30 hover:bg-rose-500/10 hover:text-rose-600 transition-all opacity-0 group-hover:opacity-100"
+          className="rounded-md p-1 text-muted-foreground/30 hover:bg-rose-500/10 hover:text-rose-600 transition-all"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -1024,7 +1024,7 @@ export default function NewSalePage() {
             schedule: it.schedule ?? '',
           })))
         }
-      }).catch(() => {/* ignore if not found */})
+      }).catch(() => {/* ignore if not found */ })
     }
   }, [])
 
@@ -1119,7 +1119,10 @@ export default function NewSalePage() {
   }, [])
 
   // ── State ────────────────────────────────────────────────
-  const [invoiceType, setInvoiceType] = useState<'invoice' | 'quotation'>('invoice')
+  const [invoiceType, setInvoiceType] = useState<'invoice' | 'quotation'>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('type') === 'quotation' ? 'quotation' : 'invoice'
+  })
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [doctorRef, setDoctorRef] = useState('')
   const [doctorSearch, setDoctorSearch] = useState('')
@@ -1424,9 +1427,9 @@ export default function NewSalePage() {
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: invoiceType === 'quotation' ? 0
           : paymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
-          : paymentMode === 'CREDIT' ? 0          // Nothing collected upfront — outstanding tracked separately
-          : paymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
-          : Number(totals.grandTotal) || 0,       // CARD / UPI — fully paid
+            : paymentMode === 'CREDIT' ? 0          // Nothing collected upfront — outstanding tracked separately
+              : paymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
+                : Number(totals.grandTotal) || 0,       // CARD / UPI — fully paid
         changeReturned: invoiceType === 'quotation' ? 0 : Number(paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
         status: invoiceType === 'quotation' ? 'DRAFT' : paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
 
@@ -1445,8 +1448,14 @@ export default function NewSalePage() {
         }))
       }
 
-      if (selectedCustomer?.id) {
-        payload.customerId = selectedCustomer.id;
+      const endpoint = invoiceType === 'quotation' ? '/quotations' : '/billing'
+      await api.post(endpoint, payload)
+
+      const successMsg = invoiceType === 'quotation' ? 'Quotation' : 'Invoice'
+      alert(`${successMsg} Generated Successfully!`)
+
+      if (invoiceType === 'quotation') {
+        navigate('/billing/quotations')
       }
       if (activeBranchId) {
         payload.branchId = activeBranchId;

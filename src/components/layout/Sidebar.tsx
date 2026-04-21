@@ -71,9 +71,9 @@ const navigationGroups: NavGroup[] = [
     items: [
       { label: 'New Sale', icon: PlusCircle, href: '/billing/new' },
       { label: 'Sales List', icon: FileText, href: '/billing/sales' },
-      { label: 'Quotations',   icon: FileCheck,  href: '/billing/quotations' },
-      { label: 'Sales Returns', icon: RotateCcw,  href: '/billing/returns' },
-      { label: 'Credit Notes',  icon: FileCheck2, href: '/billing/credit-notes' },
+      { label: 'Quotations', icon: FileCheck, href: '/billing/quotations' },
+      { label: 'Sales Returns', icon: RotateCcw, href: '/billing/returns' },
+      { label: 'Credit Notes', icon: FileCheck2, href: '/billing/credit-notes' },
     ],
   },
   {
@@ -179,8 +179,11 @@ interface SidebarProps {
   currentPath: string
 }
 
+import { useSettingsStore } from '@/stores/settingsStore'
+
 export function Sidebar({ currentPath }: SidebarProps) {
   const { user, sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
+  const businessProfile = useSettingsStore((s) => s.businessProfile)
   const isMobile = useIsMobile()
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
@@ -255,7 +258,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
       href={hashHref('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
         <Pill className="h-4 w-4 text-white" />
       </div>
       {!collapsed && (
@@ -267,7 +270,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
           className="flex min-w-0 flex-col"
         >
           <span className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
-            Hospital Suppliers
+            {businessProfile?.name || 'Hospital Suppliers'}
           </span>
           <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-muted">
             PBIMS

@@ -43,6 +43,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAuthStore } from '@/stores/authStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { navigate } from '@/lib/router'
 import api, { API_BASE_URL } from '@/lib/api'
 import { cn, formatCurrency, timeAgo, getInitials } from '@/lib/utils'
@@ -269,13 +270,14 @@ export default function DashboardPage() {
   const products = useMasterDataStore((s) => s.products)
   const batches = useMasterDataStore((s) => s.batches)
   const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
+  const businessProfile = useSettingsStore((s) => s.businessProfile)
 
   const [dashData, setDashData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const fetchDashboard = async () => {
     setIsLoading(true)
-    
+
     // Use individual catches or Promise.allSettled to prevent one failure from zeroing the whole dashboard
     const results = await Promise.allSettled([
       api.get('/reports/dashboard'),
@@ -315,7 +317,7 @@ export default function DashboardPage() {
     } else {
       console.error('Core dashboard data failed to load')
     }
-    
+
     setIsLoading(false)
   }
 
@@ -329,17 +331,17 @@ export default function DashboardPage() {
 
     // Establish Server-Sent Events (SSE) stream for real-time dashboard feed
     const eventSource = new EventSource(`${API_BASE_URL}/events/dashboard-feed`)
-    
+
     eventSource.onmessage = (event) => {
       try {
         const newActivity = JSON.parse(event.data)
         setDashData((prev: any) => {
           if (!prev) return prev
           const currentFeed = prev.activityFeed || []
-          
+
           // Avoid duplicates if SSE reconnects
           if (currentFeed.some((f: any) => f.id === newActivity.id)) return prev
-          
+
           return {
             ...prev,
             // Prepend new live event and slice to keep top 15
@@ -405,7 +407,7 @@ export default function DashboardPage() {
             {greeting}, {userName}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Here&apos;s what&apos;s happening at Hospital Suppliers today.
+            Here&apos;s what&apos;s happening at {businessProfile?.name || 'Hospital Suppliers'} today.
           </p>
         </div>
         <div className="flex items-center gap-2">

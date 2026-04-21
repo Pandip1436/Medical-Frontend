@@ -1,8 +1,8 @@
 import { useSyncExternalStore, useCallback } from 'react'
 
 // ─── Hash-based router store ───────────────────────────────────────────────
-function getHash(): string {
-  return window.location.hash.slice(1) || '/login'
+function getPath(): string {
+  return window.location.pathname === '/' ? '/login' : window.location.pathname
 }
 
 const listeners = new Set<() => void>()
@@ -16,27 +16,27 @@ function emitChange() {
   for (const listener of listeners) listener()
 }
 
-// Listen to hashchange
+// Listen to popstate for browser back/forward buttons
 if (typeof window !== 'undefined') {
-  window.addEventListener('hashchange', emitChange)
+  window.addEventListener('popstate', emitChange)
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
-/** Navigate to a path (sets hash, triggers re-render in all useRoute consumers) */
 export function navigate(path: string) {
-  window.location.hash = path
+  window.history.pushState(null, '', path)
+  emitChange()
 }
 
 /** React hook – returns current path and navigate function */
 export function useRoute() {
-  const path = useSyncExternalStore(subscribe, getHash, () => '/login')
+  const path = useSyncExternalStore(subscribe, getPath, () => '/login')
   return { path, navigate }
 }
 
-/** Build an href string that works with hash routing */
+/** Build an href string that works with browser routing */
 export function href(path: string): string {
-  return `#${path}`
+  return path
 }
 
 // ─── Route config ──────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export const routes: Record<string, RouteConfig> = {
   },
   '/billing/new': {
     label: 'New Sale',
-    breadcrumbs: [{ label: 'Billing', href: '#/billing/sales' }, { label: 'New Sale' }],
+    breadcrumbs: [{ label: 'Billing', href: '/billing/sales' }, { label: 'New Sale' }],
   },
   '/billing/sales': {
     label: 'Sales List',
@@ -163,7 +163,8 @@ export const routes: Record<string, RouteConfig> = {
 
 /** Get route config for a given path, with fallback to dashboard */
 export function getRouteConfig(path: string): RouteConfig {
-  return routes[path] || routes['/dashboard']!
+  const basePath = typeof path === 'string' ? path.split('?')[0] : '/dashboard'
+  return routes[basePath] || routes['/dashboard']!
 }
 
 /** Hook that returns navigate as a stable callback */

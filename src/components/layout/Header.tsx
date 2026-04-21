@@ -448,7 +448,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                 {notifications.length > 5 && (
                   <div className="border-t border-border/40 px-4 py-2.5 text-center">
                     <a
-                      href="#/notifications"
+                      href="/notifications"
                       className="text-xs font-medium text-primary transition-colors hover:text-primary/80"
                     >
                       View all notifications
