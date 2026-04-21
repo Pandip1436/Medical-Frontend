@@ -19,12 +19,14 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat('en-IN').format(num)
 }
 
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string | undefined | null): string {
+  if (!date) return '-'
   const d = typeof date === 'string' ? new Date(date) : date
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-export function formatDateTime(date: Date | string): string {
+export function formatDateTime(date: Date | string | undefined | null): string {
+  if (!date) return '-'
   const d = typeof date === 'string' ? new Date(date) : date
   return d.toLocaleDateString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -37,15 +39,20 @@ export function generateId(prefix: string = ''): string {
   return prefix ? `${prefix}_${id}` : id
 }
 
+import { useSettingsStore } from '@/stores/settingsStore'
+
 export function generateInvoiceNumber(type: 'INV' | 'QTN' | 'CN' | 'DN' | 'PO' | 'GRN' | 'RCT' | 'PV' | 'ADJ' | 'AUD' | 'TRF', seq: number): string {
-  return `HS/25-26/${type}/${String(seq).padStart(5, '0')}`
+  const profile = useSettingsStore.getState().businessProfile
+  const prefix = profile?.invoicePrefix || 'HS/25-26'
+  return `${prefix}/${type}/${String(seq).padStart(5, '0')}`
 }
 
 export function getInitials(name: string): string {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
-export function timeAgo(date: Date | string): string {
+export function timeAgo(date: Date | string | undefined | null): string {
+  if (!date) return '-'
   const d = typeof date === 'string' ? new Date(date) : date
   const now = new Date()
   const diff = now.getTime() - d.getTime()

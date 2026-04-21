@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import api from '@/lib/api'
+import { createPortal } from 'react-dom'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
@@ -326,6 +328,12 @@ function SettingToggleRow({
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('business')
+  const { fetchSettings, fetchDiscountRules } = useSettingsStore()
+
+  useEffect(() => {
+    fetchSettings()
+    fetchDiscountRules()
+  }, [fetchSettings, fetchDiscountRules])
 
   const activeConfig = settingsSections.find((s) => s.id === activeSection)
   const ActiveIcon = activeConfig?.icon || Settings
@@ -348,9 +356,11 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-          <Badge variant="info" size="sm" dot>
-            v2.4.0
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" size="sm" dot className="font-mono">
+              v2.4.0
+            </Badge>
+          </div>
         </div>
       </div>
 
@@ -370,7 +380,7 @@ export default function SettingsPage() {
                     key={section.id}
                     onClick={() => setActiveSection(section.id)}
                     className={cn(
-                      'group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-150',
+                      'group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-150 cursor-pointer',
                       isActive
                         ? 'bg-primary/10 text-primary shadow-sm dark:bg-primary/15'
                         : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground dark:hover:bg-muted/40'
@@ -405,25 +415,30 @@ export default function SettingsPage() {
         {/* ─── RIGHT: Content Area ───────────────────────────── */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Section sub-header */}
-          <div className="shrink-0 flex items-center gap-2.5 border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
-            <div className={cn(
-              'flex h-7 w-7 items-center justify-center rounded-lg',
-              activeSection === 'business' ? 'bg-primary/10 text-primary' :
-              activeSection === 'tax' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-              activeSection === 'users' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' :
-              activeSection === 'notifications' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
-              activeSection === 'printer' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' :
-              activeSection === 'discounts' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-              activeSection === 'backup' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
-              activeSection === 'audit' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' :
-              'bg-muted/60 text-muted-foreground'
-            )}>
-              <ActiveIcon className="h-3.5 w-3.5" />
+          <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
+            <div className="flex items-center gap-2.5">
+              <div className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-lg',
+                activeSection === 'business' ? 'bg-primary/10 text-primary' :
+                activeSection === 'tax' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                activeSection === 'users' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' :
+                activeSection === 'notifications' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+                activeSection === 'printer' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' :
+                activeSection === 'discounts' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                activeSection === 'backup' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
+                activeSection === 'audit' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' :
+                'bg-muted/60 text-muted-foreground'
+              )}>
+                <ActiveIcon className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{activeConfig?.label}</p>
+                <p className="text-[10px] text-muted-foreground">{activeConfig?.description}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold">{activeConfig?.label}</p>
-              <p className="text-[10px] text-muted-foreground">{activeConfig?.description}</p>
-            </div>
+
+            {/* Top-right save button placeholder */}
+            <div id="settings-save-button-portal" />
           </div>
 
           {/* Scrollable content */}
@@ -458,32 +473,53 @@ export default function SettingsPage() {
 // ─────────────────────────────────────────────────────────────
 
 function BusinessProfileSection() {
+  const { businessProfile, updateBusinessProfile, isLoading } = useSettingsStore()
+  
   const {
     register,
     handleSubmit,
     watch,
+    reset,
     formState: { errors },
   } = useForm<BusinessProfileForm>({
     resolver: zodResolver(businessProfileSchema),
-    defaultValues: {
-      companyName: 'Hospital Suppliers',
-      address: '23, Medical Complex, K.K. Nagar, Madurai - 625020, Tamil Nadu',
-      phone: '04522345679',
-      email: 'info@hospitalsuppliers.com',
-      gstin: '33AABCH1234A1Z5',
-      drugLicense: 'TN/MDU/20B/2020/0456',
-      invoicePrefix: 'HS/25-26',
-    },
   })
+
+  useEffect(() => {
+    if (businessProfile) {
+      reset({
+        companyName: businessProfile.name || '',
+        address: businessProfile.address || '',
+        phone: businessProfile.phone || '',
+        email: businessProfile.email || '',
+        gstin: businessProfile.gstin || '',
+        drugLicense: businessProfile.drugLicense || '',
+        invoicePrefix: businessProfile.invoicePrefix || 'INV',
+      })
+    }
+  }, [businessProfile, reset])
 
   const invoicePrefix = watch('invoicePrefix')
 
-  const onSubmit = (_data: BusinessProfileForm) => {
-    toast.success('Business profile updated successfully')
+  const onSubmit = (data: BusinessProfileForm) => {
+    updateBusinessProfile(data)
   }
 
   return (
     <motion.div variants={itemVariants}>
+      {createPortal(
+        <Button 
+          onClick={handleSubmit(onSubmit)} 
+          disabled={isLoading}
+          size="sm"
+          className="gap-1.5 cursor-pointer h-8"
+        >
+          <Save className="h-4 w-4" />
+          Save Business Changes
+        </Button>,
+        document.getElementById('settings-save-button-portal') || document.body
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
@@ -497,12 +533,12 @@ function BusinessProfileSection() {
           </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          <form className="space-y-6">
             <div>
               <SectionLabel>Company Information</SectionLabel>
               <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="companyName">Company Name</Label>
+                  <Label htmlFor="companyName">Company Name <span className="text-destructive">*</span></Label>
                   <Input
                     id="companyName"
                     {...register('companyName')}
@@ -513,7 +549,7 @@ function BusinessProfileSection() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
+                  <Label htmlFor="phone">Phone <span className="text-destructive">*</span></Label>
                   <Input
                     id="phone"
                     {...register('phone')}
@@ -524,14 +560,14 @@ function BusinessProfileSection() {
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="address">Address</Label>
+                  <Label htmlFor="address">Address <span className="text-destructive">*</span></Label>
                   <Textarea id="address" {...register('address')} rows={2} />
                   {errors.address && (
                     <p className="text-xs text-destructive">{errors.address.message}</p>
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
                   <Input
                     id="email"
                     type="email"
@@ -551,12 +587,12 @@ function BusinessProfileSection() {
               <SectionLabel>License & Tax</SectionLabel>
               <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="gstin">GSTIN</Label>
+                  <Label htmlFor="gstin">GSTIN <span className="text-destructive">*</span></Label>
                   <Input
                     id="gstin"
                     {...register('gstin')}
                     maxLength={15}
-                    className="font-mono"
+                    className="font-mono text-xs"
                     error={!!errors.gstin}
                   />
                   {errors.gstin && (
@@ -564,11 +600,11 @@ function BusinessProfileSection() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="drugLicense">Drug License Number</Label>
+                  <Label htmlFor="drugLicense">Drug License Number <span className="text-destructive">*</span></Label>
                   <Input
                     id="drugLicense"
                     {...register('drugLicense')}
-                    className="font-mono"
+                    className="font-mono text-xs"
                     error={!!errors.drugLicense}
                   />
                   {errors.drugLicense && (
@@ -584,7 +620,7 @@ function BusinessProfileSection() {
               <SectionLabel>Invoice Settings</SectionLabel>
               <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="invoicePrefix">Invoice Prefix</Label>
+                  <Label htmlFor="invoicePrefix">Invoice Prefix <span className="text-destructive">*</span></Label>
                   <Input
                     id="invoicePrefix"
                     {...register('invoicePrefix')}
@@ -601,15 +637,8 @@ function BusinessProfileSection() {
             <div className="rounded-xl border border-border/60 bg-muted/30 p-4 dark:bg-muted/15">
               <SectionLabel>Invoice Number Preview</SectionLabel>
               <p className="mt-1.5 font-mono text-sm font-semibold text-foreground">
-                {invoicePrefix}/INV/00001
+                {invoicePrefix || 'INV'}/24/00001
               </p>
-            </div>
-
-            <div className="flex justify-end">
-              <Button type="submit" className="gap-1.5">
-                <Save className="h-4 w-4" />
-                Save Changes
-              </Button>
             </div>
           </form>
         </CardContent>
@@ -623,6 +652,8 @@ function BusinessProfileSection() {
 // ─────────────────────────────────────────────────────────────
 
 function TaxConfigSection() {
+  const { getSetting, updateSetting, isLoading } = useSettingsStore()
+  
   const [gstRates, setGstRates] = useState(initialGstRates)
   const [taxMode, setTaxMode] = useState<'INCLUSIVE' | 'EXCLUSIVE'>('EXCLUSIVE')
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu')
@@ -632,8 +663,35 @@ function TaxConfigSection() {
     'Maharashtra', 'Gujarat', 'Rajasthan', 'Delhi', 'Uttar Pradesh',
   ]
 
+  useEffect(() => {
+    getSetting('tax-config').then(val => {
+      if (val) {
+        setTaxMode(val.taxMode || 'EXCLUSIVE')
+        setPlaceOfSupply(val.placeOfSupply || 'Tamil Nadu')
+        if (val.gstRates) setGstRates(val.gstRates)
+      }
+    })
+  }, [getSetting])
+
+  const handleSave = () => {
+    updateSetting('tax-config', { taxMode, placeOfSupply, gstRates })
+  }
+
   return (
     <motion.div className="space-y-6" variants={itemVariants}>
+      {createPortal(
+        <Button 
+          onClick={handleSave} 
+          disabled={isLoading}
+          size="sm"
+          className="gap-1.5 cursor-pointer h-8"
+        >
+          <Save className="h-4 w-4" />
+          Save Tax Settings
+        </Button>,
+        document.getElementById('settings-save-button-portal') || document.body
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
@@ -715,25 +773,18 @@ function TaxConfigSection() {
           <div className="space-y-2">
             <Label>Place of Supply (State)</Label>
             <Select value={placeOfSupply} onValueChange={setPlaceOfSupply}>
-              <SelectTrigger className="w-full max-w-xs">
+              <SelectTrigger className="w-full max-w-xs cursor-pointer">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {states.map((state) => (
-                  <SelectItem key={state} value={state}>{state}</SelectItem>
+                  <SelectItem key={state} value={state} className="cursor-pointer">{state}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
               Determines whether CGST+SGST or IGST applies
             </p>
-          </div>
-
-          <div className="flex justify-end">
-            <Button onClick={() => toast.success('Tax configuration saved')} className="gap-1.5">
-              <Save className="h-4 w-4" />
-              Save Changes
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -857,10 +908,13 @@ function UserManagementSection() {
                 <CardDescription>Manage users and their access roles</CardDescription>
               </div>
             </div>
-            <Button className="gap-1.5" onClick={() => setShowAddDialog(true)}>
-              <Plus className="h-4 w-4" />
-              Add User
-            </Button>
+            {document.getElementById('settings-save-button-portal') && createPortal(
+              <Button onClick={() => setShowAddDialog(true)} size="sm" className="gap-1.5 cursor-pointer h-8">
+                <Plus className="h-4 w-4" />
+                Add User
+              </Button>,
+              document.getElementById('settings-save-button-portal')!
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1012,20 +1066,20 @@ function UserManagementSection() {
               {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="userRole">Role</Label>
+              <Label htmlFor="userRole">Role <span className="text-destructive">*</span></Label>
               <Controller
                 name="role"
                 control={control}
                 render={({ field }) => (
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <SelectTrigger id="userRole" className="h-10">
+                    <SelectTrigger id="userRole" className="h-10 cursor-pointer">
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ADMIN">Admin</SelectItem>
-                      <SelectItem value="PHARMACIST">Pharmacist</SelectItem>
-                      <SelectItem value="INVENTORY_MANAGER">Inventory Manager</SelectItem>
-                      <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
+                      <SelectItem value="ADMIN" className="cursor-pointer">Admin</SelectItem>
+                      <SelectItem value="PHARMACIST" className="cursor-pointer">Pharmacist</SelectItem>
+                      <SelectItem value="INVENTORY_MANAGER" className="cursor-pointer">Inventory Manager</SelectItem>
+                      <SelectItem value="ACCOUNTANT" className="cursor-pointer">Accountant</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -1059,7 +1113,7 @@ function UserManagementSection() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">No branch (access all)</SelectItem>
-                        {branches.filter(b => b.isActive).map((b) => (
+                        {branches.filter((b: any) => b.isActive).map((b: any) => (
                           <SelectItem key={b.id} value={b.id}>
                             <span className="flex items-center gap-2">
                               <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
@@ -1216,17 +1270,17 @@ function EditUserDialog({
                     <SelectTrigger className="h-10">
                       <SelectValue placeholder="No branch (access all)" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No branch (access all)</SelectItem>
-                      {branches.filter(b => b.isActive).map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          <span className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
-                            {b.name}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                      <SelectContent>
+                        <SelectItem value="__none__">No branch (access all)</SelectItem>
+                        {branches.filter((b: any) => b.isActive).map((b: any) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
+                              {b.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                   </Select>
                 )}
               />
@@ -1259,6 +1313,7 @@ function EditUserDialog({
 // ─────────────────────────────────────────────────────────────
 
 function NotificationSettingsSection() {
+  const { getSetting, updateSetting } = useSettingsStore()
   const [smsProvider, setSmsProvider] = useState('twilio')
   const [smsApiKey, setSmsApiKey] = useState('sk_live_*****************************')
   const [smtpHost, setSmtpHost] = useState('smtp.gmail.com')
@@ -1281,6 +1336,34 @@ function NotificationSettingsSection() {
 
   const templateVariables = ['customer_name', 'invoice_number', 'amount', 'date', 'company_name', 'due_date', 'product_name', 'batch_number']
 
+  useEffect(() => {
+    getSetting('notification_settings').then(data => {
+      if (data) {
+        setSmsProvider(data.smsProvider || 'twilio')
+        setSmsApiKey(data.smsApiKey || '')
+        setSmtpHost(data.smtpHost || 'smtp.gmail.com')
+        setSmtpPort(data.smtpPort || '587')
+        setSmtpUser(data.smtpUser || '')
+        setSmtpPass(data.smtpPass || '')
+        setTemplateContent(data.templateContent || '')
+        setSelectedTemplate(data.selectedTemplate || 'invoice')
+      }
+    })
+  }, [getSetting])
+
+  const handleSave = async () => {
+    await updateSetting('notification_settings', {
+      smsProvider,
+      smsApiKey,
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      smtpPass,
+      templateContent,
+      selectedTemplate
+    })
+  }
+
   const handleTemplateChange = (type: string) => {
     setSelectedTemplate(type)
     const templates: Record<string, string> = {
@@ -1295,6 +1378,13 @@ function NotificationSettingsSection() {
 
   return (
     <motion.div className="space-y-6" variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={handleSave} size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Save className="h-4 w-4" />
+          Save Notifications
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
       {/* SMS Gateway */}
       <Card>
         <CardHeader>
@@ -1313,13 +1403,13 @@ function NotificationSettingsSection() {
             <div className="space-y-2">
               <Label>Provider</Label>
               <Select value={smsProvider} onValueChange={setSmsProvider}>
-                <SelectTrigger>
+                <SelectTrigger className="cursor-pointer">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="twilio">Twilio</SelectItem>
-                  <SelectItem value="msg91">MSG91</SelectItem>
-                  <SelectItem value="textlocal">TextLocal</SelectItem>
+                  <SelectItem value="twilio" className="cursor-pointer">Twilio</SelectItem>
+                  <SelectItem value="msg91" className="cursor-pointer">MSG91</SelectItem>
+                  <SelectItem value="textlocal" className="cursor-pointer">TextLocal</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1335,7 +1425,7 @@ function NotificationSettingsSection() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="gap-1.5 cursor-pointer"
             onClick={() => toast.success('SMS test sent successfully')}
           >
             <Send className="h-3.5 w-3.5" />
@@ -1392,7 +1482,7 @@ function NotificationSettingsSection() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="gap-1.5 cursor-pointer"
             onClick={() => toast.success('Email test sent successfully')}
           >
             <Send className="h-3.5 w-3.5" />
@@ -1418,7 +1508,7 @@ function NotificationSettingsSection() {
           <div className="space-y-2">
             <Label>Template Type</Label>
             <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
-              <SelectTrigger className="w-full max-w-xs">
+              <SelectTrigger className="w-full max-w-xs cursor-pointer">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1449,13 +1539,6 @@ function NotificationSettingsSection() {
               className="font-mono text-xs rounded-xl"
             />
           </div>
-
-          <div className="flex justify-end">
-            <Button onClick={() => toast.success('Template saved')} className="gap-1.5">
-              <Save className="h-4 w-4" />
-              Save Template
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </motion.div>
@@ -1467,7 +1550,28 @@ function NotificationSettingsSection() {
 // ─────────────────────────────────────────────────────────────
 
 function PrinterSettingsSection() {
+  const { getSetting, updateSetting } = useSettingsStore()
   const [selectedFormat, setSelectedFormat] = useState('80mm')
+  const [barcodeWidth, setBarcodeWidth] = useState('38')
+  const [barcodeHeight, setBarcodeHeight] = useState('25')
+
+  useEffect(() => {
+    getSetting('printer_settings').then(data => {
+      if (data) {
+        setSelectedFormat(data.selectedFormat || '80mm')
+        setBarcodeWidth(data.barcodeWidth || '38')
+        setBarcodeHeight(data.barcodeHeight || '25')
+      }
+    })
+  }, [getSetting])
+
+  const handleSave = async () => {
+    await updateSetting('printer_settings', {
+      selectedFormat,
+      barcodeWidth,
+      barcodeHeight
+    })
+  }
 
   const invoiceFormats = [
     { id: '58mm', label: 'Thermal 58mm', description: 'Small POS receipts', width: 'w-16' },
@@ -1476,11 +1580,15 @@ function PrinterSettingsSection() {
     { id: 'a5', label: 'A5 Half Page', description: 'Compact invoice format', width: 'w-20' },
   ]
 
-  const [barcodeWidth, setBarcodeWidth] = useState('38')
-  const [barcodeHeight, setBarcodeHeight] = useState('25')
-
   return (
     <motion.div className="space-y-6" variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={handleSave} size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Save className="h-4 w-4" />
+          Save Printer Layout
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
       {/* Invoice Format */}
       <Card>
         <CardHeader>
@@ -1501,7 +1609,7 @@ function PrinterSettingsSection() {
                 key={fmt.id}
                 onClick={() => setSelectedFormat(fmt.id)}
                 className={cn(
-                  'relative flex flex-col items-center gap-3 rounded-2xl border-2 p-5 transition-all duration-200 hover:shadow-md',
+                  'relative flex flex-col items-center gap-3 rounded-2xl border-2 p-5 transition-all duration-200 hover:shadow-md cursor-pointer',
                   selectedFormat === fmt.id
                     ? 'border-primary bg-primary/5 shadow-sm dark:bg-primary/10'
                     : 'border-border/60 hover:border-primary/30 dark:hover:border-primary/20'
@@ -1575,12 +1683,6 @@ function PrinterSettingsSection() {
               <p className="mt-1 font-mono text-[8px] text-muted-foreground">8901234560011</p>
             </div>
           </div>
-          <div className="flex justify-end">
-            <Button onClick={() => toast.success('Printer settings saved')} className="gap-1.5">
-              <Save className="h-4 w-4" />
-              Save Changes
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </motion.div>
@@ -1592,10 +1694,16 @@ function PrinterSettingsSection() {
 // ─────────────────────────────────────────────────────────────
 
 function DiscountRulesSection() {
-  const [discountRules, setDiscountRules] = useState(initialDiscountRules)
+  const { discountRules, fetchDiscountRules, addDiscountRule, updateDiscountRule, deleteDiscountRule, isLoading } = useSettingsStore()
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [editingRule, setEditingRule] = useState<any>(null)
+
+  useEffect(() => {
+    fetchDiscountRules()
+  }, [fetchDiscountRules])
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -1604,184 +1712,232 @@ function DiscountRulesSection() {
     resolver: zodResolver(addDiscountSchema),
   })
 
-  const onAddRule = (data: AddDiscountForm) => {
-    const newRule: DiscountRule = {
-      id: `DR-${String(discountRules.length + 1).padStart(3, '0')}`,
-      name: data.name,
-      type: data.type as 'PERCENTAGE' | 'FLAT',
-      value: Number(data.value),
-      applicableTo: data.applicableTo,
-      validFrom: data.validFrom,
-      validTo: data.validTo,
-      isActive: true,
+  useEffect(() => {
+    if (editingRule) {
+      reset({
+        name: editingRule.name,
+        type: editingRule.type,
+        value: editingRule.value.toString(),
+        applicableTo: editingRule.applicableTo || 'ALL',
+        validFrom: editingRule.validFrom ? new Date(editingRule.validFrom).toISOString().split('T')[0] : '',
+        validTo: editingRule.validTo ? new Date(editingRule.validTo).toISOString().split('T')[0] : '',
+      })
+    } else {
+      reset({
+        name: '',
+        type: 'PERCENTAGE',
+        value: '',
+        applicableTo: 'ALL',
+        validFrom: '',
+        validTo: '',
+      })
     }
-    setDiscountRules([...discountRules, newRule])
+  }, [editingRule, reset])
+
+  const onSubmit = async (data: AddDiscountForm) => {
+    const payload = {
+      ...data,
+      value: parseFloat(data.value),
+      isActive: editingRule ? editingRule.isActive : true,
+    }
+    if (editingRule) {
+      await updateDiscountRule(editingRule.id, payload)
+    } else {
+      await addDiscountRule(payload)
+    }
     setShowAddDialog(false)
-    reset()
-    toast.success('Discount rule added')
+    setEditingRule(null)
   }
 
-  const toggleRule = (id: string) => {
-    setDiscountRules(
-      discountRules.map((r) =>
-        r.id === id ? { ...r, isActive: !r.isActive } : r
-      )
-    )
-  }
-
-  const deleteRule = (id: string) => {
-    setDiscountRules(discountRules.filter((r) => r.id !== id))
-    toast.success('Discount rule deleted')
+  const toggleStatus = async (rule: any) => {
+    await updateDiscountRule(rule.id, { isActive: !rule.isActive })
   }
 
   return (
     <motion.div variants={itemVariants}>
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 dark:bg-amber-500/15">
-                <Percent className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <CardTitle>Discount Rules</CardTitle>
-                <CardDescription>Manage automatic and manual discount rules</CardDescription>
-              </div>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 dark:bg-amber-500/15">
+              <Percent className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />
             </div>
-            <Button className="gap-1.5" onClick={() => setShowAddDialog(true)}>
-              <Plus className="h-4 w-4" />
-              Add Rule
-            </Button>
+            <div>
+              <CardTitle>Discount Rules</CardTitle>
+              <CardDescription>Configure automatic discounts and promotional offers</CardDescription>
+            </div>
           </div>
+          {document.getElementById('settings-save-button-portal') && createPortal(
+            <Button onClick={() => { setEditingRule(null); setShowAddDialog(true) }} size="sm" className="gap-1.5 cursor-pointer">
+              <Plus className="h-4 w-4" />
+              Create Rule
+            </Button>,
+            document.getElementById('settings-save-button-portal')!
+          )}
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 overflow-x-auto">
+          <div className="rounded-xl border border-border/60 overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Value</TableHead>
+                  <TableHead>Rule Name</TableHead>
                   <TableHead>Applicable To</TableHead>
-                  <TableHead>Valid Period</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
+                  <TableHead>Validity</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {discountRules.map((rule) => (
-                  <TableRow key={rule.id} className={cn(!rule.isActive && 'opacity-50')}>
-                    <TableCell className="font-medium">{rule.name}</TableCell>
-                    <TableCell>
-                      <Badge variant={rule.type === 'PERCENTAGE' ? 'info' : 'purple'} size="sm">
-                        {rule.type === 'PERCENTAGE' ? 'Percentage' : 'Flat'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {rule.type === 'PERCENTAGE' ? `${rule.value}%` : `\u20B9${rule.value}`}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{rule.applicableTo}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {formatDate(rule.validFrom)} - {formatDate(rule.validTo)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Switch
-                          checked={rule.isActive}
-                          onCheckedChange={() => toggleRule(rule.id)}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => deleteRule(rule.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+                {discountRules.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground italic">
+                      No discount rules found. Create one to get started.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  discountRules.map((rule) => (
+                    <TableRow key={rule.id}>
+                      <TableCell className="font-semibold text-sm">{rule.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" size="sm" className="font-medium">
+                          {rule.applicableTo || 'All Customers'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold">
+                        {rule.type === 'PERCENTAGE' ? `${rule.value}%` : `₹${rule.value}`}
+                      </TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground font-medium">
+                        {rule.validFrom ? `${formatDate(rule.validFrom)} to ${formatDate(rule.validTo!)}` : 'Always Valid'}
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={rule.isActive ? 'ACTIVE' : 'INACTIVE'} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 cursor-pointer hover:text-primary"
+                            onClick={() => { setEditingRule(rule); setShowAddDialog(true) }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-8 w-8 cursor-pointer", rule.isActive ? "text-amber-500" : "text-emerald-500")}
+                            onClick={() => toggleStatus(rule)}
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 cursor-pointer text-destructive hover:bg-destructive/10"
+                            onClick={() => deleteDiscountRule(rule.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
 
-      {/* Add Discount Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Discount Rule</DialogTitle>
-            <DialogDescription>Create a new automatic discount rule</DialogDescription>
+            <DialogTitle>{editingRule ? 'Edit Discount Rule' : 'Create Discount Rule'}</DialogTitle>
+            <DialogDescription>
+              {editingRule ? 'Update the details of this discount rule.' : 'Define a new discount rule for your customers.'}
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onAddRule)} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label>Rule Name</Label>
+              <Label htmlFor="rule-name">Rule Name <span className="text-destructive">*</span></Label>
               <Input
-                placeholder="e.g. Summer Sale Discount"
+                id="rule-name"
                 {...register('name')}
+                placeholder="e.g. Bulk Purchase Discount"
                 error={!!errors.name}
               />
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Type</Label>
-                <select
-                  {...register('type')}
-                  className="flex h-9 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 dark:bg-background"
-                >
-                  <option value="">Select type</option>
-                  <option value="PERCENTAGE">Percentage</option>
-                  <option value="FLAT">Flat Amount</option>
-                </select>
-                {errors.type && <p className="text-xs text-destructive">{errors.type.message}</p>}
+                <Label>Type <span className="text-destructive">*</span></Label>
+                <Controller
+                  name="type"
+                  control={control}
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger className="cursor-pointer">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERCENTAGE" className="cursor-pointer">Percentage (%)</SelectItem>
+                        <SelectItem value="FLAT" className="cursor-pointer">Flat Amount (₹)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
               <div className="space-y-2">
-                <Label>Value</Label>
+                <Label>Value <span className="text-destructive">*</span></Label>
                 <Input
-                  type="number"
-                  placeholder="10"
                   {...register('value')}
+                  type="number"
+                  placeholder="0.00"
                   error={!!errors.value}
                 />
                 {errors.value && <p className="text-xs text-destructive">{errors.value.message}</p>}
               </div>
             </div>
+
             <div className="space-y-2">
-              <Label>Applicable To</Label>
+              <Label>Applicable To <span className="text-destructive">*</span></Label>
               <Input
-                placeholder="e.g. All Customers, Oncology Category"
                 {...register('applicableTo')}
+                placeholder="e.g. Wholesale, Regular Customers"
                 error={!!errors.applicableTo}
               />
               {errors.applicableTo && <p className="text-xs text-destructive">{errors.applicableTo.message}</p>}
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Valid From</Label>
+                <Label>Valid From <span className="text-destructive">*</span></Label>
                 <Input
-                  type="date"
                   {...register('validFrom')}
+                  type="date"
                   error={!!errors.validFrom}
                 />
                 {errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label>Valid To</Label>
+                <Label>Valid To <span className="text-destructive">*</span></Label>
                 <Input
-                  type="date"
                   {...register('validTo')}
+                  type="date"
                   error={!!errors.validTo}
                 />
                 {errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}
               </div>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="ghost" onClick={() => setShowAddDialog(false)} className="cursor-pointer">
                 Cancel
               </Button>
-              <Button type="submit">Add Rule</Button>
+              <Button type="submit" disabled={isLoading} className="cursor-pointer min-w-24">
+                {isLoading ? 'Saving...' : editingRule ? 'Update Rule' : 'Create Rule'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1816,6 +1972,13 @@ function BackupDataSection() {
 
   return (
     <motion.div className="space-y-6" variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={handleBackup} disabled={isBackingUp} size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Download className="h-4 w-4" />
+          {isBackingUp ? 'Backing Up...' : 'Backup Now'}
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
       {/* Manual Backup */}
       <Card>
         <CardHeader>
@@ -1839,15 +2002,7 @@ function BackupDataSection() {
               <Progress value={backupProgress} />
             </div>
           )}
-          <Button
-            onClick={handleBackup}
-            disabled={isBackingUp}
-            loading={isBackingUp}
-            className="gap-1.5"
-          >
-            <Download className="h-4 w-4" />
-            {isBackingUp ? 'Backing Up...' : 'Backup Now'}
-          </Button>
+          {/* Backup button moved to top-right portal */}
         </CardContent>
       </Card>
 
@@ -2007,6 +2162,13 @@ function AuditTrailSection() {
 
   return (
     <motion.div variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={() => window.location.reload()} variant="outline" size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Clock className="h-4 w-4" />
+          Refresh Log
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
@@ -2140,6 +2302,13 @@ function GeneralSettingsSection() {
 
   return (
     <motion.div variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={() => toast.success('General settings saved')} size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Save className="h-4 w-4" />
+          Save General Settings
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
@@ -2232,13 +2401,6 @@ function GeneralSettingsSection() {
           </div>
 
           <Separator className="bg-border/40" />
-
-          <div className="flex justify-end">
-            <Button onClick={() => toast.success('General settings saved')} className="gap-1.5">
-              <Save className="h-4 w-4" />
-              Save Changes
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </motion.div>

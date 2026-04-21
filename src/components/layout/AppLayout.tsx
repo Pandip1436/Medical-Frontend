@@ -43,6 +43,8 @@ const pageVariants = {
   },
 }
 
+import { useSettingsStore } from '@/stores/settingsStore'
+
 export default function AppLayout({
   children,
   breadcrumbs,
@@ -51,6 +53,14 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
   const isMobile = useIsMobile()
+  const fetchSettings = useSettingsStore((s) => s.fetchSettings)
+
+  // Initialize settings
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchSettings()
+    }
+  }, [isAuthenticated, fetchSettings])
 
   // Apply theme class to document
   useEffect(() => {

@@ -181,7 +181,7 @@ export interface GRN {
   status: 'DRAFT' | 'RECEIVED' | 'VERIFIED'
 }
 
-export type ExpenseCategory = 
+export type ExpenseCategory =
   | 'RENT'
   | 'SALARY'
   | 'ELECTRICITY'
@@ -227,3 +227,33 @@ export interface Notification {
 
 export type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
 export type BillingType = 'RETAIL' | 'WHOLESALE'
+
+export type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
+
+export interface QuotationItem {
+  id: string
+  productId?: string
+  productName: string
+  quantity: number
+  rate: number
+  amount: number
+}
+
+export interface Quotation {
+  id: string
+  quotationNumber: string
+  date: string
+  customerId?: string
+  customerName: string
+  items: QuotationItem[]
+  subtotal: number
+  cgst: number
+  sgst: number
+  total: number
+  validUntil?: string
+  notes?: string
+  status: QuotationStatus
+  createdAt: string
+  updatedAt: string
+}
+
