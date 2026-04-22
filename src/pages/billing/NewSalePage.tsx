@@ -1885,7 +1885,7 @@ export default function NewSalePage() {
                         autoFocus
                       />
                     </div>
-                    <ScrollArea className="max-h-56">
+                    <ScrollArea className="h-56">
                       {filteredCustomers.map((cust) => (
                         <div
                           key={cust.id}
@@ -1996,7 +1996,7 @@ export default function NewSalePage() {
                           autoFocus
                         />
                       </div>
-                      <ScrollArea className="max-h-56">
+                      <ScrollArea className="h-56">
                         <div
                           className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 text-xs text-muted-foreground italic"
                           onClick={() => {
