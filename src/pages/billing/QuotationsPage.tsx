@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useRoute } from '@/lib/router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -59,7 +60,6 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { downloadInvoicePdf, printInvoicePdf } from '@/lib/pdf/invoicePdf'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
@@ -128,6 +128,8 @@ const statusLabel: Record<QuotationStatus, string> = {
 // ─────────────────────────────────────────────────────────────
 
 export default function QuotationsPage() {
+  const { path } = useRoute()
+
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -153,23 +155,21 @@ export default function QuotationsPage() {
   const fetchQuotations = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/billing?type=QUOTATION')
+      const res = await api.get('/quotations')
       const raw: any[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
-      const mapped: Quotation[] = raw
-        .filter((inv: any) => inv.type === 'QUOTATION')
-        .map((inv: any) => ({
-          id: inv.id,
-          quotationNumber: inv.invoiceNumber,
-          date: inv.date,
-          customerName: inv.customerName,
-          items: (inv.items ?? []).map((it: any) => ({
-            name: it.productName,
-            qty: it.quantity,
-            rate: it.rate,
-          })),
-          total: inv.grandTotal,
-          status: inv.status === 'PAID' ? 'CONVERTED' : (inv.status as QuotationStatus),
-        }))
+      const mapped: Quotation[] = raw.map((qt: any) => ({
+        id: qt.id,
+        quotationNumber: qt.quotationNumber ?? '',
+        date: qt.date ?? qt.createdAt ?? new Date().toISOString(),
+        customerName: qt.customerName ?? '',
+        items: (qt.items ?? []).map((it: any) => ({
+          name: it.productName ?? '',
+          qty: Number(it.quantity) || 0,
+          rate: Number(it.rate) || 0,
+        })),
+        total: Number(qt.total) || 0,
+        status: qt.status as QuotationStatus,
+      }))
       setQuotations(mapped)
     } catch {
       // keep empty on error
@@ -178,18 +178,34 @@ export default function QuotationsPage() {
     }
   }, [])
 
-  useEffect(() => { fetchQuotations() }, [fetchQuotations])
+  // Re-fetch whenever this page becomes active (e.g. after creating a quotation)
+  useEffect(() => { fetchQuotations() }, [fetchQuotations, path])
   useBranchRefresh(fetchQuotations)
 
-  const handleConvert = async (qt: Quotation) => {
+  const handleUpdateStatus = async (qt: Quotation, status: QuotationStatus) => {
     try {
-      const res = await api.patch(`/billing/${qt.id}/convert`)
-      toast.success(`Quotation ${qt.quotationNumber} converted to invoice`)
-      downloadInvoicePdf(res.data)
+      await api.patch(`/quotations/${qt.id}/status`, { status })
+      toast.success(`Quotation ${qt.quotationNumber} marked as ${status.toLowerCase()}`)
       fetchQuotations()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Conversion failed')
+      toast.error(err.response?.data?.message ?? 'Status update failed')
     }
+  }
+
+  const handleConvert = (qt: Quotation) => {
+    sessionStorage.setItem('quotation_prefill', JSON.stringify({
+      quotationId: qt.id,
+      quotationNumber: qt.quotationNumber,
+      customerName: qt.customerName,
+      items: qt.items.map((it) => ({
+        productName: it.name,
+        quantity: it.qty,
+        rate: it.rate,
+        amount: it.qty * it.rate,
+      })),
+    }))
+    // Use a timestamp param so NewSalePage always remounts fresh
+    navigate(`/billing/new?from=quotation&t=${Date.now()}`)
   }
 
   const clearFilters = () => {
@@ -203,7 +219,6 @@ export default function QuotationsPage() {
 
   // ── Filtering logic ──
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const filteredQuotations = useMemo(() => {
     let result = [...quotations]
 
@@ -256,25 +271,23 @@ export default function QuotationsPage() {
     }
 
     return result
-  }, [searchQuery, period, dateFrom, dateTo, selectedStatus, amountMin, amountMax])
+  }, [quotations, searchQuery, period, dateFrom, dateTo, selectedStatus, amountMin, amountMax])
 
   // ── Stats ──
 
   const stats = useMemo(() => {
     const total = quotations.reduce((sum, qt) => sum + qt.total, 0)
-    const acceptedTotal = quotations
-      .filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED')
-      .reduce((sum, qt) => sum + qt.total, 0)
-    const pendingTotal = quotations
-      .filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT')
-      .reduce((sum, qt) => sum + qt.total, 0)
+    const convertedCount = quotations.filter((qt) => qt.status === 'CONVERTED').length
+    const convertedTotal = quotations.filter((qt) => qt.status === 'CONVERTED').reduce((sum, qt) => sum + qt.total, 0)
+    const pendingCount = quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').length
+    const pendingTotal = quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').reduce((sum, qt) => sum + qt.total, 0)
     const rejectedCount = quotations.filter((qt) => qt.status === 'REJECTED').length
     return {
       total,
       totalCount: quotations.length,
-      acceptedCount: quotations.filter((qt) => qt.status === 'ACCEPTED' || qt.status === 'CONVERTED').length,
-      acceptedTotal,
-      pendingCount: quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT').length,
+      convertedCount,
+      convertedTotal,
+      pendingCount,
       pendingTotal,
       rejectedCount,
     }
@@ -369,9 +382,9 @@ export default function QuotationsPage() {
             borderAccent: 'border-l-blue-500',
           },
           {
-            label: 'Accepted / Converted',
-            value: formatCurrency(stats.acceptedTotal),
-            subtitle: `${stats.acceptedCount} accepted`,
+            label: 'Converted',
+            value: formatCurrency(stats.convertedTotal),
+            subtitle: `${stats.convertedCount} converted`,
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
@@ -379,7 +392,7 @@ export default function QuotationsPage() {
           {
             label: 'Pending',
             value: formatCurrency(stats.pendingTotal),
-            subtitle: `${stats.pendingCount} draft/sent`,
+            subtitle: `${stats.pendingCount} draft/sent/accepted`,
             icon: Clock,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
@@ -551,7 +564,7 @@ export default function QuotationsPage() {
       {/* ── Table ── */}
       <Card>
         {/* Mobile card list */}
-        <div className="md:hidden">
+        <div className="lg:hidden">
           {isLoading && (
             <div className="flex flex-col items-center justify-center gap-3 py-10">
               <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
@@ -587,7 +600,7 @@ export default function QuotationsPage() {
           </div>
         </div>
         {/* Desktop table */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -690,7 +703,7 @@ export default function QuotationsPage() {
                         onView={() => setDetailQt(qt)}
                         onDelete={async () => {
                           try {
-                            await api.delete(`/billing/${qt.id}`)
+                            await api.delete(`/quotations/${qt.id}`)
                             toast.success(`Quotation ${qt.quotationNumber} deleted`)
                             fetchQuotations()
                           } catch {
@@ -699,13 +712,19 @@ export default function QuotationsPage() {
                         }}
                         customActions={[
                           {
-                            label: 'Convert',
+                            label: 'Mark as Sent',
+                            icon: <Send className="h-4 w-4" />,
+                            onClick: () => handleUpdateStatus(qt, 'SENT'),
+                            disabled: qt.status !== 'DRAFT'
+                          },
+                          {
+                            label: 'Convert to Invoice',
                             icon: <ArrowRightLeft className="h-4 w-4" />,
                             onClick: () => handleConvert(qt),
                             disabled: qt.status === 'CONVERTED' || qt.status === 'REJECTED'
                           },
                           {
-                            label: 'Send (WhatsApp)',
+                            label: 'Send via WhatsApp',
                             icon: <Send className="h-4 w-4" />,
                             onClick: () => {
                               const text = `Quotation ${qt.quotationNumber} — Total: ₹${qt.total.toLocaleString('en-IN')}`
@@ -713,16 +732,6 @@ export default function QuotationsPage() {
                             },
                             disabled: qt.status === 'REJECTED'
                           },
-                          {
-                            label: 'Download PDF',
-                            icon: <Download className="h-4 w-4" />,
-                            onClick: () => downloadInvoicePdf(qt as any)
-                          },
-                          {
-                            label: 'Print PDF',
-                            icon: <Printer className="h-4 w-4" />,
-                            onClick: () => printInvoicePdf(qt as any)
-                          }
                         ]}
                       />
                     </TableCell>
@@ -769,7 +778,7 @@ export default function QuotationsPage() {
 
     {/* ── Quotation Detail Dialog ── */}
     <Dialog open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
         {detailQt && (
           <>
             <DialogHeader>
@@ -828,16 +837,14 @@ export default function QuotationsPage() {
             </Table>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => printInvoicePdf(detailQt as any)}>
-                <Printer className="mr-1.5 h-4 w-4" />
-                Print PDF
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => downloadInvoicePdf(detailQt as any)}>
-                <Download className="mr-1.5 h-4 w-4" />
-                Download PDF
-              </Button>
-              {(detailQt.status === 'DRAFT' || detailQt.status === 'SENT' || detailQt.status === 'ACCEPTED') && (
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              {detailQt.status === 'DRAFT' && (
+                <Button variant="outline" size="sm" onClick={() => { handleUpdateStatus(detailQt, 'SENT'); setDetailQt(null) }}>
+                  <Send className="mr-1.5 h-4 w-4" />
+                  Mark as Sent
+                </Button>
+              )}
+              {detailQt.status !== 'CONVERTED' && detailQt.status !== 'REJECTED' && (
                 <Button size="sm" onClick={() => { handleConvert(detailQt); setDetailQt(null) }}>
                   <ArrowRightLeft className="mr-1.5 h-4 w-4" />
                   Convert to Invoice

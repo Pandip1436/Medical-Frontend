@@ -146,7 +146,7 @@ function LoadingFallback() {
 }
 
 function App() {
-  const { path } = useRoute()
+  const { path, search } = useRoute()
   const { isAuthenticated, logout, user } = useAuthStore()
   const userRole = user?.role
 
@@ -211,7 +211,7 @@ function App() {
       case '/dashboard':
         return <DashboardPage />
       case '/billing/new':
-        return <NewSalePage />
+        return <NewSalePage key={search} />
       case '/billing/sales':
         return <SalesListPage />
       case '/billing/quotations':

@@ -29,6 +29,7 @@ import {
   FileText,
   RefreshCw,
   ChevronRight,
+  ChevronLeft,
   Upload,
   Camera,
   FileImage,
@@ -474,7 +475,14 @@ function BillingRow({
           )}
           {showProductDropdown && createPortal(
             <div
-              style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
+              style={{ 
+                position: 'fixed', 
+                top: dropdownPos.top, 
+                width: Math.min(dropdownPos.width, window.innerWidth - 32), 
+                zIndex: 9999,
+                maxWidth: 'calc(100vw - 32px)',
+                left: Math.max(16, Math.min(dropdownPos.left, window.innerWidth - (dropdownPos.width || 400) - 16))
+              }}
               className="rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
             >
               <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30">
@@ -764,6 +772,203 @@ function BillingRow({
         </button>
       </TableCell>
     </MotionTableRow>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// SUB-COMPONENT: Mobile Compact Billing Card
+// ─────────────────────────────────────────────────────────────
+
+function MobileBillingCard({
+  item,
+  index,
+  billingType,
+  onUpdate,
+  onRemove,
+}: {
+  item: BillingItem
+  index: number
+  billingType: 'retail' | 'wholesale'
+  onUpdate: (id: string, updates: Partial<BillingItem>) => void
+  onRemove: (id: string) => void
+}) {
+  const products = useMasterDataStore(s => s.products)
+  const batches = useMasterDataStore(s => s.batches)
+  
+  const [productSearch, setProductSearch] = useState(item.productName)
+  const [showProductDropdown, setShowProductDropdown] = useState(false)
+
+  const productBatches = useMemo(() => {
+    if (!item.productId) return []
+    return batches
+      .filter((b) => b.productId === item.productId && b.quantity > 0)
+      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+  }, [item.productId, batches])
+
+  const selectedProduct = useMemo(() => {
+    return products.find((p) => p.id === item.productId)
+  }, [item.productId, products])
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return products.slice(0, 8)
+    const q = productSearch.toLowerCase()
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.genericName.toLowerCase().includes(q)
+    )
+  }, [productSearch, products])
+
+  const handleProductSelect = (product: Product) => {
+    const pBatches = batches
+      .filter((b) => b.productId === product.id && b.quantity > 0)
+      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+    const firstBatch = pBatches[0]
+    const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+
+    const updates: Partial<BillingItem> = {
+      productId: product.id,
+      productName: product.name,
+      gstPercent: product.gstRate,
+      mrp: Number(firstBatch?.mrp ?? product.mrp) || 0,
+      rate: Number(rate) || 0,
+      batchId: firstBatch?.id ?? '',
+      batchNumber: firstBatch?.batchNumber ?? '',
+      expiryDate: firstBatch?.expiryDate ?? '',
+      quantity: item.quantity || 1,
+    }
+    const tempItem = { ...item, ...updates }
+    updates.amount = calculateItemAmount(tempItem)
+
+    setProductSearch(product.name)
+    setShowProductDropdown(false)
+    onUpdate(item.id, updates)
+  }
+
+  const handleQtyChange = (qty: number) => {
+    const updates: Partial<BillingItem> = { quantity: Math.max(0, qty) }
+    const tempItem = { ...item, ...updates }
+    updates.amount = calculateItemAmount(tempItem)
+    onUpdate(item.id, updates)
+  }
+
+  const handleRateChange = (rate: number) => {
+    const updates: Partial<BillingItem> = { rate: Math.max(0, rate) }
+    const tempItem = { ...item, ...updates }
+    updates.amount = calculateItemAmount(tempItem)
+    onUpdate(item.id, updates)
+  }
+
+  return (
+    <Card className="mb-3 border-border/60 shadow-sm overflow-hidden bg-card/50">
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <div className="relative">
+              <input
+                value={productSearch}
+                onChange={(e) => {
+                  setProductSearch(e.target.value)
+                  setShowProductDropdown(true)
+                }}
+                onFocus={() => setShowProductDropdown(true)}
+                onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
+                placeholder="Product name..."
+                className="w-full h-9 bg-muted/40 rounded-lg px-2 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              {showProductDropdown && filteredProducts.length > 0 && (
+                <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-popover border border-border/60 rounded-lg shadow-xl">
+                  {filteredProducts.map((p) => (
+                    <div
+                      key={p.id}
+                      className="px-3 py-2 border-b border-border/5 hover:bg-accent/50 cursor-pointer"
+                      onClick={() => handleProductSelect(p)}
+                    >
+                      <p className="text-xs font-bold">{p.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{p.manufacturer}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedProduct && (
+              <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-1">
+                <Badge variant="outline" className="text-[9px] px-1 h-3.5 whitespace-nowrap">MRP: ₹{item.mrp}</Badge>
+                {selectedProduct.schedule !== 'NONE' && (
+                  <Badge variant="destructive" className="text-[9px] px-1 h-3.5 whitespace-nowrap">Sch {selectedProduct.schedule}</Badge>
+                )}
+              </div>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onRemove(item.id)}
+            className="text-muted-foreground/30 hover:text-rose-600 hover:bg-rose-500/10 shrink-0"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase text-muted-foreground">Batch & Expiry</Label>
+            <Select value={item.batchId} onValueChange={(vid) => {
+              const b = batches.find(x => x.id === vid)
+              if (b) onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: b.mrp })
+            }}>
+              <SelectTrigger className="h-8 text-xs font-mono">
+                <SelectValue placeholder="Batch" />
+              </SelectTrigger>
+              <SelectContent>
+                {productBatches.map(b => (
+                  <SelectItem key={b.id} value={b.id} className="text-xs">
+                    {b.batchNumber} ({b.quantity})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {item.expiryDate && (
+              <div className="text-[9px] font-bold text-muted-foreground/50">Exp: {formatExpiryShort(item.expiryDate)}</div>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase text-muted-foreground">Quantity</Label>
+            <div className="flex items-center gap-1">
+              <Button size="icon-sm" variant="outline" className="h-8 w-8" onClick={() => handleQtyChange(item.quantity - 1)}>-</Button>
+              <input 
+                type="number" 
+                value={item.quantity} 
+                onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
+                className="w-full h-8 text-center bg-muted/20 border-0 text-sm font-bold font-mono focus:ring-0 rounded"
+              />
+              <Button size="icon-sm" variant="outline" className="h-8 w-8" onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase text-muted-foreground">Rate (₹)</Label>
+            <input 
+              type="number" 
+              step={0.01}
+              value={item.rate} 
+              onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
+              className="w-full h-8 px-2 bg-muted/20 border-0 text-sm font-bold font-mono focus:ring-0 rounded"
+            />
+          </div>
+          <div className="space-y-1 text-right">
+            <Label className="text-[10px] uppercase text-muted-foreground">Total Amount</Label>
+            <div className="h-8 flex items-center justify-end text-sm font-black font-mono text-primary">
+              {formatCurrency(item.amount)}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -1232,7 +1437,19 @@ export default function NewSalePage() {
     }
   }
 
+  const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
+
   const [items, setItems] = useState<BillingItem[]>(() => {
+    // Check quotation prefill first
+    const qtStored = sessionStorage.getItem('quotation_prefill')
+    if (qtStored) {
+      try {
+        const qt = JSON.parse(qtStored)
+        if (Array.isArray(qt.items) && qt.items.length > 0) {
+          return qt.items.map((it: Partial<BillingItem>) => ({ ...createEmptyItem(), ...it, id: generateRowId() }))
+        }
+      } catch { /* ignore */ }
+    }
     const stored = sessionStorage.getItem('repurchase_items')
     if (stored) {
       try {
@@ -1245,14 +1462,79 @@ export default function NewSalePage() {
     return [createEmptyItem()]
   })
 
-  // Clear repurchase data after it's been loaded once
+  // Clear prefill data after loaded, set customer name from quotation
   useEffect(() => {
-    if (sessionStorage.getItem('repurchase_items')) {
+    const qtStored = sessionStorage.getItem('quotation_prefill')
+    if (qtStored) {
+      try {
+        const qt = JSON.parse(qtStored)
+        setQuotationSource({ id: qt.quotationId, number: qt.quotationNumber, customerName: qt.customerName })
+        toast.info(`Items pre-loaded from quotation ${qt.quotationNumber}`)
+      } catch { /* ignore */ }
+      sessionStorage.removeItem('quotation_prefill')
+    } else if (sessionStorage.getItem('repurchase_items')) {
       toast.info(`Items pre-loaded from previous invoice`)
       sessionStorage.removeItem('repurchase_items')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-populate customer + resolve product/batch when master data loads after quotation prefill
+  useEffect(() => {
+    if (!quotationSource || customers.length === 0 || products.length === 0 || batches.length === 0) return
+
+    // Match customer by name
+    const matchedCustomer = customers.find(
+      (c) => c.name.toLowerCase() === quotationSource.customerName.toLowerCase()
+    )
+    if (matchedCustomer) {
+      setSelectedCustomer(matchedCustomer)
+      if (matchedCustomer.referredBy) {
+        const sp = salespersons.find((s) => s.name === matchedCustomer.referredBy)
+        if (sp) setSelectedSalesperson(sp)
+      }
+    }
+
+    // Resolve each item: find product by name → find first available batch
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!item.productName) return item
+        const product = products.find(
+          (p) => p.name.toLowerCase() === item.productName.toLowerCase()
+        )
+        if (!product) return item
+
+        const availableBatches = batches.filter(
+          (b) => b.productId === product.id && b.quantity > 0
+        )
+        const batch = availableBatches[0]
+
+        const rate = item.rate || product.sellingRate || 0
+        const qty = item.quantity || 1
+        const gstPercent = product.gstRate || 0
+        const discountPercent = item.discountPercent || 0
+        const baseAmount = rate * qty * (1 - discountPercent / 100)
+        const gstAmount = baseAmount * (gstPercent / 100)
+        const amount = baseAmount + gstAmount
+
+        return {
+          ...item,
+          productId: product.id,
+          mrp: batch?.mrp ?? product.mrp ?? rate,
+          rate,
+          gstPercent,
+          amount,
+          ...(batch && {
+            batchId: batch.id,
+            batchNumber: batch.batchNumber,
+            expiryDate: batch.expiryDate,
+          }),
+          schedule: product.schedule ?? 'NONE',
+        }
+      })
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotationSource, customers, products, batches, salespersons])
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
@@ -1267,6 +1549,7 @@ export default function NewSalePage() {
   // ── Table view tabs ───────────────────────────────────────
   type TableView = 'products' | 'customer-history' | 'salesperson-customers'
   const [tableView, setTableView] = useState<TableView>('products')
+  const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
 
   // ── Customer invoice history ──────────────────────────────
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([])
@@ -1599,15 +1882,49 @@ export default function NewSalePage() {
         }))
       }
 
-      const endpoint = invoiceType === 'quotation' ? '/quotations' : '/billing'
-      const res = await api.post(endpoint, payload)
+      let endpoint: string
+      let finalPayload: Record<string, unknown>
+
+      if (invoiceType === 'quotation') {
+        endpoint = '/quotations'
+        finalPayload = {
+          customerId: selectedCustomer!.id,
+          customerName: selectedCustomer!.name,
+          subtotal: Number(totals.subtotal) || 0,
+          cgst: Number(totals.cgst) || 0,
+          sgst: Number(totals.sgst) || 0,
+          total: Number(totals.grandTotal) || 0,
+          ...(activeBranchId && { branchId: activeBranchId }),
+          items: activeItems.map(item => ({
+            productId: item.productId,
+            productName: item.productName,
+            batchId: item.batchId,
+            batchNumber: item.batchNumber,
+            quantity: Number(item.quantity) || 1,
+            mrp: Number(item.mrp) || 0,
+            rate: Number(item.rate) || 0,
+            discountPercent: Number(item.discountPercent) || 0,
+            gstPercent: Number(item.gstPercent) || 0,
+            amount: Number(item.amount) || 0,
+          })),
+        }
+      } else {
+        endpoint = '/billing'
+        finalPayload = payload
+      }
+
+      const res = await api.post(endpoint, finalPayload)
       const savedInvoice = res.data
       setLastSavedInvoice(savedInvoice)
 
       if (invoiceType === 'quotation') {
-        toast.success(`Quotation ${savedInvoice.invoiceNumber} saved successfully`)
+        toast.success(`Quotation ${savedInvoice.quotationNumber ?? savedInvoice.invoiceNumber} saved successfully`)
         navigate('/billing/quotations')
       } else {
+        // If this invoice was converted from a quotation, mark it as CONVERTED
+        if (quotationSource) {
+          try { await api.patch(`/quotations/${quotationSource.id}/status`, { status: 'CONVERTED' }) } catch { /* non-critical */ }
+        }
         printInvoicePdf(savedInvoice)
         toast.success('Invoice saved and sent to printer')
         fetchMasterData()
@@ -1705,9 +2022,9 @@ export default function NewSalePage() {
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }}
           className="flex items-center justify-between mb-3"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold tracking-tight">New Sale</h1>
-            <Badge variant="outline" size="sm" className="font-mono text-[10px]">
+            <Badge variant="outline" size="sm" className="hidden sm:inline-flex font-mono text-[10px]">
               {invoiceNumber}
             </Badge>
           </div>
@@ -1724,7 +2041,7 @@ export default function NewSalePage() {
               <TooltipTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                   <Layers className="h-3.5 w-3.5" />
-                  Held
+                  <span className="hidden sm:inline">Held</span>
                   <Badge variant="secondary" size="sm" className="px-1.5 py-0 text-[9px]">0</Badge>
                 </Button>
               </TooltipTrigger>
@@ -1733,16 +2050,27 @@ export default function NewSalePage() {
           </div>
         </motion.div>
 
+        {/* Quotation source banner */}
+        {quotationSource && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+            <span>Converting from quotation <span className="font-bold">{quotationSource.number}</span> — customer: <span className="font-semibold">{quotationSource.customerName}</span>. Select a customer and verify item batches before saving.</span>
+            <button onClick={() => setQuotationSource(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
+
         {/* ═══════════════════════════════════════════════════
             SEARCH BAR + CONTEXT ROW
         ═══════════════════════════════════════════════════ */}
-        <div className="flex gap-3 mb-3 h-11">
+        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:h-11 md:gap-3", mobileStep === 'checkout' && 'hidden md:flex')}>
           {/* ═══════════════════════════════════════════════════
               TABLE ACTION AREA (Aligned with Table Card)
           ═══════════════════════════════════════════════════ */}
-          <div className="flex-1 min-w-0 flex items-center gap-3">
-            {/* Hero Product Search */}
-            <div className="w-[38%] lg:w-[34%] relative">
+          <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            {/* Mobile row 1: search + add item button */}
+            <div className="flex items-center gap-2 md:contents">
+              {/* Hero Product Search */}
+              <div className="flex-1 md:w-[38%] md:flex-none lg:w-[34%] relative">
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/60" />
                 <input
@@ -1783,7 +2111,7 @@ export default function NewSalePage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.12 }}
                     className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover/95 shadow-2xl backdrop-blur-xl overflow-hidden"
-                  >
+                    >
                     <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {heroResults.length} product{heroResults.length > 1 ? 's' : ''} found
                     </div>
@@ -1824,9 +2152,19 @@ export default function NewSalePage() {
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+              </div>{/* end search div */}
 
-            {/* Customer Selector — centre of the bar */}
+              {/* Add Item Button — mobile only, row 1 */}
+              <Button
+                type="button"
+                onClick={addItem}
+                className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer md:hidden"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>{/* end mobile row 1 wrapper */}
+
+            {/* Customer Selector — full width on mobile (row 2), flex-1 on desktop */}
             <div ref={customerRef} className="flex-1 relative">
               <button
                 type="button"
@@ -1931,11 +2269,11 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
 
-            {/* Add Item Button */}
+            {/* Add Item Button — desktop only (md+) */}
             <Button
               type="button"
               onClick={addItem}
-              className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer"
+              className="hidden md:flex h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer"
             >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Add Item</span>
@@ -1947,7 +2285,7 @@ export default function NewSalePage() {
               SIDEBAR HEADER (Salesperson only)
           ═══════════════════════════════════════════════════ */}
           {salespersons.length > 0 && (
-            <div ref={salespersonRef} className="w-75 lg:w-80 shrink-0 flex items-center">
+            <div ref={salespersonRef} className="hidden md:flex w-75 lg:w-80 shrink-0 items-center">
               <div className="relative w-full">
                 <button
                   type="button"
@@ -1997,17 +2335,6 @@ export default function NewSalePage() {
                         />
                       </div>
                       <ScrollArea className="h-56">
-                        <div
-                          className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 text-xs text-muted-foreground italic"
-                          onClick={() => {
-                            setSelectedSalesperson(null)
-                            setSalespersonSearch('')
-                            setShowSalespersonDropdown(false)
-                            if (tableView === 'salesperson-customers') setTableView('products')
-                          }}
-                        >
-                          No Salesperson
-                        </div>
                         {salespersons
                           .filter((sp) => sp.name.toLowerCase().includes(salespersonSearch.toLowerCase()))
                           .map((sp) => (
@@ -2065,7 +2392,7 @@ export default function NewSalePage() {
         ═══════════════════════════════════════════════════ */}
         <div className="flex flex-col gap-3 flex-1 min-h-0 md:flex-row">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
-          <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
             {/* Tab strip */}
             <div className="flex items-center gap-1 mb-2">
               <button
@@ -2127,36 +2454,56 @@ export default function NewSalePage() {
                 {tableView === 'products' && (
                   <>
                     <ScrollArea className="flex-1 overflow-x-auto">
-                      <Table className="w-full min-w-150">
-                        <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
-                          <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
-                            <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
-                            <TableHead className="min-w-55 px-2 py-3 text-left h-auto">Product Selection</TableHead>
-                            <TableHead className="w-37.5 px-1.5 py-3 text-left h-auto">Batch / Expiry</TableHead>
-                            <TableHead className="w-27.5 px-1.5 py-3 text-center h-auto">Quantity</TableHead>
-                            <TableHead className="w-22 px-1.5 py-3 text-right h-auto">Unit Rate</TableHead>
-                            <TableHead className="w-28 px-1.5 py-3 text-center h-auto">New Rate</TableHead>
-                            <TableHead className="w-16.25 px-1.5 py-3 text-center h-auto">Disc %</TableHead>
-                            <TableHead className="w-12.5 px-1 py-3 text-center h-auto">GST</TableHead>
-                            <TableHead className="w-27.5 px-3 py-3 text-right h-auto">Amount</TableHead>
-                            <TableHead className="w-8 px-1 py-3 h-auto"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <AnimatePresence mode="popLayout">
-                            {items.map((item, idx) => (
-                              <BillingRow
-                                key={item.id}
-                                item={item}
-                                index={idx}
-                                billingType={billingType}
-                                onUpdate={updateItem}
-                                onRemove={removeItem}
-                              />
-                            ))}
-                          </AnimatePresence>
-                        </TableBody>
-                      </Table>
+                      {/* Desktop Table View */}
+                      <div className="hidden md:block">
+                        <Table className="w-full min-w-150">
+                          <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
+                            <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
+                              <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
+                              <TableHead className="min-w-55 px-2 py-3 text-left h-auto">Product Selection</TableHead>
+                              <TableHead className="w-37.5 px-1.5 py-3 text-left h-auto">Batch / Expiry</TableHead>
+                              <TableHead className="w-27.5 px-1.5 py-3 text-center h-auto">Quantity</TableHead>
+                              <TableHead className="w-22 px-1.5 py-3 text-right h-auto">Unit Rate</TableHead>
+                              <TableHead className="w-28 px-1.5 py-3 text-center h-auto">New Rate</TableHead>
+                              <TableHead className="w-16.25 px-1.5 py-3 text-center h-auto">Disc %</TableHead>
+                              <TableHead className="w-12.5 px-1 py-3 text-center h-auto">GST</TableHead>
+                              <TableHead className="w-27.5 px-3 py-3 text-right h-auto">Amount</TableHead>
+                              <TableHead className="w-8 px-1 py-3 h-auto"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            <AnimatePresence mode="popLayout">
+                              {items.map((item, idx) => (
+                                <BillingRow
+                                  key={item.id}
+                                  item={item}
+                                  index={idx}
+                                  billingType={billingType}
+                                  onUpdate={updateItem}
+                                  onRemove={removeItem}
+                                />
+                              ))}
+                            </AnimatePresence>
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {/* Mobile Card View */}
+                      <div className="block md:hidden p-3">
+                        <AnimatePresence mode="popLayout">
+                          {items.map((item, idx) => (
+                            <MobileBillingCard
+                              key={item.id}
+                              item={item}
+                              index={idx}
+                              billingType={billingType}
+                              onUpdate={updateItem}
+                              onRemove={removeItem}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </div>
+
                       {items.length === 1 && !items[0].productId && (
                         <div className="flex flex-col items-center justify-center py-16 text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
@@ -2324,10 +2671,35 @@ export default function NewSalePage() {
 
               </CardContent>
             </Card>
+
+            {/* Mobile sticky checkout bar — hidden on md+ */}
+            <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border/40 bg-background/95 backdrop-blur-sm px-4 py-3 md:hidden">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" size="sm">{activeItemCount} items</Badge>
+                <span className="font-mono text-sm font-bold text-primary">{formatCurrency(totals.grandTotal)}</span>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setMobileStep('checkout')}
+                disabled={activeItemCount === 0}
+              >
+                Checkout
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          <div className="w-full md:w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2">
+          <div className={cn("w-full md:w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2", mobileStep === 'items' && 'hidden md:flex')}>
+            {/* Mobile back button — hidden on md+ */}
+            <div className="flex items-center gap-2 md:hidden">
+              <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setMobileStep('items')}>
+                <ChevronLeft className="h-4 w-4" />
+                Back to Items
+              </Button>
+            </div>
+
             {/* Summary + Grand Total */}
             <Card className="overflow-x-auto shrink-0">
               <CardContent className="p-0">
@@ -2542,7 +2914,7 @@ export default function NewSalePage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="flex items-center gap-4 mt-2 py-1.5 px-1 border-t border-border/30"
+          className="hidden md:flex items-center gap-4 mt-2 py-1.5 px-1 border-t border-border/30"
         >
           <Keyboard className="h-3 w-3 text-muted-foreground/30 shrink-0" />
           {[
@@ -2611,7 +2983,7 @@ export default function NewSalePage() {
 
       {/* ── Invoice Detail Dialog ── */}
       <Dialog open={historyInvoiceOpen} onOpenChange={setHistoryInvoiceOpen}>
-        <DialogContent className="max-w-4xl! w-[92vw] max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-4xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex md:flex-col">
           {selectedHistoryInvoice && (
             <>
               {/* Header */}
@@ -2630,20 +3002,26 @@ export default function NewSalePage() {
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">{selectedHistoryInvoice.type}</Badge>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{new Date(selectedHistoryInvoice.date ?? selectedHistoryInvoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
-                    <span className="text-border">·</span>
-                    <span className="font-medium text-foreground">{selectedHistoryInvoice.customerName}</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                      <Clock className="h-3 w-3 text-muted-foreground/40" />
+                      {new Date(selectedHistoryInvoice.date ?? selectedHistoryInvoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
+                    </span>
+                    <span className="hidden sm:inline text-border">·</span>
+                    <span className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                      <Users className="h-3 w-3 text-muted-foreground/40" />
+                      <strong className="font-semibold text-foreground">{selectedHistoryInvoice.customerName}</strong>
+                    </span>
                     {selectedHistoryInvoice.billingType && (
                       <>
-                        <span className="text-border">·</span>
-                        <span>{selectedHistoryInvoice.billingType}</span>
+                        <span className="hidden sm:inline text-border">·</span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-muted/50 font-medium text-[10px] uppercase tracking-wider">{selectedHistoryInvoice.billingType}</span>
                       </>
                     )}
                     {selectedHistoryInvoice.salespersonName && (
                       <>
-                        <span className="text-border">·</span>
-                        <span>Salesperson: <strong className="text-foreground">{selectedHistoryInvoice.salespersonName}</strong></span>
+                        <span className="hidden sm:inline text-border">·</span>
+                        <span className="text-[11px]">SP: <strong className="text-foreground">{selectedHistoryInvoice.salespersonName}</strong></span>
                       </>
                     )}
                   </div>
@@ -2652,61 +3030,114 @@ export default function NewSalePage() {
 
               {/* Body — scrollable */}
               <div className="flex-1 overflow-y-auto">
-                {/* Items table */}
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
-                    <TableRow className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent border-b border-border/40">
-                      <TableHead className="px-4 py-2.5 h-auto w-8 text-center">#</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto">Product</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto">Batch</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto">Expiry</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-center">Qty</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-right">MRP</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-right">Rate</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-center">Disc%</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-center">GST%</TableHead>
-                      <TableHead className="px-4 py-2.5 h-auto text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
-                      <TableRow key={item.id} className="hover:bg-accent/30 border-b border-border/20">
-                        <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="px-4 py-3">
-                          <div className="text-xs font-semibold">{item.productName}</div>
-                        </TableCell>
-                        <TableCell className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>
-                        <TableCell className="px-4 py-3 text-[11px] text-muted-foreground">
-                          {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}
-                        </TableCell>
-                        <TableCell className="px-4 py-3 text-center text-xs font-semibold">{item.quantity}</TableCell>
-                        <TableCell className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{formatCurrency(Number(item.mrp))}</TableCell>
-                        <TableCell className="px-4 py-3 text-right font-mono text-xs">{formatCurrency(Number(item.rate))}</TableCell>
-                        <TableCell className="px-4 py-3 text-center text-xs">{Number(item.discountPercent) > 0 ? <span className="text-rose-500 font-semibold">{item.discountPercent}%</span> : <span className="text-muted-foreground/40">—</span>}</TableCell>
-                        <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
-                        <TableCell className="px-4 py-3 text-right font-mono text-xs font-bold">{formatCurrency(Number(item.amount))}</TableCell>
+                {/* Desktop View: Items table */}
+                <div className="hidden md:block">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
+                      <TableRow className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent border-b border-border/40">
+                        <TableHead className="px-4 py-2.5 h-auto w-8 text-center">#</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto">Product</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto">Batch</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto">Expiry</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-center">Qty</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-right">MRP</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-right">Rate</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-center">Disc%</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-center">GST%</TableHead>
+                        <TableHead className="px-4 py-2.5 h-auto text-right">Amount</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
+                        <TableRow key={item.id} className="hover:bg-accent/30 border-b border-border/20">
+                          <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
+                          <TableCell className="px-4 py-3">
+                            <div className="text-xs font-semibold">{item.productName}</div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>
+                          <TableCell className="px-4 py-3 text-[11px] text-muted-foreground">
+                            {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}
+                          </TableCell>
+                          <TableCell className="px-4 py-3 text-center text-xs font-semibold">{item.quantity}</TableCell>
+                          <TableCell className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{formatCurrency(Number(item.mrp))}</TableCell>
+                          <TableCell className="px-4 py-3 text-right font-mono text-xs">{formatCurrency(Number(item.rate))}</TableCell>
+                          <TableCell className="px-4 py-3 text-center text-xs">{Number(item.discountPercent) > 0 ? <span className="text-rose-500 font-semibold">{item.discountPercent}%</span> : <span className="text-muted-foreground/40">—</span>}</TableCell>
+                          <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
+                          <TableCell className="px-4 py-3 text-right font-mono text-xs font-bold">{formatCurrency(Number(item.amount))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile View: Item Cards */}
+                <div className="md:hidden p-4 space-y-3">
+                  {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
+                    <Card key={item.id} className="overflow-hidden border-border/40 bg-muted/10">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-[10px] font-bold text-muted-foreground/40 font-mono">#{idx + 1}</span>
+                              <h4 className="text-xs font-bold truncate leading-tight">{item.productName}</h4>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                              <Badge variant="outline" className="h-4 px-1 text-[8px] font-mono">{item.batchNumber}</Badge>
+                              <span>Exp: {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase leading-none mb-1">Amount</p>
+                            <p className="text-sm font-black font-mono text-primary">{formatCurrency(Number(item.amount))}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/5 text-[10px]">
+                          <div>
+                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">Qty</p>
+                            <p className="font-bold">{item.quantity}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">Rate</p>
+                            <p className="font-mono font-medium">{formatCurrency(Number(item.rate))}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">GST/Disc</p>
+                            <p className="font-medium">
+                              {item.gstPercent}% / {Number(item.discountPercent) > 0 ? `${item.discountPercent}%` : '—'}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
 
               {/* Footer — totals + actions */}
               <div className="border-t border-border/40 px-6 py-4 bg-muted/20">
-                <div className="flex items-end justify-between gap-6">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                   {/* Left: payment info */}
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div>Payment Mode: <strong className="text-foreground">{selectedHistoryInvoice.paymentMode}</strong></div>
+                  <div className="space-y-1.5 text-xs text-muted-foreground order-2 md:order-1">
+                    <div className="flex items-center justify-between md:justify-start gap-3 border-b md:border-0 border-border/10 pb-1 md:pb-0">
+                      <span>Payment Mode</span>
+                      <strong className="text-foreground">{selectedHistoryInvoice.paymentMode}</strong>
+                    </div>
                     {Number(selectedHistoryInvoice.amountPaid) > 0 && (
-                      <div>Amount Paid: <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.amountPaid))}</strong></div>
+                      <div className="flex items-center justify-between md:justify-start gap-3">
+                        <span>Amount Paid</span>
+                        <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.amountPaid))}</strong>
+                      </div>
                     )}
                     {Number(selectedHistoryInvoice.changeReturned) > 0 && (
-                      <div>Change Returned: <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.changeReturned))}</strong></div>
+                      <div className="flex items-center justify-between md:justify-start gap-3">
+                        <span>Change Returned</span>
+                        <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.changeReturned))}</strong>
+                      </div>
                     )}
                   </div>
 
                   {/* Right: totals breakdown */}
-                  <div className="space-y-1 text-xs min-w-52">
+                  <div className="space-y-1 text-xs min-w-full md:min-w-52 order-1 md:order-2">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span>
                       <span className="font-mono">{formatCurrency(Number(selectedHistoryInvoice.subtotal))}</span>
@@ -2733,21 +3164,20 @@ export default function NewSalePage() {
                         <span className="font-mono">{Number(selectedHistoryInvoice.roundOff) > 0 ? '+' : ''}{Number(selectedHistoryInvoice.roundOff).toFixed(2)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between items-center pt-1.5 border-t border-border/40">
-                      <span className="font-bold text-sm">Grand Total</span>
-                      <span className="font-mono font-black text-base text-primary">{formatCurrency(Number(selectedHistoryInvoice.grandTotal))}</span>
+                    <div className="flex justify-between items-center pt-2 mt-2 border-t border-primary/20">
+                      <span className="font-black uppercase tracking-widest text-[10px] text-primary/60">Grand Total</span>
+                      <span className="font-mono font-black text-lg text-primary">{formatCurrency(Number(selectedHistoryInvoice.grandTotal))}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex justify-end gap-2 mt-4">
-                  <Button variant="outline" size="sm" onClick={() => setHistoryInvoiceOpen(false)}>
+                <div className="flex gap-2 mt-6">
+                  <Button variant="outline" className="flex-1 h-10 text-xs font-semibold" onClick={() => setHistoryInvoiceOpen(false)}>
                     Close
                   </Button>
                   <Button
-                    size="sm"
-                    className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    className="flex-2 h-10 text-xs font-bold gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/10"
                     onClick={() => {
                       if (!selectedHistoryInvoice?.items?.length) return
                       const repurchaseItems = selectedHistoryInvoice.items.map((it) => {
@@ -2774,8 +3204,8 @@ export default function NewSalePage() {
                       toast.success(`${repurchaseItems.length} item${repurchaseItems.length !== 1 ? 's' : ''} loaded from previous invoice`)
                     }}
                   >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    Re-purchase
+                    <RefreshCw className="h-4 w-4" />
+                    Re-purchase Items
                   </Button>
                 </div>
               </div>

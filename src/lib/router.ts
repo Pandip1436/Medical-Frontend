@@ -5,6 +5,10 @@ function getPath(): string {
   return window.location.pathname === '/' ? '/login' : window.location.pathname
 }
 
+function getSearch(): string {
+  return window.location.search
+}
+
 const listeners = new Set<() => void>()
 
 function subscribe(listener: () => void) {
@@ -28,10 +32,11 @@ export function navigate(path: string) {
   emitChange()
 }
 
-/** React hook – returns current path and navigate function */
+/** React hook – returns current path, search string, and navigate function */
 export function useRoute() {
   const path = useSyncExternalStore(subscribe, getPath, () => '/login')
-  return { path, navigate }
+  const search = useSyncExternalStore(subscribe, getSearch, () => '')
+  return { path, search, navigate }
 }
 
 /** Build an href string that works with browser routing */

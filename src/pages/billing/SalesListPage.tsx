@@ -660,7 +660,7 @@ export default function SalesListPage() {
       {/* ── Mobile Cards / Desktop Table ── */}
       <Card>
         {/* ── MOBILE CARD LIST (hidden on md+) ── */}
-        <div className="md:hidden">
+        <div className="lg:hidden">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
@@ -746,7 +746,7 @@ export default function SalesListPage() {
         </div>
 
         {/* ── DESKTOP TABLE (hidden on mobile) ── */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -929,7 +929,7 @@ export default function SalesListPage() {
 
       {/* ── Invoice Detail Dialog ── */}
       <Dialog open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
           {detailInvoice && (
             <>
               <DialogHeader>

@@ -22,6 +22,7 @@ import {
   BadgeAlert,
   UserX,
   HelpCircle,
+  Scale,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -105,8 +106,141 @@ const reasonVariantMap: Record<string, 'destructive' | 'warning' | 'info' | 'pur
 const STEPS = [
   { number: 1, label: 'Select Invoice', icon: FileText },
   { number: 2, label: 'Return Items', icon: Package },
-  { number: 3, label: 'Credit Note', icon: Receipt },
+  { number: 3, label: 'Credit Note', icon: Receipt, adjust: { icon: Scale, variant: 'warning' as const } },
 ] as const
+
+// ─────────────────────────────────────────────────────────────
+// SUB-COMPONENT: Mobile Return Card
+// ─────────────────────────────────────────────────────────────
+
+interface MobileReturnCardProps {
+  ri: ReturnItemState;
+  toggleReturnItem: (id: string) => void;
+  updateReturnQty: (id: string, qty: number) => void;
+  updateReturnReason: (id: string, reason: ReturnReason) => void;
+  updateCustomReason: (id: string, reason: string) => void;
+}
+
+const MobileReturnCard = ({ 
+  ri, 
+  toggleReturnItem, 
+  updateReturnQty, 
+  updateReturnReason, 
+  updateCustomReason 
+}: MobileReturnCardProps) => {
+  const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+  const lineRefund = lineRate * ri.returnQty
+  const gstRefund = lineRefund * (ri.item.gstPercent / 100)
+  const totalRefund = lineRefund + gstRefund
+
+  return (
+    <Card className={cn(
+      "mb-3 border-border/60 transition-all",
+      ri.selected ? "ring-1 ring-primary/20 bg-primary/3" : "bg-card/50"
+    )}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <Checkbox
+            checked={ri.selected}
+            onCheckedChange={() => toggleReturnItem(ri.itemId)}
+            className="mt-1"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold truncate">{ri.item.productName}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground/60">
+              <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
+              <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+              <span className="text-foreground/40 font-bold">Sold: {ri.item.quantity}</span>
+            </div>
+          </div>
+        </div>
+
+        {ri.selected && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="mt-4 pt-4 border-t border-border/40 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Return Qty</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="h-8 w-8 rounded-lg"
+                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty - 1)}
+                  disabled={ri.returnQty <= 1}
+                >
+                  <Minus className="h-3 w-3" />
+                </Button>
+                <input
+                  type="number"
+                  value={ri.returnQty}
+                  onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
+                  className="w-12 h-8 bg-muted/40 border-0 text-sm font-black font-mono text-center focus:ring-0 rounded-lg"
+                />
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="h-8 w-8 rounded-lg"
+                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty + 1)}
+                  disabled={ri.returnQty >= ri.maxQty}
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Return Reason</Label>
+              <Select
+                value={ri.reason}
+                onValueChange={(val) => updateReturnReason(ri.itemId, val as ReturnReason)}
+              >
+                <SelectTrigger className="h-9 w-full text-xs font-semibold bg-background">
+                  <SelectValue placeholder="Select a reason..." />
+                </SelectTrigger>
+                <SelectContent className="z-[100]">
+                  {RETURN_REASONS.map((reason) => {
+                    const Icon = reasonIcons[reason]
+                    return (
+                      <SelectItem key={reason} value={reason} className="text-xs">
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-3.5 w-3.5 opacity-60" />
+                          {reason}
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              {ri.reason === 'Other' && (
+                <input
+                  placeholder="Type reason here..."
+                  value={ri.customReason}
+                  onChange={(e) => updateCustomReason(ri.itemId, e.target.value)}
+                  className="w-full h-9 px-3 bg-muted/30 border-0 text-xs rounded-lg focus:ring-1 focus:ring-primary/20 mt-2"
+                />
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-border/10">
+              <span className="text-[10px] font-bold text-muted-foreground/40 font-mono text-xs">
+                RATE: {formatCurrency(lineRate)}
+              </span>
+              <div className="text-right">
+                <p className="text-[9px] font-bold text-muted-foreground uppercase">Estimated Refund</p>
+                <p className="text-base font-black font-mono text-rose-600 dark:text-rose-400">
+                  {formatCurrency(totalRefund)}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────
 // COMPONENT
@@ -367,66 +501,57 @@ export default function SalesReturnsPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* ── Fixed Header ── */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border/40 bg-background px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
+      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+        {/* Row 1: back button + title */}
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => navigate('/billing/sales')}
-            className="text-muted-foreground"
+            className="text-muted-foreground shrink-0"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">Sales Returns</h1>
-            <p className="text-[11px] text-muted-foreground">Create credit notes for returned goods</p>
+            <h1 className="text-base font-bold tracking-tight leading-tight">Sales Returns</h1>
+            <p className="hidden sm:block text-[11px] text-muted-foreground">Create credit notes for returned goods</p>
           </div>
         </div>
 
-        {/* ── Step Indicator (compact horizontal) ── */}
-        <div className="flex items-center gap-1">
+        {/* Row 2: step indicators */}
+        <div className="mt-3 flex items-center gap-1 pl-1">
           {STEPS.map((step, idx) => {
             const isActive = currentStep === step.number
             const isCompleted = currentStep > step.number
-            const StepIcon = step.icon
             return (
               <div key={step.number} className="flex items-center">
                 <button
-                  onClick={() => {
-                    if (isCompleted) goToStep(step.number)
-                  }}
+                  onClick={() => { if (isCompleted) goToStep(step.number) }}
                   disabled={!isCompleted && !isActive}
                   className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                    'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-all',
                     isActive && 'bg-primary text-primary-foreground shadow-sm',
                     isCompleted && 'bg-primary/10 text-primary cursor-pointer hover:bg-primary/20',
                     !isActive && !isCompleted && 'text-muted-foreground'
                   )}
                 >
                   <div className={cn(
-                    'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+                    'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0',
                     isActive && 'bg-primary-foreground/20',
                     isCompleted && 'bg-primary/20',
                     !isActive && !isCompleted && 'bg-muted'
                   )}>
                     {isCompleted ? <Check className="h-3 w-3" /> : step.number}
                   </div>
-                  <span className="hidden sm:inline">{step.label}</span>
+                  <span>{step.label}</span>
                 </button>
                 {idx < STEPS.length - 1 && (
-                  <div className={cn(
-                    'mx-1 h-px w-6',
-                    isCompleted ? 'bg-primary' : 'bg-border'
-                  )} />
+                  <div className={cn('mx-1 h-px w-6 shrink-0', isCompleted ? 'bg-primary' : 'bg-border')} />
                 )}
               </div>
             )
           })}
         </div>
-
-        <Badge variant="info" size="sm" dot>
-          Step {currentStep}/3
-        </Badge>
       </div>
 
       {/* ── Main Content (fills viewport) ── */}
@@ -446,7 +571,7 @@ export default function SalesReturnsPage() {
               className="absolute inset-0 flex"
             >
               {/* Left: Search & Invoice List */}
-              <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
+              <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%] pb-20 lg:pb-0">
                 <div className="shrink-0 border-b border-border/40 p-4 bg-muted/10 dark:bg-muted/5">
                   <DataTableFilterBar
                     searchQuery={invoiceSearch}
@@ -603,15 +728,17 @@ export default function SalesReturnsPage() {
 
               {/* Mobile: Continue button when invoice selected (shown on small screens) */}
               {selectedInvoice && (
-                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background p-4 lg:hidden">
-                  <Button className="w-full" onClick={() => goToStep(2)}>
-                    Continue with {fmtInvoiceNum(selectedInvoice)}
-                    <ChevronRight className="ml-1 h-4 w-4" />
+                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md p-4 lg:hidden z-50">
+                  <Button className="w-full h-11 text-base font-bold shadow-lg shadow-primary/20" onClick={() => goToStep(2)}>
+                    Continue with {fmtInvoiceNum(selectedInvoice).split('/').pop()}
+                    <ChevronRight className="ml-2 h-5 w-5" />
                   </Button>
                 </div>
               )}
             </motion.div>
           )}
+
+
 
           {/* ═══════════════════════════════════════════════════════ */}
           {/* STEP 2: Select Return Items — Full Width Table          */}
@@ -627,183 +754,219 @@ export default function SalesReturnsPage() {
               className="absolute inset-0 flex flex-col"
             >
               {/* Sub-header */}
-              <div className="flex shrink-0 items-center justify-between border-b border-border/40 px-4 py-3 sm:px-6">
-                <div className="flex items-center gap-3">
-                  <p className="text-sm text-muted-foreground">
-                    Returning items from
-                  </p>
-                  <Badge variant="outline" size="lg" className="font-mono">
+              <div className="flex shrink-0 flex-col gap-1 border-b border-border/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm text-muted-foreground">Returning from</p>
+                  <Badge variant="outline" size="sm" className="font-mono">
                     {fmtInvoiceNum(selectedInvoice)}
                   </Badge>
-                  <span className="text-sm text-muted-foreground">&middot;</span>
-                  <span className="text-sm font-medium">{selectedInvoice.customerName}</span>
+                  <span className="text-sm font-medium truncate max-w-40">{selectedInvoice.customerName}</span>
                 </div>
                 {selectedReturnItems.length > 0 && (
-                  <Badge variant="info" dot size="sm">
+                  <Badge variant="info" dot size="sm" className="self-start sm:self-auto">
                     {selectedReturnItems.length} item{selectedReturnItems.length !== 1 ? 's' : ''} selected
                   </Badge>
                 )}
               </div>
 
-              {/* Items — Table View */}
-              <div className="flex-1 overflow-hidden border-t border-border/40">
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
-                    <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
-                      <TableHead className="w-12 px-4 py-3 text-center">
-                        <Checkbox 
-                          checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
-                          onCheckedChange={(checked) => {
-                            setReturnItems(prev => prev.map(ri => ({ 
-                              ...ri, 
-                              selected: !!checked,
-                              returnQty: checked ? ri.maxQty : 0,
-                              reason: checked ? ri.reason || 'Other' : ''
-                            })))
-                          }}
-                        />
-                      </TableHead>
-                      <TableHead className="min-w-50 px-4 py-3">Product Details</TableHead>
-                      <TableHead className="w-25 px-2 py-3 text-center">Sold Qty</TableHead>
-                      <TableHead className="w-35 px-2 py-3 text-center">Return Qty</TableHead>
-                      <TableHead className="w-50 px-2 py-3">Return Reason</TableHead>
-                      <TableHead className="w-30 px-4 py-3 text-right">Refund Amt</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {returnItems.map((ri) => {
-                      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
-                      const lineRefund = lineRate * ri.returnQty
-                      const gstRefund = lineRefund * (ri.item.gstPercent / 100)
-                      const totalRefund = lineRefund + gstRefund
+              {/* Items — Table View (Desktop) / Card View (Mobile) */}
+              <div className="flex-1 overflow-auto border-t border-border/40">
+                {/* Desktop View */}
+                <div className="hidden md:block">
+                  <Table className="min-w-175">
+                    <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
+                      <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
+                        <TableHead className="w-12 px-4 py-3 text-center">
+                          <Checkbox 
+                            checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
+                            onCheckedChange={(checked) => {
+                              setReturnItems(prev => prev.map(ri => ({ 
+                                ...ri, 
+                                selected: !!checked,
+                                returnQty: checked ? ri.maxQty : 0,
+                                reason: checked ? ri.reason || 'Other' : ''
+                              })))
+                            }}
+                          />
+                        </TableHead>
+                        <TableHead className="min-w-50 px-4 py-3">Product Details</TableHead>
+                        <TableHead className="w-25 px-2 py-3 text-center">Sold Qty</TableHead>
+                        <TableHead className="w-35 px-2 py-3 text-center">Return Qty</TableHead>
+                        <TableHead className="w-50 px-2 py-3">Return Reason</TableHead>
+                        <TableHead className="w-30 px-4 py-3 text-right">Refund Amt</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {returnItems.map((ri) => {
+                        const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+                        const lineRefund = lineRate * ri.returnQty
+                        const gstRefund = lineRefund * (ri.item.gstPercent / 100)
+                        const totalRefund = lineRefund + gstRefund
 
-                      return (
-                        <TableRow 
-                          key={ri.itemId}
-                          className={cn(
-                            "group transition-colors",
-                            ri.selected ? "bg-primary/3 hover:bg-primary/5" : "hover:bg-muted/30"
-                          )}
-                        >
-                          <TableCell className="px-4 py-3 text-center">
-                            <Checkbox
-                              checked={ri.selected}
-                              onCheckedChange={() => toggleReturnItem(ri.itemId)}
-                            />
-                          </TableCell>
-                          <TableCell className="px-4 py-3">
-                            <div className="space-y-1">
-                              <p className="text-xs font-bold leading-none">{ri.item.productName}</p>
-                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
-                                <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
-                                <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="px-2 py-3 text-center">
-                            <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.item.quantity}</span>
-                          </TableCell>
-                          <TableCell className="px-2 py-3">
-                            {ri.selected ? (
-                              <div className="flex items-center gap-1 justify-center">
-                                <Button
-                                  variant="outline"
-                                  size="icon-sm"
-                                  className="h-6 w-6 rounded-md"
-                                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty - 1)}
-                                  disabled={ri.returnQty <= 1}
-                                >
-                                  <Minus className="h-2.5 w-2.5" />
-                                </Button>
-                                <input
-                                  type="number"
-                                  value={ri.returnQty}
-                                  onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
-                                  className="w-10 h-6 bg-transparent border-0 text-[11px] font-black font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary/20 rounded"
-                                />
-                                <Button
-                                  variant="outline"
-                                  size="icon-sm"
-                                  className="h-6 w-6 rounded-md"
-                                  onClick={() => updateReturnQty(ri.itemId, ri.returnQty + 1)}
-                                  disabled={ri.returnQty >= ri.maxQty}
-                                >
-                                  <Plus className="h-2.5 w-2.5" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="text-center text-[10px] text-muted-foreground/20 italic">Select to edit</div>
+                        return (
+                          <TableRow 
+                            key={ri.itemId}
+                            className={cn(
+                              "group transition-colors",
+                              ri.selected ? "bg-primary/3 hover:bg-primary/5" : "hover:bg-muted/30"
                             )}
-                          </TableCell>
-                          <TableCell className="px-2 py-3">
-                            {ri.selected ? (
-                              <div className="space-y-1.5">
-                                <Select
-                                  value={ri.reason}
-                                  onValueChange={(val) => updateReturnReason(ri.itemId, val as ReturnReason)}
-                                >
-                                  <SelectTrigger className="h-7 text-[10px] font-medium border-primary/10 bg-background/50">
-                                    <SelectValue placeholder="Reason..." />
-                                  </SelectTrigger>
-                                  <SelectContent className="bg-popover/95 backdrop-blur-xl">
-                                    {RETURN_REASONS.map((reason) => {
-                                      const Icon = reasonIcons[reason]
-                                      return (
-                                        <SelectItem key={reason} value={reason} className="text-[11px]">
-                                          <div className="flex items-center gap-2">
-                                            <Icon className="h-3 w-3 opacity-60" />
-                                            {reason}
-                                          </div>
-                                        </SelectItem>
-                                      )
-                                    })}
-                                  </SelectContent>
-                                </Select>
-                                {ri.reason === 'Other' && (
+                          >
+                            <TableCell className="px-4 py-3 text-center">
+                              <Checkbox
+                                checked={ri.selected}
+                                onCheckedChange={() => toggleReturnItem(ri.itemId)}
+                              />
+                            </TableCell>
+                            <TableCell className="px-4 py-3">
+                              <div className="space-y-1">
+                                <p className="text-xs font-bold leading-none">{ri.item.productName}</p>
+                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                                  <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
+                                  <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-2 py-3 text-center">
+                              <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.item.quantity}</span>
+                            </TableCell>
+                            <TableCell className="px-2 py-3">
+                              {ri.selected ? (
+                                <div className="flex items-center gap-1 justify-center">
+                                  <Button
+                                    variant="outline"
+                                    size="icon-sm"
+                                    className="h-6 w-6 rounded-md"
+                                    onClick={() => updateReturnQty(ri.itemId, ri.returnQty - 1)}
+                                    disabled={ri.returnQty <= 1}
+                                  >
+                                    <Minus className="h-2.5 w-2.5" />
+                                  </Button>
                                   <input
-                                    placeholder="Specify reason..."
-                                    value={ri.customReason}
-                                    onChange={(e) => updateCustomReason(ri.itemId, e.target.value)}
-                                    className="w-full h-6 px-2 bg-muted/40 border-0 text-[10px] rounded focus:outline-none focus:ring-1 focus:ring-primary/20"
+                                    type="number"
+                                    value={ri.returnQty}
+                                    onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
+                                    className="w-10 h-6 bg-transparent border-0 text-[11px] font-black font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary/20 rounded"
                                   />
-                                )}
-                              </div>
-                            ) : (
-                              <div className="h-7" />
-                            )}
-                          </TableCell>
-                          <TableCell className="px-4 py-3 text-right">
-                            <span className={cn(
-                              "text-xs font-black font-mono tracking-tight",
-                              totalRefund > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground/20"
-                            )}>
-                              {totalRefund > 0 ? formatCurrency(totalRefund) : "₹0.00"}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                                  <Button
+                                    variant="outline"
+                                    size="icon-sm"
+                                    className="h-6 w-6 rounded-md"
+                                    onClick={() => updateReturnQty(ri.itemId, ri.returnQty + 1)}
+                                    disabled={ri.returnQty >= ri.maxQty}
+                                  >
+                                    <Plus className="h-2.5 w-2.5" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="text-center text-[10px] text-muted-foreground/20 italic">Select to edit</div>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-2 py-3">
+                              {ri.selected ? (
+                                <div className="space-y-1.5">
+                                  <Select
+                                    value={ri.reason}
+                                    onValueChange={(val) => updateReturnReason(ri.itemId, val as ReturnReason)}
+                                  >
+                                    <SelectTrigger className="h-7 text-[10px] font-medium border-primary/10 bg-background/50">
+                                      <SelectValue placeholder="Reason..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-popover/95 backdrop-blur-xl">
+                                      {RETURN_REASONS.map((reason) => {
+                                        const Icon = reasonIcons[reason]
+                                        return (
+                                          <SelectItem key={reason} value={reason} className="text-[11px]">
+                                            <div className="flex items-center gap-2">
+                                              <Icon className="h-3 w-3 opacity-60" />
+                                              {reason}
+                                            </div>
+                                          </SelectItem>
+                                        )
+                                      })}
+                                    </SelectContent>
+                                  </Select>
+                                  {ri.reason === 'Other' && (
+                                    <input
+                                      placeholder="Specify reason..."
+                                      value={ri.customReason}
+                                      onChange={(e) => updateCustomReason(ri.itemId, e.target.value)}
+                                      className="w-full h-6 px-2 bg-muted/40 border-0 text-[10px] rounded focus:outline-none focus:ring-1 focus:ring-primary/20"
+                                    />
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="h-7" />
+                              )}
+                            </TableCell>
+                            <TableCell className="px-4 py-3 text-right">
+                              <span className={cn(
+                                "text-xs font-black font-mono tracking-tight",
+                                totalRefund > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground/20"
+                              )}>
+                                {totalRefund > 0 ? formatCurrency(totalRefund) : "₹0.00"}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile View */}
+                <div className="md:hidden p-4 space-y-1 pb-20">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Return Items</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground font-semibold">Select All</span>
+                      <Checkbox 
+                        checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
+                        onCheckedChange={(checked) => {
+                          setReturnItems(prev => prev.map(ri => ({ 
+                            ...ri, 
+                            selected: !!checked,
+                            returnQty: checked ? ri.maxQty : 0,
+                            reason: checked ? ri.reason || 'Other' : ''
+                          })))
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {returnItems.map((ri) => (
+                    <MobileReturnCard 
+                      key={ri.itemId} 
+                      ri={ri} 
+                      toggleReturnItem={toggleReturnItem}
+                      updateReturnQty={updateReturnQty}
+                      updateReturnReason={updateReturnReason}
+                      updateCustomReason={updateCustomReason}
+                    />
+                  ))}
+                </div>
               </div>
 
               {/* Fixed bottom bar */}
-              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background px-4 py-3 sm:px-6">
-                <Button variant="outline" size="sm" onClick={() => goToStep(1)}>
+              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6 fixed bottom-0 left-0 right-0 md:relative md:z-auto z-50">
+                <Button variant="outline" size="sm" onClick={() => goToStep(1)} className="h-9 px-4">
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Back
                 </Button>
                 <div className="flex items-center gap-3">
                   {selectedReturnItems.length > 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      Return total:{' '}
-                      <span className="font-mono font-bold text-foreground">
+                    <div className="hidden sm:block text-right">
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase">Total Refund</p>
+                      <p className="font-mono font-bold text-foreground">
                         {formatCurrency(creditSummary.total)}
-                      </span>
-                    </p>
+                      </p>
+                    </div>
                   )}
-                  <Button disabled={!canProceedToStep3} onClick={() => goToStep(3)}>
-                    Preview Credit Note
+                  <Button 
+                    disabled={!canProceedToStep3} 
+                    onClick={() => goToStep(3)}
+                    className="h-9 px-6 bg-primary shadow-lg shadow-primary/20"
+                  >
+                    <span className="hidden sm:inline">Preview Credit Note</span>
+                    <span className="sm:hidden">Preview</span>
                     <ChevronRight className="ml-1 h-4 w-4" />
                   </Button>
                 </div>
@@ -825,7 +988,7 @@ export default function SalesReturnsPage() {
               className="absolute inset-0 flex"
             >
               {/* Left: Credit Note Document — pinned header, scrollable items, pinned totals */}
-              <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[60%]">
+              <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[60%] overflow-y-auto">
                 {/* Pinned: Document header */}
                 <div className="shrink-0 bg-linear-to-r from-primary/5 to-primary/2 border-b border-border/40 p-5 dark:from-primary/10 dark:to-primary/3">
                   <div className="flex items-start justify-between">
@@ -892,7 +1055,7 @@ export default function SalesReturnsPage() {
 
                 {/* Pinned: Totals */}
                 <div className="shrink-0 border-t border-border/40 bg-muted/10 px-5 py-4 dark:bg-muted/5">
-                  <div className="flex items-center justify-end gap-8">
+                  <div className="flex flex-wrap items-center justify-end gap-4 sm:gap-8">
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-muted-foreground">Subtotal</span>
                       <span className="font-mono font-medium">{formatCurrency(creditSummary.subtotal)}</span>
@@ -901,16 +1064,52 @@ export default function SalesReturnsPage() {
                       <span className="text-muted-foreground">GST Reversal</span>
                       <span className="font-mono font-medium">{formatCurrency(creditSummary.gstReversal)}</span>
                     </div>
-                    <Separator orientation="vertical" className="h-6" />
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">Credit Total</span>
                       <span className="font-mono text-lg font-bold text-primary">{formatCurrency(creditSummary.total)}</span>
                     </div>
                   </div>
                 </div>
+
+                {/* Mobile-only: Settlement + Confirm (lg+ uses right panel) */}
+                <div className="lg:hidden border-t border-border/40 p-4 space-y-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Settlement Method</p>
+                  <RadioGroup value={settlementOption} onValueChange={setSettlementOption} className="space-y-2">
+                    {[
+                      { value: 'refund', title: 'Refund to Customer', desc: 'Refund via original payment method' },
+                      { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from existing balance' },
+                      { value: 'store_credit', title: 'Store Credit', desc: 'Keep as credit for future purchases' },
+                    ].map((opt) => (
+                      <div
+                        key={opt.value}
+                        className={cn(
+                          'flex items-start gap-3 rounded-xl border p-3 transition-all cursor-pointer',
+                          settlementOption === opt.value
+                            ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
+                            : 'border-border/40 hover:bg-muted/30'
+                        )}
+                        onClick={() => setSettlementOption(opt.value)}
+                      >
+                        <RadioGroupItem value={opt.value} id={`mobile-${opt.value}`} className="mt-0.5" />
+                        <Label htmlFor={`mobile-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
+                          <p className="text-sm font-medium">{opt.title}</p>
+                          <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                  <Button className="w-full" onClick={handleConfirmReturn}>
+                    <RotateCcw className="mr-1.5 h-4 w-4" />
+                    Confirm Return & Create Credit Note
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
+                    <ChevronLeft className="mr-1.5 h-4 w-4" />
+                    Back to Items
+                  </Button>
+                </div>
               </div>
 
-              {/* Right: Settlement & Actions */}
+              {/* Right: Settlement & Actions — desktop only */}
               <div className="hidden lg:flex lg:w-[40%] flex-col overflow-hidden">
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="p-5 space-y-5">
