@@ -517,18 +517,21 @@ export default function CustomerInvoicesPage() {
         />
         <div className="flex flex-wrap gap-2">
           <EnumSelect
+            label="Status"
             value={statusFilter}
             onValueChange={(v) => { setStatusFilter(v); setPage(1) }}
             options={STATUS_OPTIONS}
             className="w-36"
           />
           <EnumSelect
+            label="Payment"
             value={paymentFilter}
             onValueChange={(v) => { setPaymentFilter(v); setPage(1) }}
             options={PAYMENT_OPTIONS}
             className="w-36"
           />
           <EnumSelect
+            label="Period"
             value={period}
             onValueChange={(v) => { setPeriod(v); setPage(1) }}
             options={PERIOD_OPTIONS}
