@@ -279,7 +279,7 @@ function InvoiceDetailView({ invoice, onClose }: { invoice: Invoice; onClose: ()
               {invoice.items.map((item, idx) => (
                 <tr key={item.id} className="hover:bg-muted/20">
                   <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
-                  <td className="px-3 py-2 font-medium max-w-[140px] truncate">{item.productName}</td>
+                  <td className="px-3 py-2 font-medium max-w-35 truncate">{item.productName}</td>
                   <td className="px-3 py-2 text-center font-mono text-muted-foreground">{item.batchNumber}</td>
                   <td className="px-3 py-2 text-center text-muted-foreground">
                     {new Date(item.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}
@@ -652,11 +652,11 @@ export default function CustomerInvoicesPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="text-sm truncate max-w-[140px]">{inv.customerName}</span>
+                          <span className="text-sm truncate max-w-35">{inv.customerName}</span>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="text-sm text-muted-foreground max-w-[180px]">
+                        <div className="text-sm text-muted-foreground max-w-45">
                           <span className="font-medium text-foreground">{inv.items.length} item{inv.items.length !== 1 ? 's' : ''}</span>
                           {inv.items.length > 0 && (
                             <span className="ml-1 truncate block text-xs">
