@@ -27,7 +27,6 @@ import {
   ChevronLeft,
   MoreHorizontal,
   X,
-  Stethoscope,
   Building2,
   UserCheck,
   type LucideIcon,
@@ -99,8 +98,8 @@ const navigationGroups: NavGroup[] = [
     title: 'CUSTOMERS',
     items: [
       { label: 'Customer List', icon: Users, href: '/customers' },
+      { label: 'Invoices', icon: Receipt, href: '/customers/invoices' },
       { label: 'Outstanding', icon: IndianRupee, href: '/customers/outstanding' },
-      { label: 'Doctors', icon: Stethoscope, href: '/doctors' },
     ],
   },
   {
@@ -258,7 +257,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
       href={hashHref('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
         <Pill className="h-4 w-4 text-white" />
       </div>
       {!collapsed && (

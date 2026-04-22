@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
@@ -8,10 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
   Plus,
-  Search,
   Eye,
   Pencil,
-  Receipt,
   Users,
   IndianRupee,
   Trash2,
@@ -19,6 +17,8 @@ import {
   Upload,
   FileImage,
   X,
+  FileText,
+  Camera,
 } from 'lucide-react'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -97,19 +97,28 @@ const itemVariants: Variants = {
 // ─────────────────────────────────────────────────────────────
 
 const customerSchema = z.object({
-  name: z.string().min(1, 'Customer name is required'),
+  name: z.string().min(1, 'Name is required'),
   phone: z
     .string()
     .min(10, 'Phone must be 10 digits')
     .max(10, 'Phone must be 10 digits')
-    .regex(/^\d{10}$/, 'Phone must be exactly 10 digits'),
-  type: z.enum(['WALK_IN', 'REGULAR', 'HOSPITAL', 'WHOLESALE', 'DOCTOR']),
+    .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
+  type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
-  address: z.string().optional(),
-  creditLimit: z.coerce.number().min(0, 'Must be 0 or more').default(0),
+  address: z.string().min(1, 'Address is required'),
   gstin: z.string().optional(),
   dlNumber: z.string().optional(),
+  referredBy: z.string().min(1, 'Please select a salesperson'),
   notes: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.type === 'WHOLESALE' || data.type === 'DOCTOR') {
+    if (!data.gstin || data.gstin.trim() === '') {
+      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale / Doctor' })
+    }
+    if (!data.dlNumber || data.dlNumber.trim() === '') {
+      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale / Doctor' })
+    }
+  }
 })
 
 type CustomerFormValues = z.input<typeof customerSchema>
@@ -119,20 +128,21 @@ type CustomerFormValues = z.input<typeof customerSchema>
 // ─────────────────────────────────────────────────────────────
 
 const typeBadgeVariant: Record<string, 'info' | 'purple' | 'success' | 'warning' | 'secondary'> = {
-  HOSPITAL: 'info',
+  RETAIL: 'success',
   WHOLESALE: 'purple',
-  REGULAR: 'success',
   DOCTOR: 'warning',
-  WALK_IN: 'secondary',
 }
 
-// Left border accent colors for customer type
 const typeBorderColor: Record<string, string> = {
-  HOSPITAL: 'border-l-blue-500',
+  RETAIL: 'border-l-emerald-500',
   WHOLESALE: 'border-l-purple-500',
-  REGULAR: 'border-l-emerald-500',
   DOCTOR: 'border-l-amber-500',
-  WALK_IN: 'border-l-gray-400',
+}
+
+const typeAvatarColor: Record<string, string> = {
+  RETAIL: 'bg-emerald-500',
+  WHOLESALE: 'bg-purple-500',
+  DOCTOR: 'bg-amber-500',
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -143,10 +153,9 @@ const typeBorderColor: Record<string, string> = {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-function outstandingColor(outstanding: number, creditLimit: number) {
+function outstandingColor(outstanding: number) {
   if (outstanding <= 0) return 'text-emerald-600 dark:text-emerald-400'
-  if (creditLimit > 0 && outstanding >= creditLimit) return 'text-rose-600 dark:text-rose-400'
-  return 'text-amber-600 dark:text-amber-400'
+  return 'text-rose-600 dark:text-rose-400'
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -272,18 +281,89 @@ export default function CustomersPage() {
     )
   }, [customers, searchQuery])
 
+  // Salespersons for "Referred by" dropdown
+  const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    api.get('/salespersons', { params: { branchId: undefined } })
+      .then((res) => setSalespersons(
+        (res.data || []).filter((s: any) => s.isActive).map((s: any) => ({ id: s.id, name: s.name }))
+      ))
+      .catch(() => {})
+  }, [])
+
+  // Document upload state for add/edit dialog
+  const [docFile, setDocFile] = useState<File | null>(null)
+  const [docPreview, setDocPreview] = useState<string | null>(null)
+
+  const handleDocFile = (file: File | null) => {
+    setDocFile(file)
+    if (file && file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file)
+      setDocPreview(url)
+    } else {
+      setDocPreview(null)
+    }
+  }
+
+  // Camera scan state
+  const [scanOpen, setScanOpen] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
+      }
+    } catch {
+      toast.error('Camera access denied or not available')
+      setScanOpen(false)
+    }
+  }, [])
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }, [])
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const file = new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      handleDocFile(file)
+      stopCamera()
+      setScanOpen(false)
+    }, 'image/jpeg', 0.92)
+  }, [stopCamera])
+
+  useEffect(() => {
+    if (scanOpen) startCamera()
+    else stopCamera()
+    return () => stopCamera()
+  }, [scanOpen, startCamera, stopCamera])
+
   // Form
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
       name: '',
       phone: '',
-      type: 'REGULAR',
+      type: 'RETAIL',
       email: '',
       address: '',
-      creditLimit: 0,
       gstin: '',
       dlNumber: '',
+      referredBy: '',
       notes: '',
     },
   })
@@ -322,29 +402,48 @@ export default function CustomersPage() {
       type: customer.type as any,
       email: customer.email ?? '',
       address: customer.address ?? '',
-      creditLimit: customer.creditLimit ?? 0,
       gstin: customer.gstin ?? '',
       dlNumber: customer.dlNumber ?? '',
+      referredBy: customer.referredBy ?? '',
       notes: customer.notes ?? '',
     })
+    setDocFile(null)
+    setDocPreview(null)
     setAddDialogOpen(true)
   }
 
   const handleSaveCustomer = async (values: any) => {
     try {
+      let customerId: string
       if (editingCustomer) {
         await api.patch(`/customers/${editingCustomer.id}`, values)
+        customerId = editingCustomer.id
         toast.success(`Customer "${values.name}" updated`)
       } else {
-        await addCustomerAction(values)
+        const result = await addCustomerAction(values)
+        customerId = (result as any)?.id
         toast.success(`Customer "${values.name}" added successfully`)
       }
+      // Upload document if selected
+      if (docFile && customerId) {
+        try {
+          const form2 = new FormData()
+          form2.append('file', docFile)
+          form2.append('customerId', customerId)
+          form2.append('doctorName', 'Document')
+          await api.post('/prescriptions/upload', form2, { headers: { 'Content-Type': 'multipart/form-data' } })
+        } catch {
+          toast.warning('Customer saved but document upload failed')
+        }
+      }
       form.reset()
+      setDocFile(null)
+      setDocPreview(null)
       setEditingCustomer(null)
       setAddDialogOpen(false)
       fetchCustomers()
     } catch {
-      toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer. Please try again.')
+      toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer')
     }
   }
 
@@ -419,7 +518,7 @@ export default function CustomersPage() {
       </motion.div>
 
       {/* ─── Summary Cards ─── */}
-      <motion.div variants={itemVariants} className="grid gap-4 sm:grid-cols-3">
+      <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         {/* Total Customers */}
         <Card hover>
           <CardContent className="flex items-center gap-4 p-5">
@@ -480,12 +579,12 @@ export default function CustomersPage() {
       <motion.div variants={itemVariants}>
         <Card className="overflow-x-auto">
           <CardContent className="p-0">
-            {/* Mobile card list */}
-            <div className="md:hidden">
+            {/* Mobile + Tablet card list (hidden on lg+) */}
+            <div className="lg:hidden">
               {isLoading && (
                 <div className="divide-y divide-border/40">
                   {[...Array(5)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 px-4 py-3">
+                    <div key={i} className="flex items-center gap-3 px-4 py-3.5">
                       <div className="flex-1 space-y-1.5">
                         <div className="h-4 w-32 rounded bg-muted animate-pulse" />
                         <div className="h-3 w-20 rounded bg-muted animate-pulse" />
@@ -502,37 +601,52 @@ export default function CustomersPage() {
                 {!isLoading && filtered.map((customer) => (
                   <div
                     key={customer.id}
-                    className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
-                    onClick={() => handleViewDetails(customer)}
+                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50"
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{customer.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
-                      <div className="mt-0.5">
+                    {/* Avatar */}
+                    <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white', typeAvatarColor[customer.type] || 'bg-gray-400')}>
+                      {customer.name.charAt(0).toUpperCase()}
+                    </div>
+                    {/* Info */}
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => handleViewDetails(customer)}>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium truncate">{customer.name}</p>
                         <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
-                          {customer.type.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                          {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                         </Badge>
                       </div>
+                      <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className={cn('font-mono text-sm font-semibold', outstandingColor(customer.currentOutstanding, customer.creditLimit))}>
-                        {formatCurrency(customer.currentOutstanding)}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">outstanding</p>
+                    {/* Outstanding + actions */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right hidden sm:block">
+                        <p className={cn('font-mono text-xs font-semibold', outstandingColor(customer.currentOutstanding))}>
+                          {formatCurrency(customer.currentOutstanding)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">outstanding</p>
+                      </div>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <DataTableRowActions
+                          onView={() => handleViewDetails(customer)}
+                          customActions={[
+                            { label: 'Edit', icon: <Pencil className="h-4 w-4" />, onClick: () => handleOpenEdit(customer) },
+                            { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteCustomer(customer.id, customer.name), variant: 'destructive' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-            {/* Desktop table */}
-            <div className="hidden md:block">
+            {/* Desktop table (lg+) */}
+            <div className="hidden lg:block">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Credit Limit</TableHead>
                   <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right">Loyalty</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -555,16 +669,13 @@ export default function CustomersPage() {
                         size="sm"
                         dot
                       >
-                        {customer.type.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                        {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {formatCurrency(customer.creditLimit)}
                     </TableCell>
                     <TableCell
                       className={cn(
                         'text-right font-mono text-sm font-semibold',
-                        outstandingColor(customer.currentOutstanding, customer.creditLimit)
+                        outstandingColor(customer.currentOutstanding)
                       )}
                     >
                       {formatCurrency(customer.currentOutstanding)}
@@ -596,7 +707,7 @@ export default function CustomersPage() {
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                       No customers found
                     </TableCell>
                   </TableRow>
@@ -608,142 +719,185 @@ export default function CustomersPage() {
         </Card>
       </motion.div>
 
-      {/* ─── Add Customer Dialog ─── */}
-      <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setEditingCustomer(null); form.reset() } setAddDialogOpen(open) }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+      {/* ─── Add / Edit Customer Dialog ─── */}
+      <Dialog open={addDialogOpen} onOpenChange={(open) => {
+        if (!open) { setEditingCustomer(null); form.reset(); setDocFile(null); setDocPreview(null) }
+        setAddDialogOpen(open)
+      }}>
+        {/* ── DESKTOP (lg+): centered modal, 2-column grid ── */}
+        {/* Single DialogContent — full-screen on mobile/tablet, centered modal on desktop */}
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[85vh]! md:overflow-hidden! md:flex! md:flex-col! md:grid-rows-none!">
+          <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
             <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</DialogTitle>
-            <DialogDescription>Enter customer details below.</DialogDescription>
+            <DialogDescription>All fields are required except document and notes.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="name" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Name *
-                </Label>
-                <Input
-                  id="name"
-                  {...form.register('name')}
-                  placeholder="Customer name"
-                  error={!!form.formState.errors.name}
-                />
-                {form.formState.errors.name && (
-                  <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="phone" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Phone *
-                </Label>
-                <Input
-                  id="phone"
-                  {...form.register('phone')}
-                  placeholder="10-digit phone"
-                  error={!!form.formState.errors.phone}
-                />
-                {form.formState.errors.phone && (
-                  <p className="text-xs text-rose-500">{form.formState.errors.phone.message}</p>
-                )}
-              </div>
-            </div>
+          <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0 relative">
+            <div className="flex-1 overflow-y-auto px-5 py-4 pb-20 space-y-3">
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Type *
-                </Label>
-                <Controller
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
+              {/* Row 1: Name + Phone */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
+                  <Input {...form.register('name')} placeholder="Customer name" error={!!form.formState.errors.name} />
+                  {form.formState.errors.name && <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phone *</Label>
+                  <Input {...form.register('phone')} placeholder="10-digit number" inputMode="numeric" error={!!form.formState.errors.phone} />
+                  {form.formState.errors.phone && <p className="text-xs text-rose-500">{form.formState.errors.phone.message}</p>}
+                </div>
+              </div>
+
+              {/* Row 2: Type + Email */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
+                  <Controller control={form.control} name="type" render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="REGULAR">Regular</SelectItem>
-                        <SelectItem value="HOSPITAL">Hospital</SelectItem>
+                        <SelectItem value="RETAIL">Retail</SelectItem>
                         <SelectItem value="WHOLESALE">Wholesale</SelectItem>
                         <SelectItem value="DOCTOR">Doctor</SelectItem>
-                        <SelectItem value="WALK_IN">Walk-in</SelectItem>
                       </SelectContent>
                     </Select>
-                  )}
-                />
+                  )} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email *</Label>
+                  <Input {...form.register('email')} placeholder="email@example.com" type="email" error={!!form.formState.errors.email} />
+                  {form.formState.errors.email && <p className="text-xs text-rose-500">{form.formState.errors.email.message}</p>}
+                </div>
               </div>
+
+              {/* Row 3: GSTIN + DL (only for WHOLESALE / DOCTOR) */}
+              {(form.watch('type') === 'WHOLESALE' || form.watch('type') === 'DOCTOR') && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
+                    <Input {...form.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!form.formState.errors.gstin} />
+                    {form.formState.errors.gstin && <p className="text-xs text-rose-500">{form.formState.errors.gstin.message}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number *</Label>
+                    <Input {...form.register('dlNumber')} placeholder="Drug License No." error={!!form.formState.errors.dlNumber} />
+                    {form.formState.errors.dlNumber && <p className="text-xs text-rose-500">{form.formState.errors.dlNumber.message}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Row 4: Referred By (half width) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
+                  <Controller control={form.control} name="referredBy" render={({ field }) => (
+                    <Select value={field.value || ''} onValueChange={field.onChange}>
+                      <SelectTrigger className={form.formState.errors.referredBy ? 'border-rose-500' : ''}>
+                        <SelectValue placeholder="Select salesperson" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {salespersons.map((sp) => (
+                          <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )} />
+                  {form.formState.errors.referredBy && <p className="text-xs text-rose-500">{form.formState.errors.referredBy.message}</p>}
+                </div>
+              </div>
+
+              {/* Row 5: Address (full width) */}
               <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  {...form.register('email')}
-                  placeholder="email@example.com"
-                  error={!!form.formState.errors.email}
-                />
-                {form.formState.errors.email && (
-                  <p className="text-xs text-rose-500">{form.formState.errors.email.message}</p>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address *</Label>
+                <Textarea {...form.register('address')} placeholder="Full address" rows={2} />
+                {form.formState.errors.address && <p className="text-xs text-rose-500">{form.formState.errors.address.message}</p>}
+              </div>
+
+              {/* Row 6: Document / ID Proof (full width) */}
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Document / ID Proof</Label>
+                {docPreview ? (
+                  <div className="relative w-full rounded-xl border border-border/50 overflow-hidden">
+                    <img src={docPreview} alt="Document preview" className="w-full max-h-36 object-cover" />
+                    <button type="button" onClick={() => { setDocFile(null); setDocPreview(null) }}
+                      className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : docFile ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5">
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-sm">{docFile.name}</span>
+                    <button type="button" onClick={() => setDocFile(null)}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-6">
+                    {/* Card icon */}
+                    <div className="flex h-12 w-16 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                      <FileImage className="h-6 w-6 text-muted-foreground/50" />
+                    </div>
+                    {/* Buttons row */}
+                    <div className="flex items-center gap-2">
+                      <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                        <Upload className="h-3.5 w-3.5 text-amber-500" />
+                        Upload
+                        <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf"
+                          onChange={(e) => handleDocFile(e.target.files?.[0] ?? null)} />
+                      </label>
+                      <button type="button"
+                        onClick={() => setScanOpen(true)}
+                        className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                        <Camera className="h-3.5 w-3.5 text-muted-foreground" />
+                        Scan
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="address" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Address
-              </Label>
-              <Textarea id="address" {...form.register('address')} placeholder="Full address" rows={2} />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
+              {/* Row 7: Notes (full width) */}
               <div className="space-y-1.5">
-                <Label htmlFor="creditLimit" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Credit Limit
-                </Label>
-                <Input
-                  id="creditLimit"
-                  type="number"
-                  icon={<IndianRupee />}
-                  {...form.register('creditLimit')}
-                  placeholder="0"
-                />
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
+                <Textarea {...form.register('notes')} placeholder="Additional notes (optional)" rows={3} />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="gstin" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  GSTIN
-                </Label>
-                <Input id="gstin" {...form.register('gstin')} placeholder="GST Number" />
-              </div>
-            </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="dlNumber" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  DL Number
-                </Label>
-                <Input id="dlNumber" {...form.register('dlNumber')} placeholder="Drug License Number" />
-              </div>
             </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="notes" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Notes
-              </Label>
-              <Textarea id="notes" {...form.register('notes')} placeholder="Additional notes" rows={2} />
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setAddDialogOpen(false) }}>
-                Cancel
+            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFile(null); setDocPreview(null); setAddDialogOpen(false) }}>Cancel</Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Save Customer'}
               </Button>
-              <Button type="submit">{editingCustomer ? 'Update Customer' : 'Save Customer'}</Button>
-            </DialogFooter>
+            </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Camera Scan Dialog ─── */}
+      <Dialog open={scanOpen} onOpenChange={(open) => { if (!open) { stopCamera(); setScanOpen(false) } }}>
+        <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/40">
+            <DialogTitle className="text-base">Scan Document</DialogTitle>
+            <DialogDescription className="text-xs">Position the document in frame and press Capture.</DialogDescription>
+          </DialogHeader>
+          <div className="relative bg-black">
+            <video ref={videoRef} autoPlay playsInline muted className="w-full max-h-72 object-cover" />
+            <canvas ref={canvasRef} className="hidden" />
+            {/* Overlay frame guide */}
+            <div className="absolute inset-4 rounded-xl border-2 border-white/40 pointer-events-none" />
+          </div>
+          <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-border/40">
+            <Button type="button" variant="outline" onClick={() => { stopCamera(); setScanOpen(false) }}>Cancel</Button>
+            <Button type="button" onClick={capturePhoto}>
+              <Camera className="h-4 w-4 mr-2" />
+              Capture
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* ─── Customer Detail Dialog ─── */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           {selectedCustomer && (
             <>
               <DialogHeader>
@@ -751,11 +905,7 @@ export default function CustomersPage() {
                   <div
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white',
-                      selectedCustomer.type === 'HOSPITAL' ? 'bg-blue-500' :
-                      selectedCustomer.type === 'WHOLESALE' ? 'bg-purple-500' :
-                      selectedCustomer.type === 'REGULAR' ? 'bg-emerald-500' :
-                      selectedCustomer.type === 'DOCTOR' ? 'bg-amber-500' :
-                      'bg-gray-400'
+                      typeAvatarColor[selectedCustomer.type] || 'bg-gray-400'
                     )}
                   >
                     {selectedCustomer.name.charAt(0).toUpperCase()}
@@ -768,7 +918,7 @@ export default function CustomersPage() {
                         size="sm"
                         dot
                       >
-                        {selectedCustomer.type.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                        {selectedCustomer.type.charAt(0) + selectedCustomer.type.slice(1).toLowerCase()}
                       </Badge>
                       <span className="text-xs text-muted-foreground">{selectedCustomer.phone}</span>
                     </DialogDescription>
@@ -777,13 +927,15 @@ export default function CustomersPage() {
               </DialogHeader>
 
               <Tabs defaultValue="overview" className="mt-4">
-                <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 rounded-xl">
-                  <TabsTrigger value="overview" className="rounded-lg text-xs">Overview</TabsTrigger>
-                  <TabsTrigger value="purchases" className="rounded-lg text-xs">Purchases</TabsTrigger>
-                  <TabsTrigger value="ledger" className="rounded-lg text-xs">Ledger</TabsTrigger>
-                  <TabsTrigger value="credit-notes" className="rounded-lg text-xs">Credit Notes</TabsTrigger>
-                  <TabsTrigger value="prescriptions" className="rounded-lg text-xs">Rx</TabsTrigger>
-                </TabsList>
+                <div className="overflow-x-auto pb-px">
+                  <TabsList className="inline-flex w-max min-w-full rounded-xl">
+                    <TabsTrigger value="overview" className="rounded-lg text-xs flex-1 min-w-20">Overview</TabsTrigger>
+                    <TabsTrigger value="purchases" className="rounded-lg text-xs flex-1 min-w-20">Purchases</TabsTrigger>
+                    <TabsTrigger value="ledger" className="rounded-lg text-xs flex-1 min-w-18">Ledger</TabsTrigger>
+                    <TabsTrigger value="credit-notes" className="rounded-lg text-xs flex-1 min-w-24">Credit Notes</TabsTrigger>
+                    <TabsTrigger value="prescriptions" className="rounded-lg text-xs flex-1 min-w-15">Rx</TabsTrigger>
+                  </TabsList>
+                </div>
 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-4">
@@ -823,6 +975,12 @@ export default function CustomersPage() {
                           <p className="mt-0.5 font-medium font-mono">{selectedCustomer.dlNumber}</p>
                         </div>
                       )}
+                      {selectedCustomer.referredBy && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By</p>
+                          <p className="mt-0.5 font-medium">{selectedCustomer.referredBy}</p>
+                        </div>
+                      )}
                       {selectedCustomer.doctorRef && (
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Doctor Reference</p>
@@ -837,39 +995,21 @@ export default function CustomersPage() {
                   </div>
 
                   {/* Financial summary cards */}
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Total Business
                       </p>
                       <p className="mt-1 text-xl font-bold font-mono">
-                        {formatCurrency(
-                          customerInvoices.reduce(
-                            (sum, inv) => sum + inv.grandTotal,
-                            0
-                          )
-                        )}
+                        {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0))}
                       </p>
                     </div>
                     <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         Outstanding
                       </p>
-                      <p
-                        className={cn(
-                          'mt-1 text-xl font-bold font-mono',
-                          outstandingColor(selectedCustomer.currentOutstanding, selectedCustomer.creditLimit)
-                        )}
-                      >
+                      <p className={cn('mt-1 text-xl font-bold font-mono', outstandingColor(selectedCustomer.currentOutstanding))}>
                         {formatCurrency(selectedCustomer.currentOutstanding)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Credit Limit
-                      </p>
-                      <p className="mt-1 text-xl font-bold font-mono">
-                        {formatCurrency(selectedCustomer.creditLimit)}
                       </p>
                     </div>
                   </div>

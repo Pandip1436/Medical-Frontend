@@ -28,13 +28,13 @@ const ExpiryManagementPage = lazy(() => import('@/pages/inventory/ExpiryManageme
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage'))
 const CustomersPage = lazy(() => import('@/pages/customers/CustomersPage'))
 const OutstandingPage = lazy(() => import('@/pages/customers/OutstandingPage'))
+const CustomerInvoicesPage = lazy(() => import('@/pages/customers/CustomerInvoicesPage'))
 const CashBookPage = lazy(() => import('@/pages/accounting/CashBookPage'))
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage'))
 const LedgerPage = lazy(() => import('@/pages/accounting/LedgerPage'))
 const ProfitLossPage = lazy(() => import('@/pages/accounting/ProfitLossPage'))
 const ReportsHubPage = lazy(() => import('@/pages/reports/ReportsHubPage'))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'))
-const DoctorsPage = lazy(() => import('@/pages/doctors/DoctorsPage'))
 const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPage'))
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
@@ -54,8 +54,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/stock',
     '/inventory/expiry',
     '/customers',
+    '/customers/invoices',
     '/customers/outstanding',
-    '/doctors',
   ],
   INVENTORY_MANAGER: [
     '/dashboard',
@@ -76,6 +76,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/returns',
     '/billing/credit-notes',
     '/customers',
+    '/customers/invoices',
     '/customers/outstanding',
     '/purchase/orders',
     '/purchase/debit-notes',
@@ -89,6 +90,7 @@ export const rolePermissions: Record<string, string[]> = {
   SALESPERSON: [
     '/dashboard',
     '/customers',
+    '/customers/invoices',
     '/inventory/products',
     '/inventory/stock',
     '/inventory/expiry',
@@ -240,6 +242,8 @@ function App() {
         return <CustomersPage />
       case '/customers/outstanding':
         return <OutstandingPage />
+      case '/customers/invoices':
+        return <CustomerInvoicesPage />
       case '/accounting/cashbook':
         return <CashBookPage />
       case '/accounting/expenses':
@@ -252,8 +256,6 @@ function App() {
         return <ReportsHubPage />
       case '/settings':
         return <SettingsPage />
-      case '/doctors':
-        return <DoctorsPage />
       case '/branches':
         return <BranchesPage />
       case '/salespersons':

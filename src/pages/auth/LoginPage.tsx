@@ -171,10 +171,10 @@ export default function LoginPage({
           x: { duration: 0.5, ease: 'easeInOut' },
         }}
       >
-        <Card className="border-0 bg-gradient-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
+        <Card className="border-0 bg-linear-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
           <CardHeader className="space-y-4 pb-4 text-center">
             <div className="flex flex-col items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
                 <Pill className="h-7 w-7 text-white" />
               </div>
               <div>

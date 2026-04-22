@@ -31,8 +31,9 @@ export interface Customer {
   alternatePhone?: string
   email?: string
   address?: string
-  type: 'WALK_IN' | 'REGULAR' | 'HOSPITAL' | 'WHOLESALE' | 'DOCTOR'
+  type: 'RETAIL' | 'WHOLESALE' | 'DOCTOR'
   doctorRef?: string
+  referredBy?: string
   creditLimit: number
   currentOutstanding: number
   loyaltyPoints: number
