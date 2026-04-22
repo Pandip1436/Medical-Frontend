@@ -1212,6 +1212,8 @@ export default function NewSalePage() {
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [selectedSalesperson, setSelectedSalesperson] = useState<{ id: string; name: string } | null>(null)
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
+  const [salespersonSearch, setSalespersonSearch] = useState('')
+  const [showSalespersonDropdown, setShowSalespersonDropdown] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
@@ -1286,6 +1288,7 @@ export default function NewSalePage() {
   // ── Refs ──────────────────────────────────────────────────
   const heroSearchRef = useRef<HTMLInputElement>(null)
   const customerRef = useRef<HTMLDivElement>(null)
+  const salespersonRef = useRef<HTMLDivElement>(null)
   const lastKeypressTimeRef = useRef<number>(0)
   const barcodeCharCountRef = useRef<number>(0)
 
@@ -1304,6 +1307,9 @@ export default function NewSalePage() {
     function handleClick(e: MouseEvent) {
       if (customerRef.current && !customerRef.current.contains(e.target as Node)) {
         setShowCustomerDropdown(false)
+      }
+      if (salespersonRef.current && !salespersonRef.current.contains(e.target as Node)) {
+        setShowSalespersonDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -1888,6 +1894,11 @@ export default function NewSalePage() {
                             setSelectedCustomer(cust)
                             setCustomerSearch('')
                             setShowCustomerDropdown(false)
+                            setTableView('customer-history')
+                            if (cust.referredBy) {
+                              const sp = salespersons.find((s) => s.name === cust.referredBy)
+                              if (sp) setSelectedSalesperson(sp)
+                            }
                           }}
                         >
                           <div className="flex items-center justify-between">
@@ -1936,33 +1947,95 @@ export default function NewSalePage() {
               SIDEBAR HEADER (Salesperson only)
           ═══════════════════════════════════════════════════ */}
           {salespersons.length > 0 && (
-            <div className="w-75 lg:w-80 shrink-0 flex items-center">
+            <div ref={salespersonRef} className="w-75 lg:w-80 shrink-0 flex items-center">
               <div className="relative w-full">
-                <select
-                  value={selectedSalesperson?.id ?? ''}
-                  onChange={(e) => {
-                    const sp = salespersons.find((s) => s.id === e.target.value)
-                    setSelectedSalesperson(sp ?? null)
-                    if (sp) setTableView('salesperson-customers')
-                    else if (tableView === 'salesperson-customers') setTableView('products')
-                  }}
-                  className="w-full h-11 rounded-xl border border-border/60 bg-background px-3 text-xs text-muted-foreground/80 focus:outline-none focus:border-primary/40 appearance-none cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setShowSalespersonDropdown(!showSalespersonDropdown)}
+                  className={cn(
+                    'flex items-center gap-2.5 w-full h-11 rounded-xl border border-border/60 bg-background px-3 text-xs transition-all shadow-sm',
+                    'hover:border-primary/40'
+                  )}
                 >
-                  <option value="">No Salesperson</option>
-                  {salespersons.map((sp) => (
-                    <option key={sp.id} value={sp.id}>{sp.name}</option>
-                  ))}
-                </select>
-                {selectedSalesperson && (
-                  <button
-                    type="button"
-                    className="absolute right-7 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-accent text-muted-foreground/50 hover:text-foreground"
-                    onClick={() => setTableView('salesperson-customers')}
-                    title="View salesperson customers"
-                  >
-                    <Users className="h-3 w-3" />
-                  </button>
-                )}
+                  <div className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                    selectedSalesperson ? "bg-violet-500/10 text-violet-500" : "bg-muted text-muted-foreground"
+                  )}>
+                    {selectedSalesperson ? selectedSalesperson.name[0] : <Users className="h-3 w-3" />}
+                  </div>
+                  <span className={cn("flex-1 text-left truncate font-semibold", !selectedSalesperson && "text-muted-foreground/60")}>
+                    {selectedSalesperson?.name ?? 'No Salesperson'}
+                  </span>
+                  {selectedSalesperson && (
+                    <button
+                      type="button"
+                      className="ml-1 p-0.5 rounded hover:bg-accent text-muted-foreground/50 hover:text-foreground shrink-0"
+                      onClick={(e) => { e.stopPropagation(); setSelectedSalesperson(null); if (tableView === 'salesperson-customers') setTableView('products') }}
+                      title="Clear salesperson"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                  <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                </button>
+                <AnimatePresence>
+                  {showSalespersonDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.1 }}
+                      className="absolute z-50 right-0 mt-1 w-72 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
+                    >
+                      <div className="p-2 border-b border-border/40">
+                        <input
+                          value={salespersonSearch}
+                          onChange={(e) => setSalespersonSearch(e.target.value)}
+                          placeholder="Search salesperson..."
+                          className="w-full h-8 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
+                          autoFocus
+                        />
+                      </div>
+                      <ScrollArea className="max-h-56">
+                        <div
+                          className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 text-xs text-muted-foreground italic"
+                          onClick={() => {
+                            setSelectedSalesperson(null)
+                            setSalespersonSearch('')
+                            setShowSalespersonDropdown(false)
+                            if (tableView === 'salesperson-customers') setTableView('products')
+                          }}
+                        >
+                          No Salesperson
+                        </div>
+                        {salespersons
+                          .filter((sp) => sp.name.toLowerCase().includes(salespersonSearch.toLowerCase()))
+                          .map((sp) => (
+                            <div
+                              key={sp.id}
+                              className={cn(
+                                "cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0",
+                                selectedSalesperson?.id === sp.id && "bg-violet-500/5"
+                              )}
+                              onClick={() => {
+                                setSelectedSalesperson(sp)
+                                setSalespersonSearch('')
+                                setShowSalespersonDropdown(false)
+                                setTableView('salesperson-customers')
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/10 text-violet-500 text-[10px] font-bold">
+                                  {sp.name[0]}
+                                </div>
+                                <span className="text-xs font-semibold">{sp.name}</span>
+                              </div>
+                            </div>
+                          ))}
+                      </ScrollArea>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           )}
