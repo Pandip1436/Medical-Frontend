@@ -200,7 +200,7 @@ const MobileReturnCard = ({
                 <SelectTrigger className="h-9 w-full text-xs font-semibold bg-background">
                   <SelectValue placeholder="Select a reason..." />
                 </SelectTrigger>
-                <SelectContent className="z-[100]">
+                <SelectContent className="z-100">
                   {RETURN_REASONS.map((reason) => {
                     const Icon = reasonIcons[reason]
                     return (

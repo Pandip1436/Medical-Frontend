@@ -162,7 +162,7 @@ export default function StockOverviewPage() {
         rows.push({
           productId: product.id,
           productName: product.name,
-          category: product.category,
+          category: typeof product.category === 'object' ? (product.category as any)?.name ?? '' : (product.category ?? ''),
           batchId: '',
           batchNumber: '—',
           mfgDate: '',
@@ -181,7 +181,7 @@ export default function StockOverviewPage() {
           rows.push({
             productId: product.id,
             productName: product.name,
-            category: product.category,
+            category: typeof product.category === 'object' ? (product.category as any)?.name ?? '' : (product.category ?? ''),
             batchId: batch.id,
             batchNumber: batch.batchNumber,
             mfgDate: batch.mfgDate,
@@ -275,7 +275,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      cards = cards.filter((c) => c.category.toUpperCase() === categoryFilter.toUpperCase())
+      cards = cards.filter((c) => (typeof c.category === 'string' ? c.category : '').toUpperCase() === categoryFilter.toUpperCase())
     }
     if (statusFilter !== 'all') {
       cards = cards.filter((c) => c.status === statusFilter)
@@ -613,7 +613,7 @@ export default function StockOverviewPage() {
                         {sc.label}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {product.category}
+                        {typeof product.category === 'object' ? (product.category as any)?.name ?? '' : (product.category ?? '')}
                       </span>
                     </div>
                   </CardContent>

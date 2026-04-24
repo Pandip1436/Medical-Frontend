@@ -15,7 +15,8 @@ interface DataTableFilterBarProps {
   defaultFiltersOpen?: boolean
   onClearFilters?: () => void
   children?: React.ReactNode // The filter inputs/dropdowns
-  actionNode?: React.ReactNode // Custom actions (e.g. view toggles) aligned right
+  actionNode?: React.ReactNode // Custom actions aligned right
+  midNode?: React.ReactNode   // Extra control between search and filters button
 }
 
 export function DataTableFilterBar({
@@ -28,6 +29,7 @@ export function DataTableFilterBar({
   onClearFilters,
   children,
   actionNode,
+  midNode,
 }: DataTableFilterBarProps) {
   const [filtersOpen, setFiltersOpen] = useState(defaultFiltersOpen)
 
@@ -50,6 +52,8 @@ export function DataTableFilterBar({
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
+
+        {midNode && <div className="shrink-0">{midNode}</div>}
 
         {/* Filter toggle + clear — always visible, never wraps off-screen */}
         {children && (

@@ -29,6 +29,7 @@ import {
   X,
   Building2,
   UserCheck,
+  Tag,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -89,6 +90,7 @@ const navigationGroups: NavGroup[] = [
     title: 'INVENTORY',
     items: [
       { label: 'Products', icon: Package, href: '/inventory/products' },
+      { label: 'Categories', icon: Tag, href: '/inventory/categories' },
       { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
       { label: 'Expiry Management', icon: Clock, href: '/inventory/expiry' },
       { label: 'Stock Adjustment', icon: Settings2, href: '/inventory/adjustment' },

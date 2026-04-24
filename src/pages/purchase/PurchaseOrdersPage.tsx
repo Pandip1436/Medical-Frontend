@@ -1138,82 +1138,107 @@ export default function PurchaseOrdersPage() {
 
       {/* ── PO Detail Dialog ── */}
       <Dialog open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl! w-full! flex flex-col overflow-hidden p-0 gap-0">
           {detailPO && (
             <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                  {detailPO.poNumber}
-                </DialogTitle>
-                <DialogDescription>
-                  {formatDate(detailPO.date)} · {detailPO.supplierName}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
-                  <p className="mt-0.5 font-medium">{detailPO.supplierName}</p>
+              {/* Header */}
+              <div className="flex items-start justify-between gap-4 border-b border-border/40 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <FileText className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold font-mono">{detailPO.poNumber}</h2>
+                    <p className="text-sm text-muted-foreground">{formatDate(detailPO.date)} · {detailPO.supplierName}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
-                  <div className="mt-0.5">{renderStatusBadge(detailPO.status)}</div>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</p>
-                  <p className="mt-0.5">{detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Amount</p>
-                  <p className="mt-0.5 font-mono font-bold">{formatCurrency(detailPO.totalAmount)}</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  {renderStatusBadge(detailPO.status)}
                 </div>
               </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Ordered</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detailPO.items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.productName}</TableCell>
-                      <TableCell className="text-right">{item.requiredQty}</TableCell>
-                      <TableCell className="text-right">{item.receivedQty}</TableCell>
-                      <TableCell className="text-right font-mono">{formatCurrency(item.expectedRate)}</TableCell>
-                      <TableCell className="text-right font-mono">{formatCurrency(item.requiredQty * item.expectedRate)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="border-t-2 font-semibold">
-                    <TableCell colSpan={4} className="text-right">Total</TableCell>
-                    <TableCell className="text-right font-mono">{formatCurrency(detailPO.totalAmount)}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+              {/* Meta info bar */}
+              <div className="grid grid-cols-2 gap-0 border-b border-border/40 sm:grid-cols-4">
+                {[
+                  { label: 'Supplier', value: detailPO.supplierName },
+                  { label: 'Expected Delivery', value: detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—' },
+                  { label: 'Items', value: `${detailPO.items.length} product${detailPO.items.length !== 1 ? 's' : ''}` },
+                  { label: 'Total Amount', value: formatCurrency(detailPO.totalAmount), highlight: true },
+                ].map((meta) => (
+                  <div key={meta.label} className="flex flex-col gap-0.5 border-r border-border/40 last:border-r-0 px-6 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{meta.label}</p>
+                    <p className={cn('text-sm font-semibold', meta.highlight && 'font-mono text-base text-primary')}>{meta.value}</p>
+                  </div>
+                ))}
+              </div>
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDetailPO(null)}>Close</Button>
-                <Button variant="outline" size="sm" onClick={() => printPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
-                  <Printer className="mr-1.5 h-4 w-4" />
-                  Print
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => downloadPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
-                  <Download className="mr-1.5 h-4 w-4" />
-                  Download PDF
-                </Button>
-                {detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED' ? (
-                  <Button onClick={() => { navigate(`/purchase/grn?poId=${detailPO.id}`); setDetailPO(null) }}>
-                    <PackageCheck className="mr-1.5 h-4 w-4" />
-                    Receive Goods
+              {/* Items table — scrollable */}
+              <div className="overflow-y-auto max-h-[45vh]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="sticky top-0 bg-background z-10">
+                      <TableHead className="pl-6 w-12 text-center">#</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-center w-32">Ordered Qty</TableHead>
+                      <TableHead className="text-center w-32">Received Qty</TableHead>
+                      <TableHead className="text-right w-36">Unit Rate</TableHead>
+                      <TableHead className="text-right pr-6 w-36">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detailPO.items.map((item, idx) => (
+                      <TableRow key={item.id} className="hover:bg-muted/20">
+                        <TableCell className="pl-6 text-center text-sm text-muted-foreground">{idx + 1}</TableCell>
+                        <TableCell>
+                          <p className="font-medium text-sm">{item.productName}</p>
+                          {(item as any).remarks && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{(item as any).remarks}</p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono font-semibold text-sm px-3 py-0.5">
+                            {item.requiredQty}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className={cn(
+                            'inline-flex items-center justify-center rounded-lg font-mono font-semibold text-sm px-3 py-0.5',
+                            item.receivedQty > 0
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-muted/60 text-muted-foreground'
+                          )}>
+                            {item.receivedQty}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.expectedRate)}</TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-sm pr-6">{formatCurrency(item.requiredQty * item.expectedRate)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Footer total + actions */}
+              <div className="flex flex-col gap-3 border-t border-border/40 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4 rounded-xl bg-muted/40 px-5 py-2.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</span>
+                  <span className="text-xl font-bold font-mono text-primary">{formatCurrency(detailPO.totalAmount)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setDetailPO(null)}>Close</Button>
+                  <Button variant="outline" size="sm" onClick={() => printPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
+                    <Printer className="mr-1.5 h-4 w-4" />Print
                   </Button>
-                ) : null}
-              </DialogFooter>
+                  <Button variant="outline" size="sm" onClick={() => downloadPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
+                    <Download className="mr-1.5 h-4 w-4" />Download PDF
+                  </Button>
+                  {(detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED') && (
+                    <Button onClick={() => { navigate(`/purchase/grn?poId=${detailPO.id}`); setDetailPO(null) }}>
+                      <PackageCheck className="mr-1.5 h-4 w-4" />Receive Goods
+                    </Button>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </DialogContent>

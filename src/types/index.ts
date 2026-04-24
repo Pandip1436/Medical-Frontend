@@ -57,13 +57,23 @@ export interface Supplier {
   isActive: boolean
 }
 
+export interface Category {
+  id: string
+  name: string
+  description?: string
+  color?: string
+  isActive: boolean
+  _count?: { products: number }
+}
+
 export interface Product {
   id: string
   name: string
   genericName: string
   saltComposition?: string
   manufacturer: string
-  category: 'NEPHROLOGY' | 'ONCOLOGY' | 'GENERAL' | 'OTC' | 'SURGICAL'
+  categoryId?: string
+  category?: Category | string
   subCategory?: string
   packSize: string
   unitOfMeasure: string

@@ -23,6 +23,8 @@ const PurchaseReturnsPage = lazy(() => import('@/pages/purchase/PurchaseReturnsP
 const DebitNotesPage = lazy(() => import('@/pages/purchase/DebitNotesPage'))
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage'))
+const ProductHistoryPage = lazy(() => import('@/pages/inventory/ProductHistoryPage'))
+const CategoriesPage = lazy(() => import('@/pages/inventory/CategoriesPage'))
 const StockOverviewPage = lazy(() => import('@/pages/inventory/StockOverviewPage'))
 const ExpiryManagementPage = lazy(() => import('@/pages/inventory/ExpiryManagementPage'))
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage'))
@@ -51,6 +53,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/returns',
     '/billing/credit-notes',
     '/inventory/products',
+    '/inventory/categories',
     '/inventory/stock',
     '/inventory/expiry',
     '/customers',
@@ -60,6 +63,7 @@ export const rolePermissions: Record<string, string[]> = {
   INVENTORY_MANAGER: [
     '/dashboard',
     '/inventory/products',
+    '/inventory/categories',
     '/inventory/stock',
     '/inventory/expiry',
     '/inventory/adjustment',
@@ -232,6 +236,10 @@ function App() {
         return <SuppliersPage />
       case '/inventory/products':
         return <ProductsPage />
+      case '/inventory/product-history':
+        return <ProductHistoryPage />
+      case '/inventory/categories':
+        return <CategoriesPage />
       case '/inventory/stock':
         return <StockOverviewPage />
       case '/inventory/expiry':
