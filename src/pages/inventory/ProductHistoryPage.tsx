@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft,
-  IndianRupee, BarChart3,
+  IndianRupee, BarChart3, Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -20,7 +20,8 @@ import api from '@/lib/api'
 import { useRoute, navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { exportToCsv } from '@/lib/exportUtils'
 
 // ─── Constants ────────────────────────────────────────────────
 const TYPE_OPTIONS = [
@@ -155,6 +156,25 @@ export default function ProductHistoryPage() {
     setSearchQuery('')
   }
 
+  const handleExport = () => {
+    if (!filteredTimeline.length) { toast.info('No data to export'); return }
+    const productName = selectedProduct?.name ?? history?.product?.name ?? 'product'
+    exportToCsv(
+      filteredTimeline.map((r) => ({
+        Type: r.type,
+        Date: formatDate(r.date.toISOString()),
+        'Invoice / GRN #': r.ref,
+        Party: r.party,
+        Batch: r.batch,
+        Qty: r.qty,
+        Amount: r.amount,
+        'Cumulative Purchased': r.cumPurchaseQty,
+        'Cumulative Sold': r.cumSaleQty,
+      })),
+      `product-history-${productName.replace(/\s+/g, '-').toLowerCase()}`
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -176,17 +196,29 @@ export default function ProductHistoryPage() {
           </div>
         </div>
         {history && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 self-start"
-            onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
-          >
-            {sortOrder === 'desc'
-              ? <><ArrowDown className="h-3.5 w-3.5" /> New to Old</>
-              : <><ArrowUp className="h-3.5 w-3.5" /> Old to New</>
-            }
-          </Button>
+          <div className="flex items-center gap-2 self-start">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
+            >
+              {sortOrder === 'desc'
+                ? <><ArrowDown className="h-3.5 w-3.5" /> New to Old</>
+                : <><ArrowUp className="h-3.5 w-3.5" /> Old to New</>
+              }
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleExport}
+              disabled={!filteredTimeline.length}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
+          </div>
         )}
       </div>
 

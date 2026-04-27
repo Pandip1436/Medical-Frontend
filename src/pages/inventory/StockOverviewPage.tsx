@@ -5,7 +5,6 @@ import {
   IndianRupee,
   AlertTriangle,
   Clock,
-  Search,
   LayoutGrid,
   TableProperties,
   MapPin,
@@ -15,7 +14,6 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -26,13 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate, formatNumber } from '@/lib/utils'
@@ -118,6 +110,7 @@ interface StockRow {
   productId: string
   productName: string
   category: string
+  categoryId: string
   batchId: string
   batchNumber: string
   mfgDate: string
@@ -139,6 +132,8 @@ export default function StockOverviewPage() {
   const products = useMasterDataStore((s) => s.products)
   const batches = useMasterDataStore((s) => s.batches)
   const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
+  const storeCategories = useMasterDataStore((s) => s.categories)
+  const fetchCategories = useMasterDataStore((s) => s.fetchCategories)
 
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
   const [search, setSearch] = useState('')
@@ -148,6 +143,7 @@ export default function StockOverviewPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchProducts()
+    fetchCategories()
   }, [])
   useBranchRefresh(fetchProducts)
 
@@ -163,6 +159,7 @@ export default function StockOverviewPage() {
           productId: product.id,
           productName: product.name,
           category: typeof product.category === 'object' ? (product.category as any)?.name ?? '' : (product.category ?? ''),
+          categoryId: (product as any).categoryId ?? '',
           batchId: '',
           batchNumber: '—',
           mfgDate: '',
@@ -182,6 +179,7 @@ export default function StockOverviewPage() {
             productId: product.id,
             productName: product.name,
             category: typeof product.category === 'object' ? (product.category as any)?.name ?? '' : (product.category ?? ''),
+            categoryId: (product as any).categoryId ?? '',
             batchId: batch.id,
             batchNumber: batch.batchNumber,
             mfgDate: batch.mfgDate,
@@ -212,7 +210,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      rows = rows.filter((r) => r.category.toUpperCase() === categoryFilter.toUpperCase())
+      rows = rows.filter((r) => r.categoryId === categoryFilter)
     }
     if (statusFilter !== 'all') {
       rows = rows.filter((r) => r.status === statusFilter)
@@ -275,7 +273,7 @@ export default function StockOverviewPage() {
       )
     }
     if (categoryFilter !== 'all') {
-      cards = cards.filter((c) => (typeof c.category === 'string' ? c.category : '').toUpperCase() === categoryFilter.toUpperCase())
+      cards = cards.filter((c) => (c as any).categoryId === categoryFilter)
     }
     if (statusFilter !== 'all') {
       cards = cards.filter((c) => c.status === statusFilter)
@@ -405,11 +403,7 @@ export default function StockOverviewPage() {
           onClear={() => setCategoryFilter('all')}
           options={[
             { label: 'All Categories', value: 'all' },
-            { label: 'Nephrology', value: 'NEPHROLOGY' },
-            { label: 'Oncology', value: 'ONCOLOGY' },
-            { label: 'General', value: 'GENERAL' },
-            { label: 'OTC', value: 'OTC' },
-            { label: 'Surgical', value: 'SURGICAL' },
+            ...storeCategories.map((c) => ({ label: c.name, value: c.id })),
           ]}
         />
         <EnumSelect

@@ -1179,17 +1179,16 @@ function PaymentPanel({
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-amber-800 dark:text-amber-300">Credit Limit</span>
-                <span className="font-semibold font-mono text-amber-900 dark:text-amber-200">
-                  {formatCurrency(Number(customer.creditLimit) || 0)}
+                <span className="text-amber-800 dark:text-amber-300">Pending Invoices</span>
+                <span className={`font-bold font-mono ${(customer.pendingCreditCount ?? 0) >= 3 ? 'text-red-600 dark:text-red-400' : 'text-amber-900 dark:text-amber-200'}`}>
+                  {customer.pendingCreditCount ?? 0} / 3
                 </span>
               </div>
-              <div className="flex justify-between border-t border-amber-200/40 dark:border-amber-800/20 pt-1">
-                <span className="text-amber-800 dark:text-amber-300">Available</span>
-                <span className="font-bold font-mono text-amber-900 dark:text-amber-200">
-                  {formatCurrency(Math.max(0, (Number(customer.creditLimit) || 0) - (Number(customer.currentOutstanding) || 0)))}
-                </span>
-              </div>
+              {(customer.pendingCreditCount ?? 0) >= 3 && (
+                <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold border-t border-amber-200/40 pt-1">
+                  ⚠ Credit blocked — clear pending invoices first
+                </p>
+              )}
             </div>
           )}
           <div>
@@ -1369,7 +1368,7 @@ export default function NewSalePage() {
     const bill: HeldBill = {
       id: crypto.randomUUID(),
       heldAt: new Date().toISOString(),
-      customerName: selectedCustomer?.name ?? 'Walk-in',
+      customerName: selectedCustomer?.name ?? '',
       itemCount: activeItems.length,
       total: totals.grandTotal,
       snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails },
@@ -1803,11 +1802,81 @@ export default function NewSalePage() {
     }
   }, [items])
 
-  // ── Credit limit warning ────────────────────────────────
-  const showCreditWarning = useMemo(() => {
-    if (!selectedCustomer) return false
-    return (Number(selectedCustomer.currentOutstanding) || 0) > (Number(selectedCustomer.creditLimit) || 0)
+  // ── Pending credit check (max 3 open CREDIT/PARTIAL invoices) ──
+  const pendingCreditCount = selectedCustomer?.pendingCreditCount ?? 0
+  const isCreditBlocked = pendingCreditCount >= 3
+
+  // State for the pay-pending-credits dialog
+  const [creditPayDialogOpen, setCreditPayDialogOpen] = useState(false)
+  const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([])
+  const [pendingInvoicesLoading, setPendingInvoicesLoading] = useState(false)
+  const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null)
+  const [collectAmount, setCollectAmount] = useState('')
+  const [collectMode, setCollectMode] = useState('CASH')
+
+  const openCreditPayDialog = useCallback(async () => {
+    if (!selectedCustomer) return
+    setCreditPayDialogOpen(true)
+    setPendingInvoicesLoading(true)
+    try {
+      const res = await api.get(`/billing?customerId=${selectedCustomer.id}`)
+      const all: Invoice[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
+      setPendingInvoices(all.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL'))
+    } catch {
+      toast.error('Failed to load pending invoices')
+    } finally {
+      setPendingInvoicesLoading(false)
+    }
   }, [selectedCustomer])
+
+  const handleCollectOne = async (invoiceId: string) => {
+    if (!collectAmount || Number(collectAmount) <= 0) {
+      toast.error('Enter an amount to collect')
+      return
+    }
+    setPayingInvoiceId(invoiceId)
+    try {
+      await api.patch(`/billing/${invoiceId}/collect-payment`, {
+        amountReceived: parseFloat(collectAmount),
+        paymentMode: collectMode,
+      })
+      toast.success('Payment collected')
+      setCollectAmount('')
+      // Refresh pending list and customer
+      const [invRes, custRes] = await Promise.all([
+        api.get(`/billing?customerId=${selectedCustomer!.id}`),
+        api.get(`/customers/${selectedCustomer!.id}`),
+      ])
+      const all: Invoice[] = Array.isArray(invRes.data) ? invRes.data : (invRes.data.data ?? [])
+      const updated = all.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL')
+      setPendingInvoices(updated)
+      // Refresh selectedCustomer so pendingCreditCount updates
+      if (custRes.data) setSelectedCustomer({ ...selectedCustomer!, ...custRes.data, pendingCreditCount: updated.length })
+    } catch {
+      toast.error('Failed to collect payment')
+    } finally {
+      setPayingInvoiceId(null)
+    }
+  }
+
+  const handleCollectAll = async () => {
+    if (!selectedCustomer) return
+    setPayingInvoiceId('all')
+    try {
+      const res = await api.post(`/customers/${selectedCustomer.id}/payment`, {
+        amount: pendingInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) - Number(inv.amountPaid)), 0),
+        paymentMode: collectMode,
+      })
+      toast.success(`All pending credits cleared. Receipt: ${res.data.receiptNumber}`)
+      setPendingInvoices([])
+      setSelectedCustomer({ ...selectedCustomer!, currentOutstanding: 0, pendingCreditCount: 0 })
+      setCreditPayDialogOpen(false)
+    } catch {
+      toast.error('Failed to collect all payments')
+    } finally {
+      setPayingInvoiceId(null)
+    }
+  }
 
   // ── Submit Invoice ──────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1825,9 +1894,10 @@ export default function NewSalePage() {
       return;
     }
 
-    if (showCreditWarning) {
-      toast.error('Cannot process: Credit limit exceeded')
-      return;
+    if (paymentMode === 'CREDIT' && isCreditBlocked) {
+      toast.error(`${selectedCustomer.name} has ${pendingCreditCount} unpaid credit invoices. Please clear pending credits first.`)
+      openCreditPayDialog()
+      return
     }
 
     // Validate qty against batch stock
@@ -2239,11 +2309,31 @@ export default function NewSalePage() {
                             }
                           }}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold">{cust.name}</span>
-                            <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px]">
-                              {cust.type}
-                            </Badge>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold truncate">{cust.name}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {(cust.pendingCreditCount ?? 0) >= 3 ? (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded-full bg-red-100 dark:bg-red-950/40 px-1.5 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400"
+                                  title="Credit blocked — 3 pending invoices"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedCustomer(cust)
+                                    setShowCustomerDropdown(false)
+                                    openCreditPayDialog()
+                                  }}
+                                >
+                                  🔴 Pay Credits
+                                </span>
+                              ) : (cust.pendingCreditCount ?? 0) > 0 ? (
+                                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                                  {cust.pendingCreditCount} pending
+                                </span>
+                              ) : null}
+                              <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px]">
+                                {cust.type}
+                              </Badge>
+                            </div>
                           </div>
                           {cust.phone !== '0000000000' && (
                             <div className="text-[10px] text-muted-foreground mt-0.5">{cust.phone}</div>
@@ -2368,20 +2458,32 @@ export default function NewSalePage() {
           )}
         </div>
 
-        {/* ── Credit Warning ── */}
+        {/* ── Credit Block Warning ── */}
         <AnimatePresence>
-          {showCreditWarning && selectedCustomer && (
+          {isCreditBlocked && selectedCustomer && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden mb-3"
             >
-              <div className="flex items-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50/30 p-2.5 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/10 dark:text-amber-300">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  <strong>{selectedCustomer.name}</strong> outstanding ({formatCurrency(Number(selectedCustomer.currentOutstanding) || 0)}) exceeds credit limit ({formatCurrency(Number(selectedCustomer.creditLimit) || 0)})
-                </span>
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-red-300/60 bg-red-50/40 p-2.5 dark:border-red-800/40 dark:bg-red-900/10">
+                <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400">
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    <strong>{selectedCustomer.name}</strong> has <strong>{pendingCreditCount} unpaid credit invoices</strong> — credit sales blocked until cleared.
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 px-2.5 text-[11px] shrink-0"
+                  onClick={openCreditPayDialog}
+                >
+                  <CreditCard className="h-3 w-3 mr-1" />
+                  Pay Credits
+                </Button>
               </div>
             </motion.div>
           )}
@@ -3365,6 +3467,106 @@ export default function NewSalePage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ── Pay Pending Credits Dialog ── */}
+      <Dialog open={creditPayDialogOpen} onOpenChange={setCreditPayDialogOpen}>
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              Pending Credit Invoices — {selectedCustomer?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingCreditCount >= 3
+                ? 'Credit sales are blocked. Clear at least one invoice to continue.'
+                : `${pendingCreditCount} pending credit invoice${pendingCreditCount !== 1 ? 's' : ''}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Payment mode selector */}
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Mode</label>
+            <Select value={collectMode} onValueChange={setCollectMode}>
+              <SelectTrigger className="h-8 text-xs w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
+                  <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="number"
+              placeholder="Amount for one-by-one"
+              className="h-8 text-xs font-mono flex-1"
+              value={collectAmount}
+              onChange={(e) => setCollectAmount(e.target.value)}
+            />
+          </div>
+
+          {/* Pending invoices list */}
+          {pendingInvoicesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
+            </div>
+          ) : pendingInvoices.length === 0 ? (
+            <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/20 p-4 text-center text-sm text-emerald-700 dark:text-emerald-400">
+              All credits cleared! You can now proceed with credit sales.
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40 rounded-xl border border-border/60 overflow-hidden">
+              {pendingInvoices.map((inv) => {
+                const due = Number(inv.grandTotal) - Number(inv.amountPaid)
+                const isPaying = payingInvoiceId === inv.id
+                return (
+                  <div key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5 bg-background">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        {' · '}{inv.status}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-mono text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(due)}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[11px] shrink-0"
+                      disabled={isPaying || payingInvoiceId === 'all'}
+                      onClick={() => handleCollectOne(inv.id)}
+                    >
+                      {isPaying ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Collect'}
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCreditPayDialogOpen(false)}>
+              Close
+            </Button>
+            {pendingInvoices.length > 0 && (
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={payingInvoiceId !== null}
+                onClick={handleCollectAll}
+              >
+                {payingInvoiceId === 'all'
+                  ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Clearing…</>
+                  : <><CreditCard className="h-3.5 w-3.5" /> Clear All ({formatCurrency(pendingInvoices.reduce((s, inv) => s + Number(inv.grandTotal) - Number(inv.amountPaid), 0))})</>
+                }
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </TooltipProvider>
   )
 }

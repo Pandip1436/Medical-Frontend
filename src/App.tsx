@@ -31,6 +31,7 @@ const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustment
 const CustomersPage = lazy(() => import('@/pages/customers/CustomersPage'))
 const OutstandingPage = lazy(() => import('@/pages/customers/OutstandingPage'))
 const CustomerInvoicesPage = lazy(() => import('@/pages/customers/CustomerInvoicesPage'))
+const CustomerDetailPage = lazy(() => import('@/pages/customers/CustomerDetailPage'))
 const CashBookPage = lazy(() => import('@/pages/accounting/CashBookPage'))
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage'))
 const LedgerPage = lazy(() => import('@/pages/accounting/LedgerPage'))
@@ -40,6 +41,7 @@ const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'))
 const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPage'))
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
+const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -252,6 +254,8 @@ function App() {
         return <OutstandingPage />
       case '/customers/invoices':
         return <CustomerInvoicesPage />
+      case '/customers/detail':
+        return <CustomerDetailPage />
       case '/accounting/cashbook':
         return <CashBookPage />
       case '/accounting/expenses':
@@ -270,6 +274,8 @@ function App() {
         return <SalespersonsPage />
       case '/salespersons/report':
         return <SalespersonReportPage />
+      case '/notifications':
+        return <NotificationsPage />
       default:
         return <DashboardPage />
     }

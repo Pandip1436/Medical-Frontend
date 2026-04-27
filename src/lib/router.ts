@@ -132,6 +132,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Invoices',
     breadcrumbs: [{ label: 'Customers' }, { label: 'Invoices' }],
   },
+  '/customers/detail': {
+    label: 'Customer Detail',
+    breadcrumbs: [{ label: 'Customers', href: '/customers' }, { label: 'Detail' }],
+  },
   '/accounting/cashbook': {
     label: 'Cash Book',
     breadcrumbs: [{ label: 'Accounting' }, { label: 'Cash Book' }],
@@ -167,6 +171,10 @@ export const routes: Record<string, RouteConfig> = {
   '/salespersons/report': {
     label: 'Sales Report',
     breadcrumbs: [{ label: 'Salespersons', href: '#/salespersons' }, { label: 'Sales Report' }],
+  },
+  '/notifications': {
+    label: 'Notifications',
+    breadcrumbs: [{ label: 'Notifications' }],
   },
 }
 

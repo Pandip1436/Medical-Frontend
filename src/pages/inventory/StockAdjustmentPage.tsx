@@ -4,7 +4,6 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
 import {
-  Search,
   Plus,
   Minus,
   Trash2,
@@ -174,7 +173,10 @@ export default function StockAdjustmentPage() {
       prev.map((item) => {
         if (item.id !== id) return item
         const parsed = raw === '' || raw === '-' ? 0 : parseInt(raw) || 0
-        return { ...item, rawAdjustment: raw, adjustment: parsed, newQty: item.systemQty + parsed }
+        const newQty = Math.max(0, item.systemQty + parsed)
+        // Recalculate adjustment if clamped to 0
+        const clampedAdjustment = newQty === 0 && item.systemQty + parsed < 0 ? -item.systemQty : parsed
+        return { ...item, rawAdjustment: raw, adjustment: clampedAdjustment, newQty }
       })
     )
   }
@@ -195,21 +197,17 @@ export default function StockAdjustmentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleConfirm = async () => {
+    if (items.some((item) => item.newQty < 0)) {
+      toast.error('Cannot submit — one or more items would result in negative stock')
+      return
+    }
+
     try {
       setIsSubmitting(true)
-      
-      // Optimistic UI updates
-      items.forEach(item => {
-        updateBatchLocally(item.batchId, item.adjustment)
-      })
-      
-      const refNo = generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
-      setReferenceNumber(refNo)
-      setCurrentStep(3)
 
-      // Single atomic transaction — all batches succeed or all fail together
+      // API call first — only update local state after confirmed
       await api.post('/products/bulk-adjust', {
-        items: items.map(item => ({
+        items: items.map((item) => ({
           productId: item.productId,
           batchId: item.batchId,
           adjustedQty: item.newQty,
@@ -217,11 +215,19 @@ export default function StockAdjustmentPage() {
         })),
       })
 
+      // Update local store only after API confirms
+      items.forEach((item) => {
+        updateBatchLocally(item.batchId, item.adjustment)
+      })
+
+      const refNo = generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
+      setReferenceNumber(refNo)
+      setCurrentStep(3)
       toast.success('Stock adjustment saved successfully')
     } catch (error) {
       console.error(error)
-      toast.error('Failed to process stock adjustments. Rolling back.')
-      fetchProducts() // Rollback on failure
+      toast.error('Failed to process stock adjustments')
+      fetchProducts()
     } finally {
       setIsSubmitting(false)
     }

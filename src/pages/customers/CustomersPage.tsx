@@ -59,6 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
 import api, { API_SERVER_URL } from '@/lib/api'
+import { navigate } from '@/lib/router'
 
 interface PrescriptionRecord {
   id: string
@@ -448,13 +449,7 @@ export default function CustomersPage() {
   }
 
   const handleViewDetails = (customer: Customer) => {
-    setSelectedCustomer(customer)
-    setDetailDialogOpen(true)
-    setCustomerInvoices([])
-    setCustomerCreditNotes([])
-    fetchPrescriptions(customer.id)
-    fetchCustomerInvoices(customer.id)
-    fetchCustomerCreditNotes(customer.id)
+    navigate(`/customers/detail?customerId=${customer.id}`)
   }
 
   // Build ledger entries from loaded invoices
@@ -601,14 +596,15 @@ export default function CustomersPage() {
                 {!isLoading && filtered.map((customer) => (
                   <div
                     key={customer.id}
-                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50"
+                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 cursor-pointer"
+                    onClick={() => handleViewDetails(customer)}
                   >
                     {/* Avatar */}
                     <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white', typeAvatarColor[customer.type] || 'bg-gray-400')}>
                       {customer.name.charAt(0).toUpperCase()}
                     </div>
                     {/* Info */}
-                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => handleViewDetails(customer)}>
+                    <div className="min-w-0 flex-1 cursor-pointer" onClick={() => handleViewDetails(customer)} >
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium truncate">{customer.name}</p>
                         <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
@@ -657,9 +653,10 @@ export default function CustomersPage() {
                   <TableRow
                     key={customer.id}
                     className={cn(
-                      'border-l-2',
+                      'border-l-2 cursor-pointer hover:bg-muted/30',
                       typeBorderColor[customer.type] || 'border-l-transparent'
                     )}
+                    onClick={() => handleViewDetails(customer)}
                   >
                     <TableCell className="font-medium">{customer.name}</TableCell>
                     <TableCell className="text-muted-foreground">{customer.phone}</TableCell>

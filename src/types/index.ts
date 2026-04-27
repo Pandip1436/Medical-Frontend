@@ -41,6 +41,7 @@ export interface Customer {
   dlNumber?: string
   notes?: string
   createdAt: string
+  pendingCreditCount?: number   // number of CREDIT/PARTIAL invoices
 }
 
 export interface Supplier {
@@ -247,8 +248,10 @@ export interface Notification {
   message: string
   type: 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'SYSTEM' | 'APPROVAL'
   isRead: boolean
-  timestamp: string
+  timestamp: string   // mapped from createdAt on fetch
+  createdAt?: string
   actionUrl?: string
+  branchId?: string
 }
 
 export type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'

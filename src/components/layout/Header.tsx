@@ -125,7 +125,7 @@ function groupNotificationsByTime(notifications: Notification[]) {
 export function Header({ breadcrumbs }: HeaderProps) {
   const { user, theme, setTheme, resolvedTheme, language, setLanguage, logout, toggleMobileSidebar } =
     useAuthStore()
-  const { notifications, unreadCount, markAsRead, markAllAsRead } =
+  const { notifications, unreadCount, markAsRead, markAllAsRead, fetchNotifications, startPolling } =
     useNotificationStore()
   const { branches, activeBranch, setActiveBranch, fetchBranches } = useBranchStore()
 
@@ -134,6 +134,10 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchNotifications() }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => startPolling(), [])
 
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const notificationsRef = useRef<HTMLDivElement>(null)

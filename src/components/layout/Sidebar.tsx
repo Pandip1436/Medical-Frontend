@@ -30,11 +30,13 @@ import {
   Building2,
   UserCheck,
   Tag,
+  Bell,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
 import {
   Tooltip,
@@ -64,6 +66,7 @@ const navigationGroups: NavGroup[] = [
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
+      { label: 'Notifications', icon: Bell, href: '/notifications' },
     ],
   },
   {
@@ -184,6 +187,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 export function Sidebar({ currentPath }: SidebarProps) {
   const { user, sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
+  const unreadCount = useNotificationStore((s) => s.unreadCount())
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const isMobile = useIsMobile()
   const mobileOpen = mobileSidebarOpen
@@ -337,10 +341,18 @@ export function Sidebar({ currentPath }: SidebarProps) {
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.12 }}
-                      className="truncate"
+                      className="flex flex-1 items-center justify-between truncate"
                     >
                       {item.label}
+                      {item.href === '/notifications' && unreadCount > 0 && (
+                        <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
                     </motion.span>
+                  )}
+                  {collapsed && item.href === '/notifications' && unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
                   )}
                 </a>
               )

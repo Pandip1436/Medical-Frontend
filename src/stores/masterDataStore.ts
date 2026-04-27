@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import api from '@/lib/api'
-import type { Product, Customer, Batch, Supplier, PurchaseOrder } from '@/types'
+import type { Product, Customer, Batch, Supplier, PurchaseOrder, Category } from '@/types'
 
 interface MasterDataState {
   products: Product[]
@@ -8,12 +8,14 @@ interface MasterDataState {
   customers: Customer[]
   suppliers: Supplier[]
   purchaseOrders: PurchaseOrder[]
+  categories: Category[]
   isLoading: boolean
   hasLoaded: boolean   // true once at least one successful fetch completed
   fetchMasterData: () => Promise<void>
   fetchProducts: () => Promise<void>
   fetchCustomers: () => Promise<void>
   fetchSuppliers: () => Promise<void>
+  fetchCategories: () => Promise<void>
   addCustomer: (data: any) => Promise<any>
   deleteCustomer: (id: string) => Promise<void>
   updateCustomerLocally: (id: string, partialData: Partial<Customer>) => void
@@ -26,6 +28,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   customers: [],
   suppliers: [],
   purchaseOrders: [],
+  categories: [],
   isLoading: false,
   hasLoaded: false,
 
@@ -109,6 +112,16 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
       console.error('Failed to fetch suppliers', error)
     } finally {
       set({ isLoading: false })
+    }
+  },
+
+  fetchCategories: async () => {
+    try {
+      const res = await api.get('/categories')
+      const categories: Category[] = Array.isArray(res.data) ? res.data : []
+      set({ categories })
+    } catch {
+      // silently fail — categories are non-critical
     }
   },
 

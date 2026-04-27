@@ -60,18 +60,8 @@ export const useBranchStore = create<BranchState>()(
       setActiveBranch: (branchId) => {
         const branch = get().branches.find((b) => b.id === branchId) ?? null
         set({ activeBranchId: branchId, activeBranch: branch })
-
-        // Reset masterDataStore so all pages re-fetch with new branch
-        import('@/stores/masterDataStore').then(({ useMasterDataStore }) => {
-          useMasterDataStore.setState({
-            products: [], batches: [], customers: [],
-            suppliers: [], purchaseOrders: [], hasLoaded: false,
-          })
-          useMasterDataStore.getState().fetchMasterData()
-        })
-
-        // Signal all pages with their own fetch logic to refresh
-        window.dispatchEvent(new CustomEvent('pbims:branch-changed', { detail: { branchId } }))
+        // Full reload so every page, store, and API call picks up the new branchId cleanly
+        window.location.href = '/'
       },
     }),
     {
