@@ -41,6 +41,7 @@ interface TimelineRow {
   amount: number
   cumPurchaseQty: number
   cumSaleQty: number
+  runningStock: number
 }
 
 export default function ProductHistoryPage() {
@@ -85,7 +86,7 @@ export default function ProductHistoryPage() {
 
   const selectedProduct = products.find(p => p.id === selectedProductId)
 
-  // Build timeline with running totals (oldest-first for cumulative calc)
+  // Build timeline with running stock balance anchored to real current stock
   const timeline = useMemo((): TimelineRow[] => {
     if (!history) return []
     const sales = history.sales.map((s: any) => ({
@@ -106,13 +107,28 @@ export default function ProductHistoryPage() {
       qty: p.receivedQty,
       amount: p.amount,
     }))
+    // Sort oldest-first to build forward running balance
     const merged = [...sales, ...purchases].sort((a, b) => a.date.getTime() - b.date.getTime())
+
+    // Anchor: walk forward and compute net change relative to current real stock
+    // net = sum of all purchases - sum of all sales in this history
+    let totalPurchased = 0
+    let totalSold = 0
+    merged.forEach(row => {
+      if (row.type === 'PURCHASE') totalPurchased += row.qty
+      else totalSold += row.qty
+    })
+    // Opening stock = currentStock - (totalPurchased - totalSold)
+    const currentStock: number = history.summary.currentStock ?? 0
+    const openingStock = currentStock - (totalPurchased - totalSold)
+
+    let runningStock = openingStock
     let runningPurchase = 0
     let runningSale = 0
     return merged.map(row => {
-      if (row.type === 'PURCHASE') runningPurchase += row.qty
-      else runningSale += row.qty
-      return { ...row, cumPurchaseQty: runningPurchase, cumSaleQty: runningSale }
+      if (row.type === 'PURCHASE') { runningStock += row.qty; runningPurchase += row.qty }
+      else { runningStock -= row.qty; runningSale += row.qty }
+      return { ...row, cumPurchaseQty: runningPurchase, cumSaleQty: runningSale, runningStock }
     })
   }, [history])
 
@@ -414,8 +430,8 @@ export default function ProductHistoryPage() {
                           : <span className="text-muted-foreground/40">—</span>
                         }
                       </TableCell>
-                      <TableCell className="text-right text-xs font-mono font-semibold text-primary">
-                        {row.cumPurchaseQty - row.cumSaleQty}
+                      <TableCell className={cn('text-right text-xs font-mono font-semibold', row.runningStock <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-primary')}>
+                        {row.runningStock}
                       </TableCell>
                     </TableRow>
                   )

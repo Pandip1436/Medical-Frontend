@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import AuthLayout from '@/components/layout/AuthLayout'
 import { cn } from '@/lib/utils'
+import api from '@/lib/api'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -53,7 +54,6 @@ type PasswordFormData = z.infer<typeof passwordSchema>
 
 // ── Constants ────────────────────────────────────────────────
 
-const MOCK_OTP = '123456'
 const RESEND_COOLDOWN = 60
 
 const stepVariants = {
@@ -86,13 +86,18 @@ export default function ForgotPasswordPage({
 
   const handleSendOtp = async (data: EmailFormData) => {
     setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    setSavedContact(data.emailOrPhone)
-    toast.success('OTP sent successfully!', {
-      description: `A 6-digit code has been sent to ${data.emailOrPhone}`,
-    })
-    setStep(2)
-    setIsLoading(false)
+    try {
+      await api.post('/auth/forgot-password', { contact: data.emailOrPhone })
+      setSavedContact(data.emailOrPhone)
+      toast.success('OTP sent successfully!', {
+        description: `A 6-digit code has been sent to ${data.emailOrPhone}`,
+      })
+      setStep(2)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to send OTP')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // ── Step 2: OTP ─────────────────────────────────────────────
@@ -185,10 +190,11 @@ export default function ForgotPasswordPage({
     setIsLoading(true)
     await new Promise((resolve) => setTimeout(resolve, 600))
 
-    if (code === MOCK_OTP) {
+    try {
+      await api.post('/auth/verify-otp', { contact: savedContact, otp: code })
       toast.success('OTP verified successfully!')
       setStep(3)
-    } else {
+    } catch {
       setOtpError('Invalid OTP. Please try again.')
       setOtp(Array(6).fill(''))
       setTimeout(() => otpRefs.current[0]?.focus(), 100)
@@ -225,14 +231,19 @@ export default function ForgotPasswordPage({
     defaultValues: { newPassword: '', confirmPassword: '' },
   })
 
-  const handleResetPassword = async (_data: PasswordFormData) => {
+  const handleResetPassword = async (data: PasswordFormData) => {
     setIsLoading(true)
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    toast.success('Password reset successfully!', {
-      description: 'You can now sign in with your new password.',
-    })
-    setRedirectReady(true)
-    setIsLoading(false)
+    try {
+      await api.post('/auth/reset-password', { contact: savedContact, newPassword: data.newPassword })
+      toast.success('Password reset successfully!', {
+        description: 'You can now sign in with your new password.',
+      })
+      setRedirectReady(true)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to reset password')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // ── Step indicator ──────────────────────────────────────────
@@ -284,10 +295,10 @@ export default function ForgotPasswordPage({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="border-0 bg-gradient-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
+        <Card className="border-0 bg-linear-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
           <CardHeader className="space-y-4 pb-2 text-center">
             <div className="flex flex-col items-center gap-2">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
                 <Pill className="h-6 w-6 text-white" />
               </div>
               <h1 className="text-xl font-bold tracking-tight text-foreground">
@@ -448,10 +459,7 @@ export default function ForgotPasswordPage({
                         </p>
                       )}
                     </div>
-
-                    <p className="text-center text-[10px] font-medium text-black/60">
-                      Mock OTP: 123456
-                    </p>
+                    
                   </div>
                 </motion.div>
               )}

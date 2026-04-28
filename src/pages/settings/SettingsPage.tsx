@@ -128,7 +128,7 @@ const settingsSections: SettingsSection[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────
-// Mock GST rates
+// GST rates
 // ─────────────────────────────────────────────────────────────
 
 interface GstRate {
@@ -140,16 +140,8 @@ interface GstRate {
   igst: number
 }
 
-const initialGstRates: GstRate[] = [
-  { id: 'GST-001', hsnCode: '30049099', description: 'Medicaments (Pharma)', cgst: 6, sgst: 6, igst: 12 },
-  { id: 'GST-002', hsnCode: '30021200', description: 'Antisera & Blood Products', cgst: 6, sgst: 6, igst: 12 },
-  { id: 'GST-003', hsnCode: '30021400', description: 'Immunological Products', cgst: 6, sgst: 6, igst: 12 },
-  { id: 'GST-004', hsnCode: '30039000', description: 'Medicaments (General)', cgst: 9, sgst: 9, igst: 18 },
-  { id: 'GST-005', hsnCode: '90189090', description: 'Surgical Instruments', cgst: 6, sgst: 6, igst: 12 },
-]
-
 // ─────────────────────────────────────────────────────────────
-// Mock discount rules
+// Discount rules
 // ─────────────────────────────────────────────────────────────
 
 interface DiscountRule {
@@ -163,16 +155,8 @@ interface DiscountRule {
   isActive: boolean
 }
 
-const initialDiscountRules: DiscountRule[] = [
-  { id: 'DR-001', name: 'Hospital Bulk Discount', type: 'PERCENTAGE', value: 10, applicableTo: 'Hospital Customers', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: true },
-  { id: 'DR-002', name: 'Wholesale Slab Discount', type: 'PERCENTAGE', value: 15, applicableTo: 'Wholesale Buyers', validFrom: '2026-01-01', validTo: '2026-06-30', isActive: true },
-  { id: 'DR-003', name: 'Near-Expiry Clearance', type: 'PERCENTAGE', value: 25, applicableTo: 'Expiring in 90 days', validFrom: '2026-03-01', validTo: '2026-03-31', isActive: true },
-  { id: 'DR-004', name: 'Loyalty Reward', type: 'FLAT', value: 500, applicableTo: 'Loyalty Points > 1000', validFrom: '2026-01-01', validTo: '2026-12-31', isActive: false },
-  { id: 'DR-005', name: 'Oncology Bundle', type: 'PERCENTAGE', value: 8, applicableTo: 'Oncology Category', validFrom: '2026-02-01', validTo: '2026-05-31', isActive: true },
-]
-
 // ─────────────────────────────────────────────────────────────
-// Mock backup history
+// Backup history
 // ─────────────────────────────────────────────────────────────
 
 interface BackupEntry {
@@ -183,18 +167,8 @@ interface BackupEntry {
   status: 'COMPLETED' | 'FAILED'
 }
 
-const backupHistory: BackupEntry[] = [
-  { id: 'BK-001', date: '2026-03-21T06:00:00Z', size: '245 MB', type: 'AUTO', status: 'COMPLETED' },
-  { id: 'BK-002', date: '2026-03-20T06:00:00Z', size: '243 MB', type: 'AUTO', status: 'COMPLETED' },
-  { id: 'BK-003', date: '2026-03-19T14:30:00Z', size: '242 MB', type: 'MANUAL', status: 'COMPLETED' },
-  { id: 'BK-004', date: '2026-03-19T06:00:00Z', size: '241 MB', type: 'AUTO', status: 'FAILED' },
-  { id: 'BK-005', date: '2026-03-18T06:00:00Z', size: '240 MB', type: 'AUTO', status: 'COMPLETED' },
-  { id: 'BK-006', date: '2026-03-17T06:00:00Z', size: '239 MB', type: 'AUTO', status: 'COMPLETED' },
-  { id: 'BK-007', date: '2026-03-16T11:15:00Z', size: '238 MB', type: 'MANUAL', status: 'COMPLETED' },
-]
-
 // ─────────────────────────────────────────────────────────────
-// Mock audit trail (20+ entries)
+// Audit trail
 // ─────────────────────────────────────────────────────────────
 
 interface AuditEntry {
@@ -208,34 +182,6 @@ interface AuditEntry {
   oldValue: string
   newValue: string
 }
-
-const auditTrailData: AuditEntry[] = [
-  { id: 'AUD-001', timestamp: '2026-03-21T10:30:00Z', user: 'Admin', module: 'Inventory', action: 'Update', entity: 'PRD-001', field: 'sellingRate', oldValue: '75.00', newValue: '78.00' },
-  { id: 'AUD-002', timestamp: '2026-03-21T10:15:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Create', entity: 'INV-00430', field: '-', oldValue: '-', newValue: 'New Invoice' },
-  { id: 'AUD-003', timestamp: '2026-03-21T09:45:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Adjust', entity: 'PRD-008', field: 'totalStock', oldValue: '20', newValue: '15' },
-  { id: 'AUD-004', timestamp: '2026-03-21T09:30:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Business Profile', field: 'phone', oldValue: '04522345678', newValue: '04522345679' },
-  { id: 'AUD-005', timestamp: '2026-03-21T09:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'RCT-00125', field: '-', oldValue: '-', newValue: 'Payment Receipt' },
-  { id: 'AUD-006', timestamp: '2026-03-20T17:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Return', entity: 'INV-00425', field: 'status', oldValue: 'PAID', newValue: 'RETURNED' },
-  { id: 'AUD-007', timestamp: '2026-03-20T16:45:00Z', user: 'Admin', module: 'Users', action: 'Deactivate', entity: 'USR-005', field: 'isActive', oldValue: 'true', newValue: 'false' },
-  { id: 'AUD-008', timestamp: '2026-03-20T16:00:00Z', user: 'Kumar Selvam', module: 'Purchase', action: 'Create', entity: 'PO-00089', field: '-', oldValue: '-', newValue: 'New Purchase Order' },
-  { id: 'AUD-009', timestamp: '2026-03-20T15:30:00Z', user: 'Admin', module: 'Inventory', action: 'Update', entity: 'PRD-013', field: 'minStock', oldValue: '20', newValue: '25' },
-  { id: 'AUD-010', timestamp: '2026-03-20T14:20:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Create', entity: 'INV-00429', field: '-', oldValue: '-', newValue: 'New Invoice' },
-  { id: 'AUD-011', timestamp: '2026-03-20T13:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'PV-00047', field: '-', oldValue: '-', newValue: 'Payment Voucher' },
-  { id: 'AUD-012', timestamp: '2026-03-20T11:45:00Z', user: 'Kumar Selvam', module: 'Purchase', action: 'Receive', entity: 'GRN-00034', field: 'status', oldValue: 'DRAFT', newValue: 'RECEIVED' },
-  { id: 'AUD-013', timestamp: '2026-03-20T10:30:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Tax Config', field: 'taxMode', oldValue: 'INCLUSIVE', newValue: 'EXCLUSIVE' },
-  { id: 'AUD-014', timestamp: '2026-03-19T17:00:00Z', user: 'Ravi Shankar', module: 'Customers', action: 'Create', entity: 'CUS-012', field: '-', oldValue: '-', newValue: 'New Customer' },
-  { id: 'AUD-015', timestamp: '2026-03-19T16:15:00Z', user: 'Admin', module: 'Inventory', action: 'Create', entity: 'PRD-023', field: '-', oldValue: '-', newValue: 'New Product' },
-  { id: 'AUD-016', timestamp: '2026-03-19T15:00:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Transfer', entity: 'TRF-00012', field: 'rack', oldValue: 'A1-01', newValue: 'A2-03' },
-  { id: 'AUD-017', timestamp: '2026-03-19T14:30:00Z', user: 'Admin', module: 'Settings', action: 'Backup', entity: 'System', field: '-', oldValue: '-', newValue: 'Manual Backup' },
-  { id: 'AUD-018', timestamp: '2026-03-19T13:00:00Z', user: 'Priya Lakshmi', module: 'Billing', action: 'Update', entity: 'INV-00420', field: 'paymentMode', oldValue: 'CREDIT', newValue: 'CASH' },
-  { id: 'AUD-019', timestamp: '2026-03-19T11:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Create', entity: 'QTN-00015', field: '-', oldValue: '-', newValue: 'New Quotation' },
-  { id: 'AUD-020', timestamp: '2026-03-19T10:00:00Z', user: 'Admin', module: 'Users', action: 'Create', entity: 'USR-005', field: '-', oldValue: '-', newValue: 'New User' },
-  { id: 'AUD-021', timestamp: '2026-03-18T17:30:00Z', user: 'Kumar Selvam', module: 'Inventory', action: 'Update', entity: 'PRD-004', field: 'rackLocation', oldValue: 'A2-03', newValue: 'A2-04' },
-  { id: 'AUD-022', timestamp: '2026-03-18T16:00:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'Discount Rules', field: 'DR-003 value', oldValue: '20', newValue: '25' },
-  { id: 'AUD-023', timestamp: '2026-03-18T14:30:00Z', user: 'Ravi Shankar', module: 'Billing', action: 'Cancel', entity: 'INV-00418', field: 'status', oldValue: 'DRAFT', newValue: 'CANCELLED' },
-  { id: 'AUD-024', timestamp: '2026-03-18T12:00:00Z', user: 'Priya Lakshmi', module: 'Accounting', action: 'Create', entity: 'EXP-00089', field: '-', oldValue: '-', newValue: 'New Expense' },
-  { id: 'AUD-025', timestamp: '2026-03-18T10:00:00Z', user: 'Admin', module: 'Settings', action: 'Update', entity: 'General', field: 'sessionTimeout', oldValue: '30', newValue: '60' },
-]
 
 // ─────────────────────────────────────────────────────────────
 // Zod schemas
@@ -654,7 +600,7 @@ function BusinessProfileSection() {
 function TaxConfigSection() {
   const { getSetting, updateSetting, isLoading } = useSettingsStore()
   
-  const [gstRates, setGstRates] = useState(initialGstRates)
+  const [gstRates, setGstRates] = useState<GstRate[]>([])
   const [taxMode, setTaxMode] = useState<'INCLUSIVE' | 'EXCLUSIVE'>('EXCLUSIVE')
   const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu')
 
@@ -1953,6 +1899,14 @@ function DiscountRulesSection() {
 function BackupDataSection() {
   const [backupProgress, setBackupProgress] = useState(0)
   const [isBackingUp, setIsBackingUp] = useState(false)
+  const [backupHistory, setBackupHistory] = useState<BackupEntry[]>([])
+
+  useEffect(() => {
+    api
+      .get('/settings/backups')
+      .then((res) => setBackupHistory(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setBackupHistory([]))
+  }, [])
 
   const handleBackup = () => {
     setIsBackingUp(true)
@@ -2106,7 +2060,7 @@ function AuditTrailSection() {
   const [filterUser, setFilterUser] = useState('all')
   const [filterModule, setFilterModule] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>(auditTrailData)
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
 
   useEffect(() => {
     api

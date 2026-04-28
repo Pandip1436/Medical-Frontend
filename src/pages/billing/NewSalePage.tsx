@@ -33,6 +33,7 @@ import {
   Upload,
   Camera,
   FileImage,
+  CalendarClock,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -247,12 +248,16 @@ function BillingRow({
   billingType,
   onUpdate,
   onRemove,
+  customerLastRates,
+  customerInvoices,
 }: {
   item: BillingItem
   index: number
   billingType: 'retail' | 'wholesale'
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
+  customerLastRates: Record<string, number>
+  customerInvoices: Invoice[]
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
@@ -262,6 +267,7 @@ function BillingRow({
   const [showProductDropdown, setShowProductDropdown] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 400 })
+  const [historyOpen, setHistoryOpen] = useState(true)
 
   const productRef = useRef<HTMLTableCellElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -275,7 +281,9 @@ function BillingRow({
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.genericName.toLowerCase().includes(q) ||
-        p.manufacturer.toLowerCase().includes(q)
+        p.manufacturer.toLowerCase().includes(q) ||
+        p.hsnCode.includes(q) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q))
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productSearch])
@@ -307,6 +315,32 @@ function BillingRow({
     return products.find((p) => p.id === item.productId)
   }, [item.productId])
 
+  // Product-specific purchase history for the selected customer
+  const productHistory = useMemo(() => {
+    if (!item.productId) return []
+    const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
+    for (const inv of customerInvoices) {
+      for (const it of (inv as any).items ?? []) {
+        if (it.productId === item.productId) {
+          hits.push({
+            date: (inv as any).date ?? inv.createdAt,
+            invoiceNumber: inv.invoiceNumber,
+            batchNumber: it.batchNumber ?? '—',
+            qty: Number(it.quantity),
+            rate: Number(it.rate),
+            status: inv.status,
+          })
+        }
+      }
+    }
+    return hits.slice(0, 5)
+  }, [item.productId, customerInvoices])
+
+  // Auto-open history when product first gets history entries
+  useEffect(() => {
+    if (productHistory.length > 0) setHistoryOpen(true)
+  }, [productHistory.length])
+
   const handleProductSelect = useCallback(
     (product: Product) => {
       const productBatches = batches
@@ -314,7 +348,12 @@ function BillingRow({
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
       const firstBatch = productBatches[0]
-      const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+      const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+      const lastRate = customerLastRates[product.id]
+      const rate = lastRate ?? defaultRate
+      if (lastRate !== undefined) {
+        toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
+      }
 
       const updates: Partial<BillingItem> = {
         productId: product.id,
@@ -347,7 +386,7 @@ function BillingRow({
         }
       }, 50)
     },
-    [billingType, item, onUpdate, batches]
+    [billingType, item, onUpdate, batches, customerLastRates]
   )
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -427,12 +466,13 @@ function BillingRow({
   const qtyExceeds = selectedBatch ? item.quantity > selectedBatch.quantity : false
 
   return (
+    <>
     <MotionTableRow
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.15 }}
-      className="group transition-colors border-b-border/40 hover:bg-muted/20 data-[state=selected]:bg-muted"
+      className={cn("group transition-colors hover:bg-muted/20 data-[state=selected]:bg-muted", productHistory.length > 0 && historyOpen ? '' : 'border-b border-border/40')}
     >
       {/* S.No */}
       <TableCell className="w-9 px-2 py-1.5 text-center text-[11px] text-muted-foreground/70">
@@ -447,13 +487,17 @@ function BillingRow({
             value={productSearch}
             onChange={(e) => {
               setProductSearch(e.target.value)
-              setShowProductDropdown(true)
               setSelectedIndex(0)
+              if (inputRef.current) {
+                const rect = inputRef.current.getBoundingClientRect()
+                setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: 400 })
+              }
+              setShowProductDropdown(true)
             }}
             onFocus={() => {
               if (inputRef.current) {
                 const rect = inputRef.current.getBoundingClientRect()
-                setDropdownPos({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: 400 })
+                setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: 400 })
               }
               setShowProductDropdown(true)
             }}
@@ -466,7 +510,19 @@ function BillingRow({
               !item.productId && 'italic font-normal'
             )}
           />
-          <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
+          {productHistory.length > 0 ? (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setHistoryOpen(v => !v) }}
+              title={historyOpen ? 'Hide purchase history' : `${productHistory.length} past purchase${productHistory.length > 1 ? 's' : ''}`}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded-md px-1 py-0.5 bg-violet-500/10 hover:bg-violet-500/20 transition-colors"
+            >
+              <History className="h-3 w-3 text-violet-500" />
+              <span className="text-[9px] font-bold text-violet-500">{productHistory.length}</span>
+            </button>
+          ) : (
+            <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
+          )}
           {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
             <div className="absolute -bottom-4 left-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight text-rose-500/80">
               <ShieldAlert className="h-2.5 w-2.5" />
@@ -655,77 +711,74 @@ function BillingRow({
         </div>
       </TableCell>
 
-      {/* Unit Rate — original (read-only) */}
-      <TableCell className="w-22 px-1.5 py-1 text-right">
-        {(() => {
-          const originalRate = selectedProduct
-            ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
-            : 0
-          const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
-          return originalRate > 0 ? (
-            <div className="space-y-0.5">
-              <div className={cn(
-                'text-xs font-mono font-semibold',
-                isModified ? 'line-through text-muted-foreground/40' : 'text-foreground'
-              )}>
-                {formatCurrency(originalRate)}
-              </div>
-              {item.mrp > 0 && (
-                <div className="text-[9px] font-mono text-muted-foreground/40">
-                  MRP {formatCurrency(item.mrp)}
+      {/* Rate / Qty (Merged) */}
+      <TableCell className="w-50 px-1.5 py-1">
+        <div className="flex items-center gap-2">
+          {(() => {
+            const originalRate = selectedProduct
+              ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
+              : 0
+            const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
+            return (
+              <>
+                <div className="flex flex-col items-end shrink-0 w-14">
+                  {originalRate > 0 ? (
+                    <>
+                      <span className={cn(
+                        'text-[10px] font-mono font-semibold',
+                        isModified ? 'line-through text-muted-foreground/40' : 'text-muted-foreground/80'
+                      )}>
+                        {formatCurrency(originalRate)}
+                      </span>
+                      {item.mrp > 0 && (
+                        <span className="text-[8px] font-mono text-muted-foreground/40 mt-0.5">
+                          MRP {formatCurrency(item.mrp)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground/30 text-xs">—</span>
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
-            <span className="text-muted-foreground/30 text-xs">—</span>
-          )
-        })()}
-      </TableCell>
 
-      {/* New Rate — editable with +/- */}
-      <TableCell className="w-28 px-1.5 py-1">
-        {(() => {
-          const originalRate = selectedProduct
-            ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
-            : 0
-          const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
-          return (
-            <div className={cn(
-              'flex items-center gap-0.5 rounded-lg border bg-muted/20 px-0.5 transition-all focus-within:border-primary/40',
-              isModified ? 'border-amber-400/50 bg-amber-50/20 dark:bg-amber-900/10' : 'border-border/20'
-            )}>
-              <button
-                type="button"
-                onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
-                disabled={!item.productId}
-                className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-              >
-                <Minus className="h-3 w-3" />
-              </button>
-              <input
-                type="number"
-                step={0.01}
-                value={item.rate || ''}
-                onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
-                className={cn(
-                  'w-full h-7 border-0 bg-transparent text-sm text-center font-bold font-mono',
-                  'focus:outline-none focus:ring-0',
-                  'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                  isModified ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
-                )}
-                disabled={!item.productId}
-              />
-              <button
-                type="button"
-                onClick={() => handleRateChange(Number(item.rate) + 1)}
-                disabled={!item.productId}
-                className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-              >
-                <Plus className="h-3 w-3" />
-              </button>
-            </div>
-          )
-        })()}
+                <div className={cn(
+                  'flex items-center gap-0.5 rounded-lg border bg-muted/20 px-0.5 transition-all focus-within:border-primary/40 flex-1',
+                  isModified ? 'border-amber-400/50 bg-amber-50/20 dark:bg-amber-900/10' : 'border-border/20'
+                )}>
+                  <button
+                    type="button"
+                    onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
+                    disabled={!item.productId}
+                    className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <input
+                    type="number"
+                    step={0.01}
+                    value={item.rate || ''}
+                    onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
+                    className={cn(
+                      'w-full h-7 border-0 bg-transparent text-sm text-center font-bold font-mono',
+                      'focus:outline-none focus:ring-0',
+                      'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                      isModified ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+                    )}
+                    disabled={!item.productId}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRateChange(Number(item.rate) + 1)}
+                    disabled={!item.productId}
+                    className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+              </>
+            )
+          })()}
+        </div>
       </TableCell>
 
       {/* Disc% */}
@@ -772,6 +825,59 @@ function BillingRow({
         </button>
       </TableCell>
     </MotionTableRow>
+
+    {/* ── Per-product purchase history sub-row ── */}
+    {productHistory.length > 0 && historyOpen && (
+      <TableRow className="border-b border-border/40 bg-violet-500/2.5">
+        <TableCell colSpan={10} className="px-0 py-0">
+          <div className="pl-8 pr-3 py-2">
+            {/* Header */}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <History className="h-3 w-3 text-violet-400" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-violet-400">
+                Purchase history for <span className="font-black text-violet-600 dark:text-violet-300 bg-violet-400/10 px-1 py-0.5 rounded">{item.productName}</span>
+              </span>
+            </div>
+            {/* Table */}
+            <table className="w-full border-collapse text-[11px]">
+              <thead>
+                <tr className="border-b border-violet-200/30 dark:border-violet-800/20">
+                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50 w-28">Date</th>
+                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Invoice #</th>
+                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Batch</th>
+                  <th className="text-right pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Qty</th>
+                  <th className="text-right pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Rate / Qty</th>
+                  <th className="text-center pb-1 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productHistory.map((h, i) => (
+                  <tr key={i} className={cn('transition-colors', i < productHistory.length - 1 && 'border-b border-violet-100/20 dark:border-violet-900/20')}>
+                    <td className="py-1 pr-4 text-muted-foreground/60 whitespace-nowrap">
+                      {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                    </td>
+                    <td className="py-1 pr-4 font-mono font-semibold text-primary/70">{h.invoiceNumber}</td>
+                    <td className="py-1 pr-4 font-mono text-muted-foreground/70">{h.batchNumber}</td>
+                    <td className="py-1 pr-4 text-right font-mono font-semibold">{h.qty}</td>
+                    <td className="py-1 pr-4 text-right font-mono font-bold text-foreground/80">₹{h.rate}</td>
+                    <td className="py-1 text-center">
+                      <Badge
+                        variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                        size="sm"
+                        className="text-[8px] px-1.5 h-3.5"
+                      >
+                        {h.status}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TableCell>
+      </TableRow>
+    )}
+    </>
   )
 }
 
@@ -1007,7 +1113,6 @@ function PaymentPanel({
     { label: 'Card', value: 'CARD', icon: <CreditCard className="h-3.5 w-3.5" /> },
     { label: 'UPI', value: 'UPI', icon: <Smartphone className="h-3.5 w-3.5" /> },
     { label: 'Credit', value: 'CREDIT', icon: <Clock className="h-3.5 w-3.5" /> },
-    { label: 'Split', value: 'SPLIT', icon: <SplitSquareHorizontal className="h-3.5 w-3.5" /> },
   ]
 
   const denominations = [50, 100, 200, 500, 1000, 2000]
@@ -1414,11 +1519,14 @@ export default function NewSalePage() {
     return params.get('type') === 'quotation' ? 'quotation' : 'invoice'
   })
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
-  const [selectedSalesperson, setSelectedSalesperson] = useState<{ id: string; name: string } | null>(null)
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
-  const [salespersonSearch, setSalespersonSearch] = useState('')
-  const [showSalespersonDropdown, setShowSalespersonDropdown] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+
+  // Derive salesperson from selected customer's referredBy field
+  const selectedSalesperson = useMemo(() => {
+    if (!selectedCustomer?.referredBy) return null
+    return salespersons.find((sp) => sp.name === selectedCustomer.referredBy) ?? { id: '', name: selectedCustomer.referredBy }
+  }, [selectedCustomer, salespersons])
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
@@ -1488,10 +1596,6 @@ export default function NewSalePage() {
     )
     if (matchedCustomer) {
       setSelectedCustomer(matchedCustomer)
-      if (matchedCustomer.referredBy) {
-        const sp = salespersons.find((s) => s.name === matchedCustomer.referredBy)
-        if (sp) setSelectedSalesperson(sp)
-      }
     }
 
     // Resolve each item: find product by name → find first available batch
@@ -1545,8 +1649,11 @@ export default function NewSalePage() {
     splits: [],
   })
 
+  // ── Customer last-sale price cache: productId → rate ─────
+  const [customerLastRates, setCustomerLastRates] = useState<Record<string, number>>({})
+
   // ── Table view tabs ───────────────────────────────────────
-  type TableView = 'products' | 'customer-history' | 'salesperson-customers'
+  type TableView = 'products' | 'customer-history' | 'customer-reminders'
   const [tableView, setTableView] = useState<TableView>('products')
   const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
 
@@ -1556,9 +1663,54 @@ export default function NewSalePage() {
   const [selectedHistoryInvoice, setSelectedHistoryInvoice] = useState<Invoice | null>(null)
   const [historyInvoiceOpen, setHistoryInvoiceOpen] = useState(false)
 
-  // Fetch customer invoices when customer changes or tab switches
+  // ── Customer reminders tab ────────────────────────────────
+  const [customerReminders, setCustomerReminders] = useState<any[]>([])
+  const [customerRemindersLoading, setCustomerRemindersLoading] = useState(false)
+
   useEffect(() => {
-    if (tableView === 'customer-history' && selectedCustomer) {
+    if (tableView !== 'customer-reminders' || !selectedCustomer) return
+    setCustomerRemindersLoading(true)
+    api.get('/reminders', { params: { branchId: activeBranchId || undefined } })
+      .then(res => {
+        const all: any[] = Array.isArray(res.data) ? res.data : []
+        setCustomerReminders(all.filter((r: any) => r.customerId === selectedCustomer.id))
+      })
+      .catch(() => setCustomerReminders([]))
+      .finally(() => setCustomerRemindersLoading(false))
+  }, [tableView, selectedCustomer, activeBranchId])
+
+
+  // Fetch customer invoices whenever customer changes — used for both history panel and last-rate cache
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setCustomerInvoices([])
+      setCustomerLastRates({})
+      return
+    }
+    setCustomerInvoicesLoading(true)
+    api.get(`/billing?customerId=${selectedCustomer.id}`)
+      .then((res) => {
+        const invoices: Invoice[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+        invoices.sort((a: any, b: any) => new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime())
+        setCustomerInvoices(invoices)
+        // Build last-rate cache
+        const rates: Record<string, number> = {}
+        for (const inv of invoices) {
+          for (const it of ((inv as any).items ?? [])) {
+            if (it.productId && rates[it.productId] === undefined) {
+              rates[it.productId] = Number(it.rate)
+            }
+          }
+        }
+        setCustomerLastRates(rates)
+      })
+      .catch(() => { setCustomerInvoices([]); setCustomerLastRates({}) })
+      .finally(() => setCustomerInvoicesLoading(false))
+  }, [selectedCustomer])
+
+  // Keep history tab fetch in sync for tab-switch (no-op now since customer effect covers it)
+  useEffect(() => {
+    if (tableView === 'customer-history' && selectedCustomer && customerInvoices.length === 0 && !customerInvoicesLoading) {
       setCustomerInvoicesLoading(true)
       api.get(`/billing?customerId=${selectedCustomer.id}`)
         .then((res) => setCustomerInvoices(Array.isArray(res.data) ? res.data : res.data?.data ?? []))
@@ -1570,7 +1722,6 @@ export default function NewSalePage() {
   // ── Refs ──────────────────────────────────────────────────
   const heroSearchRef = useRef<HTMLInputElement>(null)
   const customerRef = useRef<HTMLDivElement>(null)
-  const salespersonRef = useRef<HTMLDivElement>(null)
   const lastKeypressTimeRef = useRef<number>(0)
   const barcodeCharCountRef = useRef<number>(0)
 
@@ -1589,9 +1740,6 @@ export default function NewSalePage() {
     function handleClick(e: MouseEvent) {
       if (customerRef.current && !customerRef.current.contains(e.target as Node)) {
         setShowCustomerDropdown(false)
-      }
-      if (salespersonRef.current && !salespersonRef.current.contains(e.target as Node)) {
-        setShowSalespersonDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -1635,6 +1783,15 @@ export default function NewSalePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const addProductFromSearch = useCallback(
     (product: Product) => {
+      if (!selectedCustomer) {
+        toast.error('Please select a customer before adding products')
+        setShowCustomerDropdown(true)
+        setHeroSearch('')
+        setShowHeroResults(false)
+        setTimeout(() => heroSearchRef.current?.focus(), 300)
+        return
+      }
+
       const existingIdx = items.findIndex((i) => i.productId === product.id)
       if (existingIdx !== -1) {
         // Increment quantity of existing item
@@ -1653,7 +1810,13 @@ export default function NewSalePage() {
           .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
         const firstBatch = productBatches[0]
-        const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+        const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+        // Use last sold rate to this customer if available
+        const lastRate = customerLastRates[product.id]
+        const rate = lastRate ?? defaultRate
+        if (lastRate !== undefined) {
+          toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
+        }
 
         const newItem: BillingItem = {
           ...createEmptyItem(),
@@ -1683,7 +1846,7 @@ export default function NewSalePage() {
       setHeroSelectedIdx(0)
       setTimeout(() => heroSearchRef.current?.focus(), 50)
     },
-    [items, billingType]
+    [items, billingType, selectedCustomer, customerLastRates]
   )
 
   // ── Hero keyboard navigation ──────────────────────────────
@@ -1758,8 +1921,13 @@ export default function NewSalePage() {
   }, [])
 
   const addItem = useCallback(() => {
+    if (!selectedCustomer) {
+      toast.error('Please select a customer before adding products')
+      setShowCustomerDropdown(true)
+      return
+    }
     setItems((prev) => [...prev, createEmptyItem()])
-  }, [])
+  }, [selectedCustomer])
 
   // ── Calculations ──────────────────────────────────────
   const totals = useMemo(() => {
@@ -1881,6 +2049,39 @@ export default function NewSalePage() {
   // ── Submit Invoice ──────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null)
+
+  // ── Quick Reminder ────────────────────────────────────────
+  const [reminderOpen, setReminderOpen] = useState(false)
+  const [reminderDay, setReminderDay] = useState('')
+  const [reminderTitle, setReminderTitle] = useState('')
+  const [reminderNotes, setReminderNotes] = useState('')
+  const [reminderSaving, setReminderSaving] = useState(false)
+
+  const handleSaveReminder = async () => {
+    if (!selectedCustomer || !reminderDay || !reminderTitle) {
+      toast.error('Day and title are required')
+      return
+    }
+    setReminderSaving(true)
+    try {
+      await api.post('/reminders', {
+        customerId: selectedCustomer.id,
+        dayOfMonth: parseInt(reminderDay),
+        title: reminderTitle,
+        notes: reminderNotes || undefined,
+        branchId: activeBranchId || undefined,
+      })
+      toast.success(`Reminder set for ${selectedCustomer.name} on day ${reminderDay} of every month`)
+      setReminderOpen(false)
+      setReminderDay('')
+      setReminderTitle('')
+      setReminderNotes('')
+    } catch {
+      toast.error('Failed to set reminder')
+    } finally {
+      setReminderSaving(false)
+    }
+  }
   const submitInvoice = async () => {
     const activeItems = items.filter((i) => i.productId && i.quantity > 0)
     if (activeItems.length === 0) {
@@ -2273,6 +2474,20 @@ export default function NewSalePage() {
                     <History className="h-3 w-3" />
                   </button>
                 )}
+                {selectedCustomer && (
+                  <button
+                    type="button"
+                    className="p-0.5 rounded hover:bg-violet-500/10 text-muted-foreground/50 hover:text-violet-500 shrink-0 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                      setReminderOpen(true)
+                    }}
+                    title="Set monthly reminder for this customer"
+                  >
+                    <CalendarClock className="h-3 w-3" />
+                  </button>
+                )}
                 <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
               </button>
               <AnimatePresence>
@@ -2302,11 +2517,7 @@ export default function NewSalePage() {
                             setSelectedCustomer(cust)
                             setCustomerSearch('')
                             setShowCustomerDropdown(false)
-                            setTableView('customer-history')
-                            if (cust.referredBy) {
-                              const sp = salespersons.find((s) => s.name === cust.referredBy)
-                              if (sp) setSelectedSalesperson(sp)
-                            }
+                            setTableView('products')
                           }}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -2359,6 +2570,23 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
 
+            {/* Reminder Button — desktop only, left of Add Item */}
+            {selectedCustomer && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                  setReminderOpen(true)
+                }}
+                className="hidden md:flex h-11 px-3 shrink-0 gap-1.5 border-violet-300/60 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 dark:text-violet-400"
+                title="Set monthly reminder for this customer"
+              >
+                <CalendarClock className="h-4 w-4" />
+                <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
+              </Button>
+            )}
+
             {/* Add Item Button — desktop only (md+) */}
             <Button
               type="button"
@@ -2372,90 +2600,26 @@ export default function NewSalePage() {
           </div>
 
           {/* ═══════════════════════════════════════════════════
-              SIDEBAR HEADER (Salesperson only)
+              SIDEBAR HEADER (Salesperson — read-only, derived from customer)
           ═══════════════════════════════════════════════════ */}
-          {salespersons.length > 0 && (
-            <div ref={salespersonRef} className="hidden md:flex w-75 lg:w-80 shrink-0 items-center">
-              <div className="relative w-full">
-                <button
-                  type="button"
-                  onClick={() => setShowSalespersonDropdown(!showSalespersonDropdown)}
-                  className={cn(
-                    'flex items-center gap-2.5 w-full h-11 rounded-xl border border-border/60 bg-background px-3 text-xs transition-all shadow-sm',
-                    'hover:border-primary/40'
-                  )}
-                >
-                  <div className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                    selectedSalesperson ? "bg-violet-500/10 text-violet-500" : "bg-muted text-muted-foreground"
-                  )}>
-                    {selectedSalesperson ? selectedSalesperson.name[0] : <Users className="h-3 w-3" />}
-                  </div>
-                  <span className={cn("flex-1 text-left truncate font-semibold", !selectedSalesperson && "text-muted-foreground/60")}>
-                    {selectedSalesperson?.name ?? 'No Salesperson'}
-                  </span>
-                  {selectedSalesperson && (
-                    <button
-                      type="button"
-                      className="ml-1 p-0.5 rounded hover:bg-accent text-muted-foreground/50 hover:text-foreground shrink-0"
-                      onClick={(e) => { e.stopPropagation(); setSelectedSalesperson(null); if (tableView === 'salesperson-customers') setTableView('products') }}
-                      title="Clear salesperson"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                  <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                </button>
-                <AnimatePresence>
-                  {showSalespersonDropdown && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.1 }}
-                      className="absolute z-50 right-0 mt-1 w-72 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
-                    >
-                      <div className="p-2 border-b border-border/40">
-                        <input
-                          value={salespersonSearch}
-                          onChange={(e) => setSalespersonSearch(e.target.value)}
-                          placeholder="Search salesperson..."
-                          className="w-full h-8 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-                          autoFocus
-                        />
-                      </div>
-                      <ScrollArea className="h-56">
-                        {salespersons
-                          .filter((sp) => sp.name.toLowerCase().includes(salespersonSearch.toLowerCase()))
-                          .map((sp) => (
-                            <div
-                              key={sp.id}
-                              className={cn(
-                                "cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0",
-                                selectedSalesperson?.id === sp.id && "bg-violet-500/5"
-                              )}
-                              onClick={() => {
-                                setSelectedSalesperson(sp)
-                                setSalespersonSearch('')
-                                setShowSalespersonDropdown(false)
-                                setTableView('salesperson-customers')
-                              }}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/10 text-violet-500 text-[10px] font-bold">
-                                  {sp.name[0]}
-                                </div>
-                                <span className="text-xs font-semibold">{sp.name}</span>
-                              </div>
-                            </div>
-                          ))}
-                      </ScrollArea>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+          <div className="hidden md:flex w-75 lg:w-80 shrink-0 items-center">
+            <div className={cn(
+              'flex items-center gap-2.5 w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3 text-xs shadow-sm select-none',
+            )}>
+              <div className={cn(
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                selectedSalesperson ? "bg-violet-500/10 text-violet-500" : "bg-muted text-muted-foreground"
+              )}>
+                {selectedSalesperson ? selectedSalesperson.name[0] : <Users className="h-3 w-3" />}
               </div>
+              <span className={cn("flex-1 truncate font-semibold", !selectedSalesperson && "text-muted-foreground/50 italic")}>
+                {selectedSalesperson?.name ?? 'Salesperson (auto from customer)'}
+              </span>
+              {selectedSalesperson && (
+                <Badge variant="secondary" size="sm" className="shrink-0 text-[9px]">SP</Badge>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         {/* ── Credit Block Warning ── */}
@@ -2492,7 +2656,7 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             MAIN TWO-PANEL LAYOUT
         ═══════════════════════════════════════════════════ */}
-        <div className="flex flex-col gap-3 flex-1 min-h-0 md:flex-row">
+        <div className="flex flex-col gap-3 flex-1 md:flex-row overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
           <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
             {/* Tab strip */}
@@ -2532,48 +2696,56 @@ export default function NewSalePage() {
                 <History className="h-3 w-3" />
                 {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Customer History'}
               </button>
-              {selectedSalesperson && (
-                <button
-                  type="button"
-                  onClick={() => setTableView('salesperson-customers')}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
-                    tableView === 'salesperson-customers'
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-                  )}
-                >
-                  <Users className="h-3 w-3" />
-                  {selectedSalesperson.name.split(' ')[0]}'s Customers
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setTableView('customer-reminders')
+                  if (!selectedCustomer) setShowCustomerDropdown(true)
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                  tableView === 'customer-reminders'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                )}
+              >
+                <CalendarClock className="h-3 w-3" />
+                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s Reminders` : 'Reminders'}
+                {customerReminders.length > 0 && tableView !== 'customer-reminders' && (
+                  <span className="ml-0.5 rounded-full px-1 text-[9px] font-bold bg-violet-100 text-violet-600">
+                    {customerReminders.length}
+                  </span>
+                )}
+              </button>
             </div>
 
-            <Card className="flex-1 flex flex-col overflow-hidden">
-              <CardContent className="p-0 flex-1 flex flex-col">
+            <Card className="flex-1 flex flex-col min-h-0">
+              <CardContent className="p-0 flex-1 flex flex-col min-h-0">
 
                 {/* ── Products Tab ── */}
                 {tableView === 'products' && (
-                  <>
-                    <ScrollArea className="flex-1 overflow-x-auto">
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 flex flex-col min-h-0 relative">
                       {/* Desktop Table View */}
-                      <div className="hidden md:block">
-                        <Table className="w-full min-w-150">
-                          <TableHeader className="sticky top-0 z-10 w-full bg-muted/95 backdrop-blur-md">
+                      <div className="hidden md:flex flex-col flex-1 absolute inset-0">
+                        <Table className="w-full min-w-150 relative">
+                          <TableHeader className="sticky top-0 z-20 w-full bg-muted/95 backdrop-blur-md">
                             <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
                               <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
                               <TableHead className="min-w-55 px-2 py-3 text-left h-auto">Product Selection</TableHead>
                               <TableHead className="w-37.5 px-1.5 py-3 text-left h-auto">Batch / Expiry</TableHead>
                               <TableHead className="w-27.5 px-1.5 py-3 text-center h-auto">Quantity</TableHead>
-                              <TableHead className="w-22 px-1.5 py-3 text-right h-auto">Unit Rate</TableHead>
-                              <TableHead className="w-28 px-1.5 py-3 text-center h-auto">New Rate</TableHead>
+                              <TableHead className="w-50 px-1.5 py-3 text-center h-auto">Rate / Qty</TableHead>
                               <TableHead className="w-16.25 px-1.5 py-3 text-center h-auto">Disc %</TableHead>
                               <TableHead className="w-12.5 px-1 py-3 text-center h-auto">GST</TableHead>
                               <TableHead className="w-27.5 px-3 py-3 text-right h-auto">Amount</TableHead>
                               <TableHead className="w-8 px-1 py-3 h-auto"></TableHead>
                             </TableRow>
                           </TableHeader>
-                          <TableBody>
+                        </Table>
+                        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                          <Table className="w-full min-w-150">
+                            <TableBody>
                             <AnimatePresence mode="popLayout">
                               {items.map((item, idx) => (
                                 <BillingRow
@@ -2583,15 +2755,18 @@ export default function NewSalePage() {
                                   billingType={billingType}
                                   onUpdate={updateItem}
                                   onRemove={removeItem}
+                                  customerLastRates={customerLastRates}
+                                  customerInvoices={customerInvoices}
                                 />
                               ))}
                             </AnimatePresence>
                           </TableBody>
                         </Table>
                       </div>
+                      </div>
 
                       {/* Mobile Card View */}
-                      <div className="block md:hidden p-3">
+                      <div className="block md:hidden p-3 absolute inset-0 overflow-y-auto">
                         <AnimatePresence mode="popLayout">
                           {items.map((item, idx) => (
                             <MobileBillingCard
@@ -2607,7 +2782,7 @@ export default function NewSalePage() {
                       </div>
 
                       {items.length === 1 && !items[0].productId && (
-                        <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="flex flex-col items-center justify-center py-10 text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
                             <Package className="h-6 w-6 text-muted-foreground/30" />
                           </div>
@@ -2615,18 +2790,105 @@ export default function NewSalePage() {
                           <p className="text-[11px] text-muted-foreground/40 mt-0.5">Or press Alt+N to add a manual row</p>
                         </div>
                       )}
-                    </ScrollArea>
-                    <div className="flex items-center justify-end border-t border-border/40 px-3 py-1.5 bg-muted/10">
+
+                    </div>
+                    <div className="flex items-center justify-end border-t border-border/40 px-3 py-1.5 bg-muted/10 shrink-0">
                       {activeItemCount > 0 && (
                         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                           {activeItemCount} item{activeItemCount !== 1 ? 's' : ''} in cart
                         </span>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* ── Customer History Tab ── */}
+                {/* ── Customer Reminders Tab ── */}
+                {tableView === 'customer-reminders' && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {!selectedCustomer ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
+                          <CalendarClock className="h-6 w-6 text-muted-foreground/30" />
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-muted-foreground/60">Select a customer to view their reminders</p>
+                      </div>
+                    ) : customerRemindersLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
+                      </div>
+                    ) : customerReminders.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                        <CalendarClock className="h-10 w-10 text-muted-foreground/20" />
+                        <p className="text-sm font-medium text-muted-foreground/60">No reminders for {selectedCustomer.name}</p>
+                        <button
+                          type="button"
+                          className="text-xs text-violet-600 font-semibold hover:underline"
+                          onClick={() => {
+                            setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                            setReminderOpen(true)
+                          }}
+                        >
+                          + Set a reminder
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/20">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {customerReminders.length} reminder{customerReminders.length !== 1 ? 's' : ''} — {selectedCustomer.name}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-[10px] text-violet-600 font-semibold hover:underline"
+                            onClick={() => {
+                              setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                              setReminderOpen(true)
+                            }}
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        <div className="divide-y divide-border/30">
+                          {customerReminders.map((r: any) => {
+                            const lastContact = r.contacts?.[0]
+                            const statusColors: Record<string, string> = {
+                              TALKED: 'text-emerald-600',
+                              NOT_RESPONDED: 'text-amber-600',
+                              DENIED: 'text-rose-600',
+                              NEED_TO_TALK: 'text-blue-600',
+                              SCHEDULED: 'text-muted-foreground',
+                            }
+                            return (
+                              <div key={r.id} className="flex items-start gap-3 px-3 py-3 hover:bg-muted/20 transition-colors">
+                                <div className={cn(
+                                  'flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl text-center',
+                                  r.dayOfMonth === new Date().getDate()
+                                    ? 'bg-amber-500 text-white'
+                                    : 'bg-violet-500/10 text-violet-600'
+                                )}>
+                                  <span className="text-sm font-black leading-none">{r.dayOfMonth}</span>
+                                  <span className="text-[7px] font-bold uppercase opacity-70">mo</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold truncate">{r.title}</p>
+                                  <p className="text-[10px] text-muted-foreground">Every {r.dayOfMonth}{['st','nd','rd'][r.dayOfMonth-1] ?? 'th'} of month</p>
+                                  {lastContact && (
+                                    <p className={cn('text-[10px] font-medium mt-0.5', statusColors[lastContact.status] ?? 'text-muted-foreground')}>
+                                      Last: {lastContact.status.replace('_', ' ')} · {new Date(lastContact.contactedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                    </p>
+                                  )}
+                                  {r.notes && <p className="text-[10px] text-muted-foreground/60 truncate">{r.notes}</p>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {tableView === 'customer-history' && (
                   <>
                     {!selectedCustomer ? (
@@ -2700,76 +2962,6 @@ export default function NewSalePage() {
                   </>
                 )}
 
-                {/* ── Salesperson Customers Tab ── */}
-                {tableView === 'salesperson-customers' && selectedSalesperson && (() => {
-                  const spCustomers = customers.filter((c) => c.referredBy === selectedSalesperson.name)
-                  return spCustomers.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <Users className="h-10 w-10 text-muted-foreground/20 mb-3" />
-                      <p className="text-sm font-medium text-muted-foreground/60">No customers referred by {selectedSalesperson.name}</p>
-                    </div>
-                  ) : (
-                    <ScrollArea className="flex-1">
-                      <div className="px-3 py-2 border-b border-border/40 bg-muted/20">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          {spCustomers.length} customer{spCustomers.length !== 1 ? 's' : ''} — {selectedSalesperson.name}
-                        </p>
-                      </div>
-                      <Table>
-                        <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
-                          <TableRow className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent border-b border-border/40">
-                            <TableHead className="px-3 py-2 h-auto">Name</TableHead>
-                            <TableHead className="px-3 py-2 h-auto">Phone</TableHead>
-                            <TableHead className="px-3 py-2 h-auto text-center">Type</TableHead>
-                            <TableHead className="px-3 py-2 h-auto text-right">Outstanding</TableHead>
-                            <TableHead className="px-3 py-2 h-auto"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {spCustomers.map((cust) => (
-                            <TableRow
-                              key={cust.id}
-                              className={cn(
-                                'cursor-pointer hover:bg-accent/40 transition-colors',
-                                selectedCustomer?.id === cust.id && 'bg-primary/5'
-                              )}
-                              onClick={() => {
-                                setSelectedCustomer(cust)
-                                setTableView('products')
-                                toast.success(`Selected ${cust.name}`)
-                              }}
-                            >
-                              <TableCell className="px-3 py-2.5">
-                                <div className="flex items-center gap-2">
-                                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                                    {cust.name[0]}
-                                  </div>
-                                  <span className="text-xs font-semibold">{cust.name}</span>
-                                  {selectedCustomer?.id === cust.id && (
-                                    <Badge variant="success" size="sm" className="text-[8px]">Selected</Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">{cust.phone !== '0000000000' ? cust.phone : '—'}</TableCell>
-                              <TableCell className="px-3 py-2.5 text-center">
-                                <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px]">{cust.type}</Badge>
-                              </TableCell>
-                              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">
-                                {Number(cust.currentOutstanding) > 0
-                                  ? <span className="text-amber-600 font-semibold">{formatCurrency(Number(cust.currentOutstanding))}</span>
-                                  : <span className="text-muted-foreground/40">—</span>
-                                }
-                              </TableCell>
-                              <TableCell className="px-3 py-2.5">
-                                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40" />
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
-                  )
-                })()}
 
               </CardContent>
             </Card>
@@ -3005,6 +3197,7 @@ export default function NewSalePage() {
                   )}
                 </Button>
               </div>
+
             </div>
           </div>
         </div>
@@ -3563,6 +3756,67 @@ export default function NewSalePage() {
                 }
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Quick Reminder Dialog ── */}
+      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-violet-500" />
+              Set Monthly Reminder
+            </DialogTitle>
+            <DialogDescription>
+              {selectedCustomer?.name} · {selectedCustomer?.phone}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Reminder Day of Month (1–31) *</Label>
+              <Input
+                type="number"
+                min={1}
+                max={31}
+                placeholder="e.g. 3"
+                value={reminderDay}
+                onChange={e => setReminderDay(e.target.value)}
+                autoFocus
+              />
+              {reminderDay && parseInt(reminderDay) >= 1 && parseInt(reminderDay) <= 31 && (
+                <p className="text-[10px] text-muted-foreground">
+                  You'll be reminded on the {reminderDay}{['st','nd','rd'][parseInt(reminderDay)-1] ?? 'th'} of every month
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Title *</Label>
+              <Input
+                placeholder="e.g. Monthly medicine order follow-up"
+                value={reminderTitle}
+                onChange={e => setReminderTitle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Notes (optional)</Label>
+              <Textarea
+                placeholder="Products usually ordered, special instructions..."
+                rows={2}
+                value={reminderNotes}
+                onChange={e => setReminderNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReminderOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleSaveReminder}
+              disabled={reminderSaving || !reminderDay || !reminderTitle}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {reminderSaving ? 'Saving...' : 'Set Reminder'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

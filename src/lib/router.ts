@@ -176,6 +176,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Notifications',
     breadcrumbs: [{ label: 'Notifications' }],
   },
+  '/reminders': {
+    label: 'Reminders',
+    breadcrumbs: [{ label: 'Reminders' }],
+  },
 }
 
 /** Get route config for a given path, with fallback to dashboard */

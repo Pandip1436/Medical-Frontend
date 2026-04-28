@@ -151,7 +151,7 @@ export default function CashBookPage() {
 
   // Summary calculations
   const summary = useMemo(() => {
-    const openingBalance = 125000 // Mock opening balance
+    const openingBalance = 0
     const cashIn = transactions.reduce((sum, t) => sum + t.debit, 0)
     const cashOut = transactions.reduce((sum, t) => sum + t.credit, 0)
     const closingBalance = openingBalance + cashIn - cashOut

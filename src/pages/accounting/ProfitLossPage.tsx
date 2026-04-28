@@ -60,10 +60,6 @@ const periodLabels: Record<Period, string> = {
   custom: 'Custom',
 }
 
-// ─────────────────────────────────────────────────────────────
-// Mock P&L data
-// ─────────────────────────────────────────────────────────────
-
 interface PLData {
   salesRevenue: number
   salesReturns: number

@@ -62,10 +62,6 @@ import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 
-// ─────────────────────────────────────────────────────────────
-// MOCK QUOTATION DATA
-// ─────────────────────────────────────────────────────────────
-
 type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
 
 interface QuotationItem {

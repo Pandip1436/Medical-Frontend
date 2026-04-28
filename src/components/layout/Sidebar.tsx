@@ -31,6 +31,7 @@ import {
   UserCheck,
   Tag,
   Bell,
+  CalendarClock,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -67,6 +68,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
       { label: 'Notifications', icon: Bell, href: '/notifications' },
+      { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
     ],
   },
   {

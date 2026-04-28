@@ -42,6 +42,7 @@ const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPage'))
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
+const RemindersPage = lazy(() => import('@/pages/reminders/RemindersPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -276,6 +277,8 @@ function App() {
         return <SalespersonReportPage />
       case '/notifications':
         return <NotificationsPage />
+      case '/reminders':
+        return <RemindersPage />
       default:
         return <DashboardPage />
     }
