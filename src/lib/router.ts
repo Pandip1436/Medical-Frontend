@@ -88,6 +88,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Goods Receipt',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Goods Receipt' }],
   },
+  '/purchase/grn-list': {
+    label: 'Goods Received',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Goods Received' }],
+  },
   '/purchase/returns': {
     label: 'Purchase Returns',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Returns' }],
@@ -179,6 +183,10 @@ export const routes: Record<string, RouteConfig> = {
   '/reminders': {
     label: 'Reminders',
     breadcrumbs: [{ label: 'Reminders' }],
+  },
+  '/admin/approvals': {
+    label: 'Approvals',
+    breadcrumbs: [{ label: 'Admin' }, { label: 'Approvals' }],
   },
 }
 

@@ -120,6 +120,20 @@ export default function CreditNotesPage() {
   const [selectedSettlement, setSelectedSettlement] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [detailNote, setDetailNote] = useState<CreditNote | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const openDetail = useCallback(async (cn: CreditNote) => {
+    setDetailNote(cn) // show dialog immediately with list data
+    setDetailLoading(true)
+    try {
+      const res = await api.get(`/credit-notes/${cn.id}`)
+      setDetailNote(res.data)
+    } catch {
+      // keep showing list data, items will just be missing
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
 
   const fetchCreditNotes = useCallback(async () => {
     setIsLoading(true)
@@ -411,7 +425,7 @@ export default function CreditNotesPage() {
                 <div
                   key={cn.id}
                   className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
-                  onClick={() => setDetailNote(cn)}
+                  onClick={() => openDetail(cn)}
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</p>
@@ -491,7 +505,7 @@ export default function CreditNotesPage() {
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.15, delay: idx * 0.02 }}
                       className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                      onClick={() => setDetailNote(cn)}
+                      onClick={() => openDetail(cn)}
                     >
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -522,7 +536,7 @@ export default function CreditNotesPage() {
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon-sm" onClick={() => setDetailNote(cn)}>
+                          <Button variant="ghost" size="icon-sm" onClick={() => openDetail(cn)}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon-sm" onClick={() => handlePrint(cn)}>
@@ -602,7 +616,9 @@ export default function CreditNotesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {detailNote.items.map((item) => (
+                    {detailLoading ? (
+                      <TableRow><TableCell colSpan={6} className="text-center py-4 text-sm text-muted-foreground animate-pulse">Loading items…</TableCell></TableRow>
+                    ) : (detailNote.items ?? []).map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="text-sm font-medium">{item.productName}</TableCell>
                         <TableCell className="font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>

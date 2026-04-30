@@ -206,6 +206,14 @@ export interface GRN {
   items: GRNItem[]
   totalAmount: number
   status: 'DRAFT' | 'RECEIVED' | 'VERIFIED'
+  purchaseReturns?: Array<{
+    id: string
+    debitNoteNo: string
+    settlementMode?: 'REFUND' | 'REPLACEMENT' | 'ADJUST'
+    status: string
+    reason: string
+    items: Array<{ productId: string; returnedQty: number }>
+  }>
 }
 
 export type ExpenseCategory =

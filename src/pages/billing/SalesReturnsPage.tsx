@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   Check,
   RotateCcw,
+  ShieldCheck,
   FileText,
   Package,
   Receipt,
@@ -57,6 +58,7 @@ import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/uti
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { useAuthStore } from '@/stores/authStore'
 import type { Invoice, InvoiceItem } from '@/types'
 import { printCreditNotePdf, downloadCreditNotePdf, type NoteData } from '@/lib/pdf/notesPdf'
 
@@ -102,6 +104,12 @@ const reasonVariantMap: Record<string, 'destructive' | 'warning' | 'info' | 'pur
   'Side Effects': 'purple',
   Other: 'secondary',
 }
+
+const SETTLEMENT_OPTIONS = [
+  { value: 'refund',      title: 'Refund to Customer',          desc: 'Cash/card refund via original payment method' },
+  { value: 'adjust',      title: 'Adjust Against Outstanding',  desc: 'Deduct credit amount from existing balance' },
+  { value: 'replacement', title: 'Replacement',                 desc: 'Replace with equivalent product(s)' },
+] as const
 
 const STEPS = [
   { number: 1, label: 'Select Invoice', icon: FileText },
@@ -247,6 +255,8 @@ const MobileReturnCard = ({
 // ─────────────────────────────────────────────────────────────
 
 export default function SalesReturnsPage() {
+  const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
+
   // Wizard state
   const [currentStep, setCurrentStep] = useState(1)
   const [direction, setDirection] = useState(1)
@@ -280,6 +290,7 @@ export default function SalesReturnsPage() {
 
   // Step 3
   const [settlementOption, setSettlementOption] = useState<string>('refund')
+  const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null)
 
   const creditNoteNumber = useMemo(() => generateInvoiceNumber('CN', 12), [])
 
@@ -319,6 +330,15 @@ export default function SalesReturnsPage() {
         item,
       }))
     )
+    // Fetch customer outstanding so we can disable "Adjust" if balance is zero
+    setCustomerOutstanding(null)
+    if (inv.customerId) {
+      api.get(`/customers/${inv.customerId}`)
+        .then(r => setCustomerOutstanding(Number(r.data.currentOutstanding ?? 0)))
+        .catch(() => setCustomerOutstanding(0))
+    } else {
+      setCustomerOutstanding(0)
+    }
   }
 
   // ── Step 2: Items ──
@@ -370,9 +390,9 @@ export default function SalesReturnsPage() {
     let subtotal = 0
     let totalGst = 0
     for (const ri of selectedReturnItems) {
-      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+      const lineRate = Number(ri.item.rate) * (1 - Number(ri.item.discountPercent) / 100)
       const lineAmount = lineRate * ri.returnQty
-      const gstAmount = lineAmount * (ri.item.gstPercent / 100)
+      const gstAmount = lineAmount * (Number(ri.item.gstPercent) / 100)
       subtotal += lineAmount
       totalGst += gstAmount
     }
@@ -438,8 +458,12 @@ export default function SalesReturnsPage() {
 
   const handleConfirmReturn = async () => {
     if (!selectedInvoice) return
+    // Safety: if adjust selected but customer has no outstanding, fall back to refund
+    const effectiveOption = (settlementOption === 'adjust' && (customerOutstanding ?? 0) <= 0) ? 'refund' : settlementOption
     const settlementMode =
-      settlementOption === 'refund' ? 'REFUND' : settlementOption === 'adjust' ? 'CREDIT' : 'REPLACEMENT'
+      effectiveOption === 'adjust' ? 'CREDIT'
+      : effectiveOption === 'replacement' ? 'REPLACEMENT'
+      : 'REFUND'
 
     const payloadItems = selectedReturnItems.map((ri) => {
       const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
@@ -479,15 +503,20 @@ export default function SalesReturnsPage() {
 
     try {
       const res = await api.post('/credit-notes', payload)
-      toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} created successfully`, {
-        description: `${formatCurrency(creditSummary.total)} processed as ${settlementMode.toLowerCase()}.`,
-      })
+      if (res.data?.approvalRequested) {
+        toast.success('Approval request sent to admin. The sales return will be processed once approved.', { duration: 6000 })
+      } else {
+        toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} created successfully`, {
+          description: `${formatCurrency(creditSummary.total)} processed as ${settlementMode.toLowerCase()}.`,
+        })
+      }
       setCurrentStep(1)
       setDirection(-1)
       setSelectedInvoice(null)
       setReturnItems([])
       setInvoiceSearch('')
       setSettlementOption('refund')
+      setCustomerOutstanding(null)
     } catch {
       // api.ts already surfaces a toast for the error
     }
@@ -1030,7 +1059,7 @@ export default function SalesReturnsPage() {
                       <div className="col-span-2">Reason</div>
                     </div>
                     {selectedReturnItems.map((ri) => {
-                      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+                      const lineRate = Number(ri.item.rate) * (1 - Number(ri.item.discountPercent) / 100)
                       const lineAmount = lineRate * ri.returnQty
                       const displayReason = ri.reason === 'Other' ? ri.customReason || 'Other' : ri.reason
                       const badgeVariant = reasonVariantMap[ri.reason || 'Other'] || 'secondary'
@@ -1075,32 +1104,50 @@ export default function SalesReturnsPage() {
                 <div className="lg:hidden border-t border-border/40 p-4 space-y-4">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Settlement Method</p>
                   <RadioGroup value={settlementOption} onValueChange={setSettlementOption} className="space-y-2">
-                    {[
-                      { value: 'refund', title: 'Refund to Customer', desc: 'Refund via original payment method' },
-                      { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from existing balance' },
-                      { value: 'store_credit', title: 'Store Credit', desc: 'Keep as credit for future purchases' },
-                    ].map((opt) => (
-                      <div
-                        key={opt.value}
-                        className={cn(
-                          'flex items-start gap-3 rounded-xl border p-3 transition-all cursor-pointer',
-                          settlementOption === opt.value
-                            ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
-                            : 'border-border/40 hover:bg-muted/30'
-                        )}
-                        onClick={() => setSettlementOption(opt.value)}
-                      >
-                        <RadioGroupItem value={opt.value} id={`mobile-${opt.value}`} className="mt-0.5" />
-                        <Label htmlFor={`mobile-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
-                          <p className="text-sm font-medium">{opt.title}</p>
-                          <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
-                        </Label>
-                      </div>
-                    ))}
+                    {SETTLEMENT_OPTIONS.map((opt) => {
+                      const isAdjust = opt.value === 'adjust'
+                      const noOutstanding = isAdjust && (customerOutstanding ?? 0) <= 0
+                      return (
+                        <div
+                          key={opt.value}
+                          className={cn(
+                            'flex items-start gap-3 rounded-xl border p-3 transition-all',
+                            noOutstanding
+                              ? 'opacity-40 cursor-not-allowed border-border/30'
+                              : cn(
+                                  'cursor-pointer',
+                                  settlementOption === opt.value
+                                    ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
+                                    : 'border-border/40 hover:bg-muted/30'
+                                )
+                          )}
+                          onClick={() => !noOutstanding && setSettlementOption(opt.value)}
+                        >
+                          <RadioGroupItem value={opt.value} id={`mobile-${opt.value}`} className="mt-0.5" disabled={noOutstanding} />
+                          <Label htmlFor={`mobile-${opt.value}`} className={cn('space-y-0.5 flex-1', noOutstanding ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium">{opt.title}</p>
+                              {isAdjust && customerOutstanding !== null && (
+                                <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', noOutstanding ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
+                                  {noOutstanding ? 'No outstanding' : `₹${Number(customerOutstanding).toFixed(2)} due`}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                          </Label>
+                        </div>
+                      )
+                    })}
                   </RadioGroup>
-                  <Button className="w-full" onClick={handleConfirmReturn}>
-                    <RotateCcw className="mr-1.5 h-4 w-4" />
-                    Confirm Return & Create Credit Note
+                  <Button
+                    className={`w-full ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                    onClick={handleConfirmReturn}
+                  >
+                    {isPharmacist
+                      ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                      : <RotateCcw className="mr-1.5 h-4 w-4" />
+                    }
+                    {isPharmacist ? 'Request Approval' : 'Confirm Return & Create Credit Note'}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
                     <ChevronLeft className="mr-1.5 h-4 w-4" />
@@ -1123,28 +1170,40 @@ export default function SalesReturnsPage() {
                         onValueChange={setSettlementOption}
                         className="space-y-2"
                       >
-                        {[
-                          { value: 'refund', title: 'Refund to Customer', desc: 'Refund via original payment method' },
-                          { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from existing balance' },
-                          { value: 'store_credit', title: 'Store Credit', desc: 'Keep as credit for future purchases' },
-                        ].map((opt) => (
-                          <div
-                            key={opt.value}
-                            className={cn(
-                              'flex items-start gap-3 rounded-xl border p-3 transition-all cursor-pointer',
-                              settlementOption === opt.value
-                                ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
-                                : 'border-border/40 hover:bg-muted/30'
-                            )}
-                            onClick={() => setSettlementOption(opt.value)}
-                          >
-                            <RadioGroupItem value={opt.value} id={opt.value} className="mt-0.5" />
-                            <Label htmlFor={opt.value} className="cursor-pointer space-y-0.5 flex-1">
-                              <p className="text-sm font-medium">{opt.title}</p>
-                              <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
-                            </Label>
-                          </div>
-                        ))}
+                        {SETTLEMENT_OPTIONS.map((opt) => {
+                          const isAdjust = opt.value === 'adjust'
+                          const noOutstanding = isAdjust && (customerOutstanding ?? 0) <= 0
+                          return (
+                            <div
+                              key={opt.value}
+                              className={cn(
+                                'flex items-start gap-3 rounded-xl border p-3 transition-all',
+                                noOutstanding
+                                  ? 'opacity-40 cursor-not-allowed border-border/30'
+                                  : cn(
+                                      'cursor-pointer',
+                                      settlementOption === opt.value
+                                        ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
+                                        : 'border-border/40 hover:bg-muted/30'
+                                    )
+                              )}
+                              onClick={() => !noOutstanding && setSettlementOption(opt.value)}
+                            >
+                              <RadioGroupItem value={opt.value} id={opt.value} className="mt-0.5" disabled={noOutstanding} />
+                              <Label htmlFor={opt.value} className={cn('space-y-0.5 flex-1', noOutstanding ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-medium">{opt.title}</p>
+                                  {isAdjust && customerOutstanding !== null && (
+                                    <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', noOutstanding ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
+                                      {noOutstanding ? 'No outstanding' : `₹${Number(customerOutstanding).toFixed(2)} due`}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                              </Label>
+                            </div>
+                          )
+                        })}
                       </RadioGroup>
                     </div>
 
@@ -1167,7 +1226,7 @@ export default function SalesReturnsPage() {
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground">Settlement</span>
                           <Badge variant="info" size="sm" className="capitalize">
-                            {settlementOption === 'store_credit' ? 'Store Credit' : settlementOption === 'adjust' ? 'Adjust' : 'Refund'}
+                            {SETTLEMENT_OPTIONS.find(o => o.value === settlementOption)?.title ?? 'Refund'}
                           </Badge>
                         </div>
                         <Separator />
@@ -1203,9 +1262,15 @@ export default function SalesReturnsPage() {
 
                 {/* Pinned action footer */}
                 <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
-                  <Button className="w-full" onClick={handleConfirmReturn}>
-                    <RotateCcw className="mr-1.5 h-4 w-4" />
-                    Confirm Return & Create Credit Note
+                  <Button
+                    className={`w-full ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                    onClick={handleConfirmReturn}
+                  >
+                    {isPharmacist
+                      ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                      : <RotateCcw className="mr-1.5 h-4 w-4" />
+                    }
+                    {isPharmacist ? 'Request Approval' : 'Confirm Return & Create Credit Note'}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
                     <ChevronLeft className="mr-1.5 h-4 w-4" />

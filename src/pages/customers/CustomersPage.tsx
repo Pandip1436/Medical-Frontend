@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useAuthStore } from '@/stores/authStore'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -165,6 +166,7 @@ export default function CustomersPage() {
   const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
   const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
   const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
+  const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
 
   const [searchQuery, setSearchQuery] = useState('')
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -367,13 +369,13 @@ export default function CustomersPage() {
 
   const handleAddCustomer = async (values: any) => {
     try {
-      const payload = {
-        ...values,
-        type: values.type,
+      const payload = { ...values, type: values.type }
+      const result = await addCustomerAction(payload)
+      if ((result as any)?.approvalRequested) {
+        toast.success(`Approval request sent to admin. Customer "${values.name}" will be created once approved.`, { duration: 6000 })
+      } else {
+        toast.success(`Customer "${values.name}" added successfully`)
       }
-      
-      await addCustomerAction(payload)
-      toast.success(`Customer "${values.name}" added successfully`)
       form.reset()
       setAddDialogOpen(false)
     } catch (error) {
@@ -418,6 +420,15 @@ export default function CustomersPage() {
         toast.success(`Customer "${values.name}" updated`)
       } else {
         const result = await addCustomerAction(values)
+        if ((result as any)?.approvalRequested) {
+          toast.success(`Approval request sent to admin. Customer "${values.name}" will be created once approved.`, { duration: 6000 })
+          form.reset()
+          setDocFile(null)
+          setDocPreview(null)
+          setEditingCustomer(null)
+          setAddDialogOpen(false)
+          return
+        }
         customerId = (result as any)?.id
         toast.success(`Customer "${values.name}" added successfully`)
       }
@@ -857,8 +868,17 @@ export default function CustomersPage() {
             </div>
             <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
               <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFile(null); setDocPreview(null); setAddDialogOpen(false) }}>Cancel</Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Save Customer'}
+              <Button
+                type="submit"
+                disabled={form.formState.isSubmitting}
+                className={!editingCustomer && isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
+              >
+                {form.formState.isSubmitting
+                  ? (!editingCustomer && isPharmacist ? 'Sending…' : 'Saving...')
+                  : editingCustomer
+                    ? 'Update Customer'
+                    : isPharmacist ? 'Request Approval' : 'Save Customer'
+                }
               </Button>
             </div>
           </form>

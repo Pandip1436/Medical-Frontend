@@ -32,6 +32,8 @@ import {
   Tag,
   Bell,
   CalendarClock,
+  ShieldCheck,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -69,6 +71,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
       { label: 'Notifications', icon: Bell, href: '/notifications' },
       { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
+      { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals', adminOnly: true },
     ],
   },
   {
@@ -86,6 +89,7 @@ const navigationGroups: NavGroup[] = [
     items: [
       { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders' },
       { label: 'Goods Receipt', icon: PackageCheck, href: '/purchase/grn' },
+      { label: 'Goods Received', icon: ClipboardList, href: '/purchase/grn-list' },
       { label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns' },
       { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers' },
@@ -191,6 +195,19 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const { user, sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
   const unreadCount = useNotificationStore((s) => s.unreadCount())
   const businessProfile = useSettingsStore((s) => s.businessProfile)
+  const [pendingApprovals, setPendingApprovals] = useState(0)
+
+  useEffect(() => {
+    if (!user) return
+    const fetchCount = () => {
+      import('@/lib/api').then(({ default: api }) => {
+        api.get('/approvals/pending-count').then(r => setPendingApprovals(r.data.count ?? 0)).catch(() => {})
+      })
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 60000)
+    return () => clearInterval(interval)
+  }, [user])
   const isMobile = useIsMobile()
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
@@ -243,6 +260,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
         ...group,
         items: group.items.filter((item) => {
           if (allowedPaths === null) return true // Admin: all items
+          if (item.adminOnly) return false // non-admin never sees adminOnly items
           return allowedPaths.includes(item.href)
         }),
       }))
@@ -351,10 +369,18 @@ export function Sidebar({ currentPath }: SidebarProps) {
                           {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                       )}
+                      {item.href === '/admin/approvals' && pendingApprovals > 0 && (
+                        <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                          {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                        </span>
+                      )}
                     </motion.span>
                   )}
                   {collapsed && item.href === '/notifications' && unreadCount > 0 && (
                     <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
+                  )}
+                  {collapsed && item.href === '/admin/approvals' && pendingApprovals > 0 && (
+                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-500" />
                   )}
                 </a>
               )

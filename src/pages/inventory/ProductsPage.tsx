@@ -30,7 +30,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -144,6 +143,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [selectedSchedule, setSelectedSchedule] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -171,6 +171,7 @@ export default function ProductsPage() {
             q: search || undefined,
             categoryId: selectedCategoryId !== 'all' ? selectedCategoryId : undefined,
             schedule: selectedSchedule !== 'all' ? selectedSchedule : undefined,
+            status: selectedStatus !== 'all' ? selectedStatus : undefined,
             skip: (currentPage - 1) * PAGE_SIZE,
             take: PAGE_SIZE,
           },
@@ -185,7 +186,7 @@ export default function ProductsPage() {
     }
     fetchData()
     return () => { isSubscribed = false }
-  }, [search, selectedCategoryId, selectedSchedule, currentPage, refreshKey])
+  }, [search, selectedCategoryId, selectedSchedule, selectedStatus, currentPage, refreshKey])
 
   const summaryStats = useMemo(() => {
     const total = totalCount
@@ -475,8 +476,8 @@ export default function ProductsPage() {
         onSearchChange={val => { setSearch(val); setCurrentPage(1) }}
         searchPlaceholder="Search products by name, generic, manufacturer..."
         resultsCount={totalCount}
-        activeFilterCount={(selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0)}
-        onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setCurrentPage(1) }}
+        activeFilterCount={(selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)}
+        onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }}
       >
         <EnumSelect
           label="Category"
@@ -496,6 +497,17 @@ export default function ProductsPage() {
             { value: 'H', label: 'Schedule H' },
             { value: 'H1', label: 'Schedule H1' },
             { value: 'X', label: 'Schedule X' },
+          ]}
+        />
+        <EnumSelect
+          label="Status"
+          value={selectedStatus}
+          onValueChange={val => { setSelectedStatus(val); setCurrentPage(1) }}
+          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+          options={[
+            { value: 'all', label: 'All Statuses' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
           ]}
         />
       </DataTableFilterBar>
@@ -674,17 +686,33 @@ export default function ProductsPage() {
               <ChevronLeft className="h-4 w-4" /> Previous
             </Button>
             <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <Button
-                  key={page}
-                  variant={page === currentPage ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setCurrentPage(page)}
-                >
-                  {page}
-                </Button>
-              ))}
+              {(() => {
+                const pages: (number | 'ellipsis')[] = []
+                if (totalPages <= 7) {
+                  for (let i = 1; i <= totalPages; i++) pages.push(i)
+                } else {
+                  pages.push(1)
+                  if (currentPage > 3) pages.push('ellipsis')
+                  for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) pages.push(i)
+                  if (currentPage < totalPages - 2) pages.push('ellipsis')
+                  pages.push(totalPages)
+                }
+                return pages.map((page, idx) =>
+                  page === 'ellipsis' ? (
+                    <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-sm select-none">…</span>
+                  ) : (
+                    <Button
+                      key={page}
+                      variant={page === currentPage ? 'default' : 'ghost'}
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => setCurrentPage(page)}
+                    >
+                      {page}
+                    </Button>
+                  )
+                )
+              })()}
             </div>
             <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
               Next <ChevronRight className="h-4 w-4" />

@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   TrendingUp, TrendingDown, Package,
-  ArrowDown, ArrowUp, ChevronLeft,
-  IndianRupee, BarChart3, Download,
+  ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
+  IndianRupee, BarChart3, Download, ShoppingCart, Truck, GitMerge,
+  RotateCcw, PackageX,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -15,7 +16,6 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
-import { EnumSelect } from '@/components/shared/EnumSelect'
 import api from '@/lib/api'
 import { useRoute, navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -23,25 +23,55 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { exportToCsv } from '@/lib/exportUtils'
 
-// ─── Constants ────────────────────────────────────────────────
-const TYPE_OPTIONS = [
-  { value: 'all', label: 'All Types' },
-  { value: 'SALE', label: 'Sales Only' },
-  { value: 'PURCHASE', label: 'Purchases Only' },
-] as const
-
 // ─── Types ────────────────────────────────────────────────────
+type ActiveTab = 'sales' | 'purchases' | 'timeline'
+
 interface TimelineRow {
-  type: 'SALE' | 'PURCHASE'
+  type: 'SALE' | 'PURCHASE' | 'SALES_RETURN' | 'PURCHASE_RETURN'
   date: Date
   ref: string
   party: string
   batch: string
-  qty: number
+  qty: number      // positive = stock IN, negative = stock OUT
   amount: number
-  cumPurchaseQty: number
-  cumSaleQty: number
   runningStock: number
+  note?: string    // e.g. reason or settlement mode
+}
+
+// ─── Tab button ────────────────────────────────────────────────
+function TabButton({
+  active, onClick, icon: Icon, label, count, color,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ElementType
+  label: string
+  count?: number
+  color: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+        active
+          ? `border-current ${color}`
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+      {count !== undefined && (
+        <span className={cn(
+          'rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none',
+          active ? 'bg-current/15' : 'bg-muted text-muted-foreground'
+        )}>
+          {count}
+        </span>
+      )}
+    </button>
+  )
 }
 
 export default function ProductHistoryPage() {
@@ -55,13 +85,19 @@ export default function ProductHistoryPage() {
   })
   const [history, setHistory] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('timeline')
 
-  // Filters
+  // Shared search/date filters
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+
+  // Per-tab pagination
+  const [salesPage, setSalesPage] = useState(1)
+  const [purchasesPage, setPurchasesPage] = useState(1)
+  const [timelinePage, setTimelinePage] = useState(1)
+  const PAGE_SIZE = 50
 
   useEffect(() => { fetchProducts() }, [])
   useBranchRefresh(fetchProducts)
@@ -71,7 +107,10 @@ export default function ProductHistoryPage() {
     setLoading(true)
     setHistory(null)
     try {
-      const res = await api.get(`/products/${productId}/history`)
+      // Load all records — tabs handle virtual pagination client-side
+      const res = await api.get(`/products/${productId}/history`, {
+        params: { skip: 0, take: 500 },
+      })
       setHistory(res.data)
     } catch {
       toast.error('Failed to load product history')
@@ -86,110 +125,177 @@ export default function ProductHistoryPage() {
 
   const selectedProduct = products.find(p => p.id === selectedProductId)
 
-  // Build timeline with running stock balance anchored to real current stock
+  // ── Sales rows (outgoing — stock OUT) ───────────────────────
+  const salesRows = useMemo(() => {
+    if (!history) return []
+    return history.sales.map((s: any) => ({
+      date: new Date(s.date), ref: s.invoiceNumber, party: s.customerName,
+      batch: s.batchNumber, qty: s.quantity, rate: s.rate, amount: s.amount,
+      gst: s.gstPercent, discount: s.discountPercent, status: s.status,
+      isReturn: false,
+    }))
+  }, [history])
+
+  // ── Sales return rows (incoming — stock back IN) ─────────────
+  const salesReturnRows = useMemo(() => {
+    if (!history) return []
+    return (history.salesReturns ?? []).map((r: any) => ({
+      date: new Date(r.date), ref: r.creditNoteNo, party: r.customerName,
+      batch: r.batchNumber, qty: r.returnedQty, rate: r.rate, amount: r.amount,
+      gst: r.gstPercent, discount: 0, status: r.settlementMode,
+      reason: r.reason, isReturn: true,
+    }))
+  }, [history])
+
+  // ── Purchase rows (incoming — stock IN) ──────────────────────
+  const purchaseRows = useMemo(() => {
+    if (!history) return []
+    return history.purchases.map((p: any) => ({
+      date: new Date(p.date), ref: p.grnNumber, party: p.supplierName,
+      batch: p.batchNumber, qty: p.receivedQty, freeQty: p.freeQty,
+      purchaseRate: p.purchaseRate, mrp: p.mrp, amount: p.amount, status: p.status,
+      isReturn: false,
+    }))
+  }, [history])
+
+  // ── Purchase return rows (outgoing — stock OUT to supplier) ──
+  const purchaseReturnRows = useMemo(() => {
+    if (!history) return []
+    return (history.purchaseReturns ?? []).map((r: any) => ({
+      date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName,
+      batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
+      purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
+      reason: r.reason, isReturn: true,
+    }))
+  }, [history])
+
+  // ── Timeline — all 4 types merged with running stock ─────────
   const timeline = useMemo((): TimelineRow[] => {
     if (!history) return []
-    const sales = history.sales.map((s: any) => ({
-      type: 'SALE' as const,
-      date: new Date(s.date),
-      ref: s.invoiceNumber,
-      party: s.customerName,
-      batch: s.batchNumber,
-      qty: s.quantity,
-      amount: s.amount,
-    }))
-    const purchases = history.purchases.map((p: any) => ({
-      type: 'PURCHASE' as const,
-      date: new Date(p.date),
-      ref: p.grnNumber,
-      party: p.supplierName,
-      batch: p.batchNumber,
-      qty: p.receivedQty,
-      amount: p.amount,
-    }))
-    // Sort oldest-first to build forward running balance
-    const merged = [...sales, ...purchases].sort((a, b) => a.date.getTime() - b.date.getTime())
+    const rows: Omit<TimelineRow, 'runningStock'>[] = [
+      ...history.sales.map((s: any) => ({
+        type: 'SALE' as const, date: new Date(s.date),
+        ref: s.invoiceNumber, party: s.customerName,
+        batch: s.batchNumber, qty: s.quantity, amount: s.amount,
+      })),
+      ...(history.salesReturns ?? []).map((r: any) => ({
+        type: 'SALES_RETURN' as const, date: new Date(r.date),
+        ref: r.creditNoteNo, party: r.customerName,
+        batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
+        note: r.reason,
+      })),
+      ...history.purchases.map((p: any) => ({
+        type: 'PURCHASE' as const, date: new Date(p.date),
+        ref: p.grnNumber, party: p.supplierName,
+        batch: p.batchNumber, qty: p.receivedQty, amount: p.amount,
+      })),
+      ...(history.purchaseReturns ?? []).map((r: any) => ({
+        type: 'PURCHASE_RETURN' as const, date: new Date(r.date),
+        ref: r.debitNoteNo, party: r.supplierName,
+        batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
+        note: r.reason,
+      })),
+    ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
-    // Anchor: walk forward and compute net change relative to current real stock
-    // net = sum of all purchases - sum of all sales in this history
-    let totalPurchased = 0
-    let totalSold = 0
-    merged.forEach(row => {
-      if (row.type === 'PURCHASE') totalPurchased += row.qty
-      else totalSold += row.qty
-    })
-    // Opening stock = currentStock - (totalPurchased - totalSold)
+    // Net stock change per type: SALE → out, PURCHASE → in, SALES_RETURN → in, PURCHASE_RETURN → out
+    const netChange = (type: string, qty: number) => {
+      if (type === 'PURCHASE' || type === 'SALES_RETURN') return qty
+      return -qty
+    }
+    const totalNet = rows.reduce((s, r) => s + netChange(r.type, r.qty), 0)
     const currentStock: number = history.summary.currentStock ?? 0
-    const openingStock = currentStock - (totalPurchased - totalSold)
+    let runningStock = currentStock - totalNet
 
-    let runningStock = openingStock
-    let runningPurchase = 0
-    let runningSale = 0
-    return merged.map(row => {
-      if (row.type === 'PURCHASE') { runningStock += row.qty; runningPurchase += row.qty }
-      else { runningStock -= row.qty; runningSale += row.qty }
-      return { ...row, cumPurchaseQty: runningPurchase, cumSaleQty: runningSale, runningStock }
+    return rows.map(row => {
+      runningStock += netChange(row.type, row.qty)
+      return { ...row, runningStock }
     })
   }, [history])
 
-  // Apply filters + sort
-  const filteredTimeline = useMemo(() => {
-    let rows = [...timeline]
-
-    if (typeFilter !== 'all') rows = rows.filter(r => r.type === typeFilter)
-
-    if (dateFrom) rows = rows.filter(r => r.date >= new Date(dateFrom))
+  // ── Apply shared filters + sort to each tab ─────────────────
+  const applyFilters = useCallback(<T extends { date: Date; ref: string; party: string; batch: string }>(rows: T[]): T[] => {
+    let result = [...rows]
+    if (dateFrom) result = result.filter(r => r.date >= new Date(dateFrom))
     if (dateTo) {
-      const end = new Date(dateTo)
-      end.setHours(23, 59, 59, 999)
-      rows = rows.filter(r => r.date <= end)
+      const end = new Date(dateTo); end.setHours(23, 59, 59, 999)
+      result = result.filter(r => r.date <= end)
     }
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      rows = rows.filter(r =>
+      result = result.filter(r =>
         r.ref.toLowerCase().includes(q) ||
         r.party.toLowerCase().includes(q) ||
         r.batch.toLowerCase().includes(q)
       )
     }
+    if (sortOrder === 'desc') result = result.reverse()
+    return result
+  }, [dateFrom, dateTo, searchQuery, sortOrder])
 
-    if (sortOrder === 'desc') rows = rows.reverse()
-    return rows
-  }, [timeline, typeFilter, dateFrom, dateTo, searchQuery, sortOrder])
+  // Sales tab = sales + sales returns; Purchases tab = purchases + purchase returns
+  const filteredSales = useMemo(() => applyFilters([...salesRows, ...salesReturnRows].sort((a, b) => b.date.getTime() - a.date.getTime())), [salesRows, salesReturnRows, applyFilters])
+  const filteredPurchases = useMemo(() => applyFilters([...purchaseRows, ...purchaseReturnRows].sort((a, b) => b.date.getTime() - a.date.getTime())), [purchaseRows, purchaseReturnRows, applyFilters])
+  const filteredTimeline = useMemo(() => applyFilters(timeline), [timeline, applyFilters])
 
-  const activeFilterCount = [
-    typeFilter !== 'all' ? typeFilter : '',
-    dateFrom,
-    dateTo,
-    searchQuery,
-  ].filter(Boolean).length
+  // ── Paginate ────────────────────────────────────────────────
+  const paginate = <T,>(rows: T[], page: number) => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = (rows: any[]) => Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
 
-  const clearFilters = () => {
-    setTypeFilter('all')
-    setDateFrom('')
-    setDateTo('')
-    setSearchQuery('')
-  }
+  const pagedSales = useMemo(() => paginate(filteredSales, salesPage), [filteredSales, salesPage])
+  const pagedPurchases = useMemo(() => paginate(filteredPurchases, purchasesPage), [filteredPurchases, purchasesPage])
+  const pagedTimeline = useMemo(() => paginate(filteredTimeline, timelinePage), [filteredTimeline, timelinePage])
+
+  const activeFilterCount = [dateFrom, dateTo, searchQuery].filter(Boolean).length
+
+  const clearFilters = () => { setDateFrom(''); setDateTo(''); setSearchQuery('') }
 
   const handleExport = () => {
-    if (!filteredTimeline.length) { toast.info('No data to export'); return }
+    const rows = activeTab === 'sales' ? filteredSales : activeTab === 'purchases' ? filteredPurchases : filteredTimeline
+    if (!rows.length) { toast.info('No data to export'); return }
     const productName = selectedProduct?.name ?? history?.product?.name ?? 'product'
-    exportToCsv(
-      filteredTimeline.map((r) => ({
-        Type: r.type,
-        Date: formatDate(r.date.toISOString()),
-        'Invoice / GRN #': r.ref,
-        Party: r.party,
-        Batch: r.batch,
-        Qty: r.qty,
-        Amount: r.amount,
-        'Cumulative Purchased': r.cumPurchaseQty,
-        'Cumulative Sold': r.cumSaleQty,
-      })),
-      `product-history-${productName.replace(/\s+/g, '-').toLowerCase()}`
+    const name = `product-${activeTab}-${productName.replace(/\s+/g, '-').toLowerCase()}`
+    if (activeTab === 'sales') {
+      exportToCsv((filteredSales as any[]).map(r => ({
+        Type: r.isReturn ? 'Sales Return' : 'Sale',
+        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
+        Batch: r.batch, Qty: r.isReturn ? `+${r.qty}` : `-${r.qty}`,
+        Rate: r.rate, Amount: r.amount, 'GST%': r.gst, Status: r.status,
+      })), name)
+    } else if (activeTab === 'purchases') {
+      exportToCsv((filteredPurchases as any[]).map(r => ({
+        Type: r.isReturn ? 'Purchase Return' : 'Purchase',
+        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
+        Batch: r.batch, Qty: r.isReturn ? `-${r.qty}` : `+${r.qty}`,
+        Rate: r.purchaseRate, Amount: r.amount, Status: r.status,
+      })), name)
+    } else {
+      exportToCsv((filteredTimeline as TimelineRow[]).map(r => ({
+        Type: r.type, Date: formatDate(r.date.toISOString()), Ref: r.ref,
+        Party: r.party, Batch: r.batch, Qty: r.qty, Amount: r.amount, Stock: r.runningStock,
+      })), name)
+    }
+  }
+
+  // ── Pagination footer ───────────────────────────────────────
+  function PaginationFooter({ page, setPage, total }: { page: number; setPage: (p: number) => void; total: number }) {
+    if (total <= 1) return null
+    return (
+      <div className="flex items-center justify-between border-t border-border/40 px-4 py-3 shrink-0">
+        <p className="text-sm text-muted-foreground">Page {page} of {total}</p>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
+            <ChevronLeft className="h-4 w-4" /> Previous
+          </Button>
+          <Button variant="outline" size="sm" disabled={page === total} onClick={() => setPage(page + 1)}>
+            Next <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     )
   }
+
+  const hasData = history && (filteredSales.length > 0 || filteredPurchases.length > 0 || filteredTimeline.length > 0)
+  const activeCount = activeTab === 'sales' ? filteredSales.length : activeTab === 'purchases' ? filteredPurchases.length : filteredTimeline.length
 
   return (
     <motion.div
@@ -229,7 +335,7 @@ export default function ProductHistoryPage() {
               size="sm"
               className="gap-1.5"
               onClick={handleExport}
-              disabled={!filteredTimeline.length}
+              disabled={activeCount === 0}
             >
               <Download className="h-3.5 w-3.5" />
               Export CSV
@@ -238,9 +344,9 @@ export default function ProductHistoryPage() {
         )}
       </div>
 
-      {/* Summary stats — top, only when product selected */}
+      {/* Summary stats */}
       {history && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
             {
               label: 'In Stock',
@@ -253,7 +359,7 @@ export default function ProductHistoryPage() {
             {
               label: 'Sold Qty',
               value: String(history.summary.totalSoldQty),
-              subtitle: `${history.summary.salesCount} sale${history.summary.salesCount !== 1 ? 's' : ''}`,
+              subtitle: `${history.summary.totalSalesReturnQty ?? 0} returned`,
               icon: TrendingDown,
               iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
               borderAccent: 'border-l-rose-500',
@@ -261,7 +367,7 @@ export default function ProductHistoryPage() {
             {
               label: 'Purchased Qty',
               value: String(history.summary.totalPurchasedQty),
-              subtitle: `${history.summary.purchaseCount} purchase${history.summary.purchaseCount !== 1 ? 's' : ''}`,
+              subtitle: `${history.summary.totalPurchaseReturnQty ?? 0} returned to supplier`,
               icon: TrendingUp,
               iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
               borderAccent: 'border-l-emerald-500',
@@ -291,12 +397,12 @@ export default function ProductHistoryPage() {
         </div>
       )}
 
-      {/* Filter bar — search | product dropdown | filters */}
+      {/* Filter bar */}
       <DataTableFilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search reference, party or batch..."
-        resultsCount={filteredTimeline.length}
+        resultsCount={activeCount}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
         midNode={
@@ -311,30 +417,17 @@ export default function ProductHistoryPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Type"
-          value={typeFilter}
-          onValueChange={setTypeFilter}
-          onClear={() => setTypeFilter('all')}
-          options={TYPE_OPTIONS}
-        />
-
         <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Date From
-          </Label>
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
           <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
         </div>
-
         <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Date To
-          </Label>
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
           <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
         </div>
       </DataTableFilterBar>
 
-      {/* Table / empty states */}
+      {/* Content area */}
       {!selectedProductId ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
@@ -354,104 +447,253 @@ export default function ProductHistoryPage() {
             <p className="text-sm text-muted-foreground animate-pulse">Loading transaction history…</p>
           </CardContent>
         </Card>
-      ) : filteredTimeline.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
-              <BarChart3 className="h-7 w-7 text-muted-foreground/50" />
-            </div>
-            <p className="text-sm font-medium text-muted-foreground">No transactions found</p>
-            {activeFilterCount > 0 && (
-              <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
-            )}
-          </CardContent>
-        </Card>
       ) : (
-        <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-28">Type</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Invoice # / GRN #</TableHead>
-                  <TableHead>Party</TableHead>
-                  <TableHead>Batch</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Purchase Qty</TableHead>
-                  <TableHead className="text-right">Sale Qty</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTimeline.map((row, i) => {
-                  const isSale = row.type === 'SALE'
-                  return (
-                    <TableRow
-                      key={`${row.type}-${row.ref}-${i}`}
-                      className={isSale
-                        ? 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/30'
-                        : 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
-                      }
-                    >
-                      <TableCell>
-                        <span className={cn(
-                          'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase',
-                          isSale
-                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
-                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                        )}>
-                          {isSale ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
-                          {isSale ? 'Sale' : 'Purchase'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {row.date.toLocaleDateString('en-IN')}
-                      </TableCell>
-                      <TableCell className="text-xs font-medium font-mono">{row.ref}</TableCell>
-                      <TableCell className="text-xs">{row.party}</TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
-                      <TableCell className={cn('text-right text-xs font-mono font-semibold',
-                        isSale ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'
-                      )}>
-                        {isSale ? `−${row.qty}` : `+${row.qty}`}
-                      </TableCell>
-                      <TableCell className="text-right text-xs font-mono">{formatCurrency(row.amount)}</TableCell>
-                      <TableCell className="text-right text-xs font-mono">
-                        {isSale
-                          ? <span className="text-muted-foreground/40">—</span>
-                          : <span className="text-emerald-700 dark:text-emerald-300">+{row.qty}</span>
-                        }
-                      </TableCell>
-                      <TableCell className="text-right text-xs font-mono">
-                        {isSale
-                          ? <span className="text-rose-700 dark:text-rose-300">−{row.qty}</span>
-                          : <span className="text-muted-foreground/40">—</span>
-                        }
-                      </TableCell>
-                      <TableCell className={cn('text-right text-xs font-mono font-semibold', row.runningStock <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-primary')}>
-                        {row.runningStock}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+        <Card className="flex flex-col overflow-hidden">
+
+          {/* Tab bar */}
+          <div className="flex border-b border-border/60 px-1 overflow-x-auto shrink-0">
+            <TabButton
+              active={activeTab === 'sales'}
+              onClick={() => setActiveTab('sales')}
+              icon={ShoppingCart}
+              label="Sales & Returns"
+              count={filteredSales.length}
+              color="text-rose-600 dark:text-rose-400"
+            />
+            <TabButton
+              active={activeTab === 'purchases'}
+              onClick={() => setActiveTab('purchases')}
+              icon={Truck}
+              label="Purchases & Returns"
+              count={filteredPurchases.length}
+              color="text-emerald-600 dark:text-emerald-400"
+            />
+            <TabButton
+              active={activeTab === 'timeline'}
+              onClick={() => setActiveTab('timeline')}
+              icon={GitMerge}
+              label="Timeline"
+              count={filteredTimeline.length}
+              color="text-primary"
+            />
           </div>
+
+          {/* Empty state (no data at all) */}
+          {!hasData ? (
+            <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
+                <BarChart3 className="h-7 w-7 text-muted-foreground/50" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">No transactions found</p>
+              {activeFilterCount > 0 && (
+                <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+              )}
+            </CardContent>
+          ) : activeCount === 0 ? (
+            <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <p className="text-sm font-medium text-muted-foreground">No {activeTab} transactions match the current filters</p>
+              {activeFilterCount > 0 && (
+                <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+              )}
+            </CardContent>
+          ) : (
+            <>
+              {/* ── Sales tab ───────────────────────────────── */}
+              {activeTab === 'sales' && (
+                <>
+                  <div className="overflow-auto max-h-130">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-card">
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Date</TableHead>
+                          <TableHead>Invoice #</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Batch</TableHead>
+                          <TableHead className="text-right">Qty</TableHead>
+                          <TableHead className="text-right">Rate</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">GST%</TableHead>
+                          <TableHead className="text-right">Disc%</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedSales.map((row: any, i) => {
+                          const isReturn = row.isReturn
+                          return (
+                            <TableRow key={`sale-${i}`} className={isReturn
+                              ? 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20'
+                              : 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/60 dark:hover:bg-rose-950/20'
+                            }>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {row.date.toLocaleDateString('en-IN')}
+                              </TableCell>
+                              <TableCell className="text-xs font-mono font-medium">
+                                <div className="flex items-center gap-1.5">
+                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.5 text-[9px] font-bold"><RotateCcw className="h-2.5 w-2.5" />RETURN</span>}
+                                  {row.ref}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs">{row.party}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
+                                {isReturn ? `+${row.qty}` : `−${row.qty}`}
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-mono">{formatCurrency(row.rate)}</TableCell>
+                              <TableCell className="text-right text-xs font-mono font-semibold">{formatCurrency(row.amount)}</TableCell>
+                              <TableCell className="text-right text-xs font-mono text-muted-foreground">{row.gst}%</TableCell>
+                              <TableCell className="text-right text-xs font-mono text-muted-foreground">{isReturn ? '—' : `${row.discount}%`}</TableCell>
+                              <TableCell>
+                                {isReturn
+                                  ? <span className="text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{row.status}</span>
+                                  : <span className={cn('text-[10px] font-semibold uppercase rounded-full px-2 py-0.5', row.status === 'PAID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-muted text-muted-foreground')}>{row.status}</span>
+                                }
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <PaginationFooter page={salesPage} setPage={setSalesPage} total={totalPages(filteredSales)} />
+                </>
+              )}
+
+              {/* ── Purchases tab ────────────────────────────── */}
+              {activeTab === 'purchases' && (
+                <>
+                  <div className="overflow-auto max-h-130">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-card">
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Date</TableHead>
+                          <TableHead>GRN #</TableHead>
+                          <TableHead>Supplier</TableHead>
+                          <TableHead>Batch</TableHead>
+                          <TableHead className="text-right">Qty</TableHead>
+                          <TableHead className="text-right">Free Qty</TableHead>
+                          <TableHead className="text-right">Rate</TableHead>
+                          <TableHead className="text-right">MRP</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedPurchases.map((row: any, i) => {
+                          const isReturn = row.isReturn
+                          return (
+                            <TableRow key={`purchase-${i}`} className={isReturn
+                              ? 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/60 dark:hover:bg-rose-950/20'
+                              : 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20'
+                            }>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {row.date.toLocaleDateString('en-IN')}
+                              </TableCell>
+                              <TableCell className="text-xs font-mono font-medium">
+                                <div className="flex items-center gap-1.5">
+                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 px-1.5 py-0.5 text-[9px] font-bold"><PackageX className="h-2.5 w-2.5" />RETURN</span>}
+                                  {row.ref}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs">{row.party}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
+                                {isReturn ? `−${row.qty}` : `+${row.qty}`}
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-mono text-muted-foreground">
+                                {isReturn ? '—' : (row.freeQty > 0 ? `+${row.freeQty}` : '—')}
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-mono">{formatCurrency(row.purchaseRate)}</TableCell>
+                              <TableCell className="text-right text-xs font-mono">{row.mrp > 0 ? formatCurrency(row.mrp) : '—'}</TableCell>
+                              <TableCell className="text-right text-xs font-mono font-semibold">{formatCurrency(row.amount)}</TableCell>
+                              <TableCell>
+                                <span className={cn(
+                                  'text-[10px] font-semibold uppercase rounded-full px-2 py-0.5',
+                                  isReturn
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                    : row.status === 'RECEIVED'
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                      : 'bg-muted text-muted-foreground'
+                                )}>{row.status}</span>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <PaginationFooter page={purchasesPage} setPage={setPurchasesPage} total={totalPages(filteredPurchases)} />
+                </>
+              )}
+
+              {/* ── Timeline tab ─────────────────────────────── */}
+              {activeTab === 'timeline' && (
+                <>
+                  <div className="overflow-auto max-h-130">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-card">
+                        <TableRow>
+                          <TableHead className="w-28">Type</TableHead>
+                          <TableHead className="whitespace-nowrap">Date</TableHead>
+                          <TableHead>Invoice # / GRN #</TableHead>
+                          <TableHead>Party</TableHead>
+                          <TableHead>Batch</TableHead>
+                          <TableHead className="text-right">Qty</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">Stock</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedTimeline.map((row, i) => {
+                          const TYPE_STYLE = {
+                            SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50',         badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                            PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                            SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                            PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/50',      badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purch. Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                          }
+                          const style = TYPE_STYLE[row.type]
+                          const Icon = style.icon
+                          return (
+                            <TableRow key={`tl-${i}`} className={style.rowBg}>
+                              <TableCell>
+                                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase', style.badge)}>
+                                  <Icon className="h-3 w-3" />
+                                  {style.label}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {row.date.toLocaleDateString('en-IN')}
+                              </TableCell>
+                              <TableCell className="text-xs font-medium font-mono">{row.ref}</TableCell>
+                              <TableCell className="text-xs">{row.party}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', style.qtyColor)}>
+                                {style.qtySign}{row.qty}
+                              </TableCell>
+                              <TableCell className="text-right text-xs font-mono">{formatCurrency(row.amount)}</TableCell>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', row.runningStock <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-primary')}>
+                                {row.runningStock}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <PaginationFooter page={timelinePage} setPage={setTimelinePage} total={totalPages(filteredTimeline)} />
+                </>
+              )}
+            </>
+          )}
         </Card>
       )}
     </motion.div>
   )
 }
 
-// ─── Product search input sub-component ───────────────────────
+// ─── Product search input ──────────────────────────────────────
 function ProductSearchInput({
-  products,
-  selectedId,
-  onSelect,
-  onClear,
-  selectedLabel,
+  products, selectedId, onSelect, onClear, selectedLabel,
 }: {
   products: any[]
   selectedId: string
@@ -461,11 +703,23 @@ function ProductSearchInput({
 }) {
   const [q, setQ] = useState(selectedLabel)
   const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!selectedId) setQ('')
     else setQ(selectedLabel)
   }, [selectedId, selectedLabel])
+
+  useEffect(() => {
+    const handleFocusOut = (e: FocusEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node)) {
+        setOpen(false)
+      }
+    }
+    const el = containerRef.current
+    el?.addEventListener('focusout', handleFocusOut)
+    return () => el?.removeEventListener('focusout', handleFocusOut)
+  }, [])
 
   const filtered = useMemo(() => {
     if (!q.trim()) return products.slice(0, 30)
@@ -477,13 +731,12 @@ function ProductSearchInput({
   }, [q, products])
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <Input
         placeholder="Search product by name or generic name..."
         value={q}
         onChange={e => { setQ(e.target.value); setOpen(true) }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 200)}
         suffix={selectedId
           ? <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" onClick={onClear}>✕</button>
           : undefined

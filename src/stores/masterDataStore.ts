@@ -129,12 +129,17 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     set({ isLoading: true })
     try {
       const res = await api.post('/customers', data)
-      const newCustomer = res.data
-      set((state) => ({ 
-        customers: [newCustomer, ...state.customers],
-        isLoading: false 
+      const result = res.data
+      // If backend queued for approval, don't add to local state
+      if (result?.approvalRequested) {
+        set({ isLoading: false })
+        return result
+      }
+      set((state) => ({
+        customers: [result, ...state.customers],
+        isLoading: false,
       }))
-      return newCustomer
+      return result
     } catch (error) {
       console.error("Failed to add customer", error)
       set({ isLoading: false })

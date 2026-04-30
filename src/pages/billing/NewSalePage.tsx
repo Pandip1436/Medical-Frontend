@@ -13,6 +13,7 @@ import {
   X,
   AlertTriangle,
   ShieldAlert,
+  ShieldCheck,
   UserPlus,
   CreditCard,
   Banknote,
@@ -1395,7 +1396,8 @@ export default function NewSalePage() {
   const batches = useMasterDataStore(s => s.batches)
   const fetchMasterData = useMasterDataStore(s => s.fetchMasterData)
   const activeBranchId = useBranchStore(s => s.activeBranchId)
-  const { sidebarCollapsed, toggleSidebar } = useAuthStore()
+  const { sidebarCollapsed, toggleSidebar, user: authUser } = useAuthStore()
+  const isPharmacist = authUser?.role === 'PHARMACIST'
 
   // Auto-collapse sidebar for full-screen billing experience, restore on leave
   useEffect(() => {
@@ -2082,8 +2084,9 @@ export default function NewSalePage() {
       setReminderSaving(false)
     }
   }
-  const submitInvoice = async () => {
+  const submitInvoice = async (forcePaymentMode?: string) => {
     const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    const effectivePaymentMode = forcePaymentMode ?? paymentMode
     if (activeItems.length === 0) {
       toast.error('Please add items to the bill')
       return;
@@ -2095,7 +2098,7 @@ export default function NewSalePage() {
       return;
     }
 
-    if (paymentMode === 'CREDIT' && isCreditBlocked) {
+    if (effectivePaymentMode === 'CREDIT' && isCreditBlocked && !isPharmacist) {
       toast.error(`${selectedCustomer.name} has ${pendingCreditCount} unpaid credit invoices. Please clear pending credits first.`)
       openCreditPayDialog()
       return
@@ -2117,7 +2120,7 @@ export default function NewSalePage() {
         billingType: billingType.toUpperCase(),
         customerName: selectedCustomer!.name,
         customerId: selectedCustomer!.id,
-        paymentMode: paymentMode.toUpperCase(),
+        paymentMode: effectivePaymentMode.toUpperCase(),
 
         subtotal: Number(totals.subtotal) || 0,
         productDiscount: Number(totals.productDiscount) || 0,
@@ -2128,12 +2131,12 @@ export default function NewSalePage() {
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: invoiceType === 'quotation' ? 0
-          : paymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
-            : paymentMode === 'CREDIT' ? 0
-              : paymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
+          : effectivePaymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
+            : effectivePaymentMode === 'CREDIT' ? 0
+              : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
                 : (Number(paymentDetails.amountReceived) || Number(totals.grandTotal) || 0),
-        changeReturned: invoiceType === 'quotation' ? 0 : Number(paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
-        status: invoiceType === 'quotation' ? 'DRAFT' : paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
+        changeReturned: invoiceType === 'quotation' ? 0 : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
+        status: invoiceType === 'quotation' ? 'DRAFT' : effectivePaymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
 
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
@@ -2187,6 +2190,14 @@ export default function NewSalePage() {
       const res = await api.post(endpoint, finalPayload)
       const savedInvoice = res.data
       setLastSavedInvoice(savedInvoice)
+
+      // Backend returned an approval request instead of a finalized invoice
+      if (savedInvoice?.approvalRequested) {
+        toast.success('Approval request sent to admin. The bill is saved as draft and will be finalized once approved.', { duration: 6000 })
+        fetchMasterData()
+        navigate('/billing/sales')
+        return
+      }
 
       if (invoiceType === 'quotation') {
         toast.success(`Quotation ${savedInvoice.quotationNumber ?? savedInvoice.invoiceNumber} saved successfully`)
@@ -2636,18 +2647,33 @@ export default function NewSalePage() {
                   <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
                   <span>
                     <strong>{selectedCustomer.name}</strong> has <strong>{pendingCreditCount} unpaid credit invoices</strong> — credit sales blocked until cleared.
+                    {isPharmacist && <span className="ml-1 text-amber-700 dark:text-amber-400">You can request admin approval to proceed.</span>}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  className="h-7 px-2.5 text-[11px] shrink-0"
-                  onClick={openCreditPayDialog}
-                >
-                  <CreditCard className="h-3 w-3 mr-1" />
-                  Pay Credits
-                </Button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {isPharmacist && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-2.5 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                      onClick={() => submitInvoice('CREDIT')}
+                      disabled={isSubmitting || items.filter(i => i.productId && i.quantity > 0).length === 0}
+                    >
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      {isSubmitting ? 'Sending…' : 'Request Approval'}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 px-2.5 text-[11px]"
+                    onClick={openCreditPayDialog}
+                  >
+                    <CreditCard className="h-3 w-3 mr-1" />
+                    Pay Credits
+                  </Button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -3119,12 +3145,18 @@ export default function NewSalePage() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="default"
-                    className="w-full gap-2 h-10 text-sm font-semibold shadow-md shadow-primary/20 cursor-pointer"
-                    onClick={submitInvoice}
+                    className={`w-full gap-2 h-10 text-sm font-semibold shadow-md cursor-pointer ${isCreditBlocked && isPharmacist ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'shadow-primary/20'}`}
+                    onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
                     disabled={isSubmitting || !selectedCustomer}
                   >
-                    <Printer className="h-4 w-4" />
-                    {isSubmitting ? 'Saving...' : 'Save & Print'}
+                    {isCreditBlocked && isPharmacist
+                      ? <ShieldCheck className="h-4 w-4" />
+                      : <Printer className="h-4 w-4" />
+                    }
+                    {isSubmitting
+                      ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving...')
+                      : (isCreditBlocked && isPharmacist ? 'Request Approval' : 'Save & Print')
+                    }
                     <kbd className="ml-auto rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-mono">F8</kbd>
                   </Button>
                 </TooltipTrigger>

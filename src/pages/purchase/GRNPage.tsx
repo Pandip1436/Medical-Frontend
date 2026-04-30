@@ -15,6 +15,10 @@ import {
   Download,
   ShieldCheck,
   AlertCircle,
+  RotateCcw,
+  Clock,
+  FileWarning,
+  XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -25,7 +29,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import type { GRNItem } from '@/types'
@@ -37,6 +41,8 @@ import { printGrnPdf, downloadGrnPdf, type GrnPdfData } from '@/lib/pdf/grnPdf'
 
 interface GRNFormItem extends GRNItem {
   shortSupply: boolean
+  _alreadyReceived?: number
+  _remaining?: number
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -70,6 +76,8 @@ function createEmptyItem(): GRNFormItem {
     mrp: 0,
     damageQty: 0,
     shortSupply: false,
+    _alreadyReceived: 0,
+    _remaining: 0,
   }
 }
 
@@ -78,11 +86,24 @@ function createEmptyItem(): GRNFormItem {
 // ─────────────────────────────────────────────────────────────
 
 export default function GRNPage() {
+  const { search: routeSearch } = useRoute()
+  const urlParams = new URLSearchParams(routeSearch)
+  const replacementReturnId = urlParams.get('replacementReturnId') ?? ''
+  const prefilledSupplierId = urlParams.get('supplierId') ?? ''
+  const prefilledSupplierName = urlParams.get('supplierName') ?? ''
+  const prefilledPoId = urlParams.get('poId') ?? ''
+
   // Source selection
   const [sourceType, setSourceType] = useState<'po' | 'direct'>('po')
   const [selectedPOId, setSelectedPOId] = useState<string | null>(null)
   const [poSearchOpen, setPoSearchOpen] = useState(false)
   const [poSearch, setPoSearch] = useState('')
+
+  // Direct Entry supplier
+  const [directSupplierId, setDirectSupplierId] = useState(prefilledSupplierId)
+  const [directSupplierName, setDirectSupplierName] = useState(prefilledSupplierName)
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
 
   // Items
   const [grnItems, setGrnItems] = useState<GRNFormItem[]>([])
@@ -96,11 +117,75 @@ export default function GRNPage() {
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
 
-  const { purchaseOrders, products, fetchMasterData } = useMasterDataStore()
+  // Post-confirm short supply action dialog
+  const [shortActionDialog, setShortActionDialog] = useState<{
+    savedGrnId: string
+    shortItems: Array<{ productId: string; productName: string; orderedQty: number; receivedQty: number; rate: number; batchNumber: string; expiryDate: string; gstPercent: number; supplierId: string; supplierName: string }>
+    supplierId: string
+    supplierName: string
+  } | null>(null)
+
+  const { purchaseOrders, products, suppliers, fetchMasterData } = useMasterDataStore()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const fetchData = useCallback(() => { fetchMasterData() }, [fetchMasterData])
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-switch to Direct Entry when coming from a replacement return
+  useEffect(() => {
+    if (replacementReturnId) {
+      setSourceType('direct')
+      setGrnItems([createEmptyItem()])
+    }
+  }, [replacementReturnId])
+
+  // Auto-select PO when navigated from PO detail dialog (fetch fresh data to get latest receivedQty)
+  useEffect(() => {
+    if (!prefilledPoId || selectedPOId) return
+    let cancelled = false
+    const loadFreshPO = async () => {
+      try {
+        const res = await api.get(`/purchase-orders/${prefilledPoId}`)
+        if (cancelled) return
+        const freshPO = res.data
+        setSourceType('po')
+        setSelectedPOId(prefilledPoId)
+        const isPartial = freshPO.status === 'PARTIALLY_RECEIVED'
+        setGrnItems(
+          (freshPO.items ?? [])
+            .map((item: any, i: number) => {
+              const alreadyReceived = Number(item.receivedQty ?? 0)
+              const remaining = item.requiredQty - alreadyReceived
+              if (isPartial && remaining <= 0) return null
+              return {
+                id: `GRN-ITEM-${i + 1}`,
+                productId: item.productId,
+                productName: item.productName,
+                orderedQty: item.requiredQty,
+                receivedQty: 0,
+                freeQty: 0,
+                batchNumber: '',
+                mfgDate: '',
+                expiryDate: '',
+                purchaseRate: Number(item.expectedRate),
+                mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
+                damageQty: 0,
+                shortSupply: false,
+                _alreadyReceived: alreadyReceived,
+                _remaining: isPartial ? remaining : item.requiredQty,
+              }
+            })
+            .filter(Boolean) as GRNFormItem[]
+        )
+      } catch {
+        // Fallback to cached data
+        const po = purchaseOrders.find(p => p.id === prefilledPoId)
+        if (po) { setSourceType('po'); handleSelectPO(po.id) }
+      }
+    }
+    loadFreshPO()
+    return () => { cancelled = true }
+  }, [prefilledPoId])
   useBranchRefresh(fetchData)
 
   // Auto-generated GRN number
@@ -154,22 +239,34 @@ export default function GRNPage() {
     setSelectedPOId(poId)
     setPoSearchOpen(false)
     setPoSearch('')
+    const isPartial = po.status === 'PARTIALLY_RECEIVED'
     setGrnItems(
-      po.items.map((item, i) => ({
-        id: `GRN-ITEM-${i + 1}`,
-        productId: item.productId,
-        productName: item.productName,
-        orderedQty: item.requiredQty,
-        receivedQty: 0,
-        freeQty: 0,
-        batchNumber: '',
-        mfgDate: '',
-        expiryDate: '',
-        purchaseRate: item.expectedRate,
-        mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
-        damageQty: 0,
-        shortSupply: false,
-      }))
+      po.items
+        .map((item, i) => {
+          const alreadyReceived = Number((item as any).receivedQty ?? 0)
+          const remaining = item.requiredQty - alreadyReceived
+          // Skip fully received items for supplementary GRNs
+          if (isPartial && remaining <= 0) return null
+          return {
+            id: `GRN-ITEM-${i + 1}`,
+            productId: item.productId,
+            productName: item.productName,
+            orderedQty: item.requiredQty,
+            receivedQty: 0,
+            freeQty: 0,
+            batchNumber: '',
+            mfgDate: '',
+            expiryDate: '',
+            purchaseRate: item.expectedRate,
+            mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
+            damageQty: 0,
+            shortSupply: false,
+            // Store remaining so label can show "X of Y remaining"
+            _alreadyReceived: alreadyReceived,
+            _remaining: isPartial ? remaining : item.requiredQty,
+          } as GRNFormItem & { _alreadyReceived: number; _remaining: number }
+        })
+        .filter(Boolean) as GRNFormItem[]
     )
   }
 
@@ -181,6 +278,9 @@ export default function GRNPage() {
     setInvoiceNo('')
     setInvoiceDate('')
     setInvoiceAmount(0)
+    setDirectSupplierId('')
+    setDirectSupplierName('')
+    setSupplierSearch('')
   }
 
   // ── Item operations ──
@@ -189,8 +289,9 @@ export default function GRNPage() {
       const updated = [...prev]
       ;(updated[index] as unknown as Record<string, unknown>)[field] = value
       if (field === 'receivedQty') {
+        const compareQty = updated[index]._remaining ?? updated[index].orderedQty
         updated[index].shortSupply =
-          updated[index].orderedQty > 0 && (value as number) < updated[index].orderedQty
+          compareQty > 0 && (value as number) < compareQty
       }
       return updated
     })
@@ -223,6 +324,7 @@ export default function GRNPage() {
   }
 
   // ── Calculations ──
+  const isSupplementary = grnItems.some((i) => (i._alreadyReceived ?? 0) > 0)
   const receivedItems = grnItems.filter((i) => i.receivedQty > 0)
   const totalItems = receivedItems.length
   const totalQty = receivedItems.reduce((s, i) => s + i.receivedQty + (i.freeQty || 0), 0)
@@ -251,25 +353,39 @@ export default function GRNPage() {
   const canConfirm = receivedItems.length > 0
 
   async function handleConfirm() {
-    if (!invoiceNo || !invoiceDate) {
+    if (sourceType === 'direct' && !directSupplierId) {
+      toast.error('Please select a supplier for direct entry')
+      return
+    }
+    // For replacement GRNs, supplier invoice is optional (often just a delivery challan)
+    const isReplacementFlow = !!replacementReturnId
+    if (!isReplacementFlow && (!invoiceNo || !invoiceDate)) {
       toast.error('Supplier invoice number and date are required')
       return
     }
     setIsSubmitting(true)
     try {
+      // For replacement GRNs, default invoice number/date if user left them blank
+      const effectiveInvoiceNo = invoiceNo || (isReplacementFlow ? `REPL-${Date.now()}` : '')
+      const effectiveInvoiceDate = invoiceDate
+        ? new Date(invoiceDate).toISOString()
+        : (isReplacementFlow ? new Date().toISOString() : new Date(invoiceDate).toISOString())
+
       const payload = {
         poId: selectedPOId ?? undefined,
-        supplierId: selectedPO?.supplierId ?? '',
-        supplierName: selectedPO?.supplierName ?? 'Direct',
-        supplierInvoiceNo: invoiceNo,
-        supplierInvoiceDate: new Date(invoiceDate).toISOString(),
+        supplierId: selectedPO?.supplierId ?? directSupplierId,
+        supplierName: selectedPO?.supplierName ?? directSupplierName,
+        supplierInvoiceNo: effectiveInvoiceNo,
+        supplierInvoiceDate: effectiveInvoiceDate,
         supplierInvoiceAmount: Number(invoiceAmount) || 0,
         totalAmount: Number(gstBreakdown.total) || 0,
         status: 'RECEIVED',
+        isReplacement: isReplacementFlow,
         items: receivedItems.map((i) => ({
           productId: i.productId,
           productName: i.productName,
-          orderedQty: Number(i.orderedQty || i.receivedQty),
+          // For supplementary GRNs, "ordered" is the remaining qty at this delivery — not the original PO total
+          orderedQty: Number((i._alreadyReceived ?? 0) > 0 ? (i._remaining ?? i.orderedQty) : (i.orderedQty || i.receivedQty)),
           receivedQty: Number(i.receivedQty),
           freeQty: Number(i.freeQty || 0),
           batchNumber: i.batchNumber,
@@ -280,11 +396,56 @@ export default function GRNPage() {
           damageQty: Number(i.damageQty || 0),
         })),
       }
-      await api.post('/grn', payload)
-      toast.success('Goods Receipt Note created successfully!', {
-        description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
-      })
+      const grnRes = await api.post('/grn', payload)
+      const savedGrn = grnRes.data
+
+      // If this GRN is receiving replacement goods for a purchase return, link them
+      if (replacementReturnId && savedGrn?.id) {
+        try {
+          await api.patch(`/purchase-returns/${replacementReturnId}/link-replacement`, {
+            replacementGrnId: savedGrn.id,
+          })
+          toast.success('Replacement goods received and debit note settled!', {
+            description: `GRN ${grnNumber} linked to purchase return. Stock updated.`,
+          })
+        } catch {
+          toast.success('GRN created. Note: could not auto-settle the debit note — please update it manually.', {
+            duration: 6000,
+          })
+        }
+      } else {
+        toast.success('Goods Receipt Note created successfully!', {
+          description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
+        })
+      }
+
       setShowConfirm(false)
+
+      // Check if any items had short supply — if so, prompt action
+      const shortItems = grnItems.filter((i) => i.shortSupply && i.orderedQty > i.receivedQty)
+      if (shortItems.length > 0 && !replacementReturnId) {
+        const effSupplierId = selectedPO?.supplierId ?? directSupplierId
+        const effSupplierName = selectedPO?.supplierName ?? directSupplierName
+        const prod = (productId: string) => products.find((p) => p.id === productId)
+        setShortActionDialog({
+          savedGrnId: savedGrn.id,
+          supplierId: effSupplierId,
+          supplierName: effSupplierName,
+          shortItems: shortItems.map((i) => ({
+            productId: i.productId,
+            productName: i.productName,
+            orderedQty: i.orderedQty,
+            receivedQty: i.receivedQty,
+            rate: i.purchaseRate,
+            batchNumber: i.batchNumber,
+            expiryDate: i.expiryDate,
+            gstPercent: Number(prod(i.productId)?.gstRate) || 12,
+            supplierId: effSupplierId,
+            supplierName: effSupplierName,
+          })),
+        })
+      }
+
       setSourceType('po')
       setSelectedPOId(null)
       setGrnItems([])
@@ -304,7 +465,7 @@ export default function GRNPage() {
     return {
       grnNumber,
       date: new Date(),
-      supplierName: selectedPO?.supplierName ?? 'Direct',
+      supplierName: selectedPO?.supplierName ?? directSupplierName,
       supplierInvoiceNo: invoiceNo || undefined,
       supplierInvoiceDate: invoiceDate || undefined,
       totalAmount: gstBreakdown.total,
@@ -360,6 +521,16 @@ export default function GRNPage() {
             <p className="text-[11px] text-muted-foreground">Receive and verify incoming goods</p>
           </div>
         </div>
+
+        {/* Replacement return context banner */}
+        {replacementReturnId && (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
+            <RotateCcw className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              Receiving replacement goods — this GRN will be auto-linked to the debit note and marked Settled.
+            </span>
+          </div>
+        )}
 
         {/* Source toggle — segmented control */}
         <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -448,7 +619,14 @@ export default function GRNPage() {
                                     </div>
                                     <div>
                                       <p className="font-mono text-sm font-medium">{po.poNumber}</p>
-                                      <p className="text-[11px] text-muted-foreground">{po.supplierName} &middot; {po.items?.length ?? 0} items</p>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        {po.supplierName} &middot; {po.items?.length ?? 0} items
+                                        {po.status === 'PARTIALLY_RECEIVED' && (
+                                          <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-semibold">
+                                            · Supplementary delivery
+                                          </span>
+                                        )}
+                                      </p>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -465,30 +643,49 @@ export default function GRNPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                      <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-mono text-sm font-bold">{selectedPO.poNumber}</p>
-                        <Badge variant={statusBadgeConfig[selectedPO.status]?.variant || 'secondary'} size="sm" dot>
-                          {statusBadgeConfig[selectedPO.status]?.label || selectedPO.status}
-                        </Badge>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                        <FileText className="h-4 w-4 text-primary" />
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {selectedPO.supplierName} &middot; {formatDate(selectedPO.date)} &middot; {selectedPO.items.length} items
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-mono text-sm font-bold">{selectedPO.poNumber}</p>
+                          {isSupplementary ? (
+                            <Badge variant="warning" size="sm" dot>Partial</Badge>
+                          ) : (
+                            <Badge variant={statusBadgeConfig[selectedPO.status]?.variant || 'secondary'} size="sm" dot>
+                              {statusBadgeConfig[selectedPO.status]?.label || selectedPO.status}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {selectedPO.supplierName} &middot; {formatDate(selectedPO.date)} &middot; {selectedPO.items.length} items
+                        </p>
+                      </div>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setSelectedPOId(null); setGrnItems([]) }}
+                    >
+                      Change PO
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { setSelectedPOId(null); setGrnItems([]) }}
-                  >
-                    Change PO
-                  </Button>
+                  {(selectedPO.status === 'PARTIALLY_RECEIVED' || isSupplementary) && (
+                    <div className="flex items-start gap-2 rounded-lg border border-blue-200/60 bg-blue-50/50 px-3 py-2 dark:border-blue-800/30 dark:bg-blue-900/10">
+                      <Clock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">
+                          Supplementary delivery — enter only the remaining qty.
+                        </p>
+                        <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 mt-0.5">
+                          Attach the supplier's <strong>new invoice</strong> for this delivery. Payment is for what's received now, not the original PO total.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -496,7 +693,61 @@ export default function GRNPage() {
 
           {/* Direct entry: product search */}
           {sourceType === 'direct' && (
-            <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 dark:bg-muted/5">
+            <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 space-y-3 dark:bg-muted/5">
+              {/* Supplier selector */}
+              <div className="relative">
+                {directSupplierId ? (
+                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2">
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">{directSupplierName}</p>
+                      <p className="text-[10px] text-muted-foreground">Selected supplier</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
+                    >
+                      ✕ Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <Input
+                      icon={<Search />}
+                      placeholder="Search and select supplier..."
+                      value={supplierSearch}
+                      onChange={(e) => { setSupplierSearch(e.target.value); setSupplierDropdownOpen(true) }}
+                      onFocus={() => setSupplierDropdownOpen(true)}
+                      onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
+                    />
+                    {supplierDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg">
+                        {suppliers
+                          .filter(s => !supplierSearch.trim() || s.name.toLowerCase().includes(supplierSearch.toLowerCase()))
+                          .slice(0, 20)
+                          .map(s => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
+                              onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
+                            >
+                              <div>
+                                <p className="text-sm font-medium">{s.name}</p>
+                                {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
+                              </div>
+                            </button>
+                          ))
+                        }
+                        {suppliers.filter(s => !supplierSearch.trim() || s.name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
+                          <p className="px-4 py-3 text-sm text-muted-foreground">No suppliers found</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              {/* Product search */}
               <div className="relative">
                 <Input
                   icon={<Search />}
@@ -577,7 +828,6 @@ export default function GRNPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold truncate">{item.productName}</p>
-                          <p className="text-[11px] text-muted-foreground font-mono">{item.productId}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -594,9 +844,20 @@ export default function GRNPage() {
                           </Badge>
                         )}
                         {sourceType === 'po' && (
-                          <Badge variant="outline" size="sm" className="font-mono">
-                            Ord: {item.orderedQty}
-                          </Badge>
+                          item._alreadyReceived != null && item._alreadyReceived > 0 ? (
+                            <div className="flex items-center gap-1.5">
+                              <Badge variant="outline" size="sm" className="font-mono text-amber-600 border-amber-300">
+                                {item._remaining} remaining
+                              </Badge>
+                              <Badge variant="secondary" size="sm" className="font-mono text-[10px]">
+                                {item._alreadyReceived}/{item.orderedQty} received
+                              </Badge>
+                            </div>
+                          ) : (
+                            <Badge variant="outline" size="sm" className="font-mono">
+                              Ord: {item.orderedQty}
+                            </Badge>
+                          )
                         )}
                         {sourceType === 'direct' && (
                           <Button
@@ -739,6 +1000,16 @@ export default function GRNPage() {
                     Supplier Invoice
                   </p>
                 </div>
+                {isSupplementary && !replacementReturnId && (
+                  <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 mb-2 leading-relaxed">
+                    Use the <strong>new invoice</strong> the supplier sent for this delivery — not the original PO invoice.
+                  </p>
+                )}
+                {replacementReturnId && (
+                  <p className="text-[10px] text-emerald-600/80 dark:text-emerald-300/70 mb-2 leading-relaxed">
+                    <strong>Optional</strong> for replacements. Enter delivery challan number if available, leave amount as <strong>₹0</strong> (no money owed).
+                  </p>
+                )}
                 <div className="space-y-2.5">
                   <div className="space-y-1">
                     <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Number</Label>
@@ -924,6 +1195,119 @@ export default function GRNPage() {
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* SHORT SUPPLY ACTION DIALOG                                */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {shortActionDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="w-full max-w-lg rounded-2xl border border-border/60 bg-background p-6 shadow-2xl mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
+                  <FileWarning className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold">Short Delivery Detected</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    GRN saved. {shortActionDialog.shortItems.length} product(s) received less than ordered.
+                  </p>
+                </div>
+              </div>
+
+              {/* Short items summary */}
+              <div className="rounded-xl border border-amber-200/60 bg-amber-50/40 dark:border-amber-800/30 dark:bg-amber-900/10 mb-4 overflow-hidden">
+                {shortActionDialog.shortItems.map((item, i) => (
+                  <div key={item.productId} className={cn('flex items-center justify-between px-3 py-2 text-xs', i > 0 && 'border-t border-amber-200/40 dark:border-amber-800/20')}>
+                    <span className="font-medium truncate max-w-[55%]">{item.productName}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-muted-foreground">Ordered: <span className="font-mono font-semibold text-foreground">{item.orderedQty}</span></span>
+                      <span className="text-muted-foreground">Received: <span className="font-mono font-semibold text-emerald-600">{item.receivedQty}</span></span>
+                      <Badge variant="warning" size="sm">{item.orderedQty - item.receivedQty} short</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-muted-foreground mb-4">What would you like to do about the missing items?</p>
+
+              {/* Action options */}
+              <div className="space-y-2 mb-5">
+                {/* Raise Debit Note */}
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      shortageGrnId: shortActionDialog.savedGrnId,
+                      supplierId: shortActionDialog.supplierId,
+                      supplierName: shortActionDialog.supplierName,
+                      shortItems: JSON.stringify(shortActionDialog.shortItems),
+                    })
+                    setShortActionDialog(null)
+                    navigate(`/purchase/returns?${params.toString()}`)
+                  }}
+                  className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 mt-0.5">
+                    <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Raise Debit Note</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier won't send the rest. Recover the amount via a debit note for the shortage.</p>
+                  </div>
+                </button>
+
+                {/* Expect More */}
+                <button
+                  onClick={() => {
+                    setShortActionDialog(null)
+                    toast.info('PO marked as Partially Received. You can raise another GRN against this PO when the remaining items arrive.', { duration: 6000 })
+                    navigate('/purchase/grn-list')
+                  }}
+                  className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 mt-0.5">
+                    <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Expect Supplementary Delivery</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another GRN when goods arrive.</p>
+                  </div>
+                </button>
+
+                {/* Ignore */}
+                <button
+                  onClick={() => {
+                    setShortActionDialog(null)
+                    navigate('/purchase/grn-list')
+                  }}
+                  className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted mt-0.5">
+                    <XCircle className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-muted-foreground">Ignore for Now</p>
+                    <p className="text-[11px] text-muted-foreground">Handle the shortage manually later.</p>
+                  </div>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ══════════════════════════════════════════════════════════ */}
       {/* CONFIRMATION OVERLAY                                      */}

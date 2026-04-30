@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useAuthStore } from '@/stores/authStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
@@ -18,12 +19,14 @@ import {
   Printer,
   Download,
   CheckCircle2,
+  ShieldCheck,
   ShieldAlert,
   BadgeAlert,
   HelpCircle,
   Truck,
   IndianRupee,
   RotateCcw,
+  FileWarning,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -48,7 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf, type NoteData } from '@/lib/pdf/notesPdf'
 
@@ -61,6 +64,7 @@ const RETURN_REASONS = [
   'Near expiry / Expired',
   'Wrong product received',
   'Quality issue',
+  'Short delivery',
   'Excess supply',
   'Recall by manufacturer',
   'Other',
@@ -72,6 +76,7 @@ interface GRNItem {
   productId: string
   productName: string
   purchasedQty: number
+  damagedQty: number
   rate: number
   batchNumber: string
   expiryDate: string
@@ -94,6 +99,7 @@ interface ReturnItemState {
   selected: boolean
   returnQty: number
   maxQty: number
+  damagedQty: number
   reason: ReturnReason | ''
   customReason: string
   productName: string
@@ -105,6 +111,7 @@ const reasonIcons: Record<string, typeof AlertCircle> = {
   'Near expiry / Expired': ShieldAlert,
   'Wrong product received': Package,
   'Quality issue': AlertCircle,
+  'Short delivery': AlertCircle,
   'Excess supply': Truck,
   'Recall by manufacturer': ShieldAlert,
   Other: HelpCircle,
@@ -115,6 +122,7 @@ const reasonVariantMap: Record<string, 'destructive' | 'warning' | 'info' | 'pur
   'Near expiry / Expired': 'destructive',
   'Wrong product received': 'warning',
   'Quality issue': 'warning',
+  'Short delivery': 'warning',
   'Excess supply': 'info',
   'Recall by manufacturer': 'purple',
   Other: 'secondary',
@@ -131,6 +139,25 @@ const STEPS = [
 // ─────────────────────────────────────────────────────────────
 
 export default function PurchaseReturnsPage() {
+  const { search } = useRoute()
+  const userRole = useAuthStore((s) => s.user?.role)
+  const needsApproval = userRole === 'PHARMACIST' || userRole === 'INVENTORY_MANAGER'
+
+  // Pre-select GRN from URL param (e.g. navigated from Goods Received page)
+  const preselectedGrnId = useMemo(() => new URLSearchParams(search).get('grnId') ?? '', [search])
+
+  // Short-delivery prefill from GRN page post-confirm dialog
+  const shortageParams = useMemo(() => {
+    const p = new URLSearchParams(search)
+    const grnId = p.get('shortageGrnId') ?? ''
+    const supplierId = p.get('supplierId') ?? ''
+    const supplierName = p.get('supplierName') ?? ''
+    const raw = p.get('shortItems')
+    let items: Array<{ productId: string; productName: string; orderedQty: number; receivedQty: number; rate: number; batchNumber: string; expiryDate: string; gstPercent: number; supplierId: string; supplierName: string }> = []
+    if (raw) { try { items = JSON.parse(raw) } catch { items = [] } }
+    return grnId ? { grnId, supplierId, supplierName, items } : null
+  }, [search])
+
   const [direction, setDirection] = useState(1)
   const [currentStep, setCurrentStep] = useState(1)
 
@@ -161,7 +188,8 @@ export default function PurchaseReturnsPage() {
           totalAmount: Number(g.totalAmount),
           items: (g.items ?? []).map((it: any) => ({
             productId: it.productId, productName: it.productName,
-            purchasedQty: it.receivedQty + it.freeQty,
+            purchasedQty: it.receivedQty + (it.freeQty ?? 0),
+            damagedQty: Number(it.damageQty ?? 0),
             rate: Number(it.purchaseRate), batchNumber: it.batchNumber, expiryDate: it.expiryDate,
             gstPercent: Number(products.find((p) => p.id === it.productId)?.gstRate) || 12,
           })),
@@ -182,12 +210,30 @@ export default function PurchaseReturnsPage() {
   useBranchRefresh(fetchGRNsCallback)
 
   const [lastCreatedReturn, setLastCreatedReturn] = useState<NoteData | null>(null)
+  const [shortageApplied, setShortageApplied] = useState(false)
 
   // Step 2
   const [returnItems, setReturnItems] = useState<ReturnItemState[]>([])
 
   // Step 3
   const [settlementOption, setSettlementOption] = useState<string>('adjust')
+  const [supplierOutstanding, setSupplierOutstanding] = useState<number>(0)
+
+  // Fetch supplier outstanding when GRN is selected
+  useEffect(() => {
+    if (!selectedGRN?.supplierId) { setSupplierOutstanding(0); return }
+    let cancelled = false
+    api.get(`/suppliers/${selectedGRN.supplierId}`)
+      .then(res => { if (!cancelled) setSupplierOutstanding(Number(res.data?.currentOutstanding ?? 0)) })
+      .catch(() => { if (!cancelled) setSupplierOutstanding(0) })
+    return () => { cancelled = true }
+  }, [selectedGRN?.supplierId])
+
+  // Auto-fallback: if Adjust is selected but supplier has no outstanding, switch to Refund
+  const effectiveSettlementOption = useMemo(() => {
+    if (settlementOption === 'adjust' && supplierOutstanding <= 0) return 'refund'
+    return settlementOption
+  }, [settlementOption, supplierOutstanding])
 
   const debitNoteNumber = useMemo(() => `HS/DN/2025-26/${String(Math.floor(Math.random() * 900 + 100)).padStart(5, '0')}`, [])
 
@@ -195,6 +241,61 @@ export default function PurchaseReturnsPage() {
     setDirection(step > currentStep ? 1 : -1)
     setCurrentStep(step)
   }
+
+  // Auto-select and advance to step 2 when navigated from Goods Received
+  useEffect(() => {
+    if (!preselectedGrnId || !grns.length || selectedGRN) return
+    const match = grns.find(g => g.id === preselectedGrnId)
+    if (!match) return
+    handleSelectGRN(match)
+    setGrnSearch(match.grnNumber)
+    goToStep(2)
+  }, [preselectedGrnId, grns])
+
+  // Auto-prefill shortage items when navigated from GRN short-supply dialog
+  useEffect(() => {
+    if (!shortageParams || shortageApplied || !grns.length) return
+    const match = grns.find(g => g.id === shortageParams.grnId)
+    if (!match) return
+    setShortageApplied(true)
+    // Build a synthetic GRN from the short items — these are items NOT received (qty = orderedQty - receivedQty)
+    const syntheticGRN: GRNReference = {
+      id: match.id,
+      grnNumber: match.grnNumber,
+      poNumber: match.poNumber,
+      date: match.date,
+      supplierId: shortageParams.supplierId,
+      supplierName: shortageParams.supplierName,
+      totalAmount: match.totalAmount,
+      items: shortageParams.items.map(si => ({
+        productId: si.productId,
+        productName: si.productName,
+        purchasedQty: si.orderedQty - si.receivedQty, // only the shortage qty
+        damagedQty: 0,
+        rate: si.rate,
+        batchNumber: si.batchNumber,
+        expiryDate: si.expiryDate,
+        gstPercent: si.gstPercent,
+      })),
+    }
+    setSelectedGRN(syntheticGRN)
+    setGrnSearch(match.grnNumber)
+    // Pre-select all shortage items with reason "Short delivery" (supplier sent less than billed)
+    setReturnItems(
+      syntheticGRN.items.map(item => ({
+        productId: item.productId,
+        selected: true,
+        returnQty: item.purchasedQty,
+        maxQty: item.purchasedQty,
+        damagedQty: 0,
+        reason: 'Short delivery' as ReturnReason,
+        customReason: '',
+        productName: item.productName,
+        rate: item.rate,
+      }))
+    )
+    goToStep(2)
+  }, [shortageParams, grns, shortageApplied])
 
   const matchingGRNs = useMemo(() => {
     if (!grnSearch.trim()) return grns
@@ -212,10 +313,12 @@ export default function PurchaseReturnsPage() {
     setReturnItems(
       grn.items.map((item) => ({
         productId: item.productId,
-        selected: false,
-        returnQty: 0,
+        // Auto-select and pre-fill qty/reason for damaged items
+        selected: item.damagedQty > 0,
+        returnQty: item.damagedQty > 0 ? item.damagedQty : 0,
         maxQty: item.purchasedQty,
-        reason: '',
+        damagedQty: item.damagedQty,
+        reason: item.damagedQty > 0 ? 'Damaged in transit' as ReturnReason : '',
         customReason: '',
         productName: item.productName,
         rate: item.rate,
@@ -328,6 +431,11 @@ export default function PurchaseReturnsPage() {
       0,
     )
 
+    const settlementMode =
+      effectiveSettlementOption === 'replacement' ? 'REPLACEMENT'
+      : effectiveSettlementOption === 'adjust' ? 'ADJUST'
+      : 'REFUND'
+
     const payload = {
       supplierId: selectedGRN.supplierId,
       supplierName: selectedGRN.supplierName,
@@ -339,11 +447,22 @@ export default function PurchaseReturnsPage() {
       sgst: Number((totalGst / 2).toFixed(2)),
       totalAmount: Number((debitSummary.subtotal + totalGst).toFixed(2)),
       status: 'SENT',
-      notes: `Settlement Preference: ${settlementOption.toUpperCase()}`,
+      settlementMode,
+      notes: `Settlement: ${settlementMode}`,
     }
 
     try {
       const res = await api.post('/purchase-returns', payload)
+      if (res.data?.approvalRequested) {
+        toast.success('Approval request sent to admin. The purchase return will be processed once approved.', { duration: 6000 })
+        setCurrentStep(1)
+        setDirection(-1)
+        setSelectedGRN(null)
+        setReturnItems([])
+        setGrnSearch('')
+        setSettlementOption('adjust')
+        return
+      }
       const noteNo = res.data.debitNoteNo ?? debitNoteNumber
       toast.success(`Debit Note ${noteNo} created successfully`, {
         description: `${formatCurrency(debitSummary.total)} will be settled via ${settlementOption}.`,
@@ -462,6 +581,14 @@ export default function PurchaseReturnsPage() {
                 >
                   {/* Left: GRN Search List */}
                   <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
+                    {shortageParams && (
+                      <div className="shrink-0 flex items-center gap-2 border-b border-amber-200/60 bg-amber-50/50 px-4 py-2.5 dark:border-amber-800/30 dark:bg-amber-900/10">
+                        <FileWarning className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                          Short delivery from {shortageParams.supplierName} — raising debit note for {shortageParams.items.length} undelivered product(s).
+                        </span>
+                      </div>
+                    )}
                     <div className="shrink-0 border-b border-border/40 p-4 bg-muted/10 dark:bg-muted/5">
                       <DataTableFilterBar
                         searchQuery={grnSearch}
@@ -625,6 +752,14 @@ export default function PurchaseReturnsPage() {
                   transition={{ duration: 0.2, ease: 'easeInOut' }}
                   className="absolute inset-0 flex flex-col"
                 >
+                  {shortageParams && (
+                    <div className="shrink-0 flex items-center gap-2 border-b border-amber-200/60 bg-amber-50/50 px-4 py-2.5 dark:border-amber-800/30 dark:bg-amber-900/10">
+                      <FileWarning className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                        Short delivery debit note — qty shown is the <strong>missing amount</strong> (ordered minus received). Reason pre-set to "Short delivery".
+                      </span>
+                    </div>
+                  )}
                   <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 px-4 py-3 sm:px-6">
                     <div className="flex items-center gap-3">
                       <p className="text-sm text-muted-foreground">Returning items from</p>
@@ -682,15 +817,26 @@ export default function PurchaseReturnsPage() {
                               </TableCell>
                               <TableCell className="px-4 py-3">
                                 <div className="space-y-1">
-                                  <p className="text-xs font-bold leading-none">{ri.productName}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-bold leading-none">{ri.productName}</p>
+                                    {ri.damagedQty > 0 && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 px-2 py-0.5 text-[10px] font-bold">
+                                        ⚠ {ri.damagedQty} damaged
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
-                                    <span className="font-mono bg-muted px-1 rounded">{ri.productId}</span>
                                     <span>Rate: {formatCurrency(ri.rate)}</span>
                                   </div>
                                 </div>
                               </TableCell>
                               <TableCell className="px-2 py-3 text-center">
-                                <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.maxQty}</span>
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.maxQty}</span>
+                                  {ri.damagedQty > 0 && (
+                                    <span className="text-[9px] text-rose-500 font-semibold">{ri.damagedQty} dmg</span>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell className="px-2 py-3">
                                 {ri.selected ? (
@@ -884,29 +1030,43 @@ export default function PurchaseReturnsPage() {
                       <div className="p-5 space-y-5">
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Settlement Method</p>
-                          <RadioGroup value={settlementOption} onValueChange={setSettlementOption} className="space-y-2">
+                          <RadioGroup value={effectiveSettlementOption} onValueChange={setSettlementOption} className="space-y-2">
                             {[
                               { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from next payment to supplier', icon: RotateCcw },
                               { value: 'replacement', title: 'Request Replacement', desc: 'Get replacement goods from supplier', icon: Package },
                               { value: 'refund', title: 'Request Refund', desc: 'Get monetary refund from supplier', icon: IndianRupee },
-                            ].map((opt) => (
-                              <div
-                                key={opt.value}
-                                className={cn(
-                                  'flex items-start gap-3 rounded-xl border p-3 transition-all cursor-pointer',
-                                  settlementOption === opt.value
-                                    ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6'
-                                    : 'border-border/40 hover:bg-muted/30'
-                                )}
-                                onClick={() => setSettlementOption(opt.value)}
-                              >
-                                <RadioGroupItem value={opt.value} id={`pr-${opt.value}`} className="mt-0.5" />
-                                <Label htmlFor={`pr-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
-                                  <p className="text-sm font-medium">{opt.title}</p>
-                                  <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
-                                </Label>
-                              </div>
-                            ))}
+                            ].map((opt) => {
+                              const isAdjust = opt.value === 'adjust'
+                              const adjustDisabled = isAdjust && supplierOutstanding <= 0
+                              return (
+                                <div
+                                  key={opt.value}
+                                  className={cn(
+                                    'flex items-start gap-3 rounded-xl border p-3 transition-all',
+                                    adjustDisabled
+                                      ? 'border-border/30 bg-muted/20 opacity-60 cursor-not-allowed'
+                                      : effectiveSettlementOption === opt.value
+                                        ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6 cursor-pointer'
+                                        : 'border-border/40 hover:bg-muted/30 cursor-pointer'
+                                  )}
+                                  onClick={() => { if (!adjustDisabled) setSettlementOption(opt.value) }}
+                                >
+                                  <RadioGroupItem value={opt.value} id={`pr-${opt.value}`} className="mt-0.5" disabled={adjustDisabled} />
+                                  <Label htmlFor={`pr-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-sm font-medium">{opt.title}</p>
+                                      {isAdjust && supplierOutstanding > 0 && (
+                                        <Badge variant="warning" size="sm">₹{supplierOutstanding.toLocaleString('en-IN')} payable</Badge>
+                                      )}
+                                      {isAdjust && supplierOutstanding <= 0 && (
+                                        <Badge variant="secondary" size="sm">No outstanding</Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                                  </Label>
+                                </div>
+                              )
+                            })}
                           </RadioGroup>
                         </div>
 
@@ -968,9 +1128,15 @@ export default function PurchaseReturnsPage() {
                     </ScrollArea>
 
                     <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
-                      <Button className="w-full" onClick={handleConfirmReturn}>
-                        <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                        Confirm Return &amp; Create Debit Note
+                      <Button
+                        className={`w-full ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                        onClick={handleConfirmReturn}
+                      >
+                        {needsApproval
+                          ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                          : <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                        }
+                        {needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
                       </Button>
                       <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
                         <ChevronLeft className="mr-1.5 h-4 w-4" />

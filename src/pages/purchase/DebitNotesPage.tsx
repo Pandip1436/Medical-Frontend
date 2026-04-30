@@ -203,14 +203,18 @@ export default function DebitNotesPage() {
                             noteNo: pr.debitNoteNo,
                             date: pr.date,
                             partyName: pr.supplierName,
+                            supplierId: pr.supplierId,
                             referenceValue: pr.grn?.grnNumber ?? 'Direct',
                             reason: pr.reason,
                             items: pr.items,
+                            grnItems: pr.grn?.items ?? [],
                             subtotal: pr.subtotal,
                             cgst: pr.cgst,
                             sgst: pr.sgst,
                             totalAmount: pr.totalAmount,
                             status: pr.status,
+                            settlementMode: pr.settlementMode ?? 'REFUND',
+                            replacementGrnId: pr.replacementGrnId ?? null,
                             notes: pr.notes,
                           })}
                         >
@@ -263,14 +267,18 @@ export default function DebitNotesPage() {
                             noteNo: pr.debitNoteNo,
                             date: pr.date,
                             partyName: pr.supplierName,
+                            supplierId: pr.supplierId,
                             referenceValue: pr.grn?.grnNumber ?? 'Direct',
                             reason: pr.reason,
                             items: pr.items,
+                            grnItems: pr.grn?.items ?? [],
                             subtotal: pr.subtotal,
                             cgst: pr.cgst,
                             sgst: pr.sgst,
                             totalAmount: pr.totalAmount,
                             status: pr.status,
+                            settlementMode: pr.settlementMode ?? 'REFUND',
+                            replacementGrnId: pr.replacementGrnId ?? null,
                             notes: pr.notes,
                           })}
                         >
@@ -318,24 +326,29 @@ export default function DebitNotesPage() {
 
 function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: (s: string) => void }) {
   
+  // Use the proper settlementMode field if available, fall back to parsing notes
+  const settlementMode: string = data.settlementMode ?? (() => {
+    if (data.notes?.includes('Settlement Preference:'))
+      return data.notes.replace('Settlement Preference: ', '').trim().toUpperCase()
+    if (data.notes?.includes('Settlement:'))
+      return data.notes.replace('Settlement: ', '').trim().toUpperCase()
+    return 'REFUND'
+  })()
+
+  const isReplacement = settlementMode === 'REPLACEMENT'
+  const isSettled = data.status === 'SETTLED'
+  const hasReplacementGrn = !!data.replacementGrnId
+
   const getDisplaySettlement = () => {
-    let pref = 'ADJUST';
-    if (data.notes && data.notes.includes('Settlement Preference:')) {
-      pref = data.notes.replace('Settlement Preference: ', '').trim().toUpperCase();
+    if (isSettled) {
+      if (settlementMode === 'REFUND') return 'Money Refunded'
+      if (settlementMode === 'REPLACEMENT') return 'Replacement Received'
+      return 'Adjusted against Outstanding'
     }
-    
-    if (data.status === 'SETTLED') {
-      if (pref === 'REFUND') return 'Money Refunded';
-      if (pref === 'REPLACEMENT') return 'Replacement Received';
-      return 'Adjusted against Outstanding';
-    }
-    
-    // Status is not settled, so it's pending
-    if (pref === 'REFUND') return 'Pending Refund';
-    if (pref === 'REPLACEMENT') return 'Pending Replacement';
-    if (pref === 'ADJUST') return 'Pending Adjustment';
-    
-    return 'Pending';
+    if (settlementMode === 'REFUND') return 'Pending Refund'
+    if (settlementMode === 'REPLACEMENT') return hasReplacementGrn ? 'Replacement GRN Received' : 'Awaiting Replacement'
+    if (settlementMode === 'ADJUST') return 'Pending Adjustment'
+    return 'Pending'
   }
 
   const getPdfData = () => ({
@@ -443,7 +456,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold uppercase text-muted-foreground">Taxes (CGST+SGST)</span>
-                <span className="font-mono text-sm">{formatCurrency((data.cgst || 0) + (data.sgst || 0))}</span>
+                <span className="font-mono text-sm">{formatCurrency(Number(data.cgst || 0) + Number(data.sgst || 0))}</span>
               </div>
             </div>
             <div className="flex flex-col items-end">
@@ -472,30 +485,65 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
 
         <Separator className="bg-border/40" />
 
-        {data.status !== 'SETTLED' && (
+        {!isSettled && (
           <div>
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Status</h4>
-            <p className="text-xs text-muted-foreground mb-4">
-              Mark this debit note as settled once credit is received from the supplier.
-            </p>
-            <Button
-              variant="outline"
-              className="w-full bg-background hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-800 transition-all"
-              onClick={() => onStatusUpdate('SETTLED')}
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Mark as Settled
-            </Button>
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+              {isReplacement ? 'Replacement' : 'Settlement'}
+            </h4>
+            {isReplacement ? (
+              <>
+                <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/40 px-3 py-2.5 mb-3">
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Awaiting replacement goods from supplier</p>
+                  <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
+                    Once the supplier sends replacement stock, receive it via a new GRN. The debit note will be marked Settled automatically.
+                  </p>
+                </div>
+                <Button
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/20"
+                  onClick={() => {
+                    // Navigate to GRN with supplier + items prefilled + returnId to auto-link
+                    const params = new URLSearchParams({
+                      replacementReturnId: data.id,
+                      supplierId: data.supplierId ?? '',
+                      supplierName: data.partyName ?? '',
+                    })
+                    navigate(`/purchase/grn?${params.toString()}`)
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Receive Replacement Stock
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Mark this debit note as settled once {settlementMode === 'REFUND' ? 'refund is received' : 'amount is adjusted'}.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full bg-background hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-800 transition-all"
+                  onClick={() => onStatusUpdate('SETTLED')}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Mark as Settled
+                </Button>
+              </>
+            )}
           </div>
         )}
 
-        {data.status === 'SETTLED' && (
+        {isSettled && (
           <div className="flex flex-col items-center gap-2 py-4 text-center">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Settled</p>
-            <p className="text-xs text-muted-foreground">Credit received from supplier</p>
+            <p className="text-xs text-muted-foreground">
+              {isReplacement ? 'Replacement goods received' : 'Credit received from supplier'}
+            </p>
+            {isReplacement && data.replacementGrnId && (
+              <p className="text-[10px] font-mono text-muted-foreground mt-1">GRN: {data.replacementGrnId}</p>
+            )}
           </div>
         )}
       </div>

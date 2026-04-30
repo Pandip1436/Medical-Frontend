@@ -19,6 +19,7 @@ const SalesReturnsPage = lazy(() => import('@/pages/billing/SalesReturnsPage'))
 const CreditNotesPage = lazy(() => import('@/pages/billing/CreditNotesPage'))
 const PurchaseOrdersPage = lazy(() => import('@/pages/purchase/PurchaseOrdersPage'))
 const GRNPage = lazy(() => import('@/pages/purchase/GRNPage'))
+const GRNListPage = lazy(() => import('@/pages/purchase/GRNListPage'))
 const PurchaseReturnsPage = lazy(() => import('@/pages/purchase/PurchaseReturnsPage'))
 const DebitNotesPage = lazy(() => import('@/pages/purchase/DebitNotesPage'))
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
@@ -43,6 +44,7 @@ const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPag
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 const RemindersPage = lazy(() => import('@/pages/reminders/RemindersPage'))
+const ApprovalsPage = lazy(() => import('@/pages/admin/ApprovalsPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -62,6 +64,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/customers',
     '/customers/invoices',
     '/customers/outstanding',
+    '/notifications',
   ],
   INVENTORY_MANAGER: [
     '/dashboard',
@@ -72,9 +75,12 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/adjustment',
     '/purchase/orders',
     '/purchase/grn',
+    '/purchase/grn-list',
     '/purchase/returns',
     '/purchase/debit-notes',
     '/purchase/suppliers',
+    '/notifications',
+    '/admin/approvals',
   ],
   ACCOUNTANT: [
     '/dashboard',
@@ -93,6 +99,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/accounting/pnl',
     '/reports',
     '/salespersons/report',
+    '/notifications',
   ],
   SALESPERSON: [
     '/dashboard',
@@ -103,6 +110,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/expiry',
     '/billing/sales',
     '/salespersons',
+    '/notifications',
   ],
 }
 
@@ -231,6 +239,8 @@ function App() {
         return <PurchaseOrdersPage />
       case '/purchase/grn':
         return <GRNPage />
+      case '/purchase/grn-list':
+        return <GRNListPage />
       case '/purchase/returns':
         return <PurchaseReturnsPage />
       case '/purchase/debit-notes':
@@ -279,6 +289,8 @@ function App() {
         return <NotificationsPage />
       case '/reminders':
         return <RemindersPage />
+      case '/admin/approvals':
+        return <ApprovalsPage />
       default:
         return <DashboardPage />
     }
