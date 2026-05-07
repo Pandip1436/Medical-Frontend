@@ -2,40 +2,40 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
   PackageCheck, Search, ChevronLeft, ChevronRight,
-  AlertTriangle, Package, Printer, RefreshCw,
+  AlertTriangle, Printer, RefreshCw,
   ClipboardList, TrendingUp, Truck, Calendar,
   FileText, CheckCircle2, XCircle, ShieldAlert,
-  RotateCcw, Info,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogTitle,
 } from '@/components/ui/dialog'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import api from '@/lib/api'
 import type { GRN } from '@/types'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { ShortBillingDialog, type ShortBillingItem } from './ShortBillingDialog'
 
 // ─── Helpers ──────────────────────────────────────────────────
-function fmtGrnNo(raw: string) {
-  const seq = raw.split('-').slice(-2).join('-')
-  return `HS/GRN/25-26/${seq}`
-}
-
 function daysUntilExpiry(expiryDate: string) {
   return Math.floor((new Date(expiryDate).getTime() - Date.now()) / 86400000)
 }
 
 // ─── GRN Detail Dialog ────────────────────────────────────────
 function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; onClose: () => void }) {
+  const businessProfile = useSettingsStore(s => s.businessProfile)
+  const orgName = businessProfile?.name || 'Hospital Suppliers'
+  const orgSub = businessProfile?.address?.split(',').slice(-2).join(',').trim() || ''
+  const [shortBillingOpen, setShortBillingOpen] = useState(false)
   const totalOrdered   = grn.items.reduce((s, i) => s + i.orderedQty, 0)
   const totalReceived  = grn.items.reduce((s, i) => s + i.receivedQty, 0)
   const totalFree      = grn.items.reduce((s, i) => s + (i.freeQty ?? 0), 0)
@@ -62,18 +62,21 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   const resolvedShortages = shortItems
     .map(it => {
       const missingQty = it.orderedQty - it.receivedQty
-      // (a) Goods-based resolution
+      // (a) Goods-based resolution. A later GRN can list the same product
+      // across multiple line items (different batches), so sum across all.
       const fulfilledQty = laterGrns.reduce((s, g) => {
-        const match = g.items.find(gi => gi.productId === it.productId)
-        return s + (match ? match.receivedQty + (match.freeQty ?? 0) : 0)
+        return s + g.items
+          .filter(gi => gi.productId === it.productId)
+          .reduce((acc, gi) => acc + gi.receivedQty + (gi.freeQty ?? 0), 0)
       }, 0)
       const resolvingGrns = laterGrns
         .filter(g => g.items.some(gi => gi.productId === it.productId && gi.receivedQty > 0))
         .map(g => g.grnNumber)
-      // (b) Financial resolution via debit note
+      // (b) Financial resolution via debit note (also sum across line items)
       const debitedQty = shortageDebitNotes.reduce((s, pr) => {
-        const match = pr.items.find(pi => pi.productId === it.productId)
-        return s + (match ? match.returnedQty : 0)
+        return s + pr.items
+          .filter(pi => pi.productId === it.productId)
+          .reduce((acc, pi) => acc + pi.returnedQty, 0)
       }, 0)
       const resolvingDebitNotes = shortageDebitNotes
         .filter(pr => pr.items.some(pi => pi.productId === it.productId && pi.returnedQty > 0))
@@ -133,7 +136,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>GRN — ${fmtGrnNo(grn.grnNumber)}</title>
+  <title>GRN — ${grn.grnNumber}</title>
   <style>
     @page { size: A4 landscape; margin: 15mm 14mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -200,12 +203,12 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   <!-- Document header -->
   <div class="doc-header">
     <div>
-      <div class="org-name">PBIMS</div>
-      <div class="org-sub">Hospital Suppliers — HQ Madurai</div>
+      <div class="org-name">${orgName}</div>
+      <div class="org-sub">${orgSub}</div>
     </div>
     <div style="text-align:center">
       <div class="doc-title">Goods Receipt Note</div>
-      <div class="doc-grn">${fmtGrnNo(grn.grnNumber)}</div>
+      <div class="doc-grn">${grn.grnNumber}</div>
     </div>
     <div class="print-meta">
       Printed: ${new Date().toLocaleDateString('en-IN')}<br/>
@@ -293,8 +296,8 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   <!-- Footer -->
   <div class="doc-footer">
     <div class="footer-left">
-      <b>PBIMS — Hospital Suppliers</b><br/>
-      GRN: ${fmtGrnNo(grn.grnNumber)} &nbsp;·&nbsp; Date: ${formatDate(grn.date)}<br/>
+      <b>${orgName}</b><br/>
+      GRN: ${grn.grnNumber} &nbsp;·&nbsp; Date: ${formatDate(grn.date)}<br/>
       This is a system-generated document.
     </div>
     <div class="footer-sig">
@@ -320,7 +323,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
               <PackageCheck className="h-4 w-4 text-primary" />
             </div>
             <div className="min-w-0 flex items-center gap-2 flex-wrap">
-              <DialogTitle className="text-base font-bold font-mono tracking-tight">{fmtGrnNo(grn.grnNumber)}</DialogTitle>
+              <DialogTitle className="text-base font-bold font-mono tracking-tight">{grn.grnNumber}</DialogTitle>
               <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct Entry'}</Badge>
               {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
               {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
@@ -417,29 +420,8 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
                 ))}</div>
                 <Button size="sm" variant="outline"
                   className="ml-2 gap-1 text-amber-700 border-amber-300 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-400 h-7 px-2.5 text-[11px]"
-                  onClick={() => {
-                    const shortPayload = shortItems.map(it => ({
-                      productId: it.productId,
-                      productName: it.productName,
-                      orderedQty: it.orderedQty,
-                      receivedQty: it.receivedQty,
-                      rate: Number(it.purchaseRate),
-                      batchNumber: it.batchNumber,
-                      expiryDate: it.expiryDate,
-                      gstPercent: 12,
-                      supplierId: grn.supplierId,
-                      supplierName: grn.supplierName,
-                    }))
-                    const params = new URLSearchParams({
-                      shortageGrnId: grn.id,
-                      supplierId: grn.supplierId,
-                      supplierName: grn.supplierName,
-                      shortItems: JSON.stringify(shortPayload),
-                    })
-                    onClose()
-                    navigate(`/purchase/returns?${params.toString()}`)
-                  }}>
-                  <FileText className="h-3 w-3" /> Raise Debit Note
+                  onClick={() => setShortBillingOpen(true)}>
+                  <FileText className="h-3 w-3" /> Raise Short-Billing Debit Note
                 </Button>
               </div>
             )}
@@ -550,6 +532,26 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
         </div>
 
       </DialogContent>
+      <ShortBillingDialog
+        open={shortBillingOpen}
+        onOpenChange={setShortBillingOpen}
+        grn={{
+          id: grn.id,
+          grnNumber: grn.grnNumber,
+          supplierId: grn.supplierId,
+          supplierName: grn.supplierName,
+        }}
+        shortItems={shortItems.map<ShortBillingItem>((it) => ({
+          productId: it.productId,
+          productName: it.productName,
+          shortQty: it.orderedQty - it.receivedQty,
+          purchaseRate: Number(it.purchaseRate),
+          gstPercent: 12,
+          batchNumber: it.batchNumber,
+          expiryDate: typeof it.expiryDate === 'string' ? it.expiryDate : new Date(it.expiryDate).toISOString(),
+        }))}
+        onSuccess={() => onClose()}
+      />
     </Dialog>
   )
 }
@@ -728,7 +730,7 @@ export default function GRNListPage() {
                       >
                         <TableCell className="pl-5">
                           <span className="font-mono text-xs font-semibold text-primary">
-                            {fmtGrnNo(grn.grnNumber)}
+                            {grn.grnNumber}
                           </span>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">

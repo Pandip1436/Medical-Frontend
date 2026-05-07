@@ -2,9 +2,6 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
-  Search,
-  MoreHorizontal,
-  Eye,
   Pencil,
   UserX,
   Phone,
@@ -15,7 +12,6 @@ import {
   Building2,
   Download,
   Printer,
-  SlidersHorizontal,
   X,
   ChevronLeft,
   ChevronRight,
@@ -53,7 +49,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -87,9 +82,17 @@ const supplierSchema = z.object({
   email: z.string().email('Invalid email address'),
   gstin: z
     .string()
-    .min(15, 'GSTIN must be 15 characters')
-    .max(15, 'GSTIN must be 15 characters'),
-  drugLicense: z.string().min(5, 'Drug license number required'),
+    .length(15, 'GSTIN must be 15 characters')
+    // Standard GSTIN format: 2-digit state + 10-char PAN + entity code + Z + check digit
+    .regex(
+      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
+      'Invalid GSTIN format (e.g. 33ABCDE1234F1Z5)',
+    ),
+  drugLicense: z
+    .string()
+    .min(5, 'Drug license number required')
+    // Allow alphanumeric + hyphen/slash, common for state-issued numbers
+    .regex(/^[A-Za-z0-9\-/]+$/, 'Drug license can only contain letters, digits, - and /'),
   address: z.string().min(10, 'Address is required'),
   paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
     message: 'Select payment terms',
@@ -304,7 +307,7 @@ export default function SuppliersPage() {
     setDialogOpen(true)
   }
 
-  async function onSubmit(data: any) {
+  async function onSubmit(data: SupplierForm) {
     try {
       if (editingSupplier) {
         await api.patch(`/suppliers/${editingSupplier.id}`, data)
@@ -474,6 +477,10 @@ export default function SuppliersPage() {
                   Print
                 </Button>
                 <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={async () => {
+                  const ok = window.confirm(
+                    `Deactivate ${selectedIds.size} supplier${selectedIds.size === 1 ? '' : 's'}? They will be hidden from active lists but their history will be preserved.`,
+                  )
+                  if (!ok) return
                   try {
                     await Promise.all(
                       [...selectedIds].map((id) => api.patch(`/suppliers/${id}`, { isActive: false }))

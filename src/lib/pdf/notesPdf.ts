@@ -2,12 +2,20 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
 
-const COMPANY = {
+const COMPANY_FALLBACK = {
   name: 'HOSPITAL SUPPLIERS',
   address: 'Hospital Suppliers, Madurai, Tamil Nadu',
   phone: '+91 452 234 5678',
   email: 'contact@hospitalsuppliers.in',
   gstin: '33AAAPL1234C1Z5',
+}
+
+export interface NotePdfCompany {
+  name?: string
+  address?: string
+  phone?: string
+  email?: string
+  gstin?: string
 }
 
 const fmt = (n: number) =>
@@ -40,25 +48,37 @@ interface NoteData {
   igst?: number
   totalAmount: number
   footerLine?: string
+  company?: NotePdfCompany
 }
 
 function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
+  const company = { ...COMPANY_FALLBACK, ...(note.company ?? {}) }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text(COMPANY.name, pageWidth / 2, 15, { align: 'center' })
+  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(COMPANY.address, pageWidth / 2, 21, { align: 'center' })
-  doc.text(`GSTIN: ${COMPANY.gstin}`, pageWidth / 2, 26, { align: 'center' })
+  doc.text(company.address, pageWidth / 2, 21, { align: 'center' })
+  doc.text(`GSTIN: ${company.gstin}`, pageWidth / 2, 26, { align: 'center' })
   doc.setDrawColor(180)
   doc.line(14, 29, pageWidth - 14, 29)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
-  doc.text(kind === 'CREDIT' ? 'CREDIT NOTE' : 'DEBIT NOTE', pageWidth / 2, 36, { align: 'center' })
+  // Short-billing debit notes are billing claims, not goods returns — title
+  // them differently so the supplier reads it correctly.
+  const isShortBilling =
+    kind === 'DEBIT' && /short.*delivery|short.*supply/i.test(note.reason ?? '')
+  const title =
+    kind === 'CREDIT'
+      ? 'CREDIT NOTE'
+      : isShortBilling
+        ? 'SHORT-BILLING DEBIT NOTE'
+        : 'DEBIT NOTE'
+  doc.text(title, pageWidth / 2, 36, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -100,7 +120,7 @@ function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: bo
     margin: { left: 14, right: 14 },
   })
 
-  const afterTableY = (doc as any).lastAutoTable.finalY + 6
+  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
   const summaryX = pageWidth - 80
   const row = (label: string, value: string, yPos: number, bold = false) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal')

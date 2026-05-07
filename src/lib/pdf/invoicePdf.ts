@@ -94,7 +94,7 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
     margin: { left: 14, right: 14 },
   })
 
-  const afterTableY = (doc as any).lastAutoTable.finalY + 6
+  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
   const summaryX = pageWidth - 80
 
   const row = (label: string, value: string, yPos: number, bold = false) => {

@@ -11,7 +11,6 @@ import {
   Printer,
   Download,
   CheckCircle2,
-  ChevronLeft,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -31,16 +30,46 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 // ─────────────────────────────────────────────────────────────
 // DEBIT NOTES HISTORY PAGE
 // ─────────────────────────────────────────────────────────────
 
+// Minimal API row + UI detail shape — kept loose because the API returns a
+// nested object graph we don't fully type elsewhere.
+type ApiReturnItem = {
+  id: string; productId: string; productName: string;
+  batchNumber: string; expiryDate: string; returnedQty: number;
+  purchaseRate: number | string; rate?: number | string;
+  gstPercent: number | string; amount: number | string;
+}
+type ApiReturn = {
+  id: string; debitNoteNo: string; date: string;
+  supplierId: string; supplierName: string;
+  reason: string; items: ApiReturnItem[];
+  subtotal: number | string; cgst?: number | string; sgst?: number | string;
+  totalAmount: number | string; status: string;
+  settlementMode?: 'REFUND' | 'REPLACEMENT' | 'ADJUST';
+  replacementGrnId?: string | null; notes?: string;
+  grn?: { grnNumber: string; items: ApiReturnItem[] };
+}
+type ReturnDetail = {
+  id: string; noteNo: string; date: string;
+  partyName: string; supplierId: string;
+  referenceValue: string; reason: string;
+  items: ApiReturnItem[]; grnItems: ApiReturnItem[];
+  subtotal: number | string; cgst?: number | string; sgst?: number | string;
+  totalAmount: number | string; status: string;
+  settlementMode: 'REFUND' | 'REPLACEMENT' | 'ADJUST';
+  replacementGrnId: string | null; notes?: string;
+}
+
 export default function DebitNotesPage() {
-  const [pastReturns, setPastReturns] = useState<any[]>([])
-  const [allReturns, setAllReturns] = useState<any[]>([])
+  const [pastReturns, setPastReturns] = useState<ApiReturn[]>([])
+  const [allReturns, setAllReturns] = useState<ApiReturn[]>([])
   const [returnsLoading, setReturnsLoading] = useState(true)
-  const [selectedReturnDetails, setSelectedReturnDetails] = useState<any | null>(null)
+  const [selectedReturnDetails, setSelectedReturnDetails] = useState<ReturnDetail | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
   const fetchReturns = useCallback(async () => {
@@ -78,7 +107,7 @@ export default function DebitNotesPage() {
     try {
       await api.patch(`/purchase-returns/${selectedReturnDetails.id}`, { status: newStatus })
       toast.success(`Debit Note marked as ${newStatus}`)
-      setSelectedReturnDetails((prev: any) => ({ ...prev, status: newStatus }))
+      setSelectedReturnDetails((prev) => prev ? { ...prev, status: newStatus } : prev)
       fetchReturns()
     } catch {
       toast.error('Failed to update status')
@@ -249,12 +278,13 @@ export default function DebitNotesPage() {
                     <TableHeader className="bg-muted/50">
                       <TableRow>
                         <TableHead className="w-47.5">Note Number</TableHead>
-                        <TableHead className="w-32.5">Date</TableHead>
+                        <TableHead className="w-30">Type</TableHead>
+                        <TableHead className="w-27.5">Date</TableHead>
                         <TableHead>Supplier</TableHead>
-                        <TableHead className="w-37.5">GRN Reference</TableHead>
-                        <TableHead className="text-right w-35">Debit Amount</TableHead>
-                        <TableHead className="w-27.5">Status</TableHead>
-                        <TableHead className="w-15"></TableHead>
+                        <TableHead className="w-32.5">GRN</TableHead>
+                        <TableHead className="text-right w-30">Amount</TableHead>
+                        <TableHead className="w-25">Status</TableHead>
+                        <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody className="bg-background">
@@ -283,6 +313,17 @@ export default function DebitNotesPage() {
                           })}
                         >
                           <TableCell className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</TableCell>
+                          <TableCell>
+                            {/short.*delivery|short.*supply/i.test(pr.reason ?? '') ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-100/70 dark:bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                Short-Billing
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                Goods returned
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>
                           <TableCell className="font-medium text-sm">{pr.supplierName}</TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">{pr.grn?.grnNumber ?? '—'}</TableCell>
@@ -324,16 +365,12 @@ export default function DebitNotesPage() {
 // DEBIT NOTE DETAIL COMPONENT
 // ─────────────────────────────────────────────────────────────
 
-function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: (s: string) => void }) {
-  
-  // Use the proper settlementMode field if available, fall back to parsing notes
-  const settlementMode: string = data.settlementMode ?? (() => {
-    if (data.notes?.includes('Settlement Preference:'))
-      return data.notes.replace('Settlement Preference: ', '').trim().toUpperCase()
-    if (data.notes?.includes('Settlement:'))
-      return data.notes.replace('Settlement: ', '').trim().toUpperCase()
-    return 'REFUND'
-  })()
+function DebitNoteDetail({ data, onStatusUpdate }: { data: ReturnDetail; onStatusUpdate: (s: string) => void }) {
+  const businessProfile = useSettingsStore(s => s.businessProfile)
+
+  // settlementMode is a structured field on PurchaseReturn; default to REFUND
+  // for legacy rows that predate the column.
+  const settlementMode: string = data.settlementMode ?? 'REFUND'
 
   const isReplacement = settlementMode === 'REPLACEMENT'
   const isSettled = data.status === 'SETTLED'
@@ -359,7 +396,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
     referenceLabel: 'GRN No',
     referenceValue: data.referenceValue,
     reason: data.reason,
-    items: (data.items || []).map((it: any) => ({
+    items: (data.items || []).map((it) => ({
       productName: it.productName,
       batchNumber: it.batchNumber,
       expiryDate: it.expiryDate,
@@ -368,11 +405,18 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
       gstPercent: Number(it.gstPercent || 0),
       amount: Number(it.amount || 0)
     })),
-    subtotal: data.subtotal,
-    cgst: data.cgst,
-    sgst: data.sgst,
-    totalAmount: data.totalAmount,
+    subtotal: Number(data.subtotal),
+    cgst: data.cgst != null ? Number(data.cgst) : undefined,
+    sgst: data.sgst != null ? Number(data.sgst) : undefined,
+    totalAmount: Number(data.totalAmount),
     footerLine: `Settlement: ${getDisplaySettlement()}`,
+    company: businessProfile ? {
+      name: businessProfile.name,
+      address: businessProfile.address,
+      phone: businessProfile.phone,
+      email: businessProfile.email,
+      gstin: businessProfile.gstin,
+    } : undefined,
   })
 
   return (
@@ -426,7 +470,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
               <div className="col-span-4 text-right">Amount</div>
             </div>
             <div className="mt-2 space-y-1">
-              {(data.items || []).map((it: any, idx: number) => (
+              {(data.items || []).map((it, idx) => (
                 <div
                   key={idx}
                   className="grid grid-cols-12 gap-2 rounded-lg hover:bg-muted/30 px-4 py-3 items-center text-sm transition-colors border-b border-border/10 last:border-0"
@@ -439,7 +483,7 @@ function DebitNoteDetail({ data, onStatusUpdate }: { data: any; onStatusUpdate: 
                     {it.returnedQty}
                   </div>
                   <div className="col-span-4 text-right font-mono font-bold tracking-tight">
-                    {formatCurrency(it.amount || (it.returnedQty * it.purchaseRate))}
+                    {formatCurrency(Number(it.amount) || (it.returnedQty * Number(it.purchaseRate)))}
                   </div>
                 </div>
               ))}

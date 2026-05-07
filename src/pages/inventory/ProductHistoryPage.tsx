@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -91,6 +92,7 @@ export default function ProductHistoryPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [batchFilter, setBatchFilter] = useState('all')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
 
   // Per-tab pagination
@@ -159,14 +161,20 @@ export default function ProductHistoryPage() {
   }, [history])
 
   // ── Purchase return rows (outgoing — stock OUT to supplier) ──
+  // Short-delivery debit notes are excluded: they're financial claims for
+  // goods that never arrived, so they don't represent any stock movement.
+  // They still exist in the Debit Notes page for accounting visibility.
+  const SHORT_DELIVERY_RE = /short.*delivery|short.*supply/i
   const purchaseReturnRows = useMemo(() => {
     if (!history) return []
-    return (history.purchaseReturns ?? []).map((r: any) => ({
-      date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName,
-      batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
-      purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
-      reason: r.reason, isReturn: true,
-    }))
+    return (history.purchaseReturns ?? [])
+      .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
+      .map((r: any) => ({
+        date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName,
+        batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
+        purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
+        reason: r.reason, isReturn: true,
+      }))
   }, [history])
 
   // ── Timeline — all 4 types merged with running stock ─────────
@@ -189,12 +197,16 @@ export default function ProductHistoryPage() {
         ref: p.grnNumber, party: p.supplierName,
         batch: p.batchNumber, qty: p.receivedQty, amount: p.amount,
       })),
-      ...(history.purchaseReturns ?? []).map((r: any) => ({
-        type: 'PURCHASE_RETURN' as const, date: new Date(r.date),
-        ref: r.debitNoteNo, party: r.supplierName,
-        batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
-        note: r.reason,
-      })),
+      // Skip short-delivery DNs — they don't move stock, so including them
+      // would corrupt the running-stock total walked below.
+      ...(history.purchaseReturns ?? [])
+        .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
+        .map((r: any) => ({
+          type: 'PURCHASE_RETURN' as const, date: new Date(r.date),
+          ref: r.debitNoteNo, party: r.supplierName,
+          batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
+          note: r.reason,
+        })),
     ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
     // Net stock change per type: SALE → out, PURCHASE → in, SALES_RETURN → in, PURCHASE_RETURN → out
@@ -220,6 +232,9 @@ export default function ProductHistoryPage() {
       const end = new Date(dateTo); end.setHours(23, 59, 59, 999)
       result = result.filter(r => r.date <= end)
     }
+    if (batchFilter && batchFilter !== 'all') {
+      result = result.filter(r => r.batch === batchFilter)
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter(r =>
@@ -230,7 +245,21 @@ export default function ProductHistoryPage() {
     }
     if (sortOrder === 'desc') result = result.reverse()
     return result
-  }, [dateFrom, dateTo, searchQuery, sortOrder])
+  }, [dateFrom, dateTo, batchFilter, searchQuery, sortOrder])
+
+  // Distinct batches present anywhere in this product's history. Sorted with
+  // recent batches first by appearance order in the timeline.
+  const availableBatches = useMemo(() => {
+    const seen = new Set<string>()
+    const order: string[] = []
+    for (const row of timeline) {
+      if (row.batch && !seen.has(row.batch)) {
+        seen.add(row.batch)
+        order.push(row.batch)
+      }
+    }
+    return order
+  }, [timeline])
 
   // Sales tab = sales + sales returns; Purchases tab = purchases + purchase returns
   const filteredSales = useMemo(() => applyFilters([...salesRows, ...salesReturnRows].sort((a, b) => b.date.getTime() - a.date.getTime())), [salesRows, salesReturnRows, applyFilters])
@@ -245,9 +274,19 @@ export default function ProductHistoryPage() {
   const pagedPurchases = useMemo(() => paginate(filteredPurchases, purchasesPage), [filteredPurchases, purchasesPage])
   const pagedTimeline = useMemo(() => paginate(filteredTimeline, timelinePage), [filteredTimeline, timelinePage])
 
-  const activeFilterCount = [dateFrom, dateTo, searchQuery].filter(Boolean).length
+  const activeFilterCount = [
+    dateFrom,
+    dateTo,
+    searchQuery,
+    batchFilter !== 'all' ? batchFilter : '',
+  ].filter(Boolean).length
 
-  const clearFilters = () => { setDateFrom(''); setDateTo(''); setSearchQuery('') }
+  const clearFilters = () => {
+    setDateFrom('')
+    setDateTo('')
+    setSearchQuery('')
+    setBatchFilter('all')
+  }
 
   const handleExport = () => {
     const rows = activeTab === 'sales' ? filteredSales : activeTab === 'purchases' ? filteredPurchases : filteredTimeline
@@ -425,6 +464,20 @@ export default function ProductHistoryPage() {
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
           <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
         </div>
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</Label>
+          <Select value={batchFilter} onValueChange={setBatchFilter} disabled={availableBatches.length === 0}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All batches" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All batches</SelectItem>
+              {availableBatches.map((b) => (
+                <SelectItem key={b} value={b}>{b}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </DataTableFilterBar>
 
       {/* Content area */}
@@ -535,7 +588,23 @@ export default function ProductHistoryPage() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-xs">{row.party}</TableCell>
-                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setBatchFilter(row.batch); setSalesPage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </TableCell>
                               <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
                                 {isReturn ? `+${row.qty}` : `−${row.qty}`}
                               </TableCell>
@@ -596,7 +665,23 @@ export default function ProductHistoryPage() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-xs">{row.party}</TableCell>
-                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setBatchFilter(row.batch); setPurchasesPage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </TableCell>
                               <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
                                 {isReturn ? `−${row.qty}` : `+${row.qty}`}
                               </TableCell>
@@ -633,11 +718,11 @@ export default function ProductHistoryPage() {
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
-                          <TableHead className="w-28">Type</TableHead>
+                          <TableHead className="w-40 min-w-40">Type</TableHead>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
                           <TableHead>Invoice # / GRN #</TableHead>
                           <TableHead>Party</TableHead>
-                          <TableHead>Batch</TableHead>
+                          <TableHead className="w-32">Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
                           <TableHead className="text-right">Stock</TableHead>
@@ -649,14 +734,14 @@ export default function ProductHistoryPage() {
                             SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50',         badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
                             PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
                             SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
-                            PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/50',      badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purch. Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                            PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/50',      badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
                           }
                           const style = TYPE_STYLE[row.type]
                           const Icon = style.icon
                           return (
                             <TableRow key={`tl-${i}`} className={style.rowBg}>
                               <TableCell>
-                                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase', style.badge)}>
+                                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap', style.badge)}>
                                   <Icon className="h-3 w-3" />
                                   {style.label}
                                 </span>
@@ -666,7 +751,23 @@ export default function ProductHistoryPage() {
                               </TableCell>
                               <TableCell className="text-xs font-medium font-mono">{row.ref}</TableCell>
                               <TableCell className="text-xs">{row.party}</TableCell>
-                              <TableCell className="text-xs font-mono text-muted-foreground">{row.batch}</TableCell>
+                              <TableCell className="text-xs font-mono text-muted-foreground">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setBatchFilter(row.batch); setTimelinePage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </TableCell>
                               <TableCell className={cn('text-right text-xs font-mono font-semibold', style.qtyColor)}>
                                 {style.qtySign}{row.qty}
                               </TableCell>

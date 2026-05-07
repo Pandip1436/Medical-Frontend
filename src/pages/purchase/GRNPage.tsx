@@ -32,8 +32,10 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import type { GRNItem } from '@/types'
+import { useSettingsStore } from '@/stores/settingsStore'
+import type { GRNItem, PurchaseOrderItem } from '@/types'
 import { printGrnPdf, downloadGrnPdf, type GrnPdfData } from '@/lib/pdf/grnPdf'
+import { ShortBillingDialog, type ShortBillingItem } from './ShortBillingDialog'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -120,10 +122,12 @@ export default function GRNPage() {
   // Post-confirm short supply action dialog
   const [shortActionDialog, setShortActionDialog] = useState<{
     savedGrnId: string
+    savedGrnNumber: string
     shortItems: Array<{ productId: string; productName: string; orderedQty: number; receivedQty: number; rate: number; batchNumber: string; expiryDate: string; gstPercent: number; supplierId: string; supplierName: string }>
     supplierId: string
     supplierName: string
   } | null>(null)
+  const [shortBillingOpen, setShortBillingOpen] = useState(false)
 
   const { purchaseOrders, products, suppliers, fetchMasterData } = useMasterDataStore()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -152,8 +156,8 @@ export default function GRNPage() {
         setSelectedPOId(prefilledPoId)
         const isPartial = freshPO.status === 'PARTIALLY_RECEIVED'
         setGrnItems(
-          (freshPO.items ?? [])
-            .map((item: any, i: number) => {
+          ((freshPO.items ?? []) as PurchaseOrderItem[])
+            .map((item, i) => {
               const alreadyReceived = Number(item.receivedQty ?? 0)
               const remaining = item.requiredQty - alreadyReceived
               if (isPartial && remaining <= 0) return null
@@ -185,14 +189,14 @@ export default function GRNPage() {
     }
     loadFreshPO()
     return () => { cancelled = true }
-  }, [prefilledPoId])
+    // We deliberately fire only when prefilledPoId changes; the other deps
+    // would re-trigger unwanted reloads of the fresh PO.
+  }, [prefilledPoId]) // eslint-disable-line react-hooks/exhaustive-deps
   useBranchRefresh(fetchData)
 
-  // Auto-generated GRN number
-  const grnNumber = useMemo(
-    () => `HS/GRN/2025-26/${String(Math.floor(Math.random() * 900 + 100)).padStart(5, '0')}`,
-    []
-  )
+  // Placeholder shown until the GRN is saved — the authoritative number is
+  // generated atomically on the server and returned in the create response.
+  const grnNumber = 'GRN / pending'
 
   // ── Selectable POs ──
   const selectablePOs = useMemo(() => {
@@ -243,7 +247,7 @@ export default function GRNPage() {
     setGrnItems(
       po.items
         .map((item, i) => {
-          const alreadyReceived = Number((item as any).receivedQty ?? 0)
+          const alreadyReceived = Number(item.receivedQty ?? 0)
           const remaining = item.requiredQty - alreadyReceived
           // Skip fully received items for supplementary GRNs
           if (isPartial && remaining <= 0) return null
@@ -363,6 +367,53 @@ export default function GRNPage() {
       toast.error('Supplier invoice number and date are required')
       return
     }
+
+    // Item-level validation before we hit the server
+    for (let idx = 0; idx < receivedItems.length; idx++) {
+      const i = receivedItems[idx]
+      const label = i.productName || `Item #${idx + 1}`
+      if (!i.batchNumber?.trim()) {
+        toast.error(`${label}: batch number is required`)
+        return
+      }
+      if (!i.mfgDate || !i.expiryDate) {
+        toast.error(`${label}: manufacturing and expiry dates are required`)
+        return
+      }
+      const mfg = new Date(i.mfgDate).getTime()
+      const exp = new Date(i.expiryDate).getTime()
+      if (Number.isNaN(mfg) || Number.isNaN(exp)) {
+        toast.error(`${label}: invalid manufacturing or expiry date`)
+        return
+      }
+      if (exp <= mfg) {
+        toast.error(`${label}: expiry date must be after manufacturing date`)
+        return
+      }
+      if (exp < Date.now()) {
+        toast.error(`${label}: this batch has already expired — refusing to receive`)
+        return
+      }
+      if (Number(i.purchaseRate) < 0 || Number(i.mrp) < 0) {
+        toast.error(`${label}: purchase rate and MRP must be non-negative`)
+        return
+      }
+      if (Number(i.damageQty || 0) > Number(i.receivedQty || 0)) {
+        toast.error(`${label}: damaged qty cannot exceed received qty`)
+        return
+      }
+      // PO-linked: don't let user over-receive (server also enforces this, but
+      // we want instant feedback before the round-trip)
+      if (selectedPOId && (i._remaining ?? i.orderedQty) > 0) {
+        const cap = i._remaining ?? i.orderedQty
+        const incoming = Number(i.receivedQty || 0) + Number(i.freeQty || 0)
+        if (incoming > cap) {
+          toast.error(`${label}: receiving ${incoming} exceeds remaining ${cap} on this PO`)
+          return
+        }
+      }
+    }
+
     setIsSubmitting(true)
     try {
       // For replacement GRNs, default invoice number/date if user left them blank
@@ -429,6 +480,7 @@ export default function GRNPage() {
         const prod = (productId: string) => products.find((p) => p.id === productId)
         setShortActionDialog({
           savedGrnId: savedGrn.id,
+          savedGrnNumber: savedGrn.grnNumber ?? grnNumber,
           supplierId: effSupplierId,
           supplierName: effSupplierName,
           shortItems: shortItems.map((i) => ({
@@ -453,13 +505,15 @@ export default function GRNPage() {
       setInvoiceDate('')
       setInvoiceAmount(0)
       await fetchMasterData()
-    } catch (err: any) {
-      const msg = err.response?.data?.message;
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
       toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save GRN. Please try again.'));
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  const businessProfile = useSettingsStore(s => s.businessProfile)
 
   function buildGrnPdfData(): GrnPdfData {
     return {
@@ -469,6 +523,14 @@ export default function GRNPage() {
       supplierInvoiceNo: invoiceNo || undefined,
       supplierInvoiceDate: invoiceDate || undefined,
       totalAmount: gstBreakdown.total,
+      company: businessProfile ? {
+        name: businessProfile.name,
+        address: businessProfile.address,
+        phone: businessProfile.phone,
+        email: businessProfile.email,
+        gstin: businessProfile.gstin,
+        dlNo: businessProfile.drugLicense,
+      } : undefined,
       items: receivedItems.map((i) => ({
         productName: i.productName,
         batchNumber: i.batchNumber,
@@ -1246,26 +1308,17 @@ export default function GRNPage() {
 
               {/* Action options */}
               <div className="space-y-2 mb-5">
-                {/* Raise Debit Note */}
+                {/* Raise Short-Billing Debit Note */}
                 <button
-                  onClick={() => {
-                    const params = new URLSearchParams({
-                      shortageGrnId: shortActionDialog.savedGrnId,
-                      supplierId: shortActionDialog.supplierId,
-                      supplierName: shortActionDialog.supplierName,
-                      shortItems: JSON.stringify(shortActionDialog.shortItems),
-                    })
-                    setShortActionDialog(null)
-                    navigate(`/purchase/returns?${params.toString()}`)
-                  }}
+                  onClick={() => setShortBillingOpen(true)}
                   className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 mt-0.5">
                     <FileText className="h-4 w-4 text-rose-600 dark:text-rose-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">Raise Debit Note</p>
-                    <p className="text-[11px] text-muted-foreground">Supplier won't send the rest. Recover the amount via a debit note for the shortage.</p>
+                    <p className="text-sm font-semibold">Raise Short-Billing Debit Note</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier won't send the rest. Claim back the amount they billed for goods that never arrived. Stock is unaffected.</p>
                   </div>
                 </button>
 
@@ -1420,6 +1473,38 @@ export default function GRNPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {shortActionDialog && (
+        <ShortBillingDialog
+          open={shortBillingOpen}
+          onOpenChange={(o) => {
+            setShortBillingOpen(o)
+            if (!o) {
+              // user cancelled — close the parent action dialog too so they can move on
+            }
+          }}
+          grn={{
+            id: shortActionDialog.savedGrnId,
+            grnNumber: shortActionDialog.savedGrnNumber,
+            supplierId: shortActionDialog.supplierId,
+            supplierName: shortActionDialog.supplierName,
+          }}
+          shortItems={shortActionDialog.shortItems.map<ShortBillingItem>((it) => ({
+            productId: it.productId,
+            productName: it.productName,
+            shortQty: it.orderedQty - it.receivedQty,
+            purchaseRate: it.rate,
+            gstPercent: it.gstPercent,
+            batchNumber: it.batchNumber,
+            expiryDate: it.expiryDate,
+          }))}
+          onSuccess={() => {
+            setShortBillingOpen(false)
+            setShortActionDialog(null)
+            navigate('/purchase/debit-notes')
+          }}
+        />
+      )}
     </div>
   )
 }

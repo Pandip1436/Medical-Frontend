@@ -5,18 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
   Search,
-  MoreHorizontal,
-  Eye,
   Send,
   PackageCheck,
-  XCircle,
   Zap,
   Trash2,
   FileText,
   ClipboardList,
   Download,
   Printer,
-  SlidersHorizontal,
   X,
   ChevronLeft,
   ChevronRight,
@@ -25,7 +21,7 @@ import {
   Clock,
   Package,
 } from 'lucide-react'
-import { useForm, useFieldArray, useWatch, type Control } from 'react-hook-form'
+import { useForm, useFieldArray, useWatch, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -52,9 +48,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -70,7 +63,7 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
-import type { PurchaseOrder } from '@/types'
+import type { PurchaseOrder, Product } from '@/types'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 
@@ -137,12 +130,12 @@ const statusBadgeConfig: Record<
 
 interface POItemRowProps {
   index: number
-  register: any
-  onSelectProduct: (index: number, product: any) => void
+  register: UseFormRegister<CreatePOForm>
+  onSelectProduct: (index: number, product: Product | null) => void
   control: Control<CreatePOForm>
   remove: (index: number) => void
-  errors: any
-  products: any[]
+  errors: FieldErrors<CreatePOForm>
+  products: Product[]
   isRemovable: boolean
 }
 
@@ -276,7 +269,7 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
                       <div className="flex items-center gap-2 text-[10px] text-muted-foreground line-clamp-1">
                         <span className="opacity-70">{p.genericName}</span>
                         <span className="opacity-20">|</span>
-                        <span className="font-mono">{formatCurrency((p as any).purchaseRate || 0)}</span>
+                        <span className="font-mono">{formatCurrency(p.purchaseRate || 0)}</span>
                       </div>
                     </div>
                   </button>
@@ -362,10 +355,12 @@ export default function PurchaseOrdersPage() {
     }
   }, [])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     fetchMasterData()
     fetchPOs()
+    // Mount-only initial fetch; subsequent refreshes go through useBranchRefresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useBranchRefresh(fetchPOs)
 
@@ -540,6 +535,9 @@ export default function PurchaseOrdersPage() {
   // ── Actions ──
   async function handleAction(action: string, po: PurchaseOrder) {
     switch (action) {
+      case 'view':
+        openDetailPO(po)
+        break
       case 'send':
         try {
           await api.patch(`/purchase-orders/${po.id}`, { status: 'SENT' })
@@ -584,7 +582,7 @@ export default function PurchaseOrdersPage() {
 
   const poTotal = useMemo(() => {
     return (watchedItems || []).reduce(
-      (sum: number, item: any) => sum + (parseFloat(String(item?.requiredQty)) || 0) * (parseFloat(String(item?.expectedRate)) || 0), 0
+      (sum, item) => sum + (parseFloat(String(item?.requiredQty)) || 0) * (parseFloat(String(item?.expectedRate)) || 0), 0
     )
   }, [watchedItems])
 
@@ -602,7 +600,7 @@ export default function PurchaseOrdersPage() {
     toast.success(`Added ${newItems.length} low stock items`)
   }
 
-  async function onSubmitPO(data: any, asDraft: boolean) {
+  async function onSubmitPO(data: CreatePOForm, asDraft: boolean) {
     const supplier = suppliers.find((s) => s.id === data.supplierId)
     try {
       await api.post('/purchase-orders', {
@@ -610,8 +608,8 @@ export default function PurchaseOrdersPage() {
         supplierName: supplier?.name ?? '',
         expectedDelivery: new Date(data.expectedDelivery).toISOString(),
         status: asDraft ? 'DRAFT' : 'SENT',
-        totalAmount: data.items.reduce((sum: number, it: any) => sum + (Number(it.requiredQty) || 0) * (Number(it.expectedRate) || 0), 0),
-        items: data.items.map((it: any) => ({
+        totalAmount: data.items.reduce((sum, it) => sum + (Number(it.requiredQty) || 0) * (Number(it.expectedRate) || 0), 0),
+        items: data.items.map((it) => ({
           productId: it.productId,
           productName: it.productName,
           requiredQty: Number(it.requiredQty),
@@ -627,12 +625,13 @@ export default function PurchaseOrdersPage() {
       setCreateDialogOpen(false)
       reset()
       fetchPOs()
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to create purchase order')
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(msg ?? 'Failed to create purchase order')
     }
   }
 
-  const handleSelectProduct = (index: number, product: any) => {
+  const handleSelectProduct = (index: number, product: Product | null) => {
     if (!product) {
       setValue(`items.${index}.productId`, '', { shouldValidate: true })
       setValue(`items.${index}.productName`, '', { shouldValidate: true })
@@ -1219,8 +1218,8 @@ export default function PurchaseOrdersPage() {
                         <TableCell className="pl-6 text-center text-sm text-muted-foreground">{idx + 1}</TableCell>
                         <TableCell>
                           <p className="font-medium text-sm">{item.productName}</p>
-                          {(item as any).remarks && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{(item as any).remarks}</p>
+                          {item.remarks && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{item.remarks}</p>
                           )}
                         </TableCell>
                         <TableCell className="text-center">

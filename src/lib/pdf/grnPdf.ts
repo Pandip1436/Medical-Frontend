@@ -2,13 +2,24 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
 
-const COMPANY = {
+// Fallback company info — used when the caller doesn't supply one. Real
+// values come from the business profile in settings (passed via GrnPdfData).
+const COMPANY_FALLBACK = {
   name: 'HOSPITAL SUPPLIERS',
   address: 'Hospital Suppliers, Madurai, Tamil Nadu',
   phone: '+91 452 234 5678',
   email: 'contact@hospitalsuppliers.in',
   gstin: '33AAAPL1234C1Z5',
   dlNo: 'TN-MDU-20B-01234 / TN-MDU-21B-01234',
+}
+
+export interface GrnPdfCompany {
+  name?: string
+  address?: string
+  phone?: string
+  email?: string
+  gstin?: string
+  dlNo?: string
 }
 
 const fmt = (n: number) =>
@@ -34,21 +45,23 @@ export interface GrnPdfData {
   supplierInvoiceDate?: string | Date
   totalAmount: number | string
   items: GrnItemLike[]
+  company?: GrnPdfCompany
 }
 
 export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
+  const company = { ...COMPANY_FALLBACK, ...(grn.company ?? {}) }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text(COMPANY.name, pageWidth / 2, 15, { align: 'center' })
+  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(COMPANY.address, pageWidth / 2, 21, { align: 'center' })
-  doc.text(`Phone: ${COMPANY.phone}  |  Email: ${COMPANY.email}`, pageWidth / 2, 26, { align: 'center' })
-  doc.text(`GSTIN: ${COMPANY.gstin}  |  DL No: ${COMPANY.dlNo}`, pageWidth / 2, 31, { align: 'center' })
+  doc.text(company.address, pageWidth / 2, 21, { align: 'center' })
+  doc.text(`Phone: ${company.phone}  |  Email: ${company.email}`, pageWidth / 2, 26, { align: 'center' })
+  doc.text(`GSTIN: ${company.gstin}  |  DL No: ${company.dlNo}`, pageWidth / 2, 31, { align: 'center' })
 
   doc.setDrawColor(180)
   doc.line(14, 34, pageWidth - 14, 34)
@@ -103,7 +116,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
     margin: { left: 14, right: 14 },
   })
 
-  const afterTableY = (doc as any).lastAutoTable.finalY + 6
+  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
   const summaryX = pageWidth - 80
   doc.setFont('helvetica', 'bold')
   doc.text('GRAND TOTAL', summaryX, afterTableY)

@@ -3,6 +3,7 @@ import api from '@/lib/api'
 import { createPortal } from 'react-dom'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useBranchStore } from '@/stores/branchStore'
+import { useAuthStore } from '@/stores/authStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
@@ -19,6 +20,8 @@ import {
   Database,
   Shield,
   Settings,
+  Wrench,
+  RotateCcw,
   Save,
   Plus,
   Pencil,
@@ -113,6 +116,7 @@ interface SettingsSection {
   label: string
   icon: LucideIcon
   description: string
+  adminOnly?: boolean
 }
 
 const settingsSections: SettingsSection[] = [
@@ -124,6 +128,7 @@ const settingsSections: SettingsSection[] = [
   { id: 'discounts', label: 'Discount Rules', icon: Percent, description: 'Auto & manual discounts' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'audit', label: 'Audit Trail', icon: Shield, description: 'System change log' },
+  { id: 'data-integrity', label: 'Data Integrity', icon: Wrench, description: 'Admin data fix tools', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
 ]
 
@@ -275,13 +280,18 @@ function SettingToggleRow({
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('business')
   const { fetchSettings, fetchDiscountRules } = useSettingsStore()
+  const userRole = useAuthStore((s) => s.user?.role)
+  const visibleSections = useMemo(
+    () => settingsSections.filter((s) => !s.adminOnly || userRole === 'ADMIN'),
+    [userRole],
+  )
 
   useEffect(() => {
     fetchSettings()
     fetchDiscountRules()
   }, [fetchSettings, fetchDiscountRules])
 
-  const activeConfig = settingsSections.find((s) => s.id === activeSection)
+  const activeConfig = visibleSections.find((s) => s.id === activeSection)
   const ActiveIcon = activeConfig?.icon || Settings
 
   return (
@@ -318,7 +328,7 @@ export default function SettingsPage() {
         <div className="hidden lg:flex w-55 shrink-0 flex-col border-r border-border/40 bg-muted/5 dark:bg-muted/2">
           <ScrollArea className="min-h-0 flex-1">
             <nav className="p-3 space-y-0.5">
-              {settingsSections.map((section) => {
+              {visibleSections.map((section) => {
                 const Icon = section.icon
                 const isActive = activeSection === section.id
                 return (
@@ -404,6 +414,7 @@ export default function SettingsPage() {
                 {activeSection === 'discounts' && <DiscountRulesSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
                 {activeSection === 'audit' && <AuditTrailSection />}
+                {activeSection === 'data-integrity' && userRole === 'ADMIN' && <DataIntegritySection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
             </div>
@@ -2239,6 +2250,111 @@ function AuditTrailSection() {
           </div>
         </CardContent>
       </Card>
+    </motion.div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Section: Data Integrity (admin-only)
+// ─────────────────────────────────────────────────────────────
+
+interface ReverseStockResult {
+  message: string
+  fixed: Array<{ debitNoteNo: string; reason: string; items: number }>
+  skipped?: number
+}
+
+function DataIntegritySection() {
+  const [running, setRunning] = useState(false)
+  const [lastResult, setLastResult] = useState<ReverseStockResult | null>(null)
+
+  async function handleReverseShortDelivery() {
+    const ok = window.confirm(
+      'This will scan every short-delivery debit note and add back stock that was wrongly ' +
+      'deducted by older code. Each debit note is reversed at most once — re-running this is ' +
+      'safe and will skip any that were already corrected. Continue?',
+    )
+    if (!ok) return
+
+    setRunning(true)
+    try {
+      const res = await api.get<ReverseStockResult>('/grn/admin/reverse-short-delivery-stock')
+      setLastResult(res.data)
+      const count = res.data.fixed?.length ?? 0
+      const skipped = res.data.skipped ?? 0
+      if (count === 0 && skipped === 0) {
+        toast.success('No short-delivery debit notes needed correcting.')
+      } else if (count === 0) {
+        toast.info(`All ${skipped} short-delivery debit note${skipped === 1 ? '' : 's'} already corrected — nothing to do.`)
+      } else {
+        toast.success(
+          `Corrected ${count} short-delivery debit note${count === 1 ? '' : 's'}` +
+          (skipped > 0 ? ` (skipped ${skipped} already-reversed).` : '.'),
+        )
+      }
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(msg ?? 'Failed to reverse short-delivery stock deductions')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <motion.div variants={itemVariants} className="space-y-4">
+      <Card className="border-amber-200/70 dark:border-amber-900/40">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <RotateCcw className="h-4 w-4" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Reverse short-delivery stock deductions</CardTitle>
+              <CardDescription className="text-xs">
+                Adds back stock for any debit notes whose reason contains "short delivery" or
+                "short supply". Use if older debit notes wrongly reduced stock for goods that
+                never physically arrived.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={handleReverseShortDelivery}
+            disabled={running}
+            variant="outline"
+            className="gap-2"
+          >
+            <RotateCcw className={cn('h-4 w-4', running && 'animate-spin')} />
+            {running ? 'Reversing…' : 'Reverse short-delivery stock'}
+          </Button>
+
+          {lastResult && (
+            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-xs">
+              <p className="font-medium text-foreground">{lastResult.message}</p>
+              {lastResult.fixed.length > 0 && (
+                <ul className="mt-2 space-y-1 text-muted-foreground">
+                  {lastResult.fixed.map((f) => (
+                    <li key={f.debitNoteNo} className="flex items-center gap-2 font-mono">
+                      <Check className="h-3 w-3 text-emerald-500" />
+                      <span>{f.debitNoteNo}</span>
+                      <span className="text-muted-foreground/60">·</span>
+                      <span className="text-muted-foreground/80">{f.reason}</span>
+                      <span className="text-muted-foreground/60">·</span>
+                      <span>{f.items} item{f.items === 1 ? '' : 's'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="text-[11px] text-muted-foreground">
+        These tools are visible to admins only. Each operation is idempotent — re-running has
+        no extra effect once data is consistent.
+      </p>
     </motion.div>
   )
 }

@@ -25,28 +25,36 @@ interface DiscountRule {
   isActive: boolean
 }
 
+// Generic JSON-shaped bag for settings entries. Callers know the concrete
+// shape per-key (e.g. notification_settings, barcode_settings).
+type SettingBag = Record<string, unknown>
+
 interface SettingsState {
   businessProfile: BusinessProfile | null
-  taxSettings: any | null
+  taxSettings: SettingBag | null
   discountRules: DiscountRule[]
   isLoading: boolean
-  
+
   // Actions
   fetchSettings: () => Promise<void>
   updateBusinessProfile: (data: Partial<BusinessProfile>) => Promise<void>
-  
+
   fetchDiscountRules: () => Promise<void>
   addDiscountRule: (data: Omit<DiscountRule, 'id'>) => Promise<void>
   updateDiscountRule: (id: string, data: Partial<DiscountRule>) => Promise<void>
   deleteDiscountRule: (id: string) => Promise<void>
 
-  getSetting: (key: string) => Promise<any>
-  updateSetting: (key: string, value: any) => Promise<void>
+  // Generic key-value setting accessor. Callers cast the returned bag to the
+  // expected shape per setting key. Default of `any` preserves backwards
+  // compatibility with existing call sites that do dot-access on the result.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getSetting: <T = any>(key: string) => Promise<T | null>
+  updateSetting: (key: string, value: SettingBag) => Promise<void>
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       businessProfile: null,
       taxSettings: null,
       discountRules: [],
@@ -67,20 +75,20 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
-      updateBusinessProfile: async (data: any) => {
+      updateBusinessProfile: async (data: Partial<BusinessProfile> & { companyName?: string }) => {
         try {
           set({ isLoading: true })
           // Map frontend companyName back to name if necessary
-          const payload = {
+          const payload: Partial<BusinessProfile> = {
             ...data,
-            name: data.companyName || data.name
+            name: data.companyName || data.name || '',
           }
           await api.put('/settings/business', payload)
-          
+
           set((state) => ({
-            businessProfile: state.businessProfile 
+            businessProfile: state.businessProfile
               ? { ...state.businessProfile, ...payload }
-              : payload as BusinessProfile
+              : (payload as BusinessProfile),
           }))
           toast.success('Business profile updated')
         } catch (error) {
@@ -108,7 +116,7 @@ export const useSettingsStore = create<SettingsState>()(
             discountRules: [...state.discountRules, res.data]
           }))
           toast.success('Discount rule added')
-        } catch (error) {
+        } catch {
           toast.error('Failed to add discount rule')
         }
       },
@@ -120,7 +128,7 @@ export const useSettingsStore = create<SettingsState>()(
             discountRules: state.discountRules.map(r => r.id === id ? { ...r, ...data } : r)
           }))
           toast.success('Discount rule updated')
-        } catch (error) {
+        } catch {
           toast.error('Failed to update discount rule')
         }
       },
@@ -132,26 +140,27 @@ export const useSettingsStore = create<SettingsState>()(
             discountRules: state.discountRules.filter(r => r.id !== id)
           }))
           toast.success('Discount rule deleted')
-        } catch (error) {
+        } catch {
           toast.error('Failed to delete discount rule')
         }
       },
 
-      getSetting: async (key: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      getSetting: async <T = any>(key: string): Promise<T | null> => {
         try {
           const res = await api.get(`/settings/${key}`)
-          return res.data
+          return (res.data ?? null) as T | null
         } catch (error) {
           console.error(`Failed to fetch setting ${key}:`, error)
           return null
         }
       },
 
-      updateSetting: async (key: string, value: any) => {
+      updateSetting: async (key: string, value: SettingBag) => {
         try {
           await api.put(`/settings/${key}`, value)
           toast.success('Settings saved')
-        } catch (error) {
+        } catch {
           toast.error('Failed to save settings')
         }
       }

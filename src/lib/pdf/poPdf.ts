@@ -93,7 +93,7 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
     margin: { left: 14, right: 14 },
   })
 
-  const afterTableY = (doc as any).lastAutoTable.finalY + 6
+  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
   const summaryX = pageWidth - 80
   doc.setFont('helvetica', 'bold')
   doc.text('GRAND TOTAL', summaryX, afterTableY)

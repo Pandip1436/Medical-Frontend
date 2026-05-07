@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import {
@@ -59,12 +60,15 @@ import { printDebitNotePdf, downloadDebitNotePdf, type NoteData } from '@/lib/pd
 // TYPES & CONSTANTS
 // ─────────────────────────────────────────────────────────────
 
+// Reasons here are exclusively for *physical-goods* returns — items that
+// arrived and are being sent back. Short-billing claims (supplier billed for
+// goods that never came) live in a separate flow (ShortBillingDialog) since
+// they don't touch stock.
 const RETURN_REASONS = [
   'Damaged in transit',
   'Near expiry / Expired',
   'Wrong product received',
   'Quality issue',
-  'Short delivery',
   'Excess supply',
   'Recall by manufacturer',
   'Other',
@@ -111,7 +115,6 @@ const reasonIcons: Record<string, typeof AlertCircle> = {
   'Near expiry / Expired': ShieldAlert,
   'Wrong product received': Package,
   'Quality issue': AlertCircle,
-  'Short delivery': AlertCircle,
   'Excess supply': Truck,
   'Recall by manufacturer': ShieldAlert,
   Other: HelpCircle,
@@ -122,7 +125,6 @@ const reasonVariantMap: Record<string, 'destructive' | 'warning' | 'info' | 'pur
   'Near expiry / Expired': 'destructive',
   'Wrong product received': 'warning',
   'Quality issue': 'warning',
-  'Short delivery': 'warning',
   'Excess supply': 'info',
   'Recall by manufacturer': 'purple',
   Other: 'secondary',
@@ -141,6 +143,7 @@ const STEPS = [
 export default function PurchaseReturnsPage() {
   const { search } = useRoute()
   const userRole = useAuthStore((s) => s.user?.role)
+  const businessProfile = useSettingsStore((s) => s.businessProfile)
   const needsApproval = userRole === 'PHARMACIST' || userRole === 'INVENTORY_MANAGER'
 
   // Pre-select GRN from URL param (e.g. navigated from Goods Received page)
@@ -182,11 +185,22 @@ export default function PurchaseReturnsPage() {
         const res = await api.get('/grn')
         if (cancelled) return
         const raw = res.data.data || res.data
-        const mapped: GRNReference[] = (Array.isArray(raw) ? raw : []).map((g: any) => ({
+        type RawGrnItem = {
+          productId: string; productName: string;
+          receivedQty: number; freeQty?: number;
+          damageQty?: number; purchaseRate: number | string;
+          batchNumber: string; expiryDate: string;
+        }
+        type RawGrn = {
+          id: string; grnNumber: string; poId?: string;
+          date: string; supplierId: string; supplierName: string;
+          totalAmount: number | string; items?: RawGrnItem[];
+        }
+        const mapped: GRNReference[] = (Array.isArray(raw) ? raw : []).map((g: RawGrn) => ({
           id: g.id, grnNumber: g.grnNumber, poNumber: g.poId ?? '',
           date: g.date, supplierId: g.supplierId, supplierName: g.supplierName,
           totalAmount: Number(g.totalAmount),
-          items: (g.items ?? []).map((it: any) => ({
+          items: (g.items ?? []).map((it: RawGrnItem) => ({
             productId: it.productId, productName: it.productName,
             purchasedQty: it.receivedQty + (it.freeQty ?? 0),
             damagedQty: Number(it.damageQty ?? 0),
@@ -237,12 +251,19 @@ export default function PurchaseReturnsPage() {
 
   const debitNoteNumber = useMemo(() => `HS/DN/2025-26/${String(Math.floor(Math.random() * 900 + 100)).padStart(5, '0')}`, [])
 
-  const goToStep = (step: number) => {
-    setDirection(step > currentStep ? 1 : -1)
+  // goToStep needs current `currentStep` to compute direction, but we don't
+  // want effects below to re-fire whenever currentStep changes. Read via ref
+  // so the callback identity stays stable.
+  const currentStepRef = useRef(currentStep)
+  useEffect(() => { currentStepRef.current = currentStep }, [currentStep])
+  const goToStep = useCallback((step: number) => {
+    setDirection(step > currentStepRef.current ? 1 : -1)
     setCurrentStep(step)
-  }
+  }, [])
 
-  // Auto-select and advance to step 2 when navigated from Goods Received
+  // Auto-select and advance to step 2 when navigated from Goods Received.
+  // selectedGRN here is an intentional guard, not a trigger — listing it would
+  // cause the effect to fire after we set it. eslint warns; we accept it.
   useEffect(() => {
     if (!preselectedGrnId || !grns.length || selectedGRN) return
     const match = grns.find(g => g.id === preselectedGrnId)
@@ -250,7 +271,9 @@ export default function PurchaseReturnsPage() {
     handleSelectGRN(match)
     setGrnSearch(match.grnNumber)
     goToStep(2)
-  }, [preselectedGrnId, grns])
+    // handleSelectGRN is defined later in the component (TDZ); we accept the
+    // dep-warning rather than refactor declaration order.
+  }, [preselectedGrnId, grns, goToStep]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-prefill shortage items when navigated from GRN short-supply dialog
   useEffect(() => {
@@ -295,7 +318,7 @@ export default function PurchaseReturnsPage() {
       }))
     )
     goToStep(2)
-  }, [shortageParams, grns, shortageApplied])
+  }, [shortageParams, grns, shortageApplied, goToStep])
 
   const matchingGRNs = useMemo(() => {
     if (!grnSearch.trim()) return grns
@@ -413,8 +436,12 @@ export default function PurchaseReturnsPage() {
       }
     })
 
-    if (payloadItems.some((it) => !it.batchId)) {
-      toast.error('Could not resolve batch for one or more items. Refresh master data and retry.')
+    const unresolved = payloadItems.filter((it) => !it.batchId)
+    if (unresolved.length > 0) {
+      const names = unresolved.map((it) => `${it.productName} (batch ${it.batchNumber || '—'})`).join(', ')
+      toast.error(`Could not resolve batch for: ${names}. Refresh master data and retry, or pick a different GRN.`, {
+        duration: 8000,
+      })
       return
     }
 
@@ -448,13 +475,21 @@ export default function PurchaseReturnsPage() {
       totalAmount: Number((debitSummary.subtotal + totalGst).toFixed(2)),
       status: 'SENT',
       settlementMode,
-      notes: `Settlement: ${settlementMode}`,
     }
 
     try {
       const res = await api.post('/purchase-returns', payload)
       if (res.data?.approvalRequested) {
-        toast.success('Approval request sent to admin. The purchase return will be processed once approved.', { duration: 6000 })
+        toast.success(
+          'Approval request sent to admin. You can track its status in Approvals.',
+          {
+            duration: 8000,
+            action: {
+              label: 'View approvals',
+              onClick: () => navigate('/admin/approvals'),
+            },
+          },
+        )
         setCurrentStep(1)
         setDirection(-1)
         setSelectedGRN(null)
@@ -488,6 +523,13 @@ export default function PurchaseReturnsPage() {
         cgst: payload.cgst,
         sgst: payload.sgst,
         totalAmount: payload.totalAmount,
+        company: businessProfile ? {
+          name: businessProfile.name,
+          address: businessProfile.address,
+          phone: businessProfile.phone,
+          email: businessProfile.email,
+          gstin: businessProfile.gstin,
+        } : undefined,
       })
       setCurrentStep(1)
       setDirection(-1)
