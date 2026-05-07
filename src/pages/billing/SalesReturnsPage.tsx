@@ -82,6 +82,7 @@ interface ReturnItemState {
   selected: boolean
   returnQty: number
   maxQty: number
+  alreadyReturned: number
   reason: ReturnReason | ''
   customReason: string
   item: InvoiceItem
@@ -151,6 +152,7 @@ const MobileReturnCard = ({
           <Checkbox
             checked={ri.selected}
             onCheckedChange={() => toggleReturnItem(ri.itemId)}
+            disabled={ri.maxQty === 0}
             className="mt-1"
           />
           <div className="flex-1 min-w-0">
@@ -159,6 +161,11 @@ const MobileReturnCard = ({
               <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
               <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
               <span className="text-foreground/40 font-bold">Sold: {ri.item.quantity}</span>
+              {ri.alreadyReturned > 0 && (
+                <Badge variant={ri.maxQty === 0 ? 'destructive' : 'warning'} className="text-[9px] px-1.5 py-0">
+                  {ri.maxQty === 0 ? 'Fully returned' : `${ri.alreadyReturned} returned · ${ri.maxQty} left`}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -317,14 +324,16 @@ export default function SalesReturnsPage() {
       .slice(0, 8)
   }, [invoiceSearch, invoices])
 
-  const handleSelectInvoice = (inv: Invoice) => {
+  const handleSelectInvoice = async (inv: Invoice) => {
     setSelectedInvoice(inv)
+    // Initialise lines with no clamp; refine once the BE tells us prior returns.
     setReturnItems(
       inv.items.map((item) => ({
         itemId: item.id,
         selected: false,
         returnQty: 0,
         maxQty: item.quantity,
+        alreadyReturned: 0,
         reason: '',
         customReason: '',
         item,
@@ -338,6 +347,26 @@ export default function SalesReturnsPage() {
         .catch(() => setCustomerOutstanding(0))
     } else {
       setCustomerOutstanding(0)
+    }
+    // Fetch already-returned qty (approved CNs + pending approvals) and clamp
+    // each line so users can't type more than is still returnable.
+    try {
+      const res = await api.get<Array<{ productId: string; batchId: string; alreadyReturned: number }>>(
+        `/credit-notes/invoice/${inv.id}/returned-qty`,
+      )
+      const map = new Map<string, number>()
+      for (const r of res.data) {
+        map.set(`${r.productId}::${r.batchId}`, Number(r.alreadyReturned ?? 0))
+      }
+      setReturnItems((prev) =>
+        prev.map((ri) => {
+          const alreadyReturned = map.get(`${ri.item.productId}::${ri.item.batchId}`) ?? 0
+          const remaining = Math.max(0, ri.item.quantity - alreadyReturned)
+          return { ...ri, alreadyReturned, maxQty: remaining }
+        }),
+      )
+    } catch {
+      // Best-effort clamp; BE will still re-validate on submit.
     }
   }
 
@@ -842,6 +871,7 @@ export default function SalesReturnsPage() {
                               <Checkbox
                                 checked={ri.selected}
                                 onCheckedChange={() => toggleReturnItem(ri.itemId)}
+                                disabled={ri.maxQty === 0}
                               />
                             </TableCell>
                             <TableCell className="px-4 py-3">
@@ -850,6 +880,11 @@ export default function SalesReturnsPage() {
                                 <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
                                   <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
                                   <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+                                  {ri.alreadyReturned > 0 && (
+                                    <Badge variant={ri.maxQty === 0 ? 'destructive' : 'warning'} className="text-[9px] px-1.5 py-0">
+                                      {ri.maxQty === 0 ? 'Fully returned' : `${ri.alreadyReturned} returned · ${ri.maxQty} left`}
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
