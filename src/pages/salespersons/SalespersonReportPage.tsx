@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { TrendingUp, IndianRupee, FileText, Calendar, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import api from '@/lib/api'
@@ -53,20 +53,18 @@ export default function SalespersonReportPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">From</Label>
-            <Input
-              type="date"
+            <DatePicker
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="h-9 text-sm w-36"
+              onChange={setFrom}
+              className="h-9 text-sm w-44"
             />
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">To</Label>
-            <Input
-              type="date"
+            <DatePicker
               value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="h-9 text-sm w-36"
+              onChange={setTo}
+              className="h-9 text-sm w-44"
             />
           </div>
           <Button size="sm" onClick={fetchReport} disabled={isLoading}>

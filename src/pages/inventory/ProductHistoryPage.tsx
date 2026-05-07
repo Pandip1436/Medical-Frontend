@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -458,11 +459,11 @@ export default function ProductHistoryPage() {
       >
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+          <DatePicker value={dateFrom} onChange={setDateFrom} />
         </div>
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+          <DatePicker value={dateTo} onChange={setDateTo} />
         </div>
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</Label>

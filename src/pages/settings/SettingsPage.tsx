@@ -41,6 +41,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -1870,19 +1871,23 @@ function DiscountRulesSection() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Valid From <span className="text-destructive">*</span></Label>
-                <Input
-                  {...register('validFrom')}
-                  type="date"
-                  error={!!errors.validFrom}
+                <Controller
+                  control={control}
+                  name="validFrom"
+                  render={({ field }) => (
+                    <DatePicker value={field.value} onChange={field.onChange} error={!!errors.validFrom} />
+                  )}
                 />
                 {errors.validFrom && <p className="text-xs text-destructive">{errors.validFrom.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Valid To <span className="text-destructive">*</span></Label>
-                <Input
-                  {...register('validTo')}
-                  type="date"
-                  error={!!errors.validTo}
+                <Controller
+                  control={control}
+                  name="validTo"
+                  render={({ field }) => (
+                    <DatePicker value={field.value} onChange={field.onChange} error={!!errors.validTo} />
+                  )}
                 />
                 {errors.validTo && <p className="text-xs text-destructive">{errors.validTo.message}</p>}
               </div>

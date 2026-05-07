@@ -22,6 +22,7 @@ import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -613,7 +614,13 @@ export default function ExpensesPage() {
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="exp-date">Date</Label>
-              <Input id="exp-date" type="date" {...form.register('date')} className="rounded-xl" />
+              <Controller
+                control={form.control}
+                name="date"
+                render={({ field }) => (
+                  <DatePicker id="exp-date" value={field.value} onChange={field.onChange} className="rounded-xl" />
+                )}
+              />
               {form.formState.errors.date && (
                 <p className="text-xs text-destructive">{form.formState.errors.date.message}</p>
               )}

@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -1301,10 +1302,9 @@ function PaymentPanel({
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date
             </label>
-            <Input
-              type="date"
+            <DatePicker
               value={details.creditDueDate}
-              onChange={(e) => onDetailsChange({ creditDueDate: e.target.value })}
+              onChange={(v) => onDetailsChange({ creditDueDate: v })}
               className="mt-1 h-8 text-xs"
             />
           </div>

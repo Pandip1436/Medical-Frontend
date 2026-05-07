@@ -21,6 +21,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import {
   Table,
@@ -532,11 +533,11 @@ export default function CustomerInvoicesPage() {
             <>
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-                <Input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1) }} />
+                <DatePicker value={fromDate} onChange={(v) => { setFromDate(v); setPage(1) }} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-                <Input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1) }} />
+                <DatePicker value={toDate} onChange={(v) => { setToDate(v); setPage(1) }} />
               </div>
             </>
           )}

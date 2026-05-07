@@ -21,13 +21,14 @@ import {
   Clock,
   Package,
 } from 'lucide-react'
-import { useForm, useFieldArray, useWatch, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
+import { useForm, useFieldArray, useWatch, Controller, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -755,20 +756,18 @@ export default function PurchaseOrdersPage() {
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Date From
               </Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={dateFrom}
-                onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
+                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
               />
             </div>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Date To
               </Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={dateTo}
-                onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
+                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
               />
             </div>
           </>
@@ -1072,7 +1071,17 @@ export default function PurchaseOrdersPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</Label>
-                <Input type="date" error={!!errors.expectedDelivery} {...register('expectedDelivery')} />
+                <Controller
+                  control={control}
+                  name="expectedDelivery"
+                  render={({ field }) => (
+                    <DatePicker
+                      value={field.value}
+                      onChange={field.onChange}
+                      error={!!errors.expectedDelivery}
+                    />
+                  )}
+                />
                 {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
               </div>
             </div>

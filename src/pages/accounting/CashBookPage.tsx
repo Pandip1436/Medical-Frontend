@@ -8,7 +8,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
   Plus,
-  CalendarDays,
   ArrowDownLeft,
   ArrowUpRight,
   Wallet,
@@ -20,6 +19,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -242,15 +242,12 @@ export default function CashBookPage() {
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Current Date
           </Label>
-          <div className="relative">
-            <CalendarDays className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-9 pl-9 text-xs"
-            />
-          </div>
+          <DatePicker
+            value={selectedDate}
+            onChange={setSelectedDate}
+            className="h-9 text-xs"
+            clearable={false}
+          />
         </div>
       </DataTableFilterBar>
 
@@ -512,7 +509,13 @@ export default function CashBookPage() {
           <form onSubmit={form.handleSubmit(handleAddExpense)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="date">Date</Label>
-              <Input id="date" type="date" {...form.register('date')} className="rounded-xl" />
+              <Controller
+                control={form.control}
+                name="date"
+                render={({ field }) => (
+                  <DatePicker id="date" value={field.value} onChange={field.onChange} className="rounded-xl" />
+                )}
+              />
             </div>
 
             <div className="space-y-2">

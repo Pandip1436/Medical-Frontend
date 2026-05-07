@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -650,7 +651,7 @@ export default function CustomerDetailPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Valid Until</Label>
-              <Input type="date" value={prescValidUntil} onChange={(e) => setPrescValidUntil(e.target.value)} />
+              <DatePicker value={prescValidUntil} onChange={setPrescValidUntil} />
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>

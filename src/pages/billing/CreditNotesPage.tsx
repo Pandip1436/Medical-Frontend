@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import {
   Table,
   TableBody,
@@ -387,11 +388,11 @@ export default function CreditNotesPage() {
           <>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-              <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }} />
+              <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-              <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }} />
+              <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
             </div>
           </>
         )}

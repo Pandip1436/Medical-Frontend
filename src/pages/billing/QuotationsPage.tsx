@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
@@ -443,20 +444,18 @@ export default function QuotationsPage() {
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Date From
               </Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={dateFrom}
-                onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1) }}
+                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
               />
             </div>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Date To
               </Label>
-              <Input
-                type="date"
+              <DatePicker
                 value={dateTo}
-                onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1) }}
+                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
               />
             </div>
           </>

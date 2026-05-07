@@ -14,6 +14,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -279,10 +280,9 @@ export default function LedgerPage() {
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               From Date
             </span>
-            <Input
-              type="date"
+            <DatePicker
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={setDateFrom}
               className="h-9 rounded-xl text-xs"
             />
           </div>
@@ -292,10 +292,9 @@ export default function LedgerPage() {
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
               To Date
             </span>
-            <Input
-              type="date"
+            <DatePicker
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={setDateTo}
               className="h-9 rounded-xl text-xs"
             />
           </div>

@@ -26,6 +26,7 @@ import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -1297,10 +1298,9 @@ export default function CustomersPage() {
                         </div>
                         <div className="space-y-1.5">
                           <Label>Valid Until</Label>
-                          <Input
-                            type="date"
+                          <DatePicker
                             value={prescValidUntil}
-                            onChange={(e) => setPrescValidUntil(e.target.value)}
+                            onChange={setPrescValidUntil}
                           />
                         </div>
                         <div className="space-y-1.5">

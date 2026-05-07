@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -998,23 +999,21 @@ export default function GRNPage() {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Mfg Date</Label>
-                          <Input
-                            type="date"
+                          <DatePicker
                             className="h-9 text-xs font-medium border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             value={item.mfgDate}
-                            onChange={(e) => updateItem(index, 'mfgDate', e.target.value)}
+                            onChange={(v) => updateItem(index, 'mfgDate', v)}
                           />
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
-                          <Input
-                            type="date"
+                          <DatePicker
                             className={cn(
                               "h-9 text-xs font-bold border-primary/5 bg-muted/20 focus:bg-background transition-all",
                               item.expiryDate && "text-primary"
                             )}
                             value={item.expiryDate}
-                            onChange={(e) => updateItem(index, 'expiryDate', e.target.value)}
+                            onChange={(v) => updateItem(index, 'expiryDate', v)}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1085,11 +1084,10 @@ export default function GRNPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date</Label>
-                      <Input
-                        type="date"
+                      <DatePicker
                         className="h-8 text-xs"
                         value={invoiceDate}
-                        onChange={(e) => setInvoiceDate(e.target.value)}
+                        onChange={setInvoiceDate}
                       />
                     </div>
                     <div className="space-y-1">
