@@ -522,10 +522,8 @@ export default function SalesReturnsPage() {
     }
   }
 
-  const fmtInvoiceNum = (inv: Invoice) => {
-    const seq = inv.invoiceNumber.split('/').pop() || '00000'
-    return `HS/25-26/INV/${seq.padStart(5, '0')}`
-  }
+  // Display the invoice number as the backend generated it (atomic FY format).
+  const fmtInvoiceNum = (inv: Invoice) => inv.invoiceNumber
 
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">

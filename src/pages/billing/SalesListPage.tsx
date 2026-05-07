@@ -356,11 +356,10 @@ export default function SalesListPage() {
   }
 
   // ── Format invoice number ──
-  const formatInvoiceNumber = (inv: Invoice) => {
-    const seq = inv.invoiceNumber.split('/').pop() || '00000'
-    const prefix = inv.type === 'QUOTATION' ? 'QTN' : 'INV'
-    return `HS/25-26/${prefix}/${seq.padStart(5, '0')}`
-  }
+  // Backend now generates atomic, FY-aware numbers like INV/26-27/00001 via
+  // DocumentNumberingService, so display them as-is. Hardcoded org prefix
+  // belongs in print/PDF templates (driven by business profile), not here.
+  const formatInvoiceNumber = (inv: Invoice) => inv.invoiceNumber
 
   // ── Active filters count ──
   const activeFilterCount = [
@@ -721,6 +720,10 @@ export default function SalesListPage() {
                           onView={() => setDetailInvoice(inv)}
                           onPrint={() => printInvoicePdf(inv)}
                           onDelete={async () => {
+                            const ok = window.confirm(
+                              `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
+                            )
+                            if (!ok) return
                             try {
                               await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
                               toast.success('Invoice cancelled')
@@ -859,6 +862,10 @@ export default function SalesListPage() {
                         onView={() => setDetailInvoice(inv)}
                         onPrint={() => printInvoicePdf(inv)}
                         onDelete={async () => {
+                          const ok = window.confirm(
+                            `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
+                          )
+                          if (!ok) return
                           try {
                             await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
                             toast.success('Invoice cancelled')

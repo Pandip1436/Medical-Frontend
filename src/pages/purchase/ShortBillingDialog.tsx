@@ -189,7 +189,7 @@ export function ShortBillingDialog({ open, onOpenChange, grn, shortItems, onSucc
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-130">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
@@ -309,7 +309,7 @@ export function ShortBillingDialog({ open, onOpenChange, grn, shortItems, onSucc
                   'flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2 ' +
                   (adjustDisabled
                     ? 'cursor-not-allowed opacity-50'
-                    : 'cursor-pointer hover:bg-accent/30 has-[:checked]:border-primary has-[:checked]:bg-primary/5')
+                    : 'cursor-pointer hover:bg-accent/30 has-checked:border-primary has-checked:bg-primary/5')
                 }
               >
                 <RadioGroupItem id="settle-adjust" value="ADJUST" className="mt-0.5" disabled={adjustDisabled} />
@@ -324,7 +324,7 @@ export function ShortBillingDialog({ open, onOpenChange, grn, shortItems, onSucc
               </Label>
               <Label
                 htmlFor="settle-refund"
-                className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2 cursor-pointer hover:bg-accent/30 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+                className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2 cursor-pointer hover:bg-accent/30 has-checked:border-primary has-checked:bg-primary/5"
               >
                 <RadioGroupItem id="settle-refund" value="REFUND" className="mt-0.5" />
                 <div className="text-xs">

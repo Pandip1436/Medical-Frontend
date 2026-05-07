@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { printHtmlInPage } from '@/lib/printUtils'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -111,6 +112,7 @@ const settlementConfig: Record<string, { label: string; variant: 'success' | 'wa
 // ─────────────────────────────────────────────────────────────
 
 export default function CreditNotesPage() {
+  const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -242,7 +244,7 @@ export default function CreditNotesPage() {
         @media print { button { display: none; } }
       </style></head><body>
       <h1>CREDIT NOTE</h1>
-      <div class="sub">Hospital Suppliers · PBIMS</div>
+      <div class="sub">${businessProfile?.name ?? 'Hospital Suppliers'}${businessProfile?.address ? ` · ${businessProfile.address.split(',').slice(-2).join(',').trim()}` : ''}</div>
       <div class="grid">
         <div><div class="label">Credit Note No</div><div class="value">${cn.creditNoteNo}</div></div>
         <div><div class="label">Date</div><div class="value">${formatDate(cn.date)}</div></div>

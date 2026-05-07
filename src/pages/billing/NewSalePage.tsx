@@ -2004,6 +2004,8 @@ export default function NewSalePage() {
       toast.error('Enter an amount to collect')
       return
     }
+    // Re-entry guard: rapid double-click would fire two PATCHes and double-credit.
+    if (payingInvoiceId) return
     setPayingInvoiceId(invoiceId)
     try {
       await api.patch(`/billing/${invoiceId}/collect-payment`, {
@@ -2031,6 +2033,10 @@ export default function NewSalePage() {
 
   const handleCollectAll = async () => {
     if (!selectedCustomer) return
+    // Re-entry guard: if a collect is already in flight, swallow this click.
+    // Without it, rapid double-clicks fire two POSTs that both apply the same
+    // payment — customer's outstanding would go negative.
+    if (payingInvoiceId === 'all') return
     setPayingInvoiceId('all')
     try {
       const res = await api.post(`/customers/${selectedCustomer.id}/payment`, {
