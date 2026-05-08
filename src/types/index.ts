@@ -56,6 +56,10 @@ export interface Supplier {
   paymentTerms: 'NET_30' | 'NET_45' | 'NET_60'
   bankDetails?: string
   isActive: boolean
+  branchId?: string | null
+  // Each supplier row is branch-scoped, so this field is naturally that
+  // branch's outstanding — no need for a separate per-branch field.
+  currentOutstanding?: number
 }
 
 export interface Category {

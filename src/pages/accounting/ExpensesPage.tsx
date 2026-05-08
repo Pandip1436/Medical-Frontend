@@ -54,7 +54,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 import type { Expense } from '@/types'
 
@@ -195,7 +195,7 @@ export default function ExpensesPage() {
       category: '',
       description: '',
       amount: 0,
-      paymentMode: 'Cash',
+      paymentMode: 'CASH',
     },
   })
 
@@ -240,7 +240,7 @@ export default function ExpensesPage() {
         category: values.category,
         description: values.description,
         amount: values.amount,
-        paymentMode: values.paymentMode,
+        paymentMode: String(values.paymentMode ?? 'CASH').toUpperCase(),
       }
       if (editingExpense) {
         const res = await api.patch(`/expenses/${editingExpense.id}`, payload)
@@ -349,6 +349,9 @@ export default function ExpensesPage() {
       {!isLoading && !fetchError && <>
 
       {/* ── Monthly Summary Cards ── */}
+      {/* Stat tiles match the Cash Book pattern: distinct icon colour per
+          card, compact INR formatting so large amounts (lakhs / crores) fit
+          the card width. Full amount available on hover via the title attr. */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {/* This Month */}
         <Card className="rounded-2xl border-border/60">
@@ -361,8 +364,11 @@ export default function ExpensesPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
-              {formatCurrency(monthlySummary.thisMonthTotal)}
+            <div
+              className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400 truncate"
+              title={formatCurrency(monthlySummary.thisMonthTotal)}
+            >
+              {formatCurrencyCompact(monthlySummary.thisMonthTotal)}
             </div>
           </CardContent>
         </Card>
@@ -373,13 +379,16 @@ export default function ExpensesPage() {
             <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Last Month
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60 dark:bg-muted/30">
-              <Receipt className="h-4 w-4 text-muted-foreground" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 dark:bg-blue-500/20">
+              <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
-              {formatCurrency(monthlySummary.lastMonthTotal)}
+            <div
+              className="text-2xl font-bold font-mono truncate"
+              title={formatCurrency(monthlySummary.lastMonthTotal)}
+            >
+              {formatCurrencyCompact(monthlySummary.lastMonthTotal)}
             </div>
           </CardContent>
         </Card>
@@ -403,14 +412,15 @@ export default function ExpensesPage() {
           <CardContent>
             <div
               className={cn(
-                'text-2xl font-bold font-mono',
+                'text-2xl font-bold font-mono truncate',
                 monthlySummary.difference >= 0
                   ? 'text-rose-600 dark:text-rose-400'
                   : 'text-emerald-600 dark:text-emerald-400'
               )}
+              title={formatCurrency(monthlySummary.difference)}
             >
               {monthlySummary.difference >= 0 ? '+' : ''}
-              {formatCurrency(monthlySummary.difference)}
+              {formatCurrencyCompact(monthlySummary.difference)}
             </div>
           </CardContent>
         </Card>
@@ -421,13 +431,16 @@ export default function ExpensesPage() {
             <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Average Expense
             </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60 dark:bg-muted/30">
-              <Calculator className="h-4 w-4 text-muted-foreground" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 dark:bg-amber-500/20">
+              <Calculator className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
-              {formatCurrency(monthlySummary.average)}
+            <div
+              className="text-2xl font-bold font-mono truncate"
+              title={formatCurrency(monthlySummary.average)}
+            >
+              {formatCurrencyCompact(monthlySummary.average)}
             </div>
           </CardContent>
         </Card>

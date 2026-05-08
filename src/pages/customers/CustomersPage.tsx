@@ -58,6 +58,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
 import type { Customer } from '@/types'
 import api, { API_SERVER_URL } from '@/lib/api'
@@ -174,6 +184,9 @@ export default function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  // Customer queued for deletion — null when the dialog is closed.
+  const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   // Customer invoices + credit notes for detail dialog
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([])
@@ -384,13 +397,20 @@ export default function CustomersPage() {
     }
   }
 
-  const handleDeleteCustomer = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return
+  const handleDeleteCustomer = async () => {
+    if (!deleteCandidate) return
+    setDeleteSubmitting(true)
     try {
-      await deleteCustomerAction(id)
-      toast.success(`Customer "${name}" deleted`)
-    } catch (error) {
-      toast.error("Failed to delete customer")
+      await deleteCustomerAction(deleteCandidate.id)
+      toast.success(`Customer "${deleteCandidate.name}" deleted`)
+      setDeleteCandidate(null)
+    } catch (error: any) {
+      // BE guard returns a clear message if the customer has open invoices /
+      // outstanding balance — surface that verbatim so the user knows why.
+      const msg = error?.response?.data?.message ?? 'Failed to delete customer'
+      toast.error(msg)
+    } finally {
+      setDeleteSubmitting(false)
     }
   }
 
@@ -618,6 +638,11 @@ export default function CustomersPage() {
                         <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
                           {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                         </Badge>
+                        {Number((customer as any).pendingCreditCount ?? 0) > 0 && (
+                          <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
+                            {(customer as any).pendingCreditCount} pending
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
                     </div>
@@ -634,7 +659,7 @@ export default function CustomersPage() {
                           onView={() => handleViewDetails(customer)}
                           customActions={[
                             { label: 'Edit', icon: <Pencil className="h-4 w-4" />, onClick: () => handleOpenEdit(customer) },
-                            { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => handleDeleteCustomer(customer.id, customer.name), variant: 'destructive' },
+                            { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => setDeleteCandidate(customer), variant: 'destructive' },
                           ]}
                         />
                       </div>
@@ -666,7 +691,16 @@ export default function CustomersPage() {
                     )}
                     onClick={() => handleViewDetails(customer)}
                   >
-                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-2">
+                        {customer.name}
+                        {Number((customer as any).pendingCreditCount ?? 0) > 0 && (
+                          <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
+                            {(customer as any).pendingCreditCount} pending
+                          </Badge>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{customer.phone}</TableCell>
                     <TableCell>
                       <Badge
@@ -701,7 +735,7 @@ export default function CustomersPage() {
                             {
                               label: 'Delete',
                               icon: <Trash2 className="h-4 w-4" />,
-                              onClick: () => handleDeleteCustomer(customer.id, customer.name),
+                              onClick: () => setDeleteCandidate(customer),
                               variant: 'destructive',
                             },
                           ]}
@@ -1332,6 +1366,57 @@ export default function CustomersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete-customer confirmation. Shows the customer's open balance + pending
+          credit count so the user knows what's at stake before confirming. */}
+      <AlertDialog
+        open={!!deleteCandidate}
+        onOpenChange={(open) => { if (!open) setDeleteCandidate(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this customer?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  You're about to permanently delete <span className="font-semibold">{deleteCandidate?.name}</span>.
+                </p>
+                {deleteCandidate && (
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Phone</span>
+                      <span className="font-mono">{deleteCandidate.phone || '—'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Outstanding</span>
+                      <span className={cn('font-mono', outstandingColor(deleteCandidate.currentOutstanding))}>
+                        {formatCurrency(deleteCandidate.currentOutstanding)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Pending credit invoices</span>
+                      <span className="font-mono">{Number((deleteCandidate as any).pendingCreditCount ?? 0)}</span>
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  The server blocks deletion if the customer has open invoices or any outstanding balance — settle those first, or set the customer inactive instead.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSubmitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteCustomer() }}
+              disabled={deleteSubmitting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteSubmitting ? 'Deleting…' : 'Yes, delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   )
 }

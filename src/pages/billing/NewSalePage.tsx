@@ -396,6 +396,16 @@ function BillingRow({
     (batchId: string) => {
       const batch = batches.find((b) => b.id === batchId)
       if (!batch) return
+      // FEFO check: warn if the user picks a batch other than the
+      // earliest-expiry one. We don't block — sometimes the soonest batch is
+      // damaged or held — but pharmacists should know they're skipping it.
+      const fefoBatch = productBatches[0]
+      if (fefoBatch && fefoBatch.id !== batch.id) {
+        toast.warning(
+          `FEFO: ${fefoBatch.batchNumber} expires sooner (${formatExpiryShort(fefoBatch.expiryDate)}). Selling later-expiry stock first risks write-offs.`,
+          { duration: 4500 },
+        )
+      }
       const updates: Partial<BillingItem> = {
         batchId: batch.id,
         batchNumber: batch.batchNumber,
@@ -406,7 +416,7 @@ function BillingRow({
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
     },
-    [item, onUpdate]
+    [item, onUpdate, productBatches]
   )
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -652,11 +662,16 @@ function BillingRow({
             <SelectValue placeholder="Select Batch" />
           </SelectTrigger>
           <SelectContent className="bg-popover/95 backdrop-blur-xl">
-            {productBatches.map((b) => (
+            {productBatches.map((b, idx) => (
               <SelectItem key={b.id} value={b.id} className="text-xs">
-                <div className="flex items-center justify-between w-full min-w-30">
+                <div className="flex items-center justify-between gap-3 w-full min-w-40">
                   <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
-                  <span className="text-[10px] opacity-60 ml-3">Qty: {b.quantity}</span>
+                  <div className="flex items-center gap-1.5">
+                    {idx === 0 && (
+                      <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
+                    )}
+                    <span className="text-[10px] opacity-60">Qty: {b.quantity}</span>
+                  </div>
                 </div>
               </SelectItem>
             ))}
@@ -1024,15 +1039,26 @@ function MobileBillingCard({
             <Label className="text-[10px] uppercase text-muted-foreground">Batch & Expiry</Label>
             <Select value={item.batchId} onValueChange={(vid) => {
               const b = batches.find(x => x.id === vid)
-              if (b) onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: b.mrp })
+              if (!b) return
+              const fefoBatch = productBatches[0]
+              if (fefoBatch && fefoBatch.id !== b.id) {
+                toast.warning(
+                  `FEFO: ${fefoBatch.batchNumber} expires sooner. Selling later-expiry stock first risks write-offs.`,
+                  { duration: 4500 },
+                )
+              }
+              onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: b.mrp })
             }}>
               <SelectTrigger className="h-8 text-xs font-mono">
                 <SelectValue placeholder="Batch" />
               </SelectTrigger>
               <SelectContent>
-                {productBatches.map(b => (
+                {productBatches.map((b, idx) => (
                   <SelectItem key={b.id} value={b.id} className="text-xs">
-                    {b.batchNumber} ({b.quantity})
+                    <span className="flex items-center gap-1.5">
+                      {b.batchNumber} ({b.quantity})
+                      {idx === 0 && <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

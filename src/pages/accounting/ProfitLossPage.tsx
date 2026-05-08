@@ -316,14 +316,15 @@ export default function ProfitLossPage() {
       .then((res) => setPrevPlData(mapPLResponse(res.data)))
       .catch(() => setPrevPlData(emptyPL))
 
-    // Monthly trend for current year
+    // Monthly trend for current year — drives the chart with real net profit
+    // (was previously a fake 20% derivation of revenue).
     const year = dayjs(from).year()
     api
-      .get('/reports/sales/monthly', { params: { year } })
-      .then((res) => {
-        const data: { month: string; amount: number }[] = res.data?.chartData ?? []
-        setMonthlyTrend(data.map((d) => ({ month: d.month, revenue: d.amount, profit: d.amount * 0.2 })))
-      })
+      .get<{ chartData: { month: string; revenue: number; profit: number }[] }>(
+        '/reports/financial/profit-loss/monthly',
+        { params: { year } },
+      )
+      .then((res) => setMonthlyTrend(res.data?.chartData ?? []))
       .catch(() => setMonthlyTrend([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod])

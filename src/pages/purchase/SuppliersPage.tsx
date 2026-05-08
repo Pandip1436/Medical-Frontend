@@ -53,6 +53,16 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -325,13 +335,24 @@ export default function SuppliersPage() {
     }
   }
 
-  async function handleDeactivate(supplier: Supplier) {
+  // Supplier queued for deactivate/activate confirmation. Null when dialog
+  // is closed.
+  const [statusToggleCandidate, setStatusToggleCandidate] = useState<Supplier | null>(null)
+  const [statusToggleSubmitting, setStatusToggleSubmitting] = useState(false)
+
+  async function handleDeactivate() {
+    if (!statusToggleCandidate) return
+    const supplier = statusToggleCandidate
+    setStatusToggleSubmitting(true)
     try {
       await api.patch(`/suppliers/${supplier.id}`, { isActive: !supplier.isActive })
       toast.success(`Supplier "${supplier.name}" ${supplier.isActive ? 'deactivated' : 'activated'} successfully`)
       await fetchMasterData()
+      setStatusToggleCandidate(null)
     } catch {
       toast.error('Failed to update supplier status.')
+    } finally {
+      setStatusToggleSubmitting(false)
     }
   }
 
@@ -551,6 +572,7 @@ export default function SuppliersPage() {
               <TableHead>Phone</TableHead>
               <TableHead>GSTIN</TableHead>
               <TableHead>Payment Terms</TableHead>
+              <TableHead className="text-right">Outstanding</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -559,7 +581,7 @@ export default function SuppliersPage() {
             <AnimatePresence mode="popLayout">
               {paginatedSuppliers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40">
+                  <TableCell colSpan={9} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                         <Building2 className="h-6 w-6 text-muted-foreground/60" />
@@ -599,6 +621,15 @@ export default function SuppliersPage() {
                     <TableCell>
                       <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
                     </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {Number(supplier.branchOutstanding ?? supplier.currentOutstanding ?? 0) > 0 ? (
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(Number(supplier.branchOutstanding ?? supplier.currentOutstanding))}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         variant={supplier.isActive ? 'success' : 'destructive'}
@@ -618,10 +649,10 @@ export default function SuppliersPage() {
                             onClick: () => openEditDialog(supplier),
                           },
                           {
-                            label: 'Deactivate',
+                            label: supplier.isActive ? 'Deactivate' : 'Activate',
                             icon: <UserX className="h-4 w-4" />,
-                            onClick: () => handleDeactivate(supplier),
-                            variant: 'destructive',
+                            onClick: () => setStatusToggleCandidate(supplier),
+                            variant: supplier.isActive ? 'destructive' : 'default',
                           },
                         ]}
                       />
@@ -932,6 +963,48 @@ export default function SuppliersPage() {
           </DialogContent>
         )}
       </Dialog>
+
+      {/* Confirm before flipping a supplier's active status — single-row toggle
+          previously was a one-click silent change. Bulk had a window.confirm
+          since forever; this aligns the single-row UX. */}
+      <AlertDialog
+        open={!!statusToggleCandidate}
+        onOpenChange={(open) => { if (!open) setStatusToggleCandidate(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {statusToggleCandidate?.isActive ? 'Deactivate' : 'Activate'} this supplier?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {statusToggleCandidate?.isActive
+                    ? <>Deactivating <span className="font-semibold">{statusToggleCandidate?.name}</span> hides them from new POs and GRNs. Existing records remain intact.</>
+                    : <>Reactivating <span className="font-semibold">{statusToggleCandidate?.name}</span> makes them available again for purchase orders.</>}
+                </p>
+                {statusToggleCandidate?.isActive && Number(statusToggleCandidate?.currentOutstanding ?? 0) > 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    ⓘ Outstanding balance: {formatCurrency(Number(statusToggleCandidate.currentOutstanding))}. You can still record payments against an inactive supplier.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={statusToggleSubmitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeactivate() }}
+              disabled={statusToggleSubmitting}
+              className={statusToggleCandidate?.isActive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+            >
+              {statusToggleSubmitting
+                ? 'Saving…'
+                : statusToggleCandidate?.isActive ? 'Yes, deactivate' : 'Yes, activate'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   )
 }

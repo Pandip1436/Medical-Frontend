@@ -112,26 +112,42 @@ export default function CustomerDetailPage() {
   }, [invoices])
 
   // ── Ledger ─────────────────────────────────────────────────
+  // Build chronologically from two sources: invoice creates (debit) and
+  // payment records (credit). The previous version also pushed a synthetic
+  // "Payment – {invoiceNumber}" entry whenever inv.amountPaid > 0, which
+  // double-counted any payment that also exists as a Payment row (the dedup
+  // was matching receiptNumber, but the synthetic entry didn't carry one).
+  // Payment rows are the source of truth — use them exclusively for credits.
   const ledger = useMemo(() => {
-    const entries: { date: string; particular: string; type: string; debit: number; credit: number; balance: number }[] = []
-    let balance = 0
-    const sorted = [...invoices].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    for (const inv of sorted) {
-      balance += Number(inv.grandTotal)
-      entries.push({ date: inv.date, particular: `Invoice ${inv.invoiceNumber}`, type: 'Invoice', debit: Number(inv.grandTotal), credit: 0, balance })
-      if (Number(inv.amountPaid) > 0 && inv.status !== 'CREDIT') {
-        balance -= Number(inv.amountPaid)
-        entries.push({ date: inv.date, particular: `Payment – ${inv.invoiceNumber}`, type: 'Payment', debit: 0, credit: Number(inv.amountPaid), balance })
-      }
+    type Entry = { date: string; particular: string; type: 'Invoice' | 'Payment'; debit: number; credit: number; balance: number; sortKey: number }
+    const events: Omit<Entry, 'balance'>[] = []
+    for (const inv of invoices) {
+      events.push({
+        date: inv.date,
+        particular: `Invoice ${inv.invoiceNumber}`,
+        type: 'Invoice',
+        debit: Number(inv.grandTotal),
+        credit: 0,
+        sortKey: new Date(inv.date).getTime(),
+      })
     }
     for (const pay of payments) {
-      const alreadyCounted = entries.some((e) => e.particular.includes(pay.receiptNumber))
-      if (!alreadyCounted) {
-        balance -= Number(pay.amount)
-        entries.push({ date: pay.createdAt, particular: `Payment ${pay.receiptNumber}`, type: 'Payment', debit: 0, credit: Number(pay.amount), balance })
-      }
+      events.push({
+        date: pay.createdAt ?? pay.date,
+        particular: `Payment ${pay.receiptNumber}`,
+        type: 'Payment',
+        debit: 0,
+        credit: Number(pay.amount),
+        sortKey: new Date(pay.createdAt ?? pay.date).getTime(),
+      })
     }
-    return entries
+    events.sort((a, b) => a.sortKey - b.sortKey)
+
+    let balance = 0
+    return events.map((e) => {
+      balance += e.debit - e.credit
+      return { ...e, balance } as Entry
+    })
   }, [invoices, payments])
 
   // ── Collect payment ────────────────────────────────────────

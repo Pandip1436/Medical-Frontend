@@ -34,6 +34,17 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
@@ -205,8 +216,17 @@ export default function StockAdjustmentPage() {
     try {
       setIsSubmitting(true)
 
-      // API call first — only update local state after confirmed
-      await api.post('/products/bulk-adjust', {
+      // API call first — only update local state after confirmed.
+      // BE may either execute immediately (admin / under threshold) or queue
+      // an approval request for non-admin users on large adjustments.
+      const res = await api.post<{
+        success?: boolean
+        adjustmentNo?: string
+        approvalRequested?: boolean
+        approvalRequestId?: string
+        totalValue?: number
+        threshold?: number
+      }>('/products/bulk-adjust', {
         items: items.map((item) => ({
           productId: item.productId,
           batchId: item.batchId,
@@ -215,12 +235,24 @@ export default function StockAdjustmentPage() {
         })),
       })
 
+      if (res.data.approvalRequested) {
+        toast.info(
+          `Approval request sent to admin (₹${(res.data.totalValue ?? 0).toLocaleString('en-IN')} > threshold ₹${(res.data.threshold ?? 0).toLocaleString('en-IN')}). Stock unchanged until approved.`,
+          { duration: 5500 },
+        )
+        // Don't apply local changes — they'll happen at approval time.
+        setReferenceNumber(`PENDING/${res.data.approvalRequestId ?? ''}`)
+        setCurrentStep(3)
+        return
+      }
+
       // Update local store only after API confirms
       items.forEach((item) => {
         updateBatchLocally(item.batchId, item.adjustment)
       })
 
-      const refNo = generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
+      const refNo = res.data.adjustmentNo
+        ?? generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
       setReferenceNumber(refNo)
       setCurrentStep(3)
       toast.success('Stock adjustment saved successfully')
@@ -625,10 +657,47 @@ export default function StockAdjustmentPage() {
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Back
               </Button>
-              <Button onClick={handleConfirm} disabled={isSubmitting}>
-                <CheckCircle2 className="mr-1 h-4 w-4" />
-                {isSubmitting ? 'Processing...' : 'Confirm Adjustment'}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={isSubmitting}>
+                    <CheckCircle2 className="mr-1 h-4 w-4" />
+                    {isSubmitting ? 'Processing...' : 'Confirm Adjustment'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Submit stock adjustment?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2">
+                        <p>
+                          You're about to adjust <span className="font-semibold">{items.length}</span> batch
+                          {items.length === 1 ? '' : 'es'} with a total value impact of{' '}
+                          <span className={cn(
+                            'font-semibold',
+                            totalValueImpact < 0 ? 'text-rose-600' : 'text-emerald-600',
+                          )}>
+                            {totalValueImpact >= 0 ? '+' : ''}{formatCurrency(totalValueImpact)}
+                          </span>.
+                        </p>
+                        {requiresApproval && (
+                          <p className="text-amber-600 dark:text-amber-400 text-xs">
+                            ⓘ Adjustment exceeds ₹5,000 — admins will see this immediately; non-admins will be queued for approval.
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          This action is logged with your name and reason. It cannot be undone — you'd have to make a counter-adjustment.
+                        </p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirm}>
+                      Yes, submit
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </motion.div>
         </motion.div>

@@ -51,7 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn, formatCurrency, generateId } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
 // Zod schema for Add Expense
@@ -105,8 +105,11 @@ export default function CashBookPage() {
   )
   const [searchQuery, setSearchQuery] = useState('')
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
-  const [extraExpenses, setExtraExpenses] = useState<CashTransaction[]>([])
   const [apiTransactions, setApiTransactions] = useState<CashTransaction[]>([])
+  // Opening balance is now sourced from the BE (sum of all prior CASH
+  // receipts/expenses), not hardcoded to 0. Carries yesterday's close into
+  // today's morning view.
+  const [openingBalance, setOpeningBalance] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
 
   const fetchCashbook = useCallback(() => {
@@ -127,8 +130,9 @@ export default function CashBookPage() {
           credit: r.type === 'PAYMENT' ? Number(r.amount) : 0,
         }))
         setApiTransactions(mapped)
+        setOpeningBalance(Number(res.data?.openingBalance ?? 0))
       })
-      .catch(() => { if (!cancelled) setApiTransactions([]) })
+      .catch(() => { if (!cancelled) { setApiTransactions([]); setOpeningBalance(0) } })
       .finally(() => { if (!cancelled) setIsLoading(false) })
     return () => { cancelled = true }
   }, [selectedDate])
@@ -137,7 +141,7 @@ export default function CashBookPage() {
   useBranchRefresh(fetchCashbook)
 
   const transactions = useMemo(() => {
-    const txns = [...apiTransactions, ...extraExpenses]
+    const txns = [...apiTransactions]
     txns.sort((a, b) => a.time.localeCompare(b.time))
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
@@ -147,16 +151,15 @@ export default function CashBookPage() {
       )
     }
     return txns
-  }, [apiTransactions, extraExpenses, searchQuery])
+  }, [apiTransactions, searchQuery])
 
   // Summary calculations
   const summary = useMemo(() => {
-    const openingBalance = 0
     const cashIn = transactions.reduce((sum, t) => sum + t.debit, 0)
     const cashOut = transactions.reduce((sum, t) => sum + t.credit, 0)
     const closingBalance = openingBalance + cashIn - cashOut
     return { openingBalance, cashIn, cashOut, closingBalance }
-  }, [transactions])
+  }, [transactions, openingBalance])
 
   // Compute running balance column
   const transactionsWithBalance = useMemo(() => {
@@ -175,27 +178,32 @@ export default function CashBookPage() {
       category: '',
       description: '',
       amount: 0,
-      paymentMode: 'Cash',
+      paymentMode: 'CASH',
     },
   })
 
-  const handleAddExpense = (values: any) => {
-    const newTxn: CashTransaction = {
-      id: generateId('TXN'),
-      time: new Date().toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      particular: `${values.category} - ${values.description}`,
-      type: 'Expense',
-      refNumber: generateId('EXP'),
-      debit: 0,
-      credit: values.amount,
+  const handleAddExpense = async (values: any) => {
+    try {
+      // Persist via the BE so the expense survives reload, shows up in the
+      // expenses list, and lands in P&L. Previously this only mutated local
+      // state — the user saw it once, then it vanished. paymentMode is sent
+      // UPPERCASE so the cash-book filter picks it up immediately.
+      await api.post('/expenses', {
+        date: values.date,
+        category: values.category,
+        description: values.description,
+        amount: Number(values.amount),
+        paymentMode: String(values.paymentMode ?? 'CASH').toUpperCase(),
+      })
+      toast.success(`Expense of ${formatCurrency(values.amount)} saved to cash book`)
+      form.reset({ date: selectedDate, category: '', description: '', amount: 0, paymentMode: 'Cash' })
+      setAddExpenseOpen(false)
+      // Refetch so the new expense appears in the table without a manual reload.
+      fetchCashbook()
+    } catch (error: any) {
+      const msg = error?.response?.data?.message ?? 'Failed to save expense'
+      toast.error(Array.isArray(msg) ? msg.join('; ') : msg)
     }
-    setExtraExpenses((prev) => [...prev, newTxn])
-    toast.success(`Expense of ${formatCurrency(values.amount)} added to cash book`)
-    form.reset({ date: selectedDate, category: '', description: '', amount: 0, paymentMode: 'Cash' })
-    setAddExpenseOpen(false)
   }
 
   const typeBadge = (type: string) => {

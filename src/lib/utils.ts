@@ -15,6 +15,24 @@ export function formatCurrency(amount: any): string {
   }).format(num)
 }
 
+// Compact Indian-style currency for stat cards / KPI tiles where the full
+// "₹60,00,10,000" layout overflows the card width. Uses lakh/crore/thousand
+// abbreviations (e.g. "₹60.0 Cr", "₹49.2 K"). Falls back to the full format
+// for amounts under ₹1,000 since compact mode can drop precision there.
+export function formatCurrencyCompact(amount: any): string {
+  const num = Number(amount) || 0
+  const abs = Math.abs(num)
+  const sign = num < 0 ? '-' : ''
+  if (abs < 1_000) return formatCurrency(num)
+  if (abs < 1_00_000) {
+    return `${sign}₹${(abs / 1_000).toFixed(abs >= 10_000 ? 1 : 2)} K`
+  }
+  if (abs < 1_00_00_000) {
+    return `${sign}₹${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 1 : 2)} L`
+  }
+  return `${sign}₹${(abs / 1_00_00_000).toFixed(abs >= 10_00_00_000 ? 1 : 2)} Cr`
+}
+
 export function formatNumber(num: number): string {
   return new Intl.NumberFormat('en-IN').format(num)
 }

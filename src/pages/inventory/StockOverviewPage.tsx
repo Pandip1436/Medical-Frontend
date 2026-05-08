@@ -221,20 +221,32 @@ export default function StockOverviewPage() {
   // Stats
   const stats = useMemo(() => {
     const totalProducts = products.length
-    const totalStockValue = products.reduce(
-      (sum, p) => sum + p.totalStock * Number(p.mrp),
-      0
-    )
+    const today = new Date()
+    // Sum batch-level stock × mrp, splitting valid vs expired so the headline
+    // "Total Stock Value" reflects sellable stock only. Product.totalStock
+    // includes expired batches and would otherwise inflate the number.
+    let totalStockValue = 0
+    let expiredStockValue = 0
+    let expiredBatchCount = 0
+    for (const b of batches) {
+      const isExpired = differenceInDays(new Date(b.expiryDate), today) < 0
+      const value = b.quantity * Number(b.mrp)
+      if (isExpired) {
+        expiredStockValue += value
+        if (b.quantity > 0) expiredBatchCount += 1
+      } else {
+        totalStockValue += value
+      }
+    }
     const lowStockItems = products.filter(
       (p) => p.totalStock > 0 && p.totalStock < p.minStock
     ).length
-    const today = new Date()
     const nearExpiry = batches.filter((b) => {
       const days = differenceInDays(new Date(b.expiryDate), today)
       return days >= 0 && days <= 90
     }).length
 
-    return { totalProducts, totalStockValue, lowStockItems, nearExpiry }
+    return { totalProducts, totalStockValue, expiredStockValue, expiredBatchCount, lowStockItems, nearExpiry }
   }, [products, batches])
 
   // Product-level aggregation for card view
@@ -291,7 +303,7 @@ export default function StockOverviewPage() {
       iconColor: 'text-blue-600 dark:text-blue-400',
     },
     {
-      title: 'Total Stock Value',
+      title: 'Sellable Stock Value',
       value: formatCurrency(stats.totalStockValue),
       icon: IndianRupee,
       iconBg: 'bg-emerald-500/15 dark:bg-emerald-500/10',
@@ -310,6 +322,15 @@ export default function StockOverviewPage() {
       icon: Clock,
       iconBg: 'bg-orange-500/15 dark:bg-orange-500/10',
       iconColor: 'text-orange-600 dark:text-orange-400',
+    },
+    {
+      title: 'Expired Stock',
+      value: stats.expiredBatchCount > 0
+        ? `${formatCurrency(stats.expiredStockValue)} · ${stats.expiredBatchCount} batch${stats.expiredBatchCount === 1 ? '' : 'es'}`
+        : '—',
+      icon: AlertTriangle,
+      iconBg: 'bg-rose-500/15 dark:bg-rose-500/10',
+      iconColor: 'text-rose-600 dark:text-rose-400',
     },
   ]
 
