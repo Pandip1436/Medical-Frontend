@@ -622,9 +622,9 @@ export default function SuppliersPage() {
                       <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
-                      {Number(supplier.branchOutstanding ?? supplier.currentOutstanding ?? 0) > 0 ? (
+                      {Number(supplier.currentOutstanding ?? 0) > 0 ? (
                         <span className="font-semibold text-amber-600 dark:text-amber-400">
-                          {formatCurrency(Number(supplier.branchOutstanding ?? supplier.currentOutstanding))}
+                          {formatCurrency(Number(supplier.currentOutstanding))}
                         </span>
                       ) : (
                         <span className="text-muted-foreground/40">—</span>
