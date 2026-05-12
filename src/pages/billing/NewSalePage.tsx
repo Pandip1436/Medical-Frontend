@@ -375,7 +375,7 @@ function BillingRow({
         productId: product.id,
         productName: product.name,
         gstPercent: product.gstRate,
-        mrp: Number(firstBatch?.mrp ?? product.mrp) || 0,
+        mrp: Number(firstBatch?.mrp || product.mrp) || 0,
         rate: Number(rate) || 0,
         schedule: product.schedule,
         batchId: firstBatch?.id ?? '',
@@ -424,7 +424,7 @@ function BillingRow({
         batchId: batch.id,
         batchNumber: batch.batchNumber,
         expiryDate: batch.expiryDate,
-        mrp: batch.mrp,
+        mrp: Number(batch.mrp || selectedProduct?.mrp) || 0,
       }
       const tempItem = { ...item, ...updates }
       updates.amount = calculateItemAmount(tempItem)
@@ -460,7 +460,15 @@ function BillingRow({
 
   const handleRateChange = useCallback(
     (rate: number) => {
-      const updates: Partial<BillingItem> = { rate: Math.max(0, rate) }
+      let clamped = Math.max(0, rate)
+      if (item.mrp > 0 && clamped > item.mrp) {
+        clamped = item.mrp
+        toast.warning(`Rate capped at MRP ₹${item.mrp}`, {
+          id: `rate-mrp-${item.id}`,
+          duration: 2500,
+        })
+      }
+      const updates: Partial<BillingItem> = { rate: clamped }
       const tempItem = { ...item, ...updates }
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
@@ -693,12 +701,12 @@ function BillingRow({
         </Select>
           <div
             className={cn(
-              'text-[9px] mt-0.5 px-2 font-bold uppercase tracking-tight',
+              'text-[10px] mt-0.5 px-2 font-bold uppercase tracking-tight',
               isExpired(item.expiryDate)
                 ? 'text-rose-600 dark:text-rose-400'
                 : isNearExpiry(item.expiryDate)
                   ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-muted-foreground/30'
+                  : 'text-slate-600 dark:text-slate-400'
             )}
           >
             {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
@@ -754,21 +762,26 @@ function BillingRow({
             return (
               <>
                 <div className="flex flex-col items-end shrink-0 w-14">
-                  {originalRate > 0 ? (
-                    <>
-                      <span className={cn(
-                        'text-[10px] font-mono font-semibold',
-                        isModified ? 'line-through text-muted-foreground/40' : 'text-muted-foreground/80'
-                      )}>
-                        {formatCurrency(originalRate)}
-                      </span>
-                      {item.mrp > 0 && (
-                        <span className="text-[8px] font-mono text-muted-foreground/40 mt-0.5">
-                          MRP {formatCurrency(item.mrp)}
-                        </span>
-                      )}
-                    </>
-                  ) : (
+                  {originalRate > 0 && (
+                    <span className={cn(
+                      'text-[10px] font-mono font-semibold',
+                      isModified ? 'line-through text-muted-foreground/40' : 'text-muted-foreground/80'
+                    )}>
+                      {formatCurrency(originalRate)}
+                    </span>
+                  )}
+                  {item.productId ? (
+                    <span className={cn(
+                      'text-[10px] font-mono font-bold mt-0.5',
+                      item.mrp === 0
+                        ? 'text-muted-foreground/40 italic'
+                        : Number(item.rate) > item.mrp
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-600 dark:text-slate-400'
+                    )}>
+                      MRP {item.mrp > 0 ? formatCurrency(item.mrp) : '—'}
+                    </span>
+                  ) : originalRate === 0 && (
                     <span className="text-muted-foreground/30 text-xs">—</span>
                   )}
                 </div>
@@ -788,8 +801,11 @@ function BillingRow({
                   <input
                     type="number"
                     step={0.01}
+                    min={0}
+                    max={item.mrp > 0 ? item.mrp : undefined}
                     value={item.rate || ''}
                     onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
+                    title={item.mrp > 0 ? `Maximum: MRP ₹${item.mrp}` : undefined}
                     className={cn(
                       'w-full h-7 border-0 bg-transparent text-sm text-center font-bold font-mono',
                       'focus:outline-none focus:ring-0',
@@ -992,7 +1008,15 @@ function MobileBillingCard({
   }
 
   const handleRateChange = (rate: number) => {
-    const updates: Partial<BillingItem> = { rate: Math.max(0, rate) }
+    let clamped = Math.max(0, rate)
+    if (item.mrp > 0 && clamped > item.mrp) {
+      clamped = item.mrp
+      toast.warning(`Rate capped at MRP ₹${item.mrp}`, {
+        id: `rate-mrp-${item.id}`,
+        duration: 2500,
+      })
+    }
+    const updates: Partial<BillingItem> = { rate: clamped }
     const tempItem = { ...item, ...updates }
     updates.amount = calculateItemAmount(tempItem)
     onUpdate(item.id, updates)
@@ -1062,7 +1086,7 @@ function MobileBillingCard({
                   { duration: 4500 },
                 )
               }
-              onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: b.mrp })
+              onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: Number(b.mrp || selectedProduct?.mrp) || 0 })
             }}>
               <SelectTrigger className="h-8 text-xs font-mono">
                 <SelectValue placeholder="Batch" />
@@ -1080,12 +1104,12 @@ function MobileBillingCard({
             </Select>
             {item.expiryDate && (
               <div className={cn(
-                "text-[9px] font-bold",
+                "text-[10px] font-bold uppercase tracking-tight",
                 isExpired(item.expiryDate)
                   ? "text-rose-600 dark:text-rose-400"
                   : isNearExpiry(item.expiryDate)
                     ? "text-amber-600 dark:text-amber-400"
-                    : "text-muted-foreground/50"
+                    : "text-slate-600 dark:text-slate-400"
               )}>
                 {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
                 {formatExpiryShort(item.expiryDate)}
@@ -1702,7 +1726,7 @@ export default function NewSalePage() {
         return {
           ...item,
           productId: product.id,
-          mrp: batch?.mrp ?? product.mrp ?? rate,
+          mrp: batch?.mrp || product.mrp || rate,
           rate,
           gstPercent,
           amount,
@@ -1902,7 +1926,7 @@ export default function NewSalePage() {
           productId: product.id,
           productName: product.name,
           gstPercent: product.gstRate,
-          mrp: Number(firstBatch?.mrp ?? product.mrp) || 0,
+          mrp: Number(firstBatch?.mrp || product.mrp) || 0,
           rate: Number(rate) || 0,
           schedule: product.schedule,
           batchId: firstBatch?.id ?? '',
