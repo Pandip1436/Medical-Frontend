@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 
 import { Button } from '@/components/ui/button'
@@ -105,11 +106,23 @@ export default function OutstandingPage() {
   useEffect(() => { fetchData() }, [fetchData])
   useBranchRefresh(fetchData)
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 15
+
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return rows
     const q = searchQuery.toLowerCase()
     return rows.filter((r) => r.customer.toLowerCase().includes(q))
   }, [rows, searchQuery])
+
+  // Reset pagination on search
+  useEffect(() => { setCurrentPage(1) }, [searchQuery])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedRows = useMemo(() => {
+    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filtered, currentPage])
 
   const summary = useMemo(() => {
     const total = filtered.reduce((s, r) => s + r.outstanding, 0)
@@ -259,7 +272,7 @@ export default function OutstandingPage() {
             {!isLoading && filtered.length === 0 && (
               <div className="py-8 text-center text-sm text-muted-foreground">No outstanding receivables</div>
             )}
-            {!isLoading && filtered.map((row, i) => (
+            {!isLoading && paginatedRows.map((row, i) => (
               <div key={row.customerId ?? i} className="flex items-start justify-between gap-2 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{row.customer}</p>
@@ -305,7 +318,7 @@ export default function OutstandingPage() {
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No outstanding receivables</TableCell>
                   </TableRow>
                 )}
-                {!isLoading && filtered.map((row, i) => (
+                {!isLoading && paginatedRows.map((row, i) => (
                   <TableRow key={row.customerId ?? i} className="border-b border-border/40">
                     <TableCell>
                       <div className="flex flex-col">
@@ -356,6 +369,15 @@ export default function OutstandingPage() {
               </TableBody>
             </Table>
           </div>
+          {totalPages > 1 && (
+            <div className="border-t px-4 py-4">
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

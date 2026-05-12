@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -161,6 +162,10 @@ export default function CashBookPage() {
     return { openingBalance, cashIn, cashOut, closingBalance }
   }, [transactions, openingBalance])
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 15
+
   // Compute running balance column
   const transactionsWithBalance = useMemo(() => {
     let balance = summary.openingBalance
@@ -169,6 +174,14 @@ export default function CashBookPage() {
       return { ...t, balance }
     })
   }, [transactions, summary.openingBalance])
+
+  // Reset pagination on search or date change
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, selectedDate])
+
+  const totalPages = Math.ceil(transactionsWithBalance.length / PAGE_SIZE)
+  const paginatedTransactions = useMemo(() => {
+    return transactionsWithBalance.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [transactionsWithBalance, currentPage])
 
   // Expense form
   const form = useForm<ExpenseFormValues>({
@@ -395,7 +408,7 @@ export default function CashBookPage() {
               </div>
             )}
             <div className="divide-y divide-border/40">
-              {!isLoading && transactionsWithBalance.map((txn) => (
+              {!isLoading && paginatedTransactions.map((txn) => (
                 <div key={txn.id} className="flex items-start justify-between gap-2 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{txn.particular}</p>
@@ -473,7 +486,7 @@ export default function CashBookPage() {
                   ))}
                 </TableRow>
               ))}
-              {!isLoading && transactionsWithBalance.map((txn) => (
+              {!isLoading && paginatedTransactions.map((txn) => (
                 <TableRow key={txn.id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {txn.time}
@@ -504,6 +517,15 @@ export default function CashBookPage() {
             </TableBody>
           </Table>
           </div>
+          {totalPages > 1 && (
+            <div className="border-t px-4 py-4">
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

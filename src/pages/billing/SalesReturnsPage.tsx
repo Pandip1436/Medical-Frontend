@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
   Search,
   ChevronRight,
@@ -307,6 +308,10 @@ export default function SalesReturnsPage() {
     setCurrentStep(step)
   }
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
+
   // ── Step 1: Search ──
   const matchingInvoices = useMemo(() => {
     if (!invoiceSearch.trim()) return []
@@ -321,8 +326,15 @@ export default function SalesReturnsPage() {
           (inv.invoiceNumber.toLowerCase().includes(q) ||
             inv.customerName.toLowerCase().includes(q))
       )
-      .slice(0, 8)
   }, [invoiceSearch, invoices])
+
+  // Reset pagination on search
+  useEffect(() => { setCurrentPage(1) }, [invoiceSearch])
+
+  const totalPages = Math.ceil(matchingInvoices.length / PAGE_SIZE)
+  const paginatedInvoices = useMemo(() => {
+    return matchingInvoices.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [matchingInvoices, currentPage])
 
   const handleSelectInvoice = async (inv: Invoice) => {
     setSelectedInvoice(inv)
@@ -664,7 +676,7 @@ export default function SalesReturnsPage() {
                       </div>
                     )}
 
-                    {matchingInvoices.map((inv) => (
+                    {paginatedInvoices.map((inv) => (
                       <div
                         key={inv.id}
                         onClick={() => handleSelectInvoice(inv)}
@@ -703,6 +715,16 @@ export default function SalesReturnsPage() {
                     ))}
                   </div>
                 </ScrollArea>
+
+                {totalPages > 1 && (
+                  <div className="shrink-0 border-t border-border/40 bg-muted/5 p-4">
+                    <DataTablePagination
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={setCurrentPage}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Right: Invoice Details Preview */}

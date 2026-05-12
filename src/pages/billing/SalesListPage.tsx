@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
@@ -121,7 +122,6 @@ export default function SalesListPage() {
   const [period, setPeriod] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [selectedPaymentMode, setSelectedPaymentMode] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [amountMin, setAmountMin] = useState('')
@@ -198,7 +198,6 @@ export default function SalesListPage() {
     setPeriod('all')
     setDateFrom('')
     setDateTo('')
-    setSelectedCustomer('all')
     setSelectedPaymentMode('all')
     setSelectedStatus('all')
     setAmountMin('')
@@ -252,10 +251,6 @@ export default function SalesListPage() {
       )
     }
 
-    // Customer
-    if (selectedCustomer && selectedCustomer !== 'all') {
-      result = result.filter((inv) => inv.customerId === selectedCustomer)
-    }
 
     // Payment mode
     if (selectedPaymentMode && selectedPaymentMode !== 'all') {
@@ -287,7 +282,6 @@ export default function SalesListPage() {
     period,
     dateFrom,
     dateTo,
-    selectedCustomer,
     selectedPaymentMode,
     selectedStatus,
     amountMin,
@@ -325,8 +319,6 @@ export default function SalesListPage() {
     currentPage * PAGE_SIZE
   )
 
-  const rangeStart = filteredInvoices.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredInvoices.length)
 
   // ── Bulk select ──
 
@@ -367,7 +359,6 @@ export default function SalesListPage() {
     period !== 'all' ? period : '',
     dateFrom,
     dateTo,
-    selectedCustomer !== 'all' ? selectedCustomer : '',
     selectedPaymentMode !== 'all' ? selectedPaymentMode : '',
     selectedStatus !== 'all' ? selectedStatus : '',
     amountMin,
@@ -511,41 +502,6 @@ export default function SalesListPage() {
           options={PERIOD_OPTIONS}
         />
 
-        {/* Custom date range — only when period is 'custom' */}
-        {period === 'custom' && (
-          <>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date From
-              </Label>
-              <DatePicker
-                value={dateFrom}
-                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date To
-              </Label>
-              <DatePicker
-                value={dateTo}
-                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-              />
-            </div>
-          </>
-        )}
-
-        <EnumSelect
-          label="Customer"
-          value={selectedCustomer}
-          onValueChange={(val) => { setSelectedCustomer(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedCustomer('all'); setCurrentPage(1) }}
-          options={[
-            { value: 'all', label: 'All Customers' },
-            ...customers.map((c) => ({ value: c.id, label: c.name })),
-          ]}
-        />
-
         <EnumSelect
           label="Payment Mode"
           value={selectedPaymentMode}
@@ -598,6 +554,30 @@ export default function SalesListPage() {
             />
           </div>
         </div>
+
+        {/* Custom date range — only when period is 'custom' */}
+        {period === 'custom' && (
+          <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-border/40 pt-4 mt-1">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date From
+              </Label>
+              <DatePicker
+                value={dateFrom}
+                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Date To
+              </Label>
+              <DatePicker
+                value={dateTo}
+                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
+              />
+            </div>
+          </div>
+        )}
       </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}
@@ -901,36 +881,14 @@ export default function SalesListPage() {
         </Table>
         </div>{/* end desktop table */}
 
-        {/* Pagination — shared */}
-        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
-          <p className="text-[11px] text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{rangeStart}–{rangeEnd}</span> of{' '}
-            <span className="font-medium text-foreground">{filteredInvoices.length}</span> results
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => p - 1)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              <span className="hidden sm:inline ml-1">Prev</span>
-            </Button>
-            <span className="text-[11px] text-muted-foreground tabular-nums">
-              {currentPage} / {totalPages || 1}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => p + 1)}
-            >
-              <span className="hidden sm:inline mr-1">Next</span>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filteredInvoices.length}
+          itemsPerPage={PAGE_SIZE}
+          className="border-t border-border/40 px-4"
+        />
       </Card>
 
       {/* ── Invoice Detail Dialog ── */}

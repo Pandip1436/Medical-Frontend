@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Wallet,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -667,19 +668,14 @@ export default function CustomerInvoicesPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border/40 px-4 py-3">
-                <p className="text-xs text-muted-foreground">
-                  {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
-                </p>
-                <div className="flex items-center gap-1">
-                  <Button size="icon-sm" variant="ghost" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="text-xs text-muted-foreground px-1">{page} / {totalPages}</span>
-                  <Button size="icon-sm" variant="ghost" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
+              <div className="border-t px-4 py-4">
+                <DataTablePagination
+                  currentPage={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  totalItems={filtered.length}
+                  itemsPerPage={PAGE_SIZE}
+                />
               </div>
             )}
           </CardContent>

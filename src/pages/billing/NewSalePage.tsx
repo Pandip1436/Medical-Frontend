@@ -144,15 +144,21 @@ const customerSchema = z.object({
   address: z.string().min(1, 'Address is required'),
   gstin: z.string().optional(),
   dlNumber: z.string().optional(),
+  registrationNumber: z.string().optional(),
   referredBy: z.string().min(1, 'Please select a salesperson'),
   notes: z.string().optional(),
 }).superRefine((data, ctx) => {
-  if (data.type === 'WHOLESALE' || data.type === 'DOCTOR') {
+  if (data.type === 'WHOLESALE') {
     if (!data.gstin || data.gstin.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale / Doctor' })
+      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
     }
     if (!data.dlNumber || data.dlNumber.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale / Doctor' })
+      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale' })
+    }
+  }
+  if (data.type === 'DOCTOR') {
+    if (!data.registrationNumber || data.registrationNumber.trim() === '') {
+      ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message: 'Registration Number is required for Doctor' })
     }
   }
 })
@@ -167,7 +173,15 @@ function generateRowId() {
   return `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function isExpired(expiryDate: string): boolean {
+  if (!expiryDate) return false
+  const expiry = new Date(expiryDate)
+  expiry.setHours(23, 59, 59, 999)
+  return expiry < new Date()
+}
+
 function isNearExpiry(expiryDate: string): boolean {
+  if (!expiryDate || isExpired(expiryDate)) return false
   const expiry = new Date(expiryDate)
   const now = new Date()
   const threeMonths = 90 * 24 * 60 * 60 * 1000
@@ -176,7 +190,7 @@ function isNearExpiry(expiryDate: string): boolean {
 
 function formatExpiryShort(dateStr: string): string {
   const d = new Date(dateStr)
-  return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()
 }
 
 
@@ -677,18 +691,19 @@ function BillingRow({
             ))}
           </SelectContent>
         </Select>
-        {item.expiryDate && (
           <div
             className={cn(
               'text-[9px] mt-0.5 px-2 font-bold uppercase tracking-tight',
-              isNearExpiry(item.expiryDate)
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-muted-foreground/30'
+              isExpired(item.expiryDate)
+                ? 'text-rose-600 dark:text-rose-400'
+                : isNearExpiry(item.expiryDate)
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-muted-foreground/30'
             )}
           >
-            Exp: {formatExpiryShort(item.expiryDate)}
+            {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
+            {formatExpiryShort(item.expiryDate)}
           </div>
-        )}
       </TableCell>
 
       {/* Qty with +/- */}
@@ -1064,7 +1079,17 @@ function MobileBillingCard({
               </SelectContent>
             </Select>
             {item.expiryDate && (
-              <div className="text-[9px] font-bold text-muted-foreground/50">Exp: {formatExpiryShort(item.expiryDate)}</div>
+              <div className={cn(
+                "text-[9px] font-bold",
+                isExpired(item.expiryDate)
+                  ? "text-rose-600 dark:text-rose-400"
+                  : isNearExpiry(item.expiryDate)
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground/50"
+              )}>
+                {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
+                {formatExpiryShort(item.expiryDate)}
+              </div>
             )}
           </div>
 
@@ -1558,18 +1583,44 @@ export default function NewSalePage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
-  const [docFile, setDocFile] = useState<File | null>(null)
-  const [docPreview, setDocPreview] = useState<string | null>(null)
+  const [docFiles, setDocFiles] = useState<File[]>([])
+  const [docPreviews, setDocPreviews] = useState<{ name: string; preview: string | null }[]>([])
+  const multiDocInputRef = useRef<HTMLInputElement>(null)
+  const [nsPhoneCheckError, setNsPhoneCheckError] = useState('')
+  const [nsPhoneChecking, setNsPhoneChecking] = useState(false)
 
   const handleDocFile = (file: File | null) => {
-    setDocFile(file)
-    if (file && file.type.startsWith('image/')) {
+    if (!file) return
+    setDocFiles(prev => [...prev, file])
+    if (file.type.startsWith('image/')) {
       const reader = new FileReader()
-      reader.onload = (e) => setDocPreview(e.target?.result as string)
+      reader.onload = (e) => setDocPreviews(prev => [...prev, { name: file.name, preview: e.target?.result as string }])
       reader.readAsDataURL(file)
     } else {
-      setDocPreview(null)
+      setDocPreviews(prev => [...prev, { name: file.name, preview: null }])
     }
+  }
+
+  const handleMultiDocFiles = (files: FileList | null) => {
+    if (!files) return
+    Array.from(files).forEach(file => handleDocFile(file))
+  }
+
+  const removeDocFile = (idx: number) => {
+    setDocFiles(prev => prev.filter((_, i) => i !== idx))
+    setDocPreviews(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const checkNsPhoneDuplicate = async (phone: string) => {
+    if (!/^\d{10}$/.test(phone)) { setNsPhoneCheckError(''); return }
+    setNsPhoneChecking(true)
+    setNsPhoneCheckError('')
+    try {
+      const res = await api.get(`/customers?q=${phone}`)
+      const list = Array.isArray(res.data) ? res.data : []
+      const dup = list.find((c: any) => c.phone?.replace(/\D/g, '') === phone)
+      if (dup) setNsPhoneCheckError(`Phone already used by "${dup.name}". Please verify.`)
+    } catch { /* ignore */ } finally { setNsPhoneChecking(false) }
   }
 
   const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
@@ -1682,7 +1733,7 @@ export default function NewSalePage() {
 
   // ── Table view tabs ───────────────────────────────────────
   type TableView = 'products' | 'customer-history' | 'customer-reminders'
-  const [tableView, setTableView] = useState<TableView>('products')
+  const [tableView, setTableView] = useState<TableView>('customer-history')
   const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
 
   // ── Customer invoice history ──────────────────────────────
@@ -2084,6 +2135,51 @@ export default function NewSalePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null)
 
+  // ── Invoice Preview ────────────────────────────────────────
+  const [previewOpen, setPreviewOpen] = useState(false)
+
+  // Build a local Invoice object from current form state for preview (no save)
+  const buildPreviewInvoice = (): Invoice => ({
+    id: '__preview__',
+    invoiceNumber: invoiceNumber,
+    date: new Date().toISOString(),
+    type: invoiceType === 'invoice' ? 'INVOICE' : 'QUOTATION',
+    billingType: billingType.toUpperCase() as 'RETAIL' | 'WHOLESALE',
+    customerId: selectedCustomer?.id,
+    customerName: selectedCustomer?.name ?? '—',
+    items: items
+      .filter((i) => i.productId && i.quantity > 0)
+      .map((i) => ({
+        id: i.id,
+        productId: i.productId,
+        productName: i.productName,
+        batchId: i.batchId,
+        batchNumber: i.batchNumber,
+        expiryDate: i.expiryDate,
+        quantity: i.quantity,
+        mrp: i.mrp,
+        rate: i.rate,
+        discountPercent: i.discountPercent,
+        gstPercent: i.gstPercent,
+        amount: i.amount,
+      })),
+    subtotal: totals.subtotal,
+    productDiscount: totals.productDiscount,
+    taxableAmount: totals.taxableAmount,
+    cgst: totals.cgst,
+    sgst: totals.sgst,
+    igst: 0,
+    roundOff: totals.roundOff,
+    grandTotal: totals.grandTotal,
+    paymentMode: paymentMode as Invoice['paymentMode'],
+    status: paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
+    amountPaid: paymentMode === 'CASH' ? (paymentDetails.amountReceived || totals.grandTotal) : totals.grandTotal,
+    changeReturned: paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0,
+    salespersonName: selectedSalesperson?.name,
+    createdBy: 'Preview',
+    createdAt: new Date().toISOString(),
+  })
+
   // ── Quick Reminder ────────────────────────────────────────
   const [reminderOpen, setReminderOpen] = useState(false)
   const [reminderDay, setReminderDay] = useState('')
@@ -2261,6 +2357,13 @@ export default function NewSalePage() {
       if (e.key === 'F8') {
         e.preventDefault()
         submitInvoice()
+      } else if (e.key === 'F7') {
+        e.preventDefault()
+        if (items.filter((i) => i.productId && i.quantity > 0).length > 0 && selectedCustomer) {
+          setPreviewOpen(true)
+        } else {
+          toast.info('Add items and select a customer to preview invoice')
+        }
       } else if (e.key === 'F9') {
         e.preventDefault()
         if (lastSavedInvoice) shareInvoiceViaWhatsApp(lastSavedInvoice)
@@ -2272,7 +2375,11 @@ export default function NewSalePage() {
         e.preventDefault()
       } else if (e.altKey && e.key === 's') {
         e.preventDefault()
-        heroSearchRef.current?.focus()
+        if (!selectedCustomer) {
+          setShowCustomerDropdown(true)
+        } else {
+          heroSearchRef.current?.focus()
+        }
       } else if (e.altKey && e.key === 'n') {
         e.preventDefault()
         addItem()
@@ -2304,19 +2411,36 @@ export default function NewSalePage() {
       address: '',
       gstin: '',
       dlNumber: '',
+      registrationNumber: '',
       referredBy: '',
       notes: '',
     },
   })
 
   const handleAddCustomer = async (values: CustomerFormValues) => {
+    if (nsPhoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
     try {
       const res = await api.post('/customers', values)
       toast.success(`Customer "${values.name}" added successfully`)
-      await fetchMasterData()
       const newlyCreated = res.data
+      // Upload documents
+      if (docFiles.length > 0 && newlyCreated?.id) {
+        for (const file of docFiles) {
+          try {
+            const fd = new FormData()
+            fd.append('file', file)
+            fd.append('customerId', newlyCreated.id)
+            fd.append('doctorName', 'Document')
+            await api.post('/prescriptions/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          } catch { toast.warning(`Failed to upload "${file.name}"`) }
+        }
+      }
+      await fetchMasterData()
       if (newlyCreated) setSelectedCustomer(newlyCreated)
       customerForm.reset()
+      setDocFiles([])
+      setDocPreviews([])
+      setNsPhoneCheckError('')
       setAddCustomerDialogOpen(false)
     } catch (error: unknown) {
       toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add customer')
@@ -2386,33 +2510,48 @@ export default function NewSalePage() {
               {/* Hero Product Search */}
               <div className="flex-1 md:w-[38%] md:flex-none lg:w-[34%] relative">
               <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/60" />
-                <input
-                  ref={heroSearchRef}
-                  value={heroSearch}
-                  onChange={(e) => {
-                    setHeroSearch(e.target.value)
-                    setShowHeroResults(true)
-                    setHeroSelectedIdx(0)
-                  }}
-                  onFocus={() => heroSearch && setShowHeroResults(true)}
-                  onKeyDown={handleHeroKeyDown}
-                  placeholder="Scan barcode or search products...  (Alt+S)"
-                  className={cn(
-                    'w-full h-11 rounded-xl border-2 border-primary/20 bg-background pl-11 pr-4 text-sm shadow-sm',
-                    'placeholder:text-muted-foreground/50 font-medium',
-                    'focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary/60',
-                    'transition-all duration-300 hover:border-primary/30'
-                  )}
-                />
-                {heroSearch && (
+                {!selectedCustomer ? (
+                  /* Locked state — no customer selected */
                   <button
                     type="button"
-                    onClick={() => { setHeroSearch(''); setShowHeroResults(false); heroSearchRef.current?.focus() }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"
+                    onClick={() => setShowCustomerDropdown(true)}
+                    className="flex w-full h-11 items-center gap-3 rounded-xl border-2 border-dashed border-rose-400/50 bg-rose-50/40 dark:bg-rose-950/20 px-4 text-sm text-rose-500 dark:text-rose-400 font-medium transition-all hover:border-rose-400/80 hover:bg-rose-50/60 dark:hover:bg-rose-950/30"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <Search className="h-4 w-4 shrink-0 opacity-60" />
+                    <span className="flex-1 text-left text-xs">Select a customer first to search products</span>
+                    <span className="text-base">🔒</span>
                   </button>
+                ) : (
+                  <>
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/60" />
+                    <input
+                      ref={heroSearchRef}
+                      value={heroSearch}
+                      onChange={(e) => {
+                        setHeroSearch(e.target.value)
+                        setShowHeroResults(true)
+                        setHeroSelectedIdx(0)
+                      }}
+                      onFocus={() => heroSearch && setShowHeroResults(true)}
+                      onKeyDown={handleHeroKeyDown}
+                      placeholder="Scan barcode or search products...  (Alt+S)"
+                      className={cn(
+                        'w-full h-11 rounded-xl border-2 border-primary/20 bg-background pl-11 pr-4 text-sm shadow-sm',
+                        'placeholder:text-muted-foreground/50 font-medium',
+                        'focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary/60',
+                        'transition-all duration-300 hover:border-primary/30'
+                      )}
+                    />
+                    {heroSearch && (
+                      <button
+                        type="button"
+                        onClick={() => { setHeroSearch(''); setShowHeroResults(false); heroSearchRef.current?.focus() }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -2472,7 +2611,9 @@ export default function NewSalePage() {
               <Button
                 type="button"
                 onClick={addItem}
-                className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer md:hidden"
+                disabled={!selectedCustomer}
+                title={!selectedCustomer ? 'Select a customer first' : undefined}
+                className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer md:hidden disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -2540,7 +2681,7 @@ export default function NewSalePage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute z-50 left-1/2 -translate-x-1/2 mt-1 w-80 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
+                    className="absolute z-50 right-0 mt-1 w-[clamp(20rem,90vw,26rem)] rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
                   >
                     <div className="p-2 border-b border-border/40">
                       <input
@@ -2551,7 +2692,7 @@ export default function NewSalePage() {
                         autoFocus
                       />
                     </div>
-                    <ScrollArea className="h-56">
+                    <ScrollArea className="h-64">
                       {filteredCustomers.map((cust) => (
                         <div
                           key={cust.id}
@@ -2560,15 +2701,15 @@ export default function NewSalePage() {
                             setSelectedCustomer(cust)
                             setCustomerSearch('')
                             setShowCustomerDropdown(false)
-                            setTableView('products')
+                            setTableView('customer-history')
                           }}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold truncate">{cust.name}</span>
-                            <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold flex-1 min-w-0 truncate">{cust.name}</span>
+                            <div className="flex items-center gap-1 shrink-0 ml-auto">
                               {(cust.pendingCreditCount ?? 0) >= 3 ? (
                                 <span
-                                  className="inline-flex items-center gap-0.5 rounded-full bg-red-100 dark:bg-red-950/40 px-1.5 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400"
+                                  className="inline-flex items-center gap-0.5 rounded-full bg-red-100 dark:bg-red-950/40 px-1.5 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400 whitespace-nowrap"
                                   title="Credit blocked — 3 pending invoices"
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -2580,11 +2721,11 @@ export default function NewSalePage() {
                                   🔴 Pay Credits
                                 </span>
                               ) : (cust.pendingCreditCount ?? 0) > 0 ? (
-                                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                   {cust.pendingCreditCount} pending
                                 </span>
                               ) : null}
-                              <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px]">
+                              <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px] whitespace-nowrap">
                                 {cust.type}
                               </Badge>
                             </div>
@@ -2630,24 +2771,25 @@ export default function NewSalePage() {
               </Button>
             )}
 
-            {/* Add Item Button — desktop only (md+) */}
             <Button
               type="button"
               onClick={addItem}
-              className="hidden md:flex h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer"
+              disabled={!selectedCustomer}
+              title={!selectedCustomer ? 'Select a customer first to add products' : 'Add Item (Alt+N)'}
+              className="hidden md:flex h-11 px-3 lg:px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Add Item</span>
-              <kbd className="ml-1 hidden lg:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
+              <span className="hidden lg:inline text-sm">Add Item</span>
+              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
             </Button>
           </div>
 
           {/* ═══════════════════════════════════════════════════
               SIDEBAR HEADER (Salesperson — read-only, derived from customer)
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden md:flex w-75 lg:w-80 shrink-0 items-center">
+          <div className="hidden md:flex w-52 lg:w-64 xl:w-72 shrink-0 items-center">
             <div className={cn(
-              'flex items-center gap-2.5 w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3 text-xs shadow-sm select-none',
+              'flex items-center gap-2 w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3 text-xs shadow-sm select-none overflow-hidden',
             )}>
               <div className={cn(
                 "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
@@ -2655,8 +2797,8 @@ export default function NewSalePage() {
               )}>
                 {selectedSalesperson ? selectedSalesperson.name[0] : <Users className="h-3 w-3" />}
               </div>
-              <span className={cn("flex-1 truncate font-semibold", !selectedSalesperson && "text-muted-foreground/50 italic")}>
-                {selectedSalesperson?.name ?? 'Salesperson (auto from customer)'}
+              <span className={cn("flex-1 truncate text-[11px] font-semibold", !selectedSalesperson && "text-muted-foreground/50 italic")}>
+                {selectedSalesperson?.name ?? 'Salesperson'}
               </span>
               {selectedSalesperson && (
                 <Badge variant="secondary" size="sm" className="shrink-0 text-[9px]">SP</Badge>
@@ -2717,27 +2859,9 @@ export default function NewSalePage() {
         <div className="flex flex-col gap-3 flex-1 md:flex-row overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
           <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
-            {/* Tab strip */}
+            {/* Tab strip — order: Customer History | Products | Reminders */}
             <div className="flex items-center gap-1 mb-2">
-              <button
-                type="button"
-                onClick={() => setTableView('products')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
-                  tableView === 'products'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-                )}
-              >
-                <Package className="h-3 w-3" />
-                Products
-                {activeItemCount > 0 && (
-                  <span className={cn(
-                    'ml-0.5 rounded-full px-1 text-[9px] font-bold',
-                    tableView === 'products' ? 'bg-white/20' : 'bg-primary/10 text-primary'
-                  )}>{activeItemCount}</span>
-                )}
-              </button>
+              {/* Tab 1: Customer History — always accessible, shown first */}
               <button
                 type="button"
                 onClick={() => {
@@ -2752,8 +2876,47 @@ export default function NewSalePage() {
                 )}
               >
                 <History className="h-3 w-3" />
-                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Customer History'}
+                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Select Customer'}
+                {!selectedCustomer && (
+                  <span className="ml-0.5 text-[9px] text-rose-400 animate-pulse">●</span>
+                )}
               </button>
+
+              {/* Tab 2: Products — locked until customer selected, shown in middle */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedCustomer) {
+                    setShowCustomerDropdown(true)
+                    toast.info('Please select a customer before adding products')
+                    return
+                  }
+                  setTableView('products')
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                  tableView === 'products'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : !selectedCustomer
+                      ? 'text-muted-foreground/40 cursor-not-allowed'
+                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                )}
+                title={!selectedCustomer ? 'Select a customer first to add products' : undefined}
+              >
+                <Package className="h-3 w-3" />
+                Products
+                {activeItemCount > 0 && (
+                  <span className={cn(
+                    'ml-0.5 rounded-full px-1 text-[9px] font-bold',
+                    tableView === 'products' ? 'bg-white/20' : 'bg-primary/10 text-primary'
+                  )}>{activeItemCount}</span>
+                )}
+                {!selectedCustomer && (
+                  <span className="ml-0.5 text-[9px] text-amber-500">🔒</span>
+                )}
+              </button>
+
+              {/* Tab 3: Reminders */}
               <button
                 type="button"
                 onClick={() => {
@@ -3173,6 +3336,18 @@ export default function NewSalePage() {
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-1.5 mt-auto shrink-0">
+              {/* Preview Button */}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2 h-9 text-sm font-semibold border-primary/30 text-primary hover:bg-primary/5"
+                disabled={!selectedCustomer || items.filter(i => i.productId && i.quantity > 0).length === 0}
+                onClick={() => setPreviewOpen(true)}
+              >
+                <FileText className="h-4 w-4" />
+                Preview Invoice
+                <kbd className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono text-primary/70">F7</kbd>
+              </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -3195,73 +3370,44 @@ export default function NewSalePage() {
                 <TooltipContent>Save and print invoice (F8)</TooltipContent>
               </Tooltip>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="gap-1.5 text-xs h-8"
-                      onClick={() => {
-                        if (!lastSavedInvoice) {
-                          toast.info('Save invoice first before sharing')
-                          return
-                        }
-                        shareInvoiceViaWhatsApp(lastSavedInvoice)
-                      }}
-                    >
-                      <Share2 className="h-3.5 w-3.5" />
-                      Share
+                    <Button variant="secondary" size="sm" className="gap-1.5 text-xs h-8"
+                      onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}>
+                      <Share2 className="h-3.5 w-3.5" /> Share
                       <kbd className="ml-auto text-[9px] font-mono opacity-50">F9</kbd>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Share invoice via WhatsApp (F9)</TooltipContent>
+                  <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
                 </Tooltip>
-
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={holdCurrentBill}>
-                      <Save className="h-3.5 w-3.5" />
-                      Draft
+                      <Save className="h-3.5 w-3.5" /> Draft
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Save as draft (Ctrl+S)</TooltipContent>
+                  <TooltipContent>Save as draft</TooltipContent>
                 </Tooltip>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 text-xs h-8"
-                      onClick={holdCurrentBill}
-                    >
-                      <Pause className="h-3.5 w-3.5" />
-                      Hold
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={holdCurrentBill}>
+                      <Pause className="h-3.5 w-3.5" /> Hold
                       <kbd className="ml-auto text-[9px] font-mono opacity-50">F10</kbd>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Hold bill for later (F10)</TooltipContent>
                 </Tooltip>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground gap-1.5 text-xs h-8 relative"
-                  onClick={() => setHeldBillsOpen(true)}
-                >
-                  <Receipt className="h-3.5 w-3.5" />
-                  Held
+                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5 text-xs h-8 relative" onClick={() => setHeldBillsOpen(true)}>
+                  <Receipt className="h-3.5 w-3.5" /> Held
                   {heldBills.length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">
-                      {heldBills.length}
-                    </span>
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">{heldBills.length}</span>
                   )}
                 </Button>
               </div>
-
             </div>
           </div>
         </div>
@@ -3269,30 +3415,207 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             KEYBOARD SHORTCUT BAR
         ═══════════════════════════════════════════════════ */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="hidden md:flex items-center gap-4 mt-2 py-1.5 px-1 border-t border-border/30"
-        >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+          className="hidden md:flex items-center gap-4 mt-2 py-1.5 px-1 border-t border-border/30">
           <Keyboard className="h-3 w-3 text-muted-foreground/30 shrink-0" />
           {[
-            { keys: 'Alt+S', label: 'Search' },
-            { keys: 'Alt+N', label: 'New Row' },
-            { keys: 'F8', label: 'Print' },
-            { keys: 'F9', label: 'Share' },
-            { keys: 'F10', label: 'Hold' },
-            { keys: 'Esc', label: 'Clear Search' },
-          ].map((shortcut) => (
-            <div key={shortcut.keys} className="flex items-center gap-1">
-              <kbd className="rounded border border-border/40 bg-muted/30 px-1 py-0.5 text-[9px] font-mono text-muted-foreground/60">
-                {shortcut.keys}
-              </kbd>
-              <span className="text-[10px] text-muted-foreground/40">{shortcut.label}</span>
+            { keys: 'Alt+S', label: 'Search' }, { keys: 'Alt+N', label: 'New Row' },
+            { keys: 'F7', label: 'Preview' }, { keys: 'F8', label: 'Print' },
+            { keys: 'F9', label: 'Share' }, { keys: 'F10', label: 'Hold' }, { keys: 'Esc', label: 'Clear Search' },
+          ].map((s) => (
+            <div key={s.keys} className="flex items-center gap-1">
+              <kbd className="rounded border border-border/40 bg-muted/30 px-1 py-0.5 text-[9px] font-mono text-muted-foreground/60">{s.keys}</kbd>
+              <span className="text-[10px] text-muted-foreground/40">{s.label}</span>
             </div>
           ))}
         </motion.div>
       </div>
+
+      {/* ─── Invoice Preview Dialog ─── */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-6xl md:w-[96vw] md:h-auto md:max-h-[92vh] overflow-hidden flex flex-col">
+
+          {/* ── Toolbar ── */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 bg-background shrink-0">
+            <div className="flex items-center gap-2.5">
+              <FileText className="h-4 w-4 text-primary shrink-0" />
+              <p className="text-sm font-bold">Invoice Preview</p>
+              <span className="hidden sm:inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Draft — not yet saved</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5 h-8 px-3 text-sm hidden sm:flex"
+                onClick={() => { const inv = buildPreviewInvoice(); import('@/lib/pdf/invoicePdf').then(m => m.downloadInvoicePdf(inv)) }}>
+                <FileText className="h-3.5 w-3.5" /> Download PDF
+              </Button>
+              <Button size="sm" className="gap-1.5 h-8 px-4 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => { setPreviewOpen(false); submitInvoice() }} disabled={isSubmitting}>
+                <Printer className="h-3.5 w-3.5" />
+                {isSubmitting ? 'Saving...' : 'Confirm & Save'}
+              </Button>
+            </div>
+          </div>
+
+          {/* ── Invoice Body — fills full width ── */}
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-zinc-900">
+            {(() => {
+              const prev = buildPreviewInvoice()
+              const activeItems = prev.items
+              return (
+                <div className="h-full flex flex-col">
+
+                  {/* ── Company Header strip ── */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-6 py-4 border-b-2 border-primary bg-primary/5 gap-2">
+                    <div>
+                      <h1 className="text-xl font-black uppercase tracking-tight text-zinc-900 dark:text-zinc-50">Hospital Suppliers</h1>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">Hospital Suppliers, Madurai, Tamil Nadu — 625001</p>
+                    </div>
+                    <div className="text-left sm:text-right text-xs text-zinc-400 dark:text-zinc-500 space-y-0.5">
+                      <p>Ph: +91 452 234 5678 &nbsp;·&nbsp; contact@hospitalsuppliers.in</p>
+                      <p>GSTIN: 33AAAPL1234C1Z5 &nbsp;·&nbsp; DL No: TN-MDU-20B-01234</p>
+                    </div>
+                    <div className="sm:ml-6 shrink-0">
+                      <span className="inline-block px-4 py-1.5 bg-primary text-primary-foreground text-xs font-black uppercase tracking-widest rounded-lg">
+                        {prev.type === 'QUOTATION' ? 'Quotation' : 'Tax Invoice'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* ── Bill To + Invoice Meta ── */}
+                  <div className="grid grid-cols-3 divide-x divide-border/40 border-b border-border/30">
+                    {/* Bill To */}
+                    <div className="col-span-2 px-6 py-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">Bill To</p>
+                      <p className="text-lg font-black text-zinc-900 dark:text-zinc-50 leading-snug">{prev.customerName}</p>
+                      <div className="flex flex-wrap items-start gap-x-4 gap-y-0.5 mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+                        {selectedCustomer?.phone && selectedCustomer.phone !== '0000000000' && <span>{selectedCustomer.phone}</span>}
+                        {selectedCustomer?.address && <span className="leading-relaxed">{selectedCustomer.address}</span>}
+                        {selectedCustomer?.gstin && <span className="font-mono text-xs">GSTIN: {selectedCustomer.gstin}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant={billingType === 'wholesale' ? 'purple' : 'info'} size="sm">{billingType.toUpperCase()}</Badge>
+                        <Badge variant={paymentMode === 'CREDIT' ? 'warning' : 'success'} size="sm">{paymentMode}</Badge>
+                      </div>
+                    </div>
+                    {/* Invoice Meta */}
+                    <div className="px-6 py-4 space-y-3 text-right">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Invoice No</p>
+                        <p className="text-xl font-black font-mono text-primary break-all">{prev.invoiceNumber}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Date</p>
+                        <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                      </div>
+                      {prev.salespersonName && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Salesperson</p>
+                          <p className="text-sm text-zinc-600 dark:text-zinc-300">{prev.salespersonName}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── Items Table ── */}
+                  <div className="flex-1 overflow-x-auto">
+                    <table className="w-full min-w-[700px]">
+                      <thead>
+                        <tr className="bg-zinc-800 dark:bg-zinc-950 text-white">
+                          <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider w-10">#</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Product Name</th>
+                          <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Batch</th>
+                          <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Expiry</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Qty</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">MRP</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Rate</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Disc%</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">GST%</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeItems.map((it, i) => (
+                          <tr key={it.id} className={cn('border-b border-zinc-100 dark:border-zinc-700/50 hover:bg-primary/3 transition-colors',
+                            i % 2 === 0 ? 'bg-white dark:bg-zinc-900' : 'bg-zinc-50/80 dark:bg-zinc-800/50')}>
+                            <td className="px-4 py-3.5 text-xs text-zinc-400 text-center">{i + 1}</td>
+                            <td className="px-4 py-3.5 font-semibold text-sm text-zinc-900 dark:text-zinc-100">
+                              {it.productName}
+                            </td>
+                            <td className="px-4 py-3.5 text-center text-xs font-mono text-zinc-500">{it.batchNumber || '—'}</td>
+                            <td className="px-4 py-3.5 text-center text-xs text-zinc-500 whitespace-nowrap">
+                              {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }) : '—'}
+                            </td>
+                            <td className="px-4 py-3.5 text-right font-bold text-sm text-zinc-900 dark:text-zinc-100">{it.quantity}</td>
+                            <td className="px-4 py-3.5 text-right text-xs font-mono text-zinc-400">{Number(it.mrp).toFixed(2)}</td>
+                            <td className="px-4 py-3.5 text-right text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">{Number(it.rate).toFixed(2)}</td>
+                            <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{Number(it.discountPercent).toFixed(1)}%</td>
+                            <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{Number(it.gstPercent).toFixed(1)}%</td>
+                            <td className="px-4 py-3.5 text-right font-bold font-mono text-sm text-zinc-900 dark:text-zinc-100">{formatCurrency(Number(it.amount))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* ── Totals + Footer row ── */}
+                  <div className="border-t-2 border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 shrink-0">
+                    <div className="flex flex-col sm:flex-row sm:items-stretch sm:justify-between divide-y sm:divide-y-0 sm:divide-x divide-zinc-200 dark:divide-zinc-700">
+
+                      {/* Left — terms */}
+                      <div className="flex-1 px-6 py-4 flex flex-col justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Payment Terms</p>
+                          <p className="text-sm text-zinc-500">Mode: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{paymentMode}</span></p>
+                          {paymentMode === 'CASH' && paymentDetails.amountReceived > 0 && (
+                            <div className="flex gap-6 mt-1 text-sm">
+                              <span className="text-emerald-600 font-semibold">Received: {formatCurrency(paymentDetails.amountReceived)}</span>
+                              {paymentDetails.amountReceived > prev.grandTotal && (
+                                <span className="text-zinc-500">Change: {formatCurrency(paymentDetails.amountReceived - prev.grandTotal)}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 italic">Goods once sold will not be taken back or exchanged. Subject to Madurai jurisdiction.</p>
+                      </div>
+
+                      {/* Right — totals summary */}
+                      <div className="px-6 py-4 sm:min-w-[300px] space-y-1.5">
+                        {[
+                          { label: 'Subtotal', value: formatCurrency(prev.subtotal) },
+                          ...(prev.productDiscount > 0 ? [{ label: 'Discount', value: `− ${formatCurrency(prev.productDiscount)}`, rose: true }] : []),
+                          { label: 'Taxable Value', value: formatCurrency(prev.taxableAmount) },
+                          ...(prev.cgst > 0 ? [{ label: 'CGST', value: formatCurrency(prev.cgst) }, { label: 'SGST', value: formatCurrency(prev.sgst) }] : []),
+                          ...(prev.roundOff !== 0 ? [{ label: 'Round Off', value: `${prev.roundOff > 0 ? '+' : ''}${prev.roundOff.toFixed(2)}`, dim: true }] : []),
+                        ].map((row: any) => (
+                          <div key={row.label} className="flex justify-between text-sm">
+                            <span className={cn(row.dim ? 'text-zinc-300' : 'text-zinc-500')}>{row.label}</span>
+                            <span className={cn('font-mono', row.rose ? 'text-rose-500 font-semibold' : 'text-zinc-700 dark:text-zinc-300')}>{row.value}</span>
+                          </div>
+                        ))}
+                        <div className="pt-2 mt-1 border-t-2 border-zinc-900 dark:border-zinc-300">
+                          <div className="flex justify-between items-center">
+                            <span className="text-base font-black text-zinc-900 dark:text-zinc-50">Grand Total</span>
+                            <span className="text-2xl font-black font-mono text-primary">{formatCurrency(prev.grandTotal)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Far right — signature */}
+                      <div className="hidden sm:flex flex-col items-center justify-end px-8 py-4 text-center min-w-[140px]">
+                        <div className="border-t border-zinc-400 w-24 mb-1.5" />
+                        <p className="text-xs font-semibold text-zinc-500">Authorised Signatory</p>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              )
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Add Customer Dialog ─── */}
+
 
       {/* ─── Add Customer Dialog ─── */}
       {/* ── Held Bills Dialog ── */}
@@ -3574,13 +3897,13 @@ export default function NewSalePage() {
       </Dialog>
 
       <Dialog open={addCustomerDialogOpen} onOpenChange={(open) => {
-        if (!open) { customerForm.reset(); setDocFile(null); setDocPreview(null) }
+        if (!open) { customerForm.reset(); setDocFiles([]); setDocPreviews([]); setNsPhoneCheckError('') }
         setAddCustomerDialogOpen(open)
       }}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[85vh]! md:overflow-hidden! md:flex! md:flex-col!">
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex! md:flex-col!">
           <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
             <DialogTitle>Add New Customer</DialogTitle>
-            <DialogDescription>All fields are required except document and notes.</DialogDescription>
+            <DialogDescription>Name, Phone, Type, Address and Referred By are required. Email is optional.</DialogDescription>
           </DialogHeader>
 
           <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="flex flex-col flex-1 min-h-0 relative">
@@ -3594,13 +3917,22 @@ export default function NewSalePage() {
                   {customerForm.formState.errors.name && <p className="text-xs text-rose-500">{customerForm.formState.errors.name.message}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phone *</Label>
-                  <Input {...customerForm.register('phone')} placeholder="10-digit number" inputMode="numeric" error={!!customerForm.formState.errors.phone} />
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Phone *{nsPhoneChecking && <span className="ml-1 font-normal text-muted-foreground">checking…</span>}
+                  </Label>
+                  <Input
+                    {...customerForm.register('phone')}
+                    placeholder="10-digit number"
+                    inputMode="numeric"
+                    error={!!customerForm.formState.errors.phone || !!nsPhoneCheckError}
+                    onBlur={(e) => checkNsPhoneDuplicate(e.target.value)}
+                  />
                   {customerForm.formState.errors.phone && <p className="text-xs text-rose-500">{customerForm.formState.errors.phone.message}</p>}
+                  {!customerForm.formState.errors.phone && nsPhoneCheckError && <p className="text-xs text-rose-500">{nsPhoneCheckError}</p>}
                 </div>
               </div>
 
-              {/* Row 2: Type + Email */}
+              {/* Row 2: Type + Email (optional) */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
@@ -3616,14 +3948,14 @@ export default function NewSalePage() {
                   )} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email *</Label>
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
                   <Input {...customerForm.register('email')} placeholder="email@example.com" type="email" error={!!customerForm.formState.errors.email} />
                   {customerForm.formState.errors.email && <p className="text-xs text-rose-500">{customerForm.formState.errors.email.message}</p>}
                 </div>
               </div>
 
-              {/* Row 3: GSTIN + DL (only for WHOLESALE / DOCTOR) */}
-              {(customerForm.watch('type') === 'WHOLESALE' || customerForm.watch('type') === 'DOCTOR') && (
+              {/* Row 3a: GSTIN + DL — WHOLESALE only */}
+              {customerForm.watch('type') === 'WHOLESALE' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
@@ -3638,7 +3970,16 @@ export default function NewSalePage() {
                 </div>
               )}
 
-              {/* Row 4: Referred By (half width) */}
+              {/* Row 3b: Registration Number — DOCTOR only */}
+              {customerForm.watch('type') === 'DOCTOR' && (
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Medical Registration Number *</Label>
+                  <Input {...customerForm.register('registrationNumber')} placeholder="MCI / State Medical Council Reg. No." error={!!customerForm.formState.errors.registrationNumber} />
+                  {customerForm.formState.errors.registrationNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.registrationNumber.message}</p>}
+                </div>
+              )}
+
+              {/* Row 4: Referred By */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
@@ -3665,59 +4006,59 @@ export default function NewSalePage() {
                 {customerForm.formState.errors.address && <p className="text-xs text-rose-500">{customerForm.formState.errors.address.message}</p>}
               </div>
 
-              {/* Row 6: Document / ID Proof */}
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Document / ID Proof</Label>
-                {docPreview ? (
-                  <div className="relative w-full rounded-xl border border-border/50 overflow-hidden">
-                    <img src={docPreview} alt="Document preview" className="w-full max-h-36 object-cover" />
-                    <button type="button" onClick={() => { setDocFile(null); setDocPreview(null) }}
-                      className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : docFile ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5">
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{docFile.name}</span>
-                    <button type="button" onClick={() => setDocFile(null)}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-6">
-                    <div className="flex h-12 w-16 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
-                      <FileImage className="h-6 w-6 text-muted-foreground/50" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
-                        <Upload className="h-3.5 w-3.5 text-amber-500" />
-                        Upload
-                        <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf"
-                          onChange={(e) => handleDocFile(e.target.files?.[0] ?? null)} />
-                      </label>
-                      <button type="button"
-                        className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
-                        <Camera className="h-3.5 w-3.5 text-muted-foreground" />
-                        Scan
-                      </button>
-                    </div>
+              {/* Row 6: Multi-file upload */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address Proof &amp; Documents</Label>
+                  {docFiles.length > 0 && <span className="text-[10px] text-muted-foreground">{docFiles.length} file{docFiles.length !== 1 ? 's' : ''} selected</span>}
+                </div>
+                {docPreviews.length > 0 && (
+                  <div className="space-y-1.5">
+                    {docPreviews.map((doc, idx) => (
+                      <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                        {doc.preview
+                          ? <img src={doc.preview} alt={doc.name} className="h-8 w-10 rounded object-cover shrink-0" />
+                          : <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted"><FileText className="h-4 w-4 text-muted-foreground" /></div>
+                        }
+                        <span className="min-w-0 flex-1 truncate text-xs">{doc.name}</span>
+                        <button type="button" onClick={() => removeDocFile(idx)}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
+                  <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                    <FileImage className="h-5 w-5 text-muted-foreground/50" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Upload ID proof, address proof, or prescriptions</p>
+                  <div className="flex items-center gap-2">
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                      <Upload className="h-3.5 w-3.5 text-amber-500" />
+                      Add Files
+                      <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
+                        ref={multiDocInputRef} onChange={(e) => handleMultiDocFiles(e.target.files)} />
+                    </label>
+                  </div>
+                </div>
               </div>
 
               {/* Row 7: Notes */}
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Textarea {...customerForm.register('notes')} placeholder="Additional notes (optional)" rows={3} />
+                <Textarea {...customerForm.register('notes')} placeholder="Additional notes (optional)" rows={2} />
               </div>
 
             </div>
 
             {/* Sticky footer */}
             <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { customerForm.reset(); setDocFile(null); setDocPreview(null); setAddCustomerDialogOpen(false) }}>
+              <Button type="button" variant="outline" onClick={() => { customerForm.reset(); setDocFiles([]); setDocPreviews([]); setNsPhoneCheckError(''); setAddCustomerDialogOpen(false) }}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={customerForm.formState.isSubmitting}>
+              <Button type="submit" disabled={customerForm.formState.isSubmitting || !!nsPhoneCheckError}>
                 {customerForm.formState.isSubmitting ? 'Saving...' : 'Save Customer'}
               </Button>
             </div>

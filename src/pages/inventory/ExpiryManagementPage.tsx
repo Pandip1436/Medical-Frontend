@@ -6,6 +6,7 @@ import { AlertOctagon, CalendarClock, Search, Undo2, Trash2 } from 'lucide-react
 import { differenceInDays } from 'date-fns'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
@@ -82,7 +83,9 @@ export default function ExpiryManagementPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const PAGE_SIZE = 10
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const today = new Date()
@@ -177,18 +180,23 @@ export default function ExpiryManagementPage() {
 
   // ── Table renderer ────────────────────────────────────────────
 
-  const renderBatchTable = (batchesToRender: EnrichedBatch[]) => (
-    <div className="rounded-2xl border border-border/60 bg-card shadow overflow-x-auto">
+  const renderBatchTable = (batchesToRender: EnrichedBatch[]) => {
+    const totalPages = Math.max(1, Math.ceil(batchesToRender.length / PAGE_SIZE))
+    const paginated = batchesToRender.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+    return (
+    <>
+      <div className="rounded-2xl border border-border/60 bg-card shadow overflow-x-auto">
       {/* Mobile */}
       <div className="md:hidden">
-        {batchesToRender.length === 0 ? (
+        {paginated.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
             <Search className="mb-3 h-8 w-8 opacity-20" />
             <p>No batches in this category</p>
           </div>
         ) : (
           <div className="divide-y divide-border/40">
-            {batchesToRender.map((batch) => (
+            {paginated.map((batch) => (
               <div key={batch.batchId} className="flex items-start justify-between gap-2 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{batch.productName}</p>
@@ -233,7 +241,7 @@ export default function ExpiryManagementPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {batchesToRender.map((batch) => (
+            {paginated.map((batch) => (
               <TableRow key={batch.batchId} className="border-b border-border/40 hover:bg-muted/10 transition-colors">
                 <TableCell className="font-medium">{batch.productName}</TableCell>
                 <TableCell className="font-mono text-xs">{batch.batchNumber}</TableCell>
@@ -281,7 +289,7 @@ export default function ExpiryManagementPage() {
             ))}
           </TableBody>
         </Table>
-        {batchesToRender.length === 0 && (
+        {paginated.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
             <Search className="mb-3 h-8 w-8 opacity-20" />
             <p>No batches match your filters in this category</p>
@@ -289,7 +297,17 @@ export default function ExpiryManagementPage() {
         )}
       </div>
     </div>
-  )
+    <DataTablePagination
+      currentPage={currentPage}
+      totalPages={totalPages}
+      onPageChange={setCurrentPage}
+      totalItems={batchesToRender.length}
+      itemsPerPage={PAGE_SIZE}
+      className="mt-4 px-2"
+    />
+  </>
+)
+}
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
@@ -323,17 +341,17 @@ export default function ExpiryManagementPage() {
       {/* Filters */}
       <DataTableFilterBar
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(v) => { setSearchQuery(v); setCurrentPage(1) }}
         searchPlaceholder="Search by product name or batch number..."
         resultsCount={filteredBatches.filter((b) => b.bucket !== null).length}
         activeFilterCount={selectedSupplier !== 'all' ? 1 : 0}
-        onClearFilters={() => setSelectedSupplier('all')}
+        onClearFilters={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
       >
         <EnumSelect
           label="Supplier"
           value={selectedSupplier}
-          onValueChange={setSelectedSupplier}
-          onClear={() => setSelectedSupplier('all')}
+          onValueChange={(v) => { setSelectedSupplier(v); setCurrentPage(1) }}
+          onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Suppliers' },
             ...suppliers.map((s) => ({ value: s.name, label: s.name })),
@@ -346,27 +364,27 @@ export default function ExpiryManagementPage() {
         <motion.div variants={itemVariants}>
           <Tabs defaultValue="all">
             <TabsList>
-              <TabsTrigger value="all">
+              <TabsTrigger value="all" onClick={() => setCurrentPage(1)}>
                 All Batches
                 <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{filteredBatches.length}</Badge>
               </TabsTrigger>
-              <TabsTrigger value="expired">
+              <TabsTrigger value="expired" onClick={() => setCurrentPage(1)}>
                 Expired
                 {bucketBatches.expired.length > 0 && <Badge variant="destructive" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches.expired.length}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="30d">
+              <TabsTrigger value="30d" onClick={() => setCurrentPage(1)}>
                 30 Days
                 {bucketBatches['30d'].length > 0 && <Badge variant="warning" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['30d'].length}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="60d">
+              <TabsTrigger value="60d" onClick={() => setCurrentPage(1)}>
                 60 Days
                 {bucketBatches['60d'].length > 0 && <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['60d'].length}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="90d">
+              <TabsTrigger value="90d" onClick={() => setCurrentPage(1)}>
                 90 Days
                 {bucketBatches['90d'].length > 0 && <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['90d'].length}</Badge>}
               </TabsTrigger>
-              <TabsTrigger value="180d">
+              <TabsTrigger value="180d" onClick={() => setCurrentPage(1)}>
                 180 Days
                 {bucketBatches['180d'].length > 0 && <Badge variant="info" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['180d'].length}</Badge>}
               </TabsTrigger>
@@ -397,23 +415,25 @@ export default function ExpiryManagementPage() {
             <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-sm space-y-1">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Product</span>
-                <span className="font-medium">{confirmAction.batch.productName}</span>
+                <span className="font-medium">{confirmAction?.batch?.productName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Batch</span>
-                <span className="font-mono">{confirmAction.batch.batchNumber}</span>
+                <span className="font-mono">{confirmAction?.batch?.batchNumber}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Current Qty</span>
-                <span className="font-mono">{confirmAction.batch.quantity}</span>
+                <span className="font-mono">{confirmAction?.batch?.quantity}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Stock Value</span>
-                <span className="font-mono text-red-600">{formatCurrency(confirmAction.batch.stockValue)}</span>
+                <span className="font-mono text-red-600">
+                  {confirmAction?.batch ? formatCurrency(confirmAction.batch.stockValue) : '—'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Reason</span>
-                <span>{confirmAction.type === 'writeoff' ? 'Expired Removal' : 'Damaged / Disposed'}</span>
+                <span>{confirmAction?.type === 'writeoff' ? 'Expired Removal' : 'Damaged / Disposed'}</span>
               </div>
             </div>
           )}

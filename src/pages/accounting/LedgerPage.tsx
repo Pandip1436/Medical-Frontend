@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -136,6 +137,10 @@ export default function LedgerPage() {
     }
   }, [selectedPartyId, partyType, dateFrom, dateTo])
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 15
+
   // Compute running balance
   const ledgerWithBalance = useMemo(() => {
     let balance = 0
@@ -151,6 +156,14 @@ export default function LedgerPage() {
     
     return entries
   }, [ledgerEntries, ledgerSearch])
+
+  // Reset pagination on search or party change
+  useEffect(() => { setCurrentPage(1) }, [ledgerSearch, selectedPartyId, dateFrom, dateTo])
+
+  const totalPages = Math.ceil(ledgerWithBalance.length / PAGE_SIZE)
+  const paginatedLedger = useMemo(() => {
+    return ledgerWithBalance.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [ledgerWithBalance, currentPage])
 
   const openingBalance = 0
   const closingBalance =
@@ -334,7 +347,7 @@ export default function LedgerPage() {
                   <div className="py-8 text-center text-sm text-muted-foreground">No transactions found for the selected period</div>
                 )}
                 <div className="divide-y divide-border/40">
-                  {ledgerWithBalance.map((entry, idx) => (
+                  {paginatedLedger.map((entry, idx) => (
                     <div key={idx} className="flex items-start justify-between gap-2 px-4 py-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{entry.particular}</p>
@@ -400,7 +413,7 @@ export default function LedgerPage() {
                   </TableRow>
 
                   {/* Ledger entries */}
-                  {ledgerWithBalance.map((entry, idx) => (
+                  {paginatedLedger.map((entry, idx) => (
                     <TableRow
                       key={idx}
                       className={idx % 2 === 0 ? 'bg-background' : 'bg-muted/20 dark:bg-muted/10'}
@@ -462,6 +475,15 @@ export default function LedgerPage() {
                 </TableBody>
               </Table>
               </div>
+              {totalPages > 1 && (
+                <div className="border-t px-4 py-4">
+                  <DataTablePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 

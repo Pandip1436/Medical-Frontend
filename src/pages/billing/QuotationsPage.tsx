@@ -49,6 +49,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import {
@@ -298,8 +299,6 @@ export default function QuotationsPage() {
     currentPage * PAGE_SIZE
   )
 
-  const rangeStart = filteredQuotations.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredQuotations.length)
 
   // ── Bulk select ──
 
@@ -738,36 +737,14 @@ export default function QuotationsPage() {
         </Table>
         </div>
 
-        {/* Pagination */}
-        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
-          <p className="text-[11px] text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}
-            <span className="font-medium text-foreground">{filteredQuotations.length}</span> results
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => p - 1)}
-            >
-              <ChevronLeft className="mr-1 h-4 w-4" />
-              Prev
-            </Button>
-            <span className="text-[11px] text-muted-foreground tabular-nums">
-              Page {currentPage} of {totalPages || 1}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => p + 1)}
-            >
-              Next
-              <ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filteredQuotations.length}
+          itemsPerPage={PAGE_SIZE}
+          className="border-t border-border/40 px-4"
+        />
       </Card>
     </motion.div>
 

@@ -20,6 +20,10 @@ interface MasterDataState {
   deleteCustomer: (id: string) => Promise<void>
   updateCustomerLocally: (id: string, partialData: Partial<Customer>) => void
   updateBatchLocally: (batchId: string, adjustmentQty: number) => void
+  importCustomers: (customers: any[]) => Promise<any>
+  importSuppliers: (suppliers: any[]) => Promise<any>
+  importProducts: (products: any[]) => Promise<any>
+  importProductsHsn: (items: any[]) => Promise<any>
 }
 
 export const useMasterDataStore = create<MasterDataState>((set, get) => ({
@@ -155,6 +159,58 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
         customers: state.customers.filter(c => c.id !== id),
         isLoading: false
       }))
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+
+  importCustomers: async (customers: any[]) => {
+    set({ isLoading: true })
+    try {
+      const res = await api.post('/customers/bulk', customers)
+      await get().fetchCustomers()
+      set({ isLoading: false })
+      return res.data
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+
+  importProducts: async (products: any[]) => {
+    set({ isLoading: true })
+    try {
+      const res = await api.post('/products/bulk', products)
+      await get().fetchProducts()
+      set({ isLoading: false })
+      return res.data
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+
+  importProductsHsn: async (items: any[]) => {
+    set({ isLoading: true })
+    try {
+      const res = await api.post('/products/bulk-hsn', items)
+      await get().fetchProducts()
+      set({ isLoading: false })
+      return res.data
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+
+  importSuppliers: async (suppliers: any[]) => {
+    set({ isLoading: true })
+    try {
+      const res = await api.post('/suppliers/bulk', suppliers)
+      await get().fetchSuppliers()
+      set({ isLoading: false })
+      return res.data
     } catch (error) {
       set({ isLoading: false })
       throw error

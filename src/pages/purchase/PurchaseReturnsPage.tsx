@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
   ChevronRight,
   ChevronLeft,
@@ -167,6 +168,8 @@ export default function PurchaseReturnsPage() {
   // Step 1
   const [grnSearch, setGrnSearch] = useState('')
   const [selectedGRN, setSelectedGRN] = useState<GRNReference | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
 
   // Real data
   const [grns, setGrns] = useState<GRNReference[]>([])
@@ -330,6 +333,13 @@ export default function PurchaseReturnsPage() {
         g.supplierName.toLowerCase().includes(q)
     )
   }, [grnSearch, grns])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [grnSearch])
+
+  const totalPages = Math.max(1, Math.ceil(matchingGRNs.length / PAGE_SIZE))
+  const paginatedMatchingGRNs = matchingGRNs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleSelectGRN = (grn: GRNReference) => {
     setSelectedGRN(grn)
@@ -664,7 +674,7 @@ export default function PurchaseReturnsPage() {
                             </p>
                           </div>
                         )}
-                        {!grnsLoading && matchingGRNs.map((grn) => (
+                        {!grnsLoading && paginatedMatchingGRNs.map((grn) => (
                           <div
                             key={grn.id}
                             onClick={() => handleSelectGRN(grn)}
@@ -703,6 +713,14 @@ export default function PurchaseReturnsPage() {
                         ))}
                       </div>
                     </ScrollArea>
+                    <DataTablePagination
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={setCurrentPage}
+                      totalItems={matchingGRNs.length}
+                      itemsPerPage={PAGE_SIZE}
+                      className="border-t border-border/40 px-4 py-2"
+                    />
                   </div>
 
                   {/* Right: GRN Detail Panel */}

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
@@ -39,6 +40,7 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
+import { importFromExcel } from '@/lib/excelUtils'
 import type { Product, Category } from '@/types'
 
 // ─── Zod schema ───────────────────────────────────────────────
@@ -123,6 +125,8 @@ export default function ProductsPage() {
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchProducts = useMasterDataStore(s => s.fetchProducts)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
+  const importProducts = useMasterDataStore(s => s.importProducts)
+  const importProductsHsn = useMasterDataStore(s => s.importProductsHsn)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [categories, setCategories] = useState<Category[]>([])
@@ -151,7 +155,7 @@ export default function ProductsPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{ createdCount?: number; updatedCount?: number; skippedCount: number; errors: string[] } | null>(null)
 
   const PAGE_SIZE = 10
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
@@ -339,19 +343,30 @@ export default function ProductsPage() {
   }
 
   const handleImport = async () => {
-    if (!importFile) { toast.error('Please select a CSV file'); return }
+    if (!importFile) { toast.error('Please select a file'); return }
     setImporting(true)
     setImportResult(null)
     try {
-      const formData = new FormData()
-      formData.append('file', importFile)
-      const res = await api.post('/products/import-csv', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      setImportResult(res.data)
-      if (res.data.created > 0) { refreshPage(); toast.success(`Imported ${res.data.created} product(s)`) }
+      const data = await importFromExcel<any>(importFile)
+      if (!data || data.length === 0) throw new Error('No valid records found in file')
+      
+      if (data[0]?.__isHsnUpdate) {
+        const res = await importProductsHsn(data)
+        setImportResult(res)
+        if (res.updatedCount > 0) {
+          refreshPage()
+          toast.success(`Updated HSN for ${res.updatedCount} product(s)`)
+        }
+      } else {
+        const res = await importProducts(data)
+        setImportResult(res)
+        if (res.createdCount > 0) {
+          refreshPage()
+          toast.success(`Imported ${res.createdCount} product(s)`)
+        }
+      }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Import failed')
+      toast.error(err.message || 'Import failed')
     } finally {
       setImporting(false)
     }
@@ -674,52 +689,15 @@ export default function ProductsPage() {
             </TableBody>
           </Table>
         </div>
-
-        {/* Pagination */}
-        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            Showing {totalCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}
-            {' - '}{Math.min(currentPage * PAGE_SIZE, totalCount)} of {totalCount} products
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </Button>
-            <div className="flex items-center gap-1">
-              {(() => {
-                const pages: (number | 'ellipsis')[] = []
-                if (totalPages <= 7) {
-                  for (let i = 1; i <= totalPages; i++) pages.push(i)
-                } else {
-                  pages.push(1)
-                  if (currentPage > 3) pages.push('ellipsis')
-                  for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) pages.push(i)
-                  if (currentPage < totalPages - 2) pages.push('ellipsis')
-                  pages.push(totalPages)
-                }
-                return pages.map((page, idx) =>
-                  page === 'ellipsis' ? (
-                    <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-sm select-none">…</span>
-                  ) : (
-                    <Button
-                      key={page}
-                      variant={page === currentPage ? 'default' : 'ghost'}
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => setCurrentPage(page)}
-                    >
-                      {page}
-                    </Button>
-                  )
-                )
-              })()}
-            </div>
-            <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-              Next <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </div>
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={totalCount}
+        itemsPerPage={PAGE_SIZE}
+        className="mt-4 px-2"
+      />
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1054,18 +1032,18 @@ export default function ProductsPage() {
       <Dialog open={importDialogOpen} onOpenChange={open => { if (!open) { setImportFile(null); setImportResult(null) } setImportDialogOpen(open) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Import Products from CSV</DialogTitle>
-            <DialogDescription>Upload a CSV file to bulk-import products.</DialogDescription>
+            <DialogTitle>Import Products</DialogTitle>
+            <DialogDescription>Upload an Excel or CSV file to bulk-import products.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Button variant="outline" size="sm" className="w-full" onClick={handleDownloadTemplate}>
               <FileDown className="mr-1.5 h-4 w-4" /> Download CSV Template
             </Button>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Select CSV File</Label>
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Select File</Label>
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,.xls"
                 className="block w-full cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-xs file:font-semibold file:text-primary-foreground"
                 onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportResult(null) }}
               />
@@ -1073,8 +1051,9 @@ export default function ProductsPage() {
             {importResult && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
                 <p className="font-semibold">Import complete</p>
-                <p className="text-green-600 dark:text-green-400">Created: {importResult.created}</p>
-                <p className="text-muted-foreground">Skipped: {importResult.skipped}</p>
+                {importResult.createdCount !== undefined && <p className="text-green-600 dark:text-green-400">Created: {importResult.createdCount}</p>}
+                {importResult.updatedCount !== undefined && <p className="text-emerald-600 dark:text-emerald-400">Updated: {importResult.updatedCount}</p>}
+                <p className="text-muted-foreground">Skipped: {importResult.skippedCount}</p>
                 {importResult.errors.length > 0 && (
                   <div className="mt-2">
                     <p className="text-destructive font-medium">Errors ({importResult.errors.length}):</p>

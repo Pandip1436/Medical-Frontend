@@ -18,7 +18,10 @@ import {
   UserCheck,
   UserX,
   Filter,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -102,6 +105,8 @@ const doctorSchema = z.object({
 })
 
 type DoctorFormValues = z.infer<typeof doctorSchema>
+
+const PAGE_SIZE = 12
 
 // ─────────────────────────────────────────────────────────────
 // Doctor Card
@@ -201,6 +206,7 @@ export default function DoctorsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterSpec, setFilterSpec] = useState('all')
   const [showInactive, setShowInactive] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null)
@@ -255,6 +261,17 @@ export default function DoctorsPage() {
     () => Array.from(new Set(doctors.map((d) => d.specialization))),
     [doctors]
   )
+
+  // ── Pagination ─────────────────────────────────────────────
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedDoctors = useMemo(() => {
+    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filtered, currentPage])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, filterSpec, showInactive])
 
   // ── Dialog helpers ──────────────────────────────────────────
   const openAdd = () => {
@@ -410,7 +427,7 @@ export default function DoctorsPage() {
         <ScrollArea>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <AnimatePresence mode="popLayout">
-              {filtered.map((doctor) => (
+              {paginatedDoctors.map((doctor) => (
                 <DoctorCard
                   key={doctor.id}
                   doctor={doctor}
@@ -422,6 +439,18 @@ export default function DoctorsPage() {
             </AnimatePresence>
           </div>
         </ScrollArea>
+      )}
+
+      {/* Pagination */}
+      {filtered.length > PAGE_SIZE && (
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filtered.length}
+          itemsPerPage={PAGE_SIZE}
+          className="mt-2"
+        />
       )}
 
       {/* Add / Edit Dialog */}

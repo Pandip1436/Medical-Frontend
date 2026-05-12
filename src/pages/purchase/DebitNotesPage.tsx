@@ -30,6 +30,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 // ─────────────────────────────────────────────────────────────
@@ -71,6 +72,8 @@ export default function DebitNotesPage() {
   const [returnsLoading, setReturnsLoading] = useState(true)
   const [selectedReturnDetails, setSelectedReturnDetails] = useState<ReturnDetail | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
 
   const fetchReturns = useCallback(async () => {
     setReturnsLoading(true)
@@ -100,7 +103,11 @@ export default function DebitNotesPage() {
         p.supplierName?.toLowerCase().includes(q)
       ))
     }
+    setCurrentPage(1)
   }, [searchQuery, allReturns])
+
+  const totalPages = Math.max(1, Math.ceil(pastReturns.length / PAGE_SIZE))
+  const paginatedReturns = pastReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (!selectedReturnDetails) return
@@ -223,7 +230,7 @@ export default function DebitNotesPage() {
                   {/* Mobile card list */}
                   <div className="md:hidden">
                     <div className="divide-y divide-border/40">
-                      {pastReturns.map((pr) => (
+                      {paginatedReturns.map((pr) => (
                         <div
                           key={pr.id}
                           className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors"
@@ -288,7 +295,7 @@ export default function DebitNotesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody className="bg-background">
-                      {pastReturns.map((pr) => (
+                      {paginatedReturns.map((pr) => (
                         <TableRow
                           key={pr.id}
                           className="group cursor-pointer hover:bg-muted/40 transition-colors"
@@ -351,6 +358,14 @@ export default function DebitNotesPage() {
                     </TableBody>
                   </Table>
                   </div>
+                  <DataTablePagination
+                     currentPage={currentPage}
+                     totalPages={totalPages}
+                     onPageChange={setCurrentPage}
+                     totalItems={pastReturns.length}
+                     itemsPerPage={PAGE_SIZE}
+                     className="border-t border-border/40 px-4"
+                   />
                 </Card>
               )}
             </div>

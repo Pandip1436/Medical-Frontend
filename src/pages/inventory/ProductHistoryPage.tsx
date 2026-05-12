@@ -18,6 +18,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import api from '@/lib/api'
 import { useRoute, navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -317,22 +318,6 @@ export default function ProductHistoryPage() {
   }
 
   // ── Pagination footer ───────────────────────────────────────
-  function PaginationFooter({ page, setPage, total }: { page: number; setPage: (p: number) => void; total: number }) {
-    if (total <= 1) return null
-    return (
-      <div className="flex items-center justify-between border-t border-border/40 px-4 py-3 shrink-0">
-        <p className="text-sm text-muted-foreground">Page {page} of {total}</p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
-            <ChevronLeft className="h-4 w-4" /> Previous
-          </Button>
-          <Button variant="outline" size="sm" disabled={page === total} onClick={() => setPage(page + 1)}>
-            Next <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    )
-  }
 
   const hasData = history && (filteredSales.length > 0 || filteredPurchases.length > 0 || filteredTimeline.length > 0)
   const activeCount = activeTab === 'sales' ? filteredSales.length : activeTab === 'purchases' ? filteredPurchases.length : filteredTimeline.length
@@ -625,7 +610,14 @@ export default function ProductHistoryPage() {
                       </TableBody>
                     </Table>
                   </div>
-                  <PaginationFooter page={salesPage} setPage={setSalesPage} total={totalPages(filteredSales)} />
+                  <DataTablePagination
+                    currentPage={salesPage}
+                    totalPages={totalPages(filteredSales)}
+                    onPageChange={setSalesPage}
+                    totalItems={filteredSales.length}
+                    itemsPerPage={PAGE_SIZE}
+                    className="border-t border-border/40 px-4"
+                  />
                 </>
               )}
 
@@ -708,7 +700,14 @@ export default function ProductHistoryPage() {
                       </TableBody>
                     </Table>
                   </div>
-                  <PaginationFooter page={purchasesPage} setPage={setPurchasesPage} total={totalPages(filteredPurchases)} />
+                  <DataTablePagination
+                    currentPage={purchasesPage}
+                    totalPages={totalPages(filteredPurchases)}
+                    onPageChange={setPurchasesPage}
+                    totalItems={filteredPurchases.length}
+                    itemsPerPage={PAGE_SIZE}
+                    className="border-t border-border/40 px-4"
+                  />
                 </>
               )}
 
@@ -782,7 +781,14 @@ export default function ProductHistoryPage() {
                       </TableBody>
                     </Table>
                   </div>
-                  <PaginationFooter page={timelinePage} setPage={setTimelinePage} total={totalPages(filteredTimeline)} />
+                  <DataTablePagination
+                    currentPage={timelinePage}
+                    totalPages={totalPages(filteredTimeline)}
+                    onPageChange={setTimelinePage}
+                    totalItems={filteredTimeline.length}
+                    itemsPerPage={PAGE_SIZE}
+                    className="border-t border-border/40 px-4"
+                  />
                 </>
               )}
             </>

@@ -7,6 +7,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { cn, timeAgo } from '@/lib/utils'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -124,6 +125,10 @@ export default function NotificationsPage() {
   }, [notifications])
 
   // ── Filtered list for current tab ─────────────────────────
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 15
+
   const filtered = useMemo(() => {
     let result = notifications
     if (activeTab !== 'all') result = result.filter(n => n.type === activeTab)
@@ -136,7 +141,15 @@ export default function NotificationsPage() {
     return result
   }, [notifications, activeTab, readFilter, searchQuery])
 
-  const grouped = useMemo(() => groupByDate(filtered), [filtered])
+  // Reset pagination on filter change
+  useEffect(() => { setCurrentPage(1) }, [activeTab, readFilter, searchQuery])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedFiltered = useMemo(() => {
+    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filtered, currentPage])
+
+  const grouped = useMemo(() => groupByDate(paginatedFiltered), [paginatedFiltered])
 
   const unreadInTab = filtered.filter(n => !n.isRead).length
   const activeFilterCount = [readFilter !== 'all', searchQuery.trim() !== ''].filter(Boolean).length
@@ -300,6 +313,15 @@ export default function NotificationsPage() {
                   })}
                 </div>
               ))}
+            </div>
+          )}
+          {totalPages > 1 && (
+            <div className="border-t px-4 py-4">
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
             </div>
           )}
         </Card>

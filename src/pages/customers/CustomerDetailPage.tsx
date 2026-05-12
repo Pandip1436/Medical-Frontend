@@ -6,6 +6,7 @@ import {
   Wallet, Printer, Download, Share2, Plus, Trash2, Upload, FileImage,
   Eye, X,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -58,6 +59,17 @@ export default function CustomerDetailPage() {
   const [prescriptions, setPrescriptions] = useState<any[]>([])
   const [creditNotes, setCreditNotes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Pagination
+  const [invPage, setInvPage] = useState(1)
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [payPage, setPayPage] = useState(1)
+  const [cnPage, setCnPage] = useState(1)
+  const PAGE_SIZE = 10
+
+  useEffect(() => {
+    setInvPage(1); setLedgerPage(1); setPayPage(1); setCnPage(1)
+  }, [customerId])
 
   // Collect payment dialog
   const [collectOpen, setCollectOpen] = useState(false)
@@ -416,7 +428,7 @@ export default function CustomerDetailPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {invoices.map((inv) => (
+                      {invoices.slice((invPage - 1) * PAGE_SIZE, invPage * PAGE_SIZE).map((inv) => (
                         <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedInvoice(inv)}>
                           <TableCell className="font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{formatDate(inv.date)}</TableCell>
@@ -433,6 +445,16 @@ export default function CustomerDetailPage() {
                   </Table>
                 )}
               </CardContent>
+              {invoices.length > PAGE_SIZE && (
+                <DataTablePagination
+                  currentPage={invPage}
+                  totalPages={Math.ceil(invoices.length / PAGE_SIZE)}
+                  onPageChange={setInvPage}
+                  totalItems={invoices.length}
+                  itemsPerPage={PAGE_SIZE}
+                  className="border-t border-border/40 px-4"
+                />
+              )}
             </Card>
           </TabsContent>
 
@@ -458,7 +480,7 @@ export default function CustomerDetailPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {ledger.map((entry, idx) => (
+                      {ledger.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE).map((entry, idx) => (
                         <TableRow key={idx}>
                           <TableCell className="text-muted-foreground text-sm">{formatDate(entry.date)}</TableCell>
                           <TableCell className="text-sm">{entry.particular}</TableCell>
@@ -478,6 +500,16 @@ export default function CustomerDetailPage() {
                   </Table>
                 )}
               </CardContent>
+              {ledger.length > PAGE_SIZE && (
+                <DataTablePagination
+                  currentPage={ledgerPage}
+                  totalPages={Math.ceil(ledger.length / PAGE_SIZE)}
+                  onPageChange={setLedgerPage}
+                  totalItems={ledger.length}
+                  itemsPerPage={PAGE_SIZE}
+                  className="border-t border-border/40 px-4"
+                />
+              )}
             </Card>
           </TabsContent>
 
@@ -502,7 +534,7 @@ export default function CustomerDetailPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {payments.map((pay) => (
+                      {payments.slice((payPage - 1) * PAGE_SIZE, payPage * PAGE_SIZE).map((pay) => (
                         <TableRow key={pay.id}>
                           <TableCell className="font-mono text-sm">{pay.receiptNumber}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{formatDate(pay.createdAt)}</TableCell>
@@ -515,6 +547,16 @@ export default function CustomerDetailPage() {
                   </Table>
                 )}
               </CardContent>
+              {payments.length > PAGE_SIZE && (
+                <DataTablePagination
+                  currentPage={payPage}
+                  totalPages={Math.ceil(payments.length / PAGE_SIZE)}
+                  onPageChange={setPayPage}
+                  totalItems={payments.length}
+                  itemsPerPage={PAGE_SIZE}
+                  className="border-t border-border/40 px-4"
+                />
+              )}
             </Card>
           </TabsContent>
 

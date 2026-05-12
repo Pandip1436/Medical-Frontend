@@ -18,6 +18,7 @@ import {
   IndianRupee,
   Loader2,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
   BarChart,
   Bar,
@@ -159,30 +160,49 @@ function KpiCards({ kpis }: { kpis: { label: string; value: string }[] }) {
 // Table wrapper
 // ─────────────────────────────────────────────────────────────
 
-function ReportTable({ headers, rows }: { headers: string[]; rows: (string | number)[][] }) {
+function ReportTable({ headers, rows, totalItems, onPageChange, currentPage, pageSize }: { 
+  headers: string[]; 
+  rows: (string | number)[][];
+  totalItems?: number;
+  onPageChange?: (page: number) => void;
+  currentPage?: number;
+  pageSize?: number;
+}) {
   if (!rows.length) return (
     <p className="py-12 text-center text-sm text-muted-foreground">No data for this period</p>
   )
+  
+  const totalPages = totalItems && pageSize ? Math.ceil(totalItems / pageSize) : 0
+
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 dark:bg-muted/20">
-            {headers.map((h) => (
-              <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, ri) => (
-            <TableRow key={ri} className="hover:bg-muted/30 transition-colors">
-              {row.map((cell, ci) => (
-                <TableCell key={ci} className="text-sm">{cell}</TableCell>
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-xl border border-border/60">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40 dark:bg-muted/20">
+              {headers.map((h) => (
+                <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, ri) => (
+              <TableRow key={ri} className="hover:bg-muted/30 transition-colors">
+                {row.map((cell, ci) => (
+                  <TableCell key={ci} className="text-sm">{cell}</TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {totalPages > 1 && onPageChange && currentPage && (
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+        />
+      )}
     </div>
   )
 }
@@ -200,6 +220,31 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('chart')
   const [liveData, setLiveData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+
+  useEffect(() => { setCurrentPage(1) }, [reportType, liveData])
+
+  const paginate = (data: any[]) => {
+    if (!data) return []
+    return data.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }
+
+  const renderPagination = (totalItems: number) => {
+    const totalPages = Math.ceil(totalItems / PAGE_SIZE)
+    if (totalPages <= 1) return null
+    return (
+      <div className="mt-4">
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
+      </div>
+    )
+  }
 
   const title = reportTitleMap[reportType] || 'Report'
 
@@ -261,7 +306,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Invoice #', 'Time', 'Customer', 'Amount']} rows={table.map((r: any) => [r.invoice, r.time, r.customer, formatCurrency(r.amount)])} />
+      return (
+        <ReportTable 
+          headers={['Invoice #', 'Time', 'Customer', 'Amount']} 
+          rows={paginate(table).map((r: any) => [r.invoice, r.time, r.customer, formatCurrency(r.amount)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Monthly Sales ──
@@ -312,7 +366,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Product', 'Qty Sold', 'Revenue', 'Margin %']} rows={data.map((r: any) => [r.product, r.qtySold, formatCurrency(r.revenue), `${r.margin?.toFixed(1)}%`])} />
+      return (
+        <ReportTable 
+          headers={['Product', 'Qty Sold', 'Revenue', 'Margin %']} 
+          rows={paginate(data).map((r: any) => [r.product, r.qtySold, formatCurrency(r.revenue), `${r.margin?.toFixed(1)}%`])} 
+          totalItems={data.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Customer-wise Sales ──
@@ -330,7 +393,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Customer', 'Invoices', 'Revenue']} rows={table.map((r: any) => [r.customer, r.invoices, formatCurrency(r.revenue)])} />
+      return (
+        <ReportTable 
+          headers={['Customer', 'Invoices', 'Revenue']} 
+          rows={paginate(table).map((r: any) => [r.customer, r.invoices, formatCurrency(r.revenue)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Category-wise Sales ──
@@ -365,7 +437,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Date', 'GRN #', 'Supplier', 'Items', 'Amount']} rows={table.map((r: any) => [formatDate(r.date), r.grnNumber, r.supplier, r.items, formatCurrency(r.amount)])} />
+      return (
+        <ReportTable 
+          headers={['Date', 'GRN #', 'Supplier', 'Items', 'Amount']} 
+          rows={paginate(table).map((r: any) => [formatDate(r.date), r.grnNumber, r.supplier, r.items, formatCurrency(r.amount)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Supplier-wise Purchase ──
@@ -383,7 +464,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Supplier', 'GRNs', 'Total Amount']} rows={table.map((r: any) => [r.supplier, r.grns, formatCurrency(r.amount)])} />
+      return (
+        <ReportTable 
+          headers={['Supplier', 'GRNs', 'Total Amount']} 
+          rows={paginate(table).map((r: any) => [r.supplier, r.grns, formatCurrency(r.amount)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Purchase vs Sales ──
@@ -421,32 +511,35 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         </ResponsiveContainer>
       )
       return (
-        <div className="overflow-hidden rounded-xl border border-border/60">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 dark:bg-muted/20">
-                {['Product', 'Category', 'Stock', 'Min Stock', 'MRP', 'Status'].map((h) => (
-                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {table.map((r: any, i: number) => (
-                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="font-medium text-sm">{r.product}</TableCell>
-                  <TableCell className="text-sm">{r.category}</TableCell>
-                  <TableCell className="font-mono text-sm">{r.totalStock}</TableCell>
-                  <TableCell className="font-mono text-sm text-muted-foreground">{r.minStock}</TableCell>
-                  <TableCell className="font-mono text-sm">{formatCurrency(r.mrp)}</TableCell>
-                  <TableCell>
-                    <Badge variant={r.status === 'OUT' ? 'destructive' : r.status === 'LOW' ? 'warning' : 'success'} size="sm" dot>
-                      {r.status === 'OUT' ? 'Out of Stock' : r.status === 'LOW' ? 'Low Stock' : 'OK'}
-                    </Badge>
-                  </TableCell>
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border/60">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 dark:bg-muted/20">
+                  {['Product', 'Category', 'Stock', 'Min Stock', 'MRP', 'Status'].map((h) => (
+                    <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginate(table).map((r: any, i: number) => (
+                  <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                    <TableCell className="font-medium text-sm">{r.product}</TableCell>
+                    <TableCell className="text-sm">{r.category}</TableCell>
+                    <TableCell className="font-mono text-sm">{r.totalStock}</TableCell>
+                    <TableCell className="font-mono text-sm text-muted-foreground">{r.minStock}</TableCell>
+                    <TableCell className="font-mono text-sm">{formatCurrency(r.mrp)}</TableCell>
+                    <TableCell>
+                      <Badge variant={r.status === 'OUT' ? 'destructive' : r.status === 'LOW' ? 'warning' : 'success'} size="sm" dot>
+                        {r.status === 'OUT' ? 'Out of Stock' : r.status === 'LOW' ? 'Low Stock' : 'OK'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {renderPagination(table.length)}
         </div>
       )
     }
@@ -466,7 +559,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </PieChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Product', 'Batch', 'Qty', 'Purchase Value', 'MRP Value']} rows={table.map((r: any) => [r.product, r.batch, r.qty, formatCurrency(r.purchaseValue), formatCurrency(r.mrpValue)])} />
+      return (
+        <ReportTable 
+          headers={['Product', 'Batch', 'Qty', 'Purchase Value', 'MRP Value']} 
+          rows={paginate(table).map((r: any) => [r.product, r.batch, r.qty, formatCurrency(r.purchaseValue), formatCurrency(r.mrpValue)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Stock Movement ──
@@ -494,7 +596,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </ResponsiveContainer>
         )
       }
-      return <ReportTable headers={['Product', 'In Qty', 'Out Qty', 'Net']} rows={table.map((r: any) => [r.product, r.inQty, r.outQty, r.net > 0 ? `+${r.net}` : r.net])} />
+      return (
+        <ReportTable 
+          headers={['Product', 'In Qty', 'Out Qty', 'Net']} 
+          rows={paginate(table).map((r: any) => [r.product, r.inQty, r.outQty, r.net > 0 ? `+${r.net}` : r.net])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Dead Stock / Aging ──
@@ -514,7 +625,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </BarChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Product', 'Batch', 'Qty', 'Age (Days)', 'Bucket', 'Value']} rows={table.map((r: any) => [r.product, r.batch, r.qty, r.ageDays, r.bucket, formatCurrency(r.value)])} />
+      return (
+        <ReportTable 
+          headers={['Product', 'Batch', 'Qty', 'Age (Days)', 'Bucket', 'Value']} 
+          rows={paginate(table).map((r: any) => [r.product, r.batch, r.qty, r.ageDays, r.bucket, formatCurrency(r.value)])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── ABC Analysis ──
@@ -536,28 +656,31 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         </ResponsiveContainer>
       )
       return (
-        <div className="overflow-hidden rounded-xl border border-border/60">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 dark:bg-muted/20">
-                {['Product', 'Revenue', 'Cum %', 'Class'].map((h) => (
-                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {table.map((r: any, i: number) => (
-                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="font-medium text-sm">{r.product}</TableCell>
-                  <TableCell className="font-mono text-sm">{formatCurrency(r.revenue)}</TableCell>
-                  <TableCell className="font-mono text-sm">{r.cumPct}%</TableCell>
-                  <TableCell>
-                    <Badge variant={r.abc === 'A' ? 'success' : r.abc === 'B' ? 'warning' : 'secondary'} size="sm">{r.abc}</Badge>
-                  </TableCell>
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border/60">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 dark:bg-muted/20">
+                  {['Product', 'Revenue', 'Cum %', 'Class'].map((h) => (
+                    <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginate(table).map((r: any, i: number) => (
+                  <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                    <TableCell className="font-medium text-sm">{r.product}</TableCell>
+                    <TableCell className="font-mono text-sm">{formatCurrency(r.revenue)}</TableCell>
+                    <TableCell className="font-mono text-sm">{r.cumPct}%</TableCell>
+                    <TableCell>
+                      <Badge variant={r.abc === 'A' ? 'success' : r.abc === 'B' ? 'warning' : 'secondary'} size="sm">{r.abc}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {renderPagination(table.length)}
         </div>
       )
     }
@@ -584,7 +707,11 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         <>
           <ReportTable
             headers={['GST Rate', 'Taxable Value', 'CGST', 'SGST', 'IGST']}
-            rows={table.map((r: any) => [`${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.cgst), formatCurrency(r.sgst), formatCurrency(r.igst)])}
+            rows={paginate(table).map((r: any) => [`${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.cgst), formatCurrency(r.sgst), formatCurrency(r.igst)])}
+            totalItems={table.length}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+            pageSize={PAGE_SIZE}
           />
           {totals.taxable !== undefined && (
             <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
@@ -650,7 +777,11 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         <>
           <ReportTable
             headers={['HSN Code', 'UQC', 'Qty', 'GST Rate', 'Taxable', 'Tax']}
-            rows={table.map((r: any) => [r.hsn, r.uqc, r.qty, `${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.tax)])}
+            rows={paginate(table).map((r: any) => [r.hsn, r.uqc, r.qty, `${r.gstRate}%`, formatCurrency(r.taxable), formatCurrency(r.tax)])}
+            totalItems={table.length}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+            pageSize={PAGE_SIZE}
           />
           {totals.taxable !== undefined && (
             <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
@@ -689,28 +820,31 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         )
       }
       return (
-        <div className="overflow-hidden rounded-xl border border-border/60">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 dark:bg-muted/20">
-                {['Date', 'Ref', 'Description', 'Receipt', 'Payment', 'Balance'].map((h) => (
-                  <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {table.map((r: any, i: number) => (
-                <TableRow key={i} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="text-sm">{formatDate(r.date)}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{r.ref}</TableCell>
-                  <TableCell className="text-sm">{r.description}</TableCell>
-                  <TableCell className="font-mono text-sm text-green-600 dark:text-green-400">{r.type === 'RECEIPT' ? formatCurrency(r.amount) : '—'}</TableCell>
-                  <TableCell className="font-mono text-sm text-red-600 dark:text-red-400">{r.type === 'PAYMENT' ? formatCurrency(r.amount) : '—'}</TableCell>
-                  <TableCell className="font-mono text-sm font-semibold">{formatCurrency(r.balance)}</TableCell>
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border/60">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 dark:bg-muted/20">
+                  {['Date', 'Ref', 'Description', 'Receipt', 'Payment', 'Balance'].map((h) => (
+                    <TableHead key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</TableHead>
+                  ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {paginate(table).map((r: any, i: number) => (
+                  <TableRow key={i} className="hover:bg-muted/30 transition-colors">
+                    <TableCell className="text-sm">{formatDate(r.date)}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{r.ref}</TableCell>
+                    <TableCell className="text-sm">{r.description}</TableCell>
+                    <TableCell className="font-mono text-sm text-green-600 dark:text-green-400">{r.type === 'RECEIPT' ? formatCurrency(r.amount) : '—'}</TableCell>
+                    <TableCell className="font-mono text-sm text-red-600 dark:text-red-400">{r.type === 'PAYMENT' ? formatCurrency(r.amount) : '—'}</TableCell>
+                    <TableCell className="font-mono text-sm font-semibold">{formatCurrency(r.balance)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {renderPagination(table.length)}
         </div>
       )
     }
@@ -735,10 +869,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </ResponsiveContainer>
         )
       }
-      return <ReportTable
-        headers={['Customer', 'Phone', 'Outstanding', 'Credit Limit', 'Current', '0-30', '31-60', '61-90', '90+']}
-        rows={table.map((r: any) => [r.customer, r.phone, formatCurrency(r.outstanding), formatCurrency(r.creditLimit), formatCurrency(r.current), formatCurrency(r['0-30']), formatCurrency(r['31-60']), formatCurrency(r['61-90']), formatCurrency(r['90+'])])}
-      />
+      return (
+        <ReportTable
+          headers={['Customer', 'Phone', 'Outstanding', 'Credit Limit', 'Current', '0-30', '31-60', '61-90', '90+']}
+          rows={paginate(table).map((r: any) => [r.customer, r.phone, formatCurrency(r.outstanding), formatCurrency(r.creditLimit), formatCurrency(r.current), formatCurrency(r['0-30']), formatCurrency(r['31-60']), formatCurrency(r['61-90']), formatCurrency(r['90+'])])}
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     // ── Profit & Loss ──
@@ -784,7 +924,16 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           </PieChart>
         </ResponsiveContainer>
       )
-      return <ReportTable headers={['Date', 'Category', 'Description', 'Amount', 'Payment Mode']} rows={table.map((r: any) => [formatDate(r.date), r.category, r.description, formatCurrency(r.amount), r.paymentMode])} />
+      return (
+        <ReportTable 
+          headers={['Date', 'Category', 'Description', 'Amount', 'Payment Mode']} 
+          rows={paginate(table).map((r: any) => [formatDate(r.date), r.category, r.description, formatCurrency(r.amount), r.paymentMode])} 
+          totalItems={table.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          pageSize={PAGE_SIZE}
+        />
+      )
     }
 
     return (

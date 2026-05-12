@@ -20,7 +20,13 @@ import {
   X,
   FileText,
   Camera,
+  Download,
+  Stethoscope,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { exportToExcel, importFromExcel } from '@/lib/excelUtils'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 
@@ -121,15 +127,21 @@ const customerSchema = z.object({
   address: z.string().min(1, 'Address is required'),
   gstin: z.string().optional(),
   dlNumber: z.string().optional(),
+  registrationNumber: z.string().optional(),
   referredBy: z.string().min(1, 'Please select a salesperson'),
   notes: z.string().optional(),
 }).superRefine((data, ctx) => {
-  if (data.type === 'WHOLESALE' || data.type === 'DOCTOR') {
+  if (data.type === 'WHOLESALE') {
     if (!data.gstin || data.gstin.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale / Doctor' })
+      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
     }
     if (!data.dlNumber || data.dlNumber.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale / Doctor' })
+      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale' })
+    }
+  }
+  if (data.type === 'DOCTOR') {
+    if (!data.registrationNumber || data.registrationNumber.trim() === '') {
+      ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message: 'Registration Number is required for Doctor' })
     }
   }
 })
@@ -158,6 +170,8 @@ const typeAvatarColor: Record<string, string> = {
   DOCTOR: 'bg-amber-500',
 }
 
+const PAGE_SIZE = 15
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -177,9 +191,11 @@ export default function CustomersPage() {
   const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
   const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
   const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
+  const importCustomers = useMasterDataStore((s) => s.importCustomers)
   const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
@@ -188,9 +204,72 @@ export default function CustomersPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
+  // Dialog Pagination
+  const [dialogInvPage, setDialogInvPage] = useState(1)
+  const [dialogLedgerPage, setDialogLedgerPage] = useState(1)
+  const DIALOG_PAGE_SIZE = 10
+
+  useEffect(() => {
+    setDialogInvPage(1)
+    setDialogLedgerPage(1)
+  }, [selectedCustomer])
+
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Customer invoices + credit notes for detail dialog
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([])
   const [customerCreditNotes, setCustomerCreditNotes] = useState<any[]>([])
+
+  // Multi-file upload state for address proof / prescription docs
+  const [docFiles, setDocFiles] = useState<File[]>([])
+  const [docPreviews, setDocPreviews] = useState<{ name: string; preview: string | null }[]>([])
+  const multiFileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleMultiDocFiles = (files: FileList | null) => {
+    if (!files) return
+    const newFiles: File[] = []
+    const newPreviews: { name: string; preview: string | null }[] = []
+    Array.from(files).forEach((file) => {
+      newFiles.push(file)
+      if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file)
+        newPreviews.push({ name: file.name, preview: url })
+      } else {
+        newPreviews.push({ name: file.name, preview: null })
+      }
+    })
+    setDocFiles(prev => [...prev, ...newFiles])
+    setDocPreviews(prev => [...prev, ...newPreviews])
+  }
+
+  const removeDocFile = (idx: number) => {
+    setDocFiles(prev => prev.filter((_, i) => i !== idx))
+    setDocPreviews(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // Phone duplicate check
+  const [phoneCheckError, setPhoneCheckError] = useState('')
+  const [phoneChecking, setPhoneChecking] = useState(false)
+
+  const checkPhoneDuplicate = async (phone: string) => {
+    if (!/^\d{10}$/.test(phone)) { setPhoneCheckError(''); return }
+    // Skip check if editing same customer
+    const currentPhone = editingCustomer?.phone?.replace(/\D/g, '')
+    if (currentPhone === phone) { setPhoneCheckError(''); return }
+    setPhoneChecking(true)
+    setPhoneCheckError('')
+    try {
+      const res = await api.get(`/customers?q=${phone}`)
+      const list = Array.isArray(res.data) ? res.data : []
+      const dup = list.find((c: any) => c.phone?.replace(/\D/g, '') === phone && c.id !== editingCustomer?.id)
+      if (dup) {
+        setPhoneCheckError(`Phone already used by "${dup.name}". Please verify.`)
+      }
+    } catch { /* ignore */ } finally {
+      setPhoneChecking(false)
+    }
+  }
 
   const fetchCustomerInvoices = async (customerId: string) => {
     try {
@@ -275,6 +354,55 @@ export default function CustomersPage() {
   }, [])
   useBranchRefresh(fetchCustomers)
 
+  const handleExport = () => {
+    const exportData = filtered.map((c) => ({
+      Name: c.name,
+      Phone: c.phone,
+      Type: c.type,
+      Email: c.email || '',
+      Address: c.address || '',
+      GSTIN: c.gstin || '',
+      'DL Number': c.dlNumber || '',
+      'Credit Limit': c.creditLimit,
+      Outstanding: c.currentOutstanding,
+      'Loyalty Points': c.loyaltyPoints,
+    }))
+    exportToExcel(exportData, 'customers')
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setIsImporting(true)
+    try {
+      const data = await importFromExcel<any>(file)
+      if (!data.length) throw new Error('File is empty')
+      const formattedData = data.map((row) => ({
+        name: row.Name || row.name,
+        phone: String(row.Phone || row.phone),
+        type: (row.Type || row.type || 'RETAIL').toUpperCase(),
+        email: row.Email || row.email || '',
+        address: row.Address || row.address || '',
+        gstin: row.GSTIN || row.gstin || '',
+        dlNumber: row['DL Number'] || row.dlNumber || '',
+      }))
+      const res = await importCustomers(formattedData)
+      if (res.skippedCount > 0) {
+        toast.warning(`Imported ${res.createdCount} customers. Skipped ${res.skippedCount} rows.`)
+        if (res.errors?.length) {
+          console.warn('Import errors:', res.errors)
+        }
+      } else {
+        toast.success(`Successfully imported ${res.createdCount} customers`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import customers')
+    } finally {
+      setIsImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   // Stats
   const stats = useMemo(() => {
     const totalCustomers = customers.length
@@ -285,14 +413,22 @@ export default function CustomersPage() {
 
   // Filtered customers
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return customers
-    const q = searchQuery.toLowerCase()
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q)
+    return customers.filter((c) =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.phone.includes(searchQuery)
     )
   }, [customers, searchQuery])
+
+  // ── Pagination ─────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginatedCustomers = useMemo(() => {
+    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filtered, currentPage])
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
 
   // Salespersons for "Referred by" dropdown
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
@@ -304,18 +440,9 @@ export default function CustomersPage() {
       .catch(() => {})
   }, [])
 
-  // Document upload state for add/edit dialog
-  const [docFile, setDocFile] = useState<File | null>(null)
-  const [docPreview, setDocPreview] = useState<string | null>(null)
-
+  // Legacy camera shim — delegates to multi-file system
   const handleDocFile = (file: File | null) => {
-    setDocFile(file)
-    if (file && file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file)
-      setDocPreview(url)
-    } else {
-      setDocPreview(null)
-    }
+    if (file) handleMultiDocFiles(({ length: 1, 0: file, item: (i: number) => i === 0 ? file : null } as unknown as FileList))
   }
 
   // Camera scan state
@@ -353,7 +480,9 @@ export default function CustomersPage() {
     canvas.toBlob((blob) => {
       if (!blob) return
       const file = new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' })
-      handleDocFile(file)
+      const url = URL.createObjectURL(file)
+      setDocFiles(prev => [...prev, file])
+      setDocPreviews(prev => [...prev, { name: file.name, preview: url }])
       stopCamera()
       setScanOpen(false)
     }, 'image/jpeg', 0.92)
@@ -376,6 +505,7 @@ export default function CustomersPage() {
       address: '',
       gstin: '',
       dlNumber: '',
+      registrationNumber: '',
       referredBy: '',
       notes: '',
     },
@@ -424,15 +554,18 @@ export default function CustomersPage() {
       address: customer.address ?? '',
       gstin: customer.gstin ?? '',
       dlNumber: customer.dlNumber ?? '',
+      registrationNumber: (customer as any).registrationNumber ?? '',
       referredBy: customer.referredBy ?? '',
       notes: customer.notes ?? '',
     })
-    setDocFile(null)
-    setDocPreview(null)
+    setDocFiles([])
+    setDocPreviews([])
+    setPhoneCheckError('')
     setAddDialogOpen(true)
   }
 
   const handleSaveCustomer = async (values: any) => {
+    if (phoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
     try {
       let customerId: string
       if (editingCustomer) {
@@ -444,8 +577,9 @@ export default function CustomersPage() {
         if ((result as any)?.approvalRequested) {
           toast.success(`Approval request sent to admin. Customer "${values.name}" will be created once approved.`, { duration: 6000 })
           form.reset()
-          setDocFile(null)
-          setDocPreview(null)
+          setDocFiles([])
+          setDocPreviews([])
+          setPhoneCheckError('')
           setEditingCustomer(null)
           setAddDialogOpen(false)
           return
@@ -453,21 +587,24 @@ export default function CustomersPage() {
         customerId = (result as any)?.id
         toast.success(`Customer "${values.name}" added successfully`)
       }
-      // Upload document if selected
-      if (docFile && customerId) {
-        try {
-          const form2 = new FormData()
-          form2.append('file', docFile)
-          form2.append('customerId', customerId)
-          form2.append('doctorName', 'Document')
-          await api.post('/prescriptions/upload', form2, { headers: { 'Content-Type': 'multipart/form-data' } })
-        } catch {
-          toast.warning('Customer saved but document upload failed')
+      // Upload all documents (address proofs + prescriptions)
+      if (docFiles.length > 0 && customerId) {
+        for (const file of docFiles) {
+          try {
+            const formData = new FormData()
+            formData.append('file', file)
+            formData.append('customerId', customerId)
+            formData.append('doctorName', 'Document')
+            await api.post('/prescriptions/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+          } catch {
+            toast.warning(`Uploaded customer but failed to upload "${file.name}"`)
+          }
         }
       }
       form.reset()
-      setDocFile(null)
-      setDocPreview(null)
+      setDocFiles([])
+      setDocPreviews([])
+      setPhoneCheckError('')
       setEditingCustomer(null)
       setAddDialogOpen(false)
       fetchCustomers()
@@ -534,10 +671,27 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-bold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground">Manage your customer accounts and relationships</p>
         </div>
-        <Button onClick={() => setAddDialogOpen(true)} className="mt-3 sm:mt-0">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Customer
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 mt-3 sm:mt-0">
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Upload className="mr-1.5 h-4 w-4" />
+            {isImporting ? 'Importing...' : 'Import'}
+          </Button>
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleImport}
+          />
+          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Customer
+          </Button>
+        </div>
       </motion.div>
 
       {/* ─── Summary Cards ─── */}
@@ -621,7 +775,7 @@ export default function CustomersPage() {
                 <div className="py-12 text-center text-sm text-muted-foreground">No customers found</div>
               )}
               <div className="divide-y divide-border/40">
-                {!isLoading && filtered.map((customer) => (
+                {!isLoading && paginatedCustomers.map((customer) => (
                   <div
                     key={customer.id}
                     className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 cursor-pointer"
@@ -682,7 +836,7 @@ export default function CustomersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((customer) => (
+                {paginatedCustomers.map((customer) => (
                   <TableRow
                     key={customer.id}
                     className={cn(
@@ -756,19 +910,26 @@ export default function CustomersPage() {
             </div>
           </CardContent>
         </Card>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filtered.length}
+          itemsPerPage={PAGE_SIZE}
+          className="mt-4 px-2"
+        />
       </motion.div>
 
       {/* ─── Add / Edit Customer Dialog ─── */}
       <Dialog open={addDialogOpen} onOpenChange={(open) => {
-        if (!open) { setEditingCustomer(null); form.reset(); setDocFile(null); setDocPreview(null) }
+        if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError('') }
         setAddDialogOpen(open)
       }}>
-        {/* ── DESKTOP (lg+): centered modal, 2-column grid ── */}
         {/* Single DialogContent — full-screen on mobile/tablet, centered modal on desktop */}
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[85vh]! md:overflow-hidden! md:flex! md:flex-col! md:grid-rows-none!">
+        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex! md:flex-col! md:grid-rows-none!">
           <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
             <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</DialogTitle>
-            <DialogDescription>All fields are required except document and notes.</DialogDescription>
+            <DialogDescription>Name, Phone, Type, Address and Referred By are required. Email is optional.</DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0 relative">
             <div className="flex-1 overflow-y-auto px-5 py-4 pb-20 space-y-3">
@@ -781,13 +942,22 @@ export default function CustomersPage() {
                   {form.formState.errors.name && <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phone *</Label>
-                  <Input {...form.register('phone')} placeholder="10-digit number" inputMode="numeric" error={!!form.formState.errors.phone} />
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Phone *{phoneChecking && <span className="ml-1 text-muted-foreground font-normal">checking…</span>}
+                  </Label>
+                  <Input
+                    {...form.register('phone')}
+                    placeholder="10-digit number"
+                    inputMode="numeric"
+                    error={!!form.formState.errors.phone || !!phoneCheckError}
+                    onBlur={(e) => checkPhoneDuplicate(e.target.value)}
+                  />
                   {form.formState.errors.phone && <p className="text-xs text-rose-500">{form.formState.errors.phone.message}</p>}
+                  {!form.formState.errors.phone && phoneCheckError && <p className="text-xs text-rose-500">{phoneCheckError}</p>}
                 </div>
               </div>
 
-              {/* Row 2: Type + Email */}
+              {/* Row 2: Type + Email (optional) */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
@@ -803,14 +973,14 @@ export default function CustomersPage() {
                   )} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email *</Label>
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
                   <Input {...form.register('email')} placeholder="email@example.com" type="email" error={!!form.formState.errors.email} />
                   {form.formState.errors.email && <p className="text-xs text-rose-500">{form.formState.errors.email.message}</p>}
                 </div>
               </div>
 
-              {/* Row 3: GSTIN + DL (only for WHOLESALE / DOCTOR) */}
-              {(form.watch('type') === 'WHOLESALE' || form.watch('type') === 'DOCTOR') && (
+              {/* Row 3a: GSTIN + DL Number — WHOLESALE only */}
+              {form.watch('type') === 'WHOLESALE' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
@@ -822,6 +992,18 @@ export default function CustomersPage() {
                     <Input {...form.register('dlNumber')} placeholder="Drug License No." error={!!form.formState.errors.dlNumber} />
                     {form.formState.errors.dlNumber && <p className="text-xs text-rose-500">{form.formState.errors.dlNumber.message}</p>}
                   </div>
+                </div>
+              )}
+
+              {/* Row 3b: Registration Number — DOCTOR only */}
+              {form.watch('type') === 'DOCTOR' && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Stethoscope className="h-3.5 w-3.5 text-amber-500" />
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Medical Registration Number *</Label>
+                  </div>
+                  <Input {...form.register('registrationNumber')} placeholder="MCI / State Medical Council Reg. No." error={!!form.formState.errors.registrationNumber} />
+                  {form.formState.errors.registrationNumber && <p className="text-xs text-rose-500">{form.formState.errors.registrationNumber.message}</p>}
                 </div>
               )}
 
@@ -852,57 +1034,75 @@ export default function CustomersPage() {
                 {form.formState.errors.address && <p className="text-xs text-rose-500">{form.formState.errors.address.message}</p>}
               </div>
 
-              {/* Row 6: Document / ID Proof (full width) */}
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Document / ID Proof</Label>
-                {docPreview ? (
-                  <div className="relative w-full rounded-xl border border-border/50 overflow-hidden">
-                    <img src={docPreview} alt="Document preview" className="w-full max-h-36 object-cover" />
-                    <button type="button" onClick={() => { setDocFile(null); setDocPreview(null) }}
-                      className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : docFile ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5">
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{docFile.name}</span>
-                    <button type="button" onClick={() => setDocFile(null)}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-6">
-                    {/* Card icon */}
-                    <div className="flex h-12 w-16 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
-                      <FileImage className="h-6 w-6 text-muted-foreground/50" />
-                    </div>
-                    {/* Buttons row */}
-                    <div className="flex items-center gap-2">
-                      <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
-                        <Upload className="h-3.5 w-3.5 text-amber-500" />
-                        Upload
-                        <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf"
-                          onChange={(e) => handleDocFile(e.target.files?.[0] ?? null)} />
-                      </label>
-                      <button type="button"
-                        onClick={() => setScanOpen(true)}
-                        className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
-                        <Camera className="h-3.5 w-3.5 text-muted-foreground" />
-                        Scan
-                      </button>
-                    </div>
+              {/* Row 6: Address Proof / Documents — Multi-upload */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address Proof &amp; Documents</Label>
+                  {docFiles.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground">{docFiles.length} file{docFiles.length !== 1 ? 's' : ''} selected</span>
+                  )}
+                </div>
+
+                {/* Uploaded file list */}
+                {docPreviews.length > 0 && (
+                  <div className="space-y-1.5">
+                    {docPreviews.map((doc, idx) => (
+                      <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                        {doc.preview ? (
+                          <img src={doc.preview} alt={doc.name} className="h-8 w-10 rounded object-cover shrink-0" />
+                        ) : (
+                          <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">{doc.name}</span>
+                        <button type="button" onClick={() => removeDocFile(idx)}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
+
+                {/* Upload zone */}
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
+                  <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                    <FileImage className="h-5 w-5 text-muted-foreground/50" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground text-center">Upload ID proof, address proof, or prescriptions</p>
+                  <div className="flex items-center gap-2">
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                      <Upload className="h-3.5 w-3.5 text-amber-500" />
+                      Add Files
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        multiple
+                        ref={multiFileInputRef}
+                        onChange={(e) => handleMultiDocFiles(e.target.files)}
+                      />
+                    </label>
+                    <button type="button"
+                      onClick={() => setScanOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                      <Camera className="h-3.5 w-3.5 text-muted-foreground" />
+                      Scan
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Row 7: Notes (full width) */}
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Textarea {...form.register('notes')} placeholder="Additional notes (optional)" rows={3} />
+                <Textarea {...form.register('notes')} placeholder="Additional notes (optional)" rows={2} />
               </div>
 
             </div>
             <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFile(null); setDocPreview(null); setAddDialogOpen(false) }}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false) }}>Cancel</Button>
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
@@ -1085,7 +1285,7 @@ export default function CustomersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {customerInvoices.map((inv) => (
+                          {customerInvoices.slice((dialogInvPage - 1) * DIALOG_PAGE_SIZE, dialogInvPage * DIALOG_PAGE_SIZE).map((inv) => (
                             <TableRow key={inv.id}>
                               <TableCell className="font-mono text-sm">
                                 {inv.invoiceNumber}
@@ -1124,6 +1324,16 @@ export default function CustomersPage() {
                         </TableBody>
                       </Table>
                     </CardContent>
+                    {customerInvoices.length > DIALOG_PAGE_SIZE && (
+                      <DataTablePagination
+                        currentPage={dialogInvPage}
+                        totalPages={Math.ceil(customerInvoices.length / DIALOG_PAGE_SIZE)}
+                        onPageChange={setDialogInvPage}
+                        totalItems={customerInvoices.length}
+                        itemsPerPage={DIALOG_PAGE_SIZE}
+                        className="border-t border-border/40 px-4"
+                      />
+                    )}
                   </Card>
                 </TabsContent>
 
@@ -1143,7 +1353,7 @@ export default function CustomersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {buildLedger().map((entry, idx) => (
+                          {buildLedger().slice((dialogLedgerPage - 1) * DIALOG_PAGE_SIZE, dialogLedgerPage * DIALOG_PAGE_SIZE).map((entry, idx) => (
                             <TableRow key={idx}>
                               <TableCell className="text-muted-foreground">{formatDate(entry.date)}</TableCell>
                               <TableCell>{entry.particular}</TableCell>
@@ -1182,6 +1392,16 @@ export default function CustomersPage() {
                         </TableBody>
                       </Table>
                     </CardContent>
+                    {buildLedger().length > DIALOG_PAGE_SIZE && (
+                      <DataTablePagination
+                        currentPage={dialogLedgerPage}
+                        totalPages={Math.ceil(buildLedger().length / DIALOG_PAGE_SIZE)}
+                        onPageChange={setDialogLedgerPage}
+                        totalItems={buildLedger().length}
+                        itemsPerPage={DIALOG_PAGE_SIZE}
+                        className="border-t border-border/40 px-4"
+                      />
+                    )}
                   </Card>
                 </TabsContent>
 

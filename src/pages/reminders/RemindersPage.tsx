@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -23,6 +23,7 @@ import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -114,12 +115,24 @@ export default function RemindersPage() {
     c.phone.includes(customerSearch)
   )
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
+
   const filteredReminders = reminders.filter(r => {
     if (filterDay === 'today' && r.dayOfMonth !== todayDay) return false
     if (searchQ && !r.customer.name.toLowerCase().includes(searchQ.toLowerCase()) &&
         !r.customer.phone.includes(searchQ) && !r.title.toLowerCase().includes(searchQ.toLowerCase())) return false
     return true
   })
+
+  // Reset pagination on filter change
+  useEffect(() => { setCurrentPage(1) }, [filterDay, searchQ])
+
+  const totalPages = Math.ceil(filteredReminders.length / PAGE_SIZE)
+  const paginatedReminders = useMemo(() => {
+    return filteredReminders.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filteredReminders, currentPage])
 
   const todayCount = reminders.filter(r => r.dayOfMonth === todayDay).length
 
@@ -313,7 +326,7 @@ export default function RemindersPage() {
       ) : (
         <div className="space-y-2">
           <AnimatePresence>
-            {filteredReminders.map((r) => {
+            {paginatedReminders.map((r) => {
               const isToday = r.dayOfMonth === todayDay
               const lastContact = r.contacts[0]
               const lastStatus = lastContact?.status as ContactStatus | undefined
@@ -462,6 +475,15 @@ export default function RemindersPage() {
               )
             })}
           </AnimatePresence>
+        </div>
+      )}
+      {totalPages > 1 && (
+        <div className="mt-4">
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </div>
       )}
 

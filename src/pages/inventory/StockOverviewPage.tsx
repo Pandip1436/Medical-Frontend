@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { differenceInDays } from 'date-fns'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
@@ -134,11 +135,13 @@ export default function StockOverviewPage() {
   const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
   const storeCategories = useMasterDataStore((s) => s.categories)
   const fetchCategories = useMasterDataStore((s) => s.fetchCategories)
+  const PAGE_SIZE = 15
 
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -217,6 +220,11 @@ export default function StockOverviewPage() {
     }
     return rows
   }, [stockRows, search, categoryFilter, statusFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const paginatedRows = useMemo(() => {
+    return filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filteredRows, currentPage])
 
   // Stats
   const stats = useMemo(() => {
@@ -395,6 +403,7 @@ export default function StockOverviewPage() {
         onClearFilters={() => {
           setCategoryFilter('all');
           setStatusFilter('all');
+          setCurrentPage(1);
         }}
         actionNode={
           <div className="flex items-center rounded-xl border border-border/60 p-1">
@@ -420,8 +429,8 @@ export default function StockOverviewPage() {
         <EnumSelect
           label="Category"
           value={categoryFilter}
-          onValueChange={setCategoryFilter}
-          onClear={() => setCategoryFilter('all')}
+          onValueChange={(v) => { setCategoryFilter(v); setCurrentPage(1) }}
+          onClear={() => { setCategoryFilter('all'); setCurrentPage(1) }}
           options={[
             { label: 'All Categories', value: 'all' },
             ...storeCategories.map((c) => ({ label: c.name, value: c.id })),
@@ -430,8 +439,8 @@ export default function StockOverviewPage() {
         <EnumSelect
           label="Status"
           value={statusFilter}
-          onValueChange={setStatusFilter}
-          onClear={() => setStatusFilter('all')}
+          onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1) }}
+          onClear={() => { setStatusFilter('all'); setCurrentPage(1) }}
           options={[
             { label: 'All Status', value: 'all' },
             { label: 'Healthy', value: 'healthy' },
@@ -455,13 +464,13 @@ export default function StockOverviewPage() {
 
               {/* Mobile card list */}
               <div className="md:hidden">
-                {filteredRows.length === 0 ? (
+                {paginatedRows.length === 0 ? (
                   <div className="py-12 text-center text-sm text-muted-foreground">
                     No stock records found matching your filters.
                   </div>
                 ) : (
                   <div className="divide-y divide-border/40">
-                    {filteredRows.map((row) => {
+                    {paginatedRows.map((row) => {
                       const sc = statusConfig[row.status]
                       return (
                         <div key={row.batchId || row.productId} className="flex items-start justify-between gap-2 px-4 py-3">
@@ -505,7 +514,7 @@ export default function StockOverviewPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRows.map((row) => {
+                  {paginatedRows.map((row) => {
                     const sc = statusConfig[row.status]
                     return (
                       <TableRow key={row.batchId} className="border-b border-border/40">
@@ -541,7 +550,7 @@ export default function StockOverviewPage() {
                       </TableRow>
                     )
                   })}
-                  {filteredRows.length === 0 && (
+                  {paginatedRows.length === 0 && (
                     <TableRow>
                       <TableCell
                         colSpan={9}
@@ -554,7 +563,14 @@ export default function StockOverviewPage() {
                 </TableBody>
               </Table>
               </div>
-
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                totalItems={filteredRows.length}
+                itemsPerPage={PAGE_SIZE}
+                className="border-t border-border/40 px-4"
+              />
             </div>
           </motion.div>
         </motion.div>
@@ -568,7 +584,7 @@ export default function StockOverviewPage() {
           initial="hidden"
           animate="visible"
         >
-          {filteredCards.map((product) => {
+          {filteredCards.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).map((product) => {
             const sc = statusConfig[product.status]
             return (
               <motion.div key={product.id} variants={itemVariants}>
@@ -639,6 +655,18 @@ export default function StockOverviewPage() {
           {filteredCards.length === 0 && (
             <div className="col-span-full py-16 text-center text-muted-foreground">
               No products found matching your filters.
+            </div>
+          )}
+          {filteredCards.length > PAGE_SIZE && (
+            <div className="col-span-full">
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+                totalItems={filteredCards.length}
+                itemsPerPage={PAGE_SIZE}
+                className="mt-4"
+              />
             </div>
           )}
         </motion.div>

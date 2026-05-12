@@ -16,8 +16,9 @@ import {
   Search,
   Calculator,
 } from 'lucide-react'
-import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
@@ -258,6 +259,10 @@ export default function ExpensesPage() {
     }
   }
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 15
+
   // Filtered and sorted expenses
   const filteredExpenses = useMemo(() => {
     let result = [...expenses]
@@ -279,6 +284,14 @@ export default function ExpensesPage() {
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     )
   }, [expenses, search, categoryFilter])
+
+  // Reset pagination on search or filter change
+  useEffect(() => { setCurrentPage(1) }, [search, categoryFilter])
+
+  const totalPages = Math.ceil(filteredExpenses.length / PAGE_SIZE)
+  const paginatedExpenses = useMemo(() => {
+    return filteredExpenses.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [filteredExpenses, currentPage])
 
   return (
     <motion.div
@@ -476,7 +489,7 @@ export default function ExpensesPage() {
               <div className="py-8 text-center text-sm text-muted-foreground">No expenses found</div>
             )}
             <div className="divide-y divide-border/40">
-              {filteredExpenses.map((expense) => (
+              {paginatedExpenses.map((expense) => (
                 <div key={expense.id} className="flex items-start justify-between gap-2 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{expense.description}</p>
@@ -535,7 +548,7 @@ export default function ExpensesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredExpenses.map((expense) => (
+              {paginatedExpenses.map((expense) => (
                 <TableRow key={expense.id}>
                   <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                     {formatDate(expense.date)}
@@ -583,6 +596,15 @@ export default function ExpensesPage() {
             </TableBody>
           </Table>
           </div>
+          {totalPages > 1 && (
+            <div className="border-t px-4 py-4">
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

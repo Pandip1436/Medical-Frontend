@@ -44,6 +44,7 @@ import {
 import { useAuthStore } from '@/stores/authStore'
 import { useBranchStore } from '@/stores/branchStore'
 import api from '@/lib/api'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -166,6 +167,8 @@ export default function SalespersonsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 12
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Salesperson | null>(null)
@@ -214,6 +217,13 @@ export default function SalespersonsPage() {
       return matchSearch && matchStatus
     })
   }, [salespersons, search, filterStatus])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, filterStatus])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const getBranchName = (branchId?: string) => {
     if (!branchId) return ''
@@ -353,7 +363,7 @@ export default function SalespersonsPage() {
         ) : (
           <AnimatePresence mode="popLayout">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filtered.map((sp) => (
+              {paginated.map((sp) => (
                 <SalespersonCard
                   key={sp.id}
                   sp={sp}
@@ -364,6 +374,14 @@ export default function SalespersonsPage() {
                 />
               ))}
             </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={filtered.length}
+              itemsPerPage={PAGE_SIZE}
+              className="mt-6 border-t border-border/40 pt-4"
+            />
           </AnimatePresence>
         )}
       </div>

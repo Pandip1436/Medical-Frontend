@@ -7,6 +7,7 @@ import {
   FileText, CheckCircle2, XCircle, ShieldAlert,
   RotateCcw,
 } from 'lucide-react'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -791,21 +792,14 @@ export default function GRNListPage() {
               </Table>
             </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between border-t border-border/40 px-5 py-3 bg-muted/10">
-              <p className="text-sm text-muted-foreground">
-                Showing <span className="font-medium text-foreground">{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)}</span> of <span className="font-medium text-foreground">{filtered.length}</span> receipts
-              </p>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="h-4 w-4" /> Previous
-                </Button>
-                <span className="text-xs text-muted-foreground px-1">Page {currentPage} of {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-                  Next <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={filtered.length}
+              itemsPerPage={PAGE_SIZE}
+              className="border-t border-border/40 px-5"
+            />
           </>
         )}
       </Card>

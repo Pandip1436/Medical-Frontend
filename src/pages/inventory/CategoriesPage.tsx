@@ -23,6 +23,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import api from '@/lib/api'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import type { Category } from '@/types'
 
 const categorySchema = z.object({
@@ -42,6 +43,8 @@ export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Category | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -138,6 +141,13 @@ export default function CategoriesPage() {
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     (c.description ?? '').toLowerCase().includes(search.toLowerCase())
   )
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   return (
     <motion.div
@@ -259,14 +269,14 @@ export default function CategoriesPage() {
                   ))}
                 </TableRow>
               ))
-            ) : filtered.length === 0 ? (
+            ) : paginated.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
                   No categories found
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map(cat => (
+              paginated.map(cat => (
                 <TableRow key={cat.id}>
                   <TableCell>
                     <div className="h-6 w-6 rounded-full border border-border/40" style={{ backgroundColor: cat.color ?? '#6366F1' }} />
@@ -291,10 +301,19 @@ export default function CategoriesPage() {
                   </TableCell>
                 </TableRow>
               ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+            )
+          }
+        </TableBody>
+      </Table>
+    </div>
+    <DataTablePagination
+      currentPage={currentPage}
+      totalPages={totalPages}
+      onPageChange={setCurrentPage}
+      totalItems={filtered.length}
+      itemsPerPage={PAGE_SIZE}
+      className="mt-4 px-2"
+    />
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -309,8 +328,8 @@ export default function CategoriesPage() {
             <div className="grid gap-2">
               <Label htmlFor="cat-name">Name <span className="text-rose-500">*</span></Label>
               <Input id="cat-name" placeholder="e.g. CARDIOLOGY" {...form.register('name')} />
-              {form.formState.errors.name && (
-                <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>
+              {form.formState.errors.name?.message && (
+                <p className="text-xs text-rose-500">{form.formState.errors.name?.message}</p>
               )}
             </div>
             <div className="grid gap-2">
@@ -385,13 +404,13 @@ export default function CategoriesPage() {
             {importResult && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
                 <p className="font-semibold">Import complete</p>
-                <p className="text-green-600 dark:text-green-400">Created: {importResult.created}</p>
-                <p className="text-muted-foreground">Skipped (duplicate): {importResult.skipped}</p>
-                {importResult.errors.length > 0 && (
+                <p className="text-green-600 dark:text-green-400">Created: {importResult?.created}</p>
+                <p className="text-muted-foreground">Skipped (duplicate): {importResult?.skipped}</p>
+                {(importResult?.errors?.length ?? 0) > 0 && (
                   <div className="mt-2">
-                    <p className="text-destructive font-medium">Errors ({importResult.errors.length}):</p>
+                    <p className="text-destructive font-medium">Errors ({importResult?.errors?.length}):</p>
                     <ul className="mt-1 max-h-28 overflow-y-auto space-y-0.5 text-xs text-destructive">
-                      {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                      {importResult?.errors?.map((e, i) => <li key={i}>{e}</li>)}
                     </ul>
                   </div>
                 )}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ClipboardList,
+  Upload,
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -50,6 +51,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import {
@@ -72,6 +74,7 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { exportToExcel, importFromExcel } from '@/lib/excelUtils'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
@@ -136,7 +139,7 @@ const PAYMENT_TERMS_OPTIONS = [
 // ─────────────────────────────────────────────────────────────
 
 export default function SuppliersPage() {
-  const { suppliers, fetchMasterData } = useMasterDataStore()
+  const { suppliers, fetchMasterData, importSuppliers } = useMasterDataStore()
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchMasterData() }, [])
@@ -144,6 +147,9 @@ export default function SuppliersPage() {
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
+
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedPaymentTerms, setSelectedPaymentTerms] = useState<string>('all')
@@ -182,6 +188,58 @@ export default function SuppliersPage() {
   const clearFilters = () => {
     setSelectedStatus('all')
     setSelectedPaymentTerms('all')
+  }
+
+  const handleExport = () => {
+    const exportData = filteredSuppliers.map((s) => ({
+      Name: s.name,
+      'Contact Person': s.contactPerson,
+      Phone: s.phone,
+      Email: s.email || '',
+      GSTIN: s.gstin,
+      'Drug License': s.drugLicense,
+      Address: s.address,
+      'Payment Terms': s.paymentTerms,
+      'Bank Details': s.bankDetails || '',
+      Outstanding: s.currentOutstanding,
+      Status: s.isActive ? 'Active' : 'Inactive',
+    }))
+    exportToExcel(exportData, 'suppliers')
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setIsImporting(true)
+    try {
+      const data = await importFromExcel<any>(file)
+      if (!data.length) throw new Error('File is empty')
+      const formattedData = data.map((row) => ({
+        name: row.Name || row.name,
+        contactPerson: row['Contact Person'] || row.contactPerson || row.ContactPerson || row.name || 'Admin',
+        phone: String(row.Phone || row.phone),
+        email: row.Email || row.email || '',
+        gstin: row.GSTIN || row.gstin || '',
+        drugLicense: row['Drug License'] || row.drugLicense || row.dlNumber || row.DrugLicense || '',
+        address: row.Address || row.address || '',
+        paymentTerms: row['Payment Terms'] || row.paymentTerms || row.PaymentTerms || 'NET_30',
+        bankDetails: row['Bank Details'] || row.bankDetails || row.BankDetails || '',
+      }))
+      const res = await importSuppliers(formattedData)
+      if (res.skippedCount > 0) {
+        toast.warning(`Imported ${res.createdCount} suppliers. Skipped ${res.skippedCount} rows.`)
+        if (res.errors?.length) {
+          console.warn('Import errors:', res.errors)
+        }
+      } else {
+        toast.success(`Successfully imported ${res.createdCount} suppliers`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import suppliers')
+    } finally {
+      setIsImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   // ── Filtering logic ──
@@ -230,8 +288,6 @@ export default function SuppliersPage() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE
   )
-  const rangeStart = filteredSuppliers.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, filteredSuppliers.length)
 
   // ── Bulk select ──
 
@@ -372,6 +428,21 @@ export default function SuppliersPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Upload className="mr-1.5 h-4 w-4" />
+            {isImporting ? 'Importing...' : 'Import'}
+          </Button>
+          <input
+            type="file"
+            accept=".xlsx, .xls"
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleImport}
+          />
           <Button size="sm" onClick={openAddDialog}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add Supplier
@@ -665,23 +736,15 @@ export default function SuppliersPage() {
         </Table>
         </div>
 
-        {/* Pagination */}
-        <div className="flex flex-col items-center gap-2 border-t border-border/40 px-4 py-3 sm:flex-row sm:justify-between">
-          <p className="text-[11px] text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{rangeStart}-{rangeEnd}</span> of{' '}
-            <span className="font-medium text-foreground">{filteredSuppliers.length}</span> results
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
-              <ChevronLeft className="mr-1 h-4 w-4" />Prev
-            </Button>
-            <span className="text-[11px] text-muted-foreground tabular-nums">Page {currentPage} of {totalPages || 1}</span>
-            <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
-              Next<ChevronRight className="ml-1 h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </Card>
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={filteredSuppliers.length}
+        itemsPerPage={PAGE_SIZE}
+        className="mt-4 px-2"
+      />
 
       {/* ── Add/Edit Supplier Dialog ──────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

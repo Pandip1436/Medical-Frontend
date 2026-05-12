@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
 import { cn, formatCurrency } from '@/lib/utils'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useAuthStore } from '@/stores/authStore'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -219,6 +220,8 @@ export default function ApprovalsPage() {
   const [actionDialog, setActionDialog] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 10
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -241,6 +244,13 @@ export default function ApprovalsPage() {
     if (typeTab !== 'all') rows = rows.filter(r => r.type === typeTab)
     return rows
   }, [allRequests, statusTab, typeTab])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [statusTab, typeTab])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   // Counts per status tab (respecting type filter)
   const counts = useMemo(() => {
@@ -371,18 +381,28 @@ export default function ApprovalsPage() {
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-border/30 overflow-y-auto max-h-150">
-            {filtered.map(req => (
-              <div key={req.id} className="p-4 sm:p-5">
-                <RequestCard
-                  req={req}
-                  isAdmin={isAdmin}
-                  onApprove={id => { setActionDialog({ id, action: 'approve' }); setReviewNote('') }}
-                  onReject={id => { setActionDialog({ id, action: 'reject' }); setReviewNote('') }}
-                />
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-border/30 overflow-y-auto max-h-150">
+              {paginated.map(req => (
+                <div key={req.id} className="p-4 sm:p-5">
+                  <RequestCard
+                    req={req}
+                    isAdmin={isAdmin}
+                    onApprove={id => { setActionDialog({ id, action: 'approve' }); setReviewNote('') }}
+                    onReject={id => { setActionDialog({ id, action: 'reject' }); setReviewNote('') }}
+                  />
+                </div>
+              ))}
+            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={filtered.length}
+              itemsPerPage={PAGE_SIZE}
+              className="border-t border-border/40 px-4"
+            />
+          </>
         )}
       </Card>
 
