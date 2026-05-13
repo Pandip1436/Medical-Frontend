@@ -10,17 +10,12 @@ import {
   IndianRupee,
   CheckCircle2,
   Undo2,
-  ChevronLeft,
-  ChevronRight,
   X,
   Receipt,
   FileX2,
   Clock,
-  User,
-  Stethoscope,
-  CalendarDays,
-  CreditCard,
   Wallet,
+  Package,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -45,11 +40,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -65,7 +60,7 @@ import {
   shareInvoiceViaWhatsApp,
 } from '@/lib/pdf/invoicePdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
@@ -169,6 +164,16 @@ export default function SalesListPage() {
 
   // Detail dialog
   const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null)
+
+  // Auto-open drawer when arriving with ?invoiceId=… (e.g. from a Credit Note's "View Invoice")
+  const { search } = useRoute()
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const target = params.get('invoiceId')
+    if (!target || invoices.length === 0) return
+    const match = invoices.find((inv) => inv.id === target)
+    if (match) setDetailInvoice(match)
+  }, [search, invoices])
 
   // Collect payment
   const [collectAmount, setCollectAmount] = useState('')
@@ -373,65 +378,6 @@ export default function SalesListPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Sales & Invoices</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            View and manage all sales transactions
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => {
-            if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
-            exportToCsv(filteredInvoices.map((inv) => ({
-              Invoice: inv.invoiceNumber,
-              Date: formatDate(inv.date),
-              Customer: inv.customerName,
-              Total: inv.grandTotal,
-              Paid: inv.amountPaid,
-              Status: inv.status,
-            })), 'sales-invoices')
-          }}>
-            <Download className="mr-1.5 h-4 w-4" />
-            CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={async () => {
-            try {
-              const token = localStorage.getItem('auth_token')
-              const res = await fetch('/api/v1/billing/export/tally-xml', {
-                headers: { Authorization: `Bearer ${token}` },
-              })
-              if (!res.ok) throw new Error('Export failed')
-              const blob = await res.blob()
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = 'tally-export.xml'
-              a.click()
-              URL.revokeObjectURL(url)
-              toast.success('Tally XML downloaded')
-            } catch {
-              toast.error('Failed to export Tally XML')
-            }
-          }}>
-            <Download className="mr-1.5 h-4 w-4" />
-            Tally XML
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
-              filteredInvoices.forEach((inv) => printInvoicePdf(inv))
-            }}
-          >
-            <Printer className="mr-1.5 h-4 w-4" />
-            Print All
-          </Button>
-        </div>
-      </div>
-
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -493,6 +439,68 @@ export default function SalesListPage() {
         resultsCount={filteredInvoices.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={() => {
+                if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
+                exportToCsv(filteredInvoices.map((inv) => ({
+                  Invoice: inv.invoiceNumber,
+                  Date: formatDate(inv.date),
+                  Customer: inv.customerName,
+                  Total: inv.grandTotal,
+                  Paid: inv.amountPaid,
+                  Status: inv.status,
+                })), 'sales-invoices')
+              }}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">CSV</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-400 dark:border-amber-800/60 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 dark:hover:border-amber-700"
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem('auth_token')
+                  const res = await fetch('/api/v1/billing/export/tally-xml', {
+                    headers: { Authorization: `Bearer ${token}` },
+                  })
+                  if (!res.ok) throw new Error('Export failed')
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'tally-export.xml'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  toast.success('Tally XML downloaded')
+                } catch {
+                  toast.error('Failed to export Tally XML')
+                }
+              }}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Tally XML</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => {
+                if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
+                filteredInvoices.forEach((inv) => printInvoicePdf(inv))
+              }}
+            >
+              <Printer className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Print All</span>
+            </Button>
+          </div>
+        }
       >
         <EnumSelect
           label="Period"
@@ -738,9 +746,9 @@ export default function SalesListPage() {
                   onCheckedChange={toggleSelectAll}
                 />
               </TableHead>
+              <TableHead>Customer</TableHead>
               <TableHead>Invoice #</TableHead>
               <TableHead>Date</TableHead>
-              <TableHead>Customer</TableHead>
               <TableHead className="text-center">Items</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Payment</TableHead>
@@ -794,6 +802,14 @@ export default function SalesListPage() {
                         onCheckedChange={() => toggleSelectOne(inv.id)}
                       />
                     </TableCell>
+                    <TableCell className="max-w-45">
+                      <p className="truncate text-sm font-medium">{inv.customerName}</p>
+                      {inv.doctorName && (
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {inv.doctorName}
+                        </p>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Receipt className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -806,14 +822,6 @@ export default function SalesListPage() {
                       <span className="text-[11px] text-muted-foreground">
                         {formatDate(inv.date)}
                       </span>
-                    </TableCell>
-                    <TableCell className="max-w-45">
-                      <p className="truncate text-sm font-medium">{inv.customerName}</p>
-                      {inv.doctorName && (
-                        <p className="truncate text-[11px] text-muted-foreground">
-                          {inv.doctorName}
-                        </p>
-                      )}
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
@@ -891,176 +899,196 @@ export default function SalesListPage() {
         />
       </Card>
 
-      {/* ── Invoice Detail Dialog ── */}
-      <Dialog open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
-          {detailInvoice && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <DialogTitle className="font-mono text-base">
-                      {formatInvoiceNumber(detailInvoice)}
-                    </DialogTitle>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {formatDate(detailInvoice.date)}
-                    </p>
-                  </div>
-                  <StatusBadge status={detailInvoice.status} />
-                </div>
-              </DialogHeader>
-
-              {/* Meta info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <User className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer</p>
-                    <p className="font-medium">{detailInvoice.customerName}</p>
-                  </div>
-                </div>
-                {detailInvoice.doctorName && (
-                  <div className="flex items-center gap-2">
-                    <Stethoscope className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Doctor</p>
-                      <p className="font-medium">{detailInvoice.doctorName}</p>
+      {/* ── Invoice Detail Drawer ── */}
+      <Sheet open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        >
+          {detailInvoice && (() => {
+            const balanceDue = detailInvoice.grandTotal - detailInvoice.amountPaid
+            return (
+              <>
+                {/* ── Sticky Header ── */}
+                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                  <div className="flex items-center justify-between gap-3 pr-8">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <SheetTitle className="font-mono text-base font-semibold truncate">
+                        {formatInvoiceNumber(detailInvoice)}
+                      </SheetTitle>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(detailInvoice.date)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="info" size="sm" className="gap-1">
+                        <Package className="h-3 w-3" />
+                        {detailInvoice.items.length} {detailInvoice.items.length === 1 ? 'item' : 'items'}
+                      </Badge>
+                      <StatusBadge status={detailInvoice.status} />
                     </div>
                   </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Payment</p>
-                    <p className="font-medium">{detailInvoice.paymentMode}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Billing Type</p>
-                    <p className="font-medium">{detailInvoice.billingType}</p>
-                  </div>
-                </div>
-              </div>
+                </SheetHeader>
 
-              {/* Items table */}
-              <div className="overflow-hidden rounded-xl border border-border/40">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Batch</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Rate</TableHead>
-                      <TableHead className="text-right">GST%</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detailInvoice.items.map((item, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
-                        <TableCell>
-                          <p className="text-sm font-medium">{item.productName}</p>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{item.batchNumber}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{item.quantity}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.rate)}</TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
-                        <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(item.amount)}</TableCell>
-                      </TableRow>
+                {/* ── Scrollable Body ── */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Meta block — single horizontal row */}
+                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                    {([
+                      { label: 'Customer', value: detailInvoice.customerName },
+                      { label: 'Payment', value: paymentModeLabels[detailInvoice.paymentMode] || detailInvoice.paymentMode },
+                      detailInvoice.doctorName ? { label: 'Doctor', value: detailInvoice.doctorName } : null,
+                      { label: 'Billing Type', value: detailInvoice.billingType },
+                    ].filter(Boolean) as Array<{ label: string; value: string }>).map((cell, i) => (
+                      <div
+                        key={cell.label}
+                        className={cn(
+                          'flex min-w-0 flex-1 flex-col justify-center px-4 py-3',
+                          i > 0 && 'border-l border-border/40'
+                        )}
+                      >
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{cell.label}</p>
+                        <p className="mt-0.5 text-sm font-medium truncate" title={cell.value}>{cell.value}</p>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Totals */}
-              <div className="space-y-1.5 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-                {[
-                  { label: 'Subtotal', value: detailInvoice.subtotal },
-                  detailInvoice.productDiscount > 0 ? { label: 'Discount', value: -detailInvoice.productDiscount } : null,
-                  { label: 'Taxable', value: detailInvoice.taxableAmount },
-                  { label: 'CGST', value: detailInvoice.cgst },
-                  { label: 'SGST', value: detailInvoice.sgst },
-                  detailInvoice.igst > 0 ? { label: 'IGST', value: detailInvoice.igst } : null,
-                  Math.abs(detailInvoice.roundOff) > 0 ? { label: 'Round Off', value: detailInvoice.roundOff } : null,
-                ].filter(Boolean).map((row) => (
-                  <div key={row!.label} className="flex justify-between text-muted-foreground">
-                    <span>{row!.label}</span>
-                    <span className="font-mono">{formatCurrency(row!.value)}</span>
                   </div>
-                ))}
-                <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
-                  <span>Grand Total</span>
-                  <span className="font-mono text-base">{formatCurrency(detailInvoice.grandTotal)}</span>
-                </div>
-                {detailInvoice.amountPaid > 0 && (
-                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-                    <span>Paid</span>
-                    <span className="font-mono">{formatCurrency(detailInvoice.amountPaid)}</span>
-                  </div>
-                )}
-              </div>
 
-              {/* Collect Payment — shown only for unpaid invoices */}
-              {(detailInvoice.status === 'CREDIT' || detailInvoice.status === 'PARTIAL') && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                    Collect Payment — Outstanding: {formatCurrency(detailInvoice.grandTotal - detailInvoice.amountPaid)}
-                  </p>
-                  <div className="flex gap-2">
-                    <Select value={collectMode} onValueChange={setCollectMode}>
-                      <SelectTrigger className="w-32 h-9 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                  {/* Items — proper table with sticky header, scales for many products */}
+                  <div className="overflow-hidden rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST%</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detailInvoice.items.map((item, idx) => (
+                          <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
+                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm font-medium">{item.productName}</TableCell>
+                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{item.batchNumber}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.quantity}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
+                          </TableRow>
                         ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type="number"
-                      placeholder="Amount"
-                      className="h-9 text-sm"
-                      value={collectAmount}
-                      onChange={(e) => setCollectAmount(e.target.value)}
-                      max={detailInvoice.grandTotal - detailInvoice.amountPaid}
-                    />
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Collect Payment — shown only for unpaid invoices */}
+                  {(detailInvoice.status === 'CREDIT' || detailInvoice.status === 'PARTIAL') && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        Collect Payment — Outstanding: {formatCurrency(balanceDue)}
+                      </p>
+                      <div className="flex gap-2">
+                        <Select value={collectMode} onValueChange={setCollectMode}>
+                          <SelectTrigger className="w-32 h-9 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
+                              <SelectItem key={m} value={m}>{m}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="number"
+                          placeholder="Amount"
+                          className="h-9 text-sm"
+                          value={collectAmount}
+                          onChange={(e) => setCollectAmount(e.target.value)}
+                          max={balanceDue}
+                        />
+                        <Button
+                          size="sm"
+                          className="gap-1.5 shrink-0"
+                          disabled={collectSubmitting || !collectAmount}
+                          onClick={handleCollectPayment}
+                        >
+                          <Wallet className="h-4 w-4" />
+                          {collectSubmitting ? 'Saving...' : 'Collect'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Sticky Footer: totals strip + actions ── */}
+                <div className="shrink-0 border-t border-border/40 bg-background">
+                  {/* Totals strip — single horizontal row */}
+                  <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
+                    {([
+                      { label: 'Subtotal', value: detailInvoice.subtotal },
+                      detailInvoice.productDiscount > 0 ? { label: 'Discount', value: -detailInvoice.productDiscount, tone: 'rose' as const } : null,
+                      { label: 'Taxable', value: detailInvoice.taxableAmount },
+                      { label: 'CGST', value: detailInvoice.cgst },
+                      { label: 'SGST', value: detailInvoice.sgst },
+                      detailInvoice.igst > 0 ? { label: 'IGST', value: detailInvoice.igst } : null,
+                      Math.abs(detailInvoice.roundOff) > 0 ? { label: 'Round Off', value: detailInvoice.roundOff } : null,
+                      { label: 'Grand Total', value: detailInvoice.grandTotal, highlight: true as const },
+                      detailInvoice.amountPaid > 0 ? { label: 'Paid', value: detailInvoice.amountPaid, tone: 'emerald' as const } : null,
+                    ].filter(Boolean) as Array<{ label: string; value: number; tone?: 'emerald' | 'rose'; highlight?: boolean }>).map((row, i) => (
+                      <div
+                        key={row.label}
+                        className={cn(
+                          'flex flex-1 min-w-[72px] flex-col justify-center whitespace-nowrap px-3 py-2',
+                          i > 0 && 'border-l border-border/40',
+                          row.highlight && 'bg-primary/5'
+                        )}
+                      >
+                        <p className={cn(
+                          'text-[9px] font-semibold uppercase tracking-wider',
+                          row.tone === 'emerald' && 'text-emerald-700 dark:text-emerald-400',
+                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400',
+                          !row.tone && 'text-muted-foreground'
+                        )}>{row.label}</p>
+                        <p className={cn(
+                          'mt-0.5 font-mono text-xs',
+                          row.highlight && 'text-sm font-bold',
+                          row.tone === 'emerald' && 'text-emerald-700 dark:text-emerald-400',
+                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400'
+                        )}>{formatCurrency(row.value)}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="px-5 py-3 flex gap-2">
+                    <Button className="flex-1 gap-2" onClick={() => printInvoicePdf(detailInvoice)}>
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
+                    <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadInvoicePdf(detailInvoice)}>
+                      <Download className="h-4 w-4" />
+                      <span className="hidden sm:inline">Download PDF</span>
+                      <span className="sm:hidden">PDF</span>
+                    </Button>
                     <Button
-                      size="sm"
-                      className="gap-1.5 shrink-0"
-                      disabled={collectSubmitting || !collectAmount}
-                      onClick={handleCollectPayment}
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => shareInvoiceViaWhatsApp(detailInvoice)}
+                      title="Share via WhatsApp"
                     >
-                      <Wallet className="h-4 w-4" />
-                      {collectSubmitting ? 'Saving...' : 'Collect'}
+                      <Share2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <Button className="flex-1 gap-2" onClick={() => printInvoicePdf(detailInvoice)}>
-                  <Printer className="h-4 w-4" />
-                  Print
-                </Button>
-                <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadInvoicePdf(detailInvoice)}>
-                  <Download className="h-4 w-4" />
-                  Download PDF
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={() => shareInvoiceViaWhatsApp(detailInvoice)}>
-                  <Share2 className="h-4 w-4" />
-                  Share
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              </>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </motion.div>
   )
 }

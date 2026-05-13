@@ -93,8 +93,11 @@ export default function AppLayout({
 
   const sidebarWidth = sidebarCollapsed ? 64 : 256
 
+  // POS-style routes use full viewport with no global header/padding
+  const isFullViewport = currentPath === '/billing/new'
+
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className={isFullViewport ? 'flex h-screen overflow-hidden bg-background' : 'flex min-h-screen bg-background'}>
       {/* Sidebar */}
       <Sidebar currentPath={currentPath} />
 
@@ -103,13 +106,19 @@ export default function AppLayout({
         initial={false}
         animate={{ marginLeft: isMobile ? 0 : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex flex-1 flex-col"
+        className={isFullViewport ? 'flex flex-1 flex-col h-screen overflow-hidden' : 'flex flex-1 flex-col'}
       >
-        {/* Header - sticky at top of content area */}
-        <Header breadcrumbs={breadcrumbs} />
+        {/* Header - hidden on POS-style full-viewport pages */}
+        {!isFullViewport && <Header breadcrumbs={breadcrumbs} />}
 
         {/* Page Content */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto">
+        <main
+          className={
+            isFullViewport
+              ? 'flex-1 min-h-0 overflow-hidden'
+              : 'flex-1 overflow-x-hidden overflow-y-auto'
+          }
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={currentPath}
@@ -117,7 +126,11 @@ export default function AppLayout({
               initial="initial"
               animate="animate"
               exit="exit"
-              className="content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6"
+              className={
+                isFullViewport
+                  ? 'content-area min-w-0 h-full flex flex-col'
+                  : 'content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6'
+              }
             >
               {title && (
                 <h1 className="sr-only">{title}</h1>

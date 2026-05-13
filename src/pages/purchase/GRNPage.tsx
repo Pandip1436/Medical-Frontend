@@ -377,22 +377,17 @@ export default function GRNPage() {
         toast.error(`${label}: batch number is required`)
         return
       }
-      if (!i.mfgDate || !i.expiryDate) {
-        toast.error(`${label}: manufacturing and expiry dates are required`)
+      if (!i.expiryDate) {
+        toast.error(`${label}: expiry date is required`)
         return
       }
-      const mfg = new Date(i.mfgDate).getTime()
       const exp = new Date(i.expiryDate).getTime()
-      if (Number.isNaN(mfg) || Number.isNaN(exp)) {
-        toast.error(`${label}: invalid manufacturing or expiry date`)
-        return
-      }
-      if (exp <= mfg) {
-        toast.error(`${label}: expiry date must be after manufacturing date`)
+      if (Number.isNaN(exp)) {
+        toast.error(`${label}: invalid expiry date`)
         return
       }
       if (exp < Date.now()) {
-        toast.error(`${label}: this batch has already expired — refusing to receive`)
+        toast.error(`${label}: expiry date must be today or in the future`)
         return
       }
       if (Number(i.purchaseRate) < 0 || Number(i.mrp) < 0) {
@@ -441,7 +436,6 @@ export default function GRNPage() {
           receivedQty: Number(i.receivedQty),
           freeQty: Number(i.freeQty || 0),
           batchNumber: i.batchNumber,
-          mfgDate: new Date(i.mfgDate).toISOString(),
           expiryDate: new Date(i.expiryDate).toISOString(),
           purchaseRate: Number(i.purchaseRate),
           mrp: Number(i.mrp),
@@ -987,7 +981,7 @@ export default function GRNPage() {
                         </div>
                       </div>
                       {/* Batch & dates row */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
@@ -998,14 +992,6 @@ export default function GRNPage() {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Mfg Date</Label>
-                          <DatePicker
-                            className="h-9 text-xs font-medium border-primary/5 bg-muted/20 focus:bg-background transition-all"
-                            value={item.mfgDate}
-                            onChange={(v) => updateItem(index, 'mfgDate', v)}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
                           <DatePicker
                             className={cn(
@@ -1013,6 +999,7 @@ export default function GRNPage() {
                               item.expiryDate && "text-primary"
                             )}
                             value={item.expiryDate}
+                            min={new Date().toISOString().slice(0, 10)}
                             onChange={(v) => updateItem(index, 'expiryDate', v)}
                           />
                         </div>

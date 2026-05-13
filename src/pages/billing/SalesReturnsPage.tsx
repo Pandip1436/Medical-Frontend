@@ -570,7 +570,7 @@ export default function SalesReturnsPage() {
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* ── Fixed Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
-        {/* Row 1: back button + title */}
+        {/* Title on the left, step indicators on the right */}
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -584,10 +584,44 @@ export default function SalesReturnsPage() {
             <h1 className="text-base font-bold tracking-tight leading-tight">Sales Returns</h1>
             <p className="hidden sm:block text-[11px] text-muted-foreground">Create credit notes for returned goods</p>
           </div>
+
+          <div className="ml-auto hidden md:flex items-center gap-1">
+            {STEPS.map((step, idx) => {
+              const isActive = currentStep === step.number
+              const isCompleted = currentStep > step.number
+              return (
+                <div key={step.number} className="flex items-center">
+                  <button
+                    onClick={() => { if (isCompleted) goToStep(step.number) }}
+                    disabled={!isCompleted && !isActive}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-all',
+                      isActive && 'bg-primary text-primary-foreground shadow-sm',
+                      isCompleted && 'bg-primary/10 text-primary cursor-pointer hover:bg-primary/20',
+                      !isActive && !isCompleted && 'text-muted-foreground'
+                    )}
+                  >
+                    <div className={cn(
+                      'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0',
+                      isActive && 'bg-primary-foreground/20',
+                      isCompleted && 'bg-primary/20',
+                      !isActive && !isCompleted && 'bg-muted'
+                    )}>
+                      {isCompleted ? <Check className="h-3 w-3" /> : step.number}
+                    </div>
+                    <span>{step.label}</span>
+                  </button>
+                  {idx < STEPS.length - 1 && (
+                    <div className={cn('mx-1 h-px w-6 shrink-0', isCompleted ? 'bg-primary' : 'bg-border')} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Row 2: step indicators */}
-        <div className="mt-3 flex items-center gap-1 pl-1">
+        {/* Step indicators on small screens (stacked below title) */}
+        <div className="mt-3 flex md:hidden items-center gap-1 pl-1">
           {STEPS.map((step, idx) => {
             const isActive = currentStep === step.number
             const isCompleted = currentStep > step.number
@@ -717,11 +751,12 @@ export default function SalesReturnsPage() {
                 </ScrollArea>
 
                 {totalPages > 1 && (
-                  <div className="shrink-0 border-t border-border/40 bg-muted/5 p-4">
+                  <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
                     <DataTablePagination
                       currentPage={currentPage}
                       totalPages={totalPages}
                       onPageChange={setCurrentPage}
+                      className="!justify-center !gap-2 !py-0 [&>div]:!ml-0 [&_button]:!h-9 [&_input]:!h-9"
                     />
                   </div>
                 )}
@@ -740,29 +775,24 @@ export default function SalesReturnsPage() {
                   <div className="flex h-full flex-col">
                     {/* Invoice header */}
                     <div className="shrink-0 border-b border-border/40 p-5">
-                      <div className="flex items-start justify-between">
-                        <div>
+                      <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+                        <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             Selected Invoice
                           </p>
-                          <p className="mt-1 font-mono text-lg font-bold">{fmtInvoiceNum(selectedInvoice)}</p>
+                          <p className="mt-0.5 font-mono text-sm font-bold truncate" title={fmtInvoiceNum(selectedInvoice)}>{fmtInvoiceNum(selectedInvoice)}</p>
                         </div>
-                        <Badge variant="success" size="sm" dot>
-                          {selectedInvoice.status}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
-                          <p className="mt-0.5 text-sm font-medium">{selectedInvoice.customerName}</p>
+                          <p className="mt-0.5 text-sm font-medium truncate" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</p>
-                          <p className="mt-0.5 text-sm">{formatDate(selectedInvoice.date)}</p>
+                          <p className="mt-0.5 text-sm whitespace-nowrap">{formatDate(selectedInvoice.date)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-                          <p className="mt-0.5 font-mono text-sm font-bold">{formatCurrency(selectedInvoice.grandTotal)}</p>
+                          <p className="mt-0.5 font-mono text-sm font-bold whitespace-nowrap">{formatCurrency(selectedInvoice.grandTotal)}</p>
                         </div>
                       </div>
                     </div>
@@ -770,9 +800,14 @@ export default function SalesReturnsPage() {
                     {/* Items list */}
                     <ScrollArea className="min-h-0 flex-1">
                       <div className="p-5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                          Items ({selectedInvoice.items.length})
-                        </p>
+                        <div className="mb-3 flex items-center justify-between">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Items ({selectedInvoice.items.length})
+                          </p>
+                          <Badge variant="success" size="sm" dot>
+                            {selectedInvoice.status}
+                          </Badge>
+                        </div>
                         <div className="space-y-2">
                           {selectedInvoice.items.map((item) => (
                             <div key={item.id} className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 p-3 dark:bg-muted/10">
@@ -794,11 +829,15 @@ export default function SalesReturnsPage() {
                     </ScrollArea>
 
                     {/* Fixed footer with action */}
-                    <div className="shrink-0 border-t border-border/40 bg-muted/10 p-4">
-                      <Button className="w-full" onClick={() => goToStep(2)}>
+                    <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
+                      <button
+                        type="button"
+                        onClick={() => goToStep(2)}
+                        className="flex w-full h-9 items-center justify-center gap-1 rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all duration-150 hover:bg-primary/90 active:scale-[0.97]"
+                      >
                         Continue to Select Items
                         <ChevronRight className="ml-1 h-4 w-4" />
-                      </Button>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -806,10 +845,15 @@ export default function SalesReturnsPage() {
 
               {/* Mobile: Continue button when invoice selected (shown on small screens) */}
               {selectedInvoice && (
-                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md p-4 lg:hidden z-50">
-                  <Button className="w-full h-11 text-base font-bold shadow-lg shadow-primary/20" onClick={() => goToStep(2)}>
+                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-2 lg:hidden z-50">
+                  <Button
+                    size="sm"
+                    className="w-full text-xs"
+                    style={{ height: '2rem' }}
+                    onClick={() => goToStep(2)}
+                  >
                     Continue with {fmtInvoiceNum(selectedInvoice).split('/').pop()}
-                    <ChevronRight className="ml-2 h-5 w-5" />
+                    <ChevronRight className="ml-1 h-4 w-4" />
                   </Button>
                 </div>
               )}
@@ -838,7 +882,7 @@ export default function SalesReturnsPage() {
                   <Badge variant="outline" size="sm" className="font-mono">
                     {fmtInvoiceNum(selectedInvoice)}
                   </Badge>
-                  <span className="text-sm font-medium truncate max-w-40">{selectedInvoice.customerName}</span>
+                  <span className="text-sm font-medium" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</span>
                 </div>
                 {selectedReturnItems.length > 0 && (
                   <Badge variant="info" dot size="sm" className="self-start sm:self-auto">
@@ -1075,28 +1119,26 @@ export default function SalesReturnsPage() {
               <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[60%] overflow-y-auto">
                 {/* Pinned: Document header */}
                 <div className="shrink-0 bg-linear-to-r from-primary/5 to-primary/2 border-b border-border/40 p-5 dark:from-primary/10 dark:to-primary/3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Credit Note</p>
-                      <p className="mt-1 font-mono text-xl font-bold">{creditNoteNumber}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against Invoice</p>
-                      <p className="font-mono text-sm font-medium">{fmtInvoiceNum(selectedInvoice)}</p>
-                    </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Credit Note</p>
+                    <p className="mt-1 font-mono text-xl font-bold">{creditNoteNumber}</p>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                    <div>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-8 gap-y-3 text-sm">
+                    <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
-                      <p className="mt-0.5 font-medium">{selectedInvoice.customerName}</p>
+                      <p className="mt-0.5 font-medium truncate" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against Invoice</p>
+                      <p className="mt-0.5 font-mono font-medium whitespace-nowrap" title={fmtInvoiceNum(selectedInvoice)}>{fmtInvoiceNum(selectedInvoice)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date</p>
-                      <p className="mt-0.5">{formatDate(selectedInvoice.date)}</p>
+                      <p className="mt-0.5 whitespace-nowrap">{formatDate(selectedInvoice.date)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Return Date</p>
-                      <p className="mt-0.5">{formatDate(new Date().toISOString())}</p>
+                      <p className="mt-0.5 whitespace-nowrap">{formatDate(new Date().toISOString())}</p>
                     </div>
                   </div>
                 </div>
@@ -1110,8 +1152,8 @@ export default function SalesReturnsPage() {
                       <div className="col-span-1 text-center">Qty</div>
                       <div className="col-span-2 text-right">Rate</div>
                       <div className="col-span-1 text-right">GST</div>
-                      <div className="col-span-2 text-right">Amount</div>
-                      <div className="col-span-2">Reason</div>
+                      <div className="col-span-2 text-center">Amount</div>
+                      <div className="col-span-2 text-center">Reason</div>
                     </div>
                     {selectedReturnItems.map((ri) => {
                       const lineRate = Number(ri.item.rate) * (1 - Number(ri.item.discountPercent) / 100)
@@ -1127,8 +1169,8 @@ export default function SalesReturnsPage() {
                           <div className="col-span-1 text-center font-mono font-semibold">{ri.returnQty}</div>
                           <div className="col-span-2 text-right font-mono">{formatCurrency(lineRate)}</div>
                           <div className="col-span-1 text-right text-muted-foreground">{ri.item.gstPercent}%</div>
-                          <div className="col-span-2 text-right font-mono font-semibold">{formatCurrency(lineAmount)}</div>
-                          <div className="col-span-2">
+                          <div className="col-span-2 text-center font-mono font-semibold">{formatCurrency(lineAmount)}</div>
+                          <div className="col-span-2 flex justify-center">
                             <Badge variant={badgeVariant} size="sm" dot>{displayReason}</Badge>
                           </div>
                         </div>
@@ -1139,7 +1181,11 @@ export default function SalesReturnsPage() {
 
                 {/* Pinned: Totals */}
                 <div className="shrink-0 border-t border-border/40 bg-muted/10 px-5 py-4 dark:bg-muted/5">
-                  <div className="flex flex-wrap items-center justify-end gap-4 sm:gap-8">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <Button variant="outline" size="sm" onClick={() => goToStep(2)}>
+                      <ChevronLeft className="mr-1.5 h-4 w-4" />
+                      Back to Items
+                    </Button>
                     <div className="flex items-center gap-2 text-sm">
                       <span className="text-muted-foreground">Subtotal</span>
                       <span className="font-mono font-medium">{formatCurrency(creditSummary.subtotal)}</span>
@@ -1294,31 +1340,22 @@ export default function SalesReturnsPage() {
                       </div>
                     </div>
 
-                    <Separator />
-
-                    {/* Quick Actions */}
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                        After Creating
-                      </p>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1" onClick={handlePrintCreditNote}>
-                          <Printer className="mr-1.5 h-3.5 w-3.5" />
-                          Print
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1" onClick={handleDownloadCreditNote}>
-                          <Download className="mr-1.5 h-3.5 w-3.5" />
-                          Download
-                        </Button>
-                      </div>
-                    </div>
                   </div>
                 </ScrollArea>
 
                 {/* Pinned action footer */}
-                <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
+                <div className="shrink-0 border-t border-border/40 bg-background p-4 flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={handlePrintCreditNote}>
+                    <Printer className="mr-1.5 h-3.5 w-3.5" />
+                    Print
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1" onClick={handleDownloadCreditNote}>
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    Download
+                  </Button>
                   <Button
-                    className={`w-full ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                    size="sm"
+                    className={`flex-1 ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
                     onClick={handleConfirmReturn}
                   >
                     {isPharmacist
@@ -1326,10 +1363,6 @@ export default function SalesReturnsPage() {
                       : <RotateCcw className="mr-1.5 h-4 w-4" />
                     }
                     {isPharmacist ? 'Request Approval' : 'Confirm Return & Create Credit Note'}
-                  </Button>
-                  <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
-                    <ChevronLeft className="mr-1.5 h-4 w-4" />
-                    Back to Items
                   </Button>
                 </div>
               </div>

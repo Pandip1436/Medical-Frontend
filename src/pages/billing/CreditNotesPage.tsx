@@ -7,8 +7,6 @@ import {
   FileX2,
   Receipt,
   IndianRupee,
-  ChevronLeft,
-  ChevronRight,
   Printer,
   Download,
   Eye,
@@ -16,6 +14,8 @@ import {
   Wallet,
   RefreshCw,
   BadgeCheck,
+  Package,
+  ExternalLink,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -32,11 +32,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -285,37 +285,6 @@ export default function CreditNotesPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Credit Notes</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            All sales return credit notes issued to customers
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => {
-            if (!filtered.length) { toast.info('No credit notes to export'); return }
-            exportToCsv(filtered.map(cn => ({
-              'Credit Note #': cn.creditNoteNo,
-              Date: formatDate(cn.date),
-              Customer: cn.customerName,
-              'Invoice #': cn.invoiceNumber,
-              Reason: cn.reason,
-              Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
-              Total: cn.totalAmount,
-            })), 'credit-notes')
-          }}>
-            <Download className="mr-1.5 h-4 w-4" />
-            CSV
-          </Button>
-          <Button size="sm" onClick={() => navigate('/billing/returns')}>
-            <RotateCcw className="mr-1.5 h-4 w-4" />
-            New Return
-          </Button>
-        </div>
-      </div>
-
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -375,6 +344,39 @@ export default function CreditNotesPage() {
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={() => {
+                if (!filtered.length) { toast.info('No credit notes to export'); return }
+                exportToCsv(filtered.map(cn => ({
+                  'Credit Note #': cn.creditNoteNo,
+                  Date: formatDate(cn.date),
+                  Customer: cn.customerName,
+                  'Invoice #': cn.invoiceNumber,
+                  Reason: cn.reason,
+                  Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
+                  Total: cn.totalAmount,
+                })), 'credit-notes')
+              }}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">CSV</span>
+            </Button>
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={() => navigate('/billing/returns')}
+            >
+              <RotateCcw className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">New Return</span>
+              <span className="sm:hidden">New</span>
+            </Button>
+          </div>
+        }
       >
         <EnumSelect
           label="Period"
@@ -565,97 +567,161 @@ export default function CreditNotesPage() {
         />
       </Card>
 
-      {/* ── Detail Dialog ── */}
-      <AnimatePresence>
-        {detailNote && (
-          <Dialog open onOpenChange={(open) => { if (!open) setDetailNote(null) }}>
-            <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-primary" />
-                  {detailNote.creditNoteNo}
-                </DialogTitle>
-              </DialogHeader>
-
-              {/* Meta grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl border border-border/60 bg-muted/30 p-4">
-                {[
-                  { label: 'Date', value: formatDate(detailNote.date) },
-                  { label: 'Customer', value: detailNote.customerName },
-                  { label: 'Against Invoice', value: detailNote.invoiceNumber },
-                  { label: 'Reason', value: detailNote.reason },
-                  { label: 'Settlement', value: settlementConfig[detailNote.settlementMode]?.label ?? detailNote.settlementMode },
-                  { label: 'Notes', value: detailNote.notes || '—' },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-                    <p className="mt-0.5 text-sm font-medium truncate">{value}</p>
+      {/* ── Detail Drawer ── */}
+      <Sheet open={!!detailNote} onOpenChange={(open) => { if (!open) setDetailNote(null) }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        >
+          {detailNote && (() => {
+            const settlement = settlementConfig[detailNote.settlementMode]
+            const itemCount = (detailNote.items ?? []).length
+            return (
+              <>
+                {/* ── Sticky Header ── */}
+                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                  <div className="flex items-center justify-between gap-3 pr-8">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <SheetTitle className="font-mono text-base font-semibold truncate">
+                        {detailNote.creditNoteNo}
+                      </SheetTitle>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(detailNote.date)}
+                      </span>
+                    </div>
+                    <Badge variant="info" size="sm" className="gap-1">
+                      <Package className="h-3 w-3" />
+                      {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                    </Badge>
                   </div>
-                ))}
-              </div>
+                </SheetHeader>
 
-              {/* Items table */}
-              <div className="rounded-xl border border-border/60 overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40">
-                      <TableHead className="text-[10px]">Product</TableHead>
-                      <TableHead className="text-[10px]">Batch</TableHead>
-                      <TableHead className="text-[10px] text-center">Qty</TableHead>
-                      <TableHead className="text-[10px] text-right">Rate</TableHead>
-                      <TableHead className="text-[10px] text-center">GST%</TableHead>
-                      <TableHead className="text-[10px] text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detailLoading ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-4 text-sm text-muted-foreground animate-pulse">Loading items…</TableCell></TableRow>
-                    ) : (detailNote.items ?? []).map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="text-sm font-medium">{item.productName}</TableCell>
-                        <TableCell className="font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>
-                        <TableCell className="text-center text-sm font-semibold">{item.returnedQty}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.rate)}</TableCell>
-                        <TableCell className="text-center text-[11px] text-muted-foreground">{item.gstPercent}%</TableCell>
-                        <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(item.amount)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Totals */}
-              <div className="space-y-1.5 rounded-xl border border-border/60 bg-muted/20 p-4">
-                {[
-                  { label: 'Subtotal', value: detailNote.subtotal },
-                  { label: 'CGST', value: detailNote.cgst },
-                  { label: 'SGST', value: detailNote.sgst },
-                ].map(({ label, value }) => (
-                  <div key={label} className="flex justify-between text-sm text-muted-foreground">
-                    <span>{label}</span>
-                    <span className="font-mono">{formatCurrency(value)}</span>
+                {/* ── Scrollable Body ── */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Customer / Against Invoice / Reason / Settlement — single row, equal width */}
+                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
+                      <p className="mt-0.5 text-sm font-medium truncate" title={detailNote.customerName}>{detailNote.customerName}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Against Invoice</p>
+                      <p className="mt-0.5 font-mono text-xs font-medium truncate" title={detailNote.invoiceNumber}>{detailNote.invoiceNumber}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Reason</p>
+                      <p className="mt-0.5 text-sm font-medium truncate" title={detailNote.reason}>{detailNote.reason}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
+                      <div className="mt-0.5">
+                        <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
+                          {settlement?.label ?? detailNote.settlementMode}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
-                ))}
-                <div className="mt-2 flex justify-between border-t border-border/60 pt-2">
-                  <span className="text-base font-bold">Total Credit</span>
-                  <span className="font-mono text-lg font-bold text-rose-600 dark:text-rose-400">
-                    {formatCurrency(detailNote.totalAmount)}
-                  </span>
+
+                  {/* Notes — conditional, full width */}
+                  {detailNote.notes && (
+                    <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</p>
+                      <p className="mt-0.5 text-sm">{detailNote.notes}</p>
+                    </div>
+                  )}
+
+                  {/* Items — proper table with sticky header */}
+                  <div className="overflow-hidden rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST%</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detailLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground animate-pulse">
+                              Loading items…
+                            </TableCell>
+                          </TableRow>
+                        ) : (detailNote.items ?? []).map((item, idx) => (
+                          <TableRow key={item.id} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
+                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm font-medium">{item.productName}</TableCell>
+                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{item.batchNumber}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.returnedQty}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
-              </div>
 
-              {/* Actions */}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => handlePrint(detailNote)}>
-                  <Printer className="mr-1.5 h-4 w-4" />
-                  Print
-                </Button>
-                <Button size="sm" onClick={() => setDetailNote(null)}>Close</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-      </AnimatePresence>
+                {/* ── Sticky Footer: totals strip + actions ── */}
+                <div className="shrink-0 border-t border-border/40 bg-background">
+                  {/* Totals strip — single horizontal row */}
+                  <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
+                    {([
+                      { label: 'Subtotal', value: detailNote.subtotal },
+                      { label: 'CGST', value: detailNote.cgst },
+                      { label: 'SGST', value: detailNote.sgst },
+                      detailNote.igst > 0 ? { label: 'IGST', value: detailNote.igst } : null,
+                      { label: 'Total Credit', value: detailNote.totalAmount, highlight: true as const, tone: 'rose' as const },
+                    ].filter(Boolean) as Array<{ label: string; value: number; tone?: 'rose'; highlight?: boolean }>).map((row, i) => (
+                      <div
+                        key={row.label}
+                        className={cn(
+                          'flex flex-1 min-w-[72px] flex-col justify-center whitespace-nowrap px-3 py-2',
+                          i > 0 && 'border-l border-border/40',
+                          row.highlight && 'bg-rose-50 dark:bg-rose-950/20'
+                        )}
+                      >
+                        <p className={cn(
+                          'text-[9px] font-semibold uppercase tracking-wider',
+                          row.tone === 'rose' ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'
+                        )}>{row.label}</p>
+                        <p className={cn(
+                          'mt-0.5 font-mono text-xs',
+                          row.highlight && 'text-sm font-bold',
+                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400'
+                        )}>{formatCurrency(row.value)}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="px-5 py-3 flex gap-2">
+                    <Button className="flex-1 gap-2" onClick={() => handlePrint(detailNote)}>
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      onClick={() => { setDetailNote(null); navigate(`/billing/sales?invoiceId=${encodeURIComponent(detailNote.invoiceId)}`) }}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      <span className="hidden sm:inline">View Invoice</span>
+                      <span className="sm:hidden">Invoice</span>
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </motion.div>
   )
 }

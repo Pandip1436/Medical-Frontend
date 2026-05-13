@@ -1,24 +1,24 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
-  PackageCheck, Search, ChevronLeft, ChevronRight,
+  PackageCheck,
   AlertTriangle, Printer, RefreshCw,
   ClipboardList, TrendingUp, Truck, Calendar,
   FileText, CheckCircle2, XCircle, ShieldAlert,
   RotateCcw,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog, DialogContent, DialogTitle,
-} from '@/components/ui/dialog'
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from '@/components/ui/sheet'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import api from '@/lib/api'
@@ -314,225 +314,276 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   const totalLineValue = grn.items.reduce((s, i) => s + (i.receivedQty + (i.freeQty ?? 0)) * i.purchaseRate, 0)
 
   return (
-    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-2xl md:w-[95vw] md:max-w-7xl md:h-[92vh] flex flex-col overflow-hidden">
-
-        {/* ══ HEADER ══════════════════════════════════════════════ */}
-        <div className="shrink-0 flex items-center justify-between gap-4 px-6 py-3 border-b border-border/50 bg-muted/20">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              <PackageCheck className="h-4 w-4 text-primary" />
-            </div>
-            <div className="min-w-0 flex items-center gap-2 flex-wrap">
-              <DialogTitle className="text-base font-bold font-mono tracking-tight">{grn.grnNumber}</DialogTitle>
-              <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct Entry'}</Badge>
-              {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
-              {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
-              {totalShort > 0 && resolvedShortages.length < shortItems.length && <Badge variant="warning" size="sm">{totalShort} Short</Badge>}
-              {resolvedShortages.length > 0 && resolvedShortages.length === shortItems.length && <Badge variant="success" size="sm">Shortage Resolved</Badge>}
-              <span className="text-muted-foreground/40 hidden sm:inline">·</span>
-              <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground"><Truck className="h-3 w-3" /><span className="font-medium text-foreground">{grn.supplierName}</span></span>
-              <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground"><Calendar className="h-3 w-3" />{formatDate(grn.date)}</span>
-              <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground"><FileText className="h-3 w-3" />{grn.supplierInvoiceNo || '—'}</span>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={handlePrint}>
-            <Printer className="h-3.5 w-3.5" /> Print
-          </Button>
-        </div>
-
-        {/* ══ STATS + PAYMENT ROW ═════════════════════════════════ */}
-        <div className="shrink-0 flex border-b border-border/50">
-
-          {/* ── Left: 6 compact stat chips ── */}
-          <div className="flex divide-x divide-border/40 flex-1 bg-muted/10">
-            {[
-              { label: 'Products', value: String(grn.items.length),                                  color: 'text-foreground' },
-              { label: 'Ordered',  value: totalOrdered > 0 ? String(totalOrdered) : '—',             color: 'text-foreground' },
-              { label: 'Received', value: `+${totalReceived}`,                                       color: 'text-emerald-600 dark:text-emerald-400' },
-              { label: 'Free',     value: totalFree > 0 ? `+${totalFree}` : '—',                     color: totalFree > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground/50' },
-              { label: 'Damaged',  value: totalDamaged > 0 ? String(totalDamaged) : '—',             color: totalDamaged > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/50' },
-              { label: 'Short',    value: totalShort > 0 ? `−${totalShort}` : '✓ Full',              color: totalShort > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400' },
-            ].map(s => (
-              <div key={s.label} className="flex flex-col justify-center px-4 py-2.5 min-w-0">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">{s.label}</p>
-                <p className={cn('text-base font-bold font-mono leading-tight mt-0.5 whitespace-nowrap', s.color)}>{s.value}</p>
+    <>
+      <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[1200px] p-0 gap-0 flex flex-col"
+        >
+          {/* ── Sticky Header ── */}
+          <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+            <div className="flex items-center justify-between gap-3 pr-10">
+              <div className="flex min-w-0 items-baseline gap-2 flex-wrap">
+                <SheetTitle className="font-mono text-base font-semibold truncate">
+                  {grn.grnNumber}
+                </SheetTitle>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {formatDate(grn.date)}
+                </span>
               </div>
-            ))}
-          </div>
-
-          {/* ── Right: Payment highlight panel ── */}
-          <div className="shrink-0 flex border-l border-border/50 bg-emerald-50/60 dark:bg-emerald-950/20">
-            {/* Amount we paid */}
-            <div className="flex flex-col justify-center px-5 py-2.5 border-r border-border/40">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">We Paid</p>
-              <p className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">
-                {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount || 0)}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Supplier invoice amount</p>
-            </div>
-            {/* Supporting details */}
-            <div className="flex flex-col justify-center gap-1 px-5 py-2.5 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-20 shrink-0">GRN Total</span>
-                <span className="font-mono font-semibold text-foreground">{formatCurrency(grn.totalAmount || 0)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-20 shrink-0">Line Total</span>
-                <span className="font-mono font-semibold text-foreground">{formatCurrency(totalLineValue)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground w-20 shrink-0">Inv. Date</span>
-                <span className="font-medium text-foreground">{grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—'}</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* ══ ALERT BANNERS ═══════════════════════════════════════ */}
-        {(shortItems.length > 0 || damagedItems.length > 0 || resolvedShortages.length > 0) && (
-          <div className="shrink-0 px-7 py-2.5 flex flex-wrap gap-2 border-b border-border/40 bg-muted/5">
-            {resolvedShortages.length > 0 && (
-              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3.5 py-2 dark:border-emerald-800/40 dark:bg-emerald-900/10">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Shortage Resolved</p>
-                  {resolvedShortages.map((r, idx) => (
-                    <span key={idx} className="rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-                      {r.item.productName}: {r.missingQty} short → {
-                        r.resolvedBy === 'debit'
-                          ? `debit note ${r.resolvingDebitNotes.map(n => n.split('-').slice(-1)[0]).join(', ')}`
-                          : `GRN ${r.resolvingGrns.map(n => n.split('-').slice(-1)[0]).join(', ')}`
-                      }
-                    </span>
-                  ))}
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct Entry'}</Badge>
+                  {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
+                  {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
+                  {totalShort > 0 && resolvedShortages.length < shortItems.length && <Badge variant="warning" size="sm">{totalShort} Short</Badge>}
+                  {resolvedShortages.length > 0 && resolvedShortages.length === shortItems.length && <Badge variant="success" size="sm">Resolved</Badge>}
                 </div>
-              </div>
-            )}
-            {shortItems.length > 0 && resolvedShortages.length < shortItems.length && (
-              <div className="flex items-center gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/60 px-3.5 py-2 dark:border-amber-800/40 dark:bg-amber-900/10">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Short Supply — {totalShort} unit{totalShort !== 1 ? 's' : ''}</p>
-                <div className="flex gap-1 ml-1">{shortItems.map((it, idx) => (
-                  <span key={idx} className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                    {it.productName} ({it.orderedQty}→{it.receivedQty})
-                  </span>
-                ))}</div>
-                <Button size="sm" variant="outline"
-                  className="ml-2 gap-1 text-amber-700 border-amber-300 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-400 h-7 px-2.5 text-[11px]"
-                  onClick={() => setShortBillingOpen(true)}>
-                  <FileText className="h-3 w-3" /> Raise Short-Billing Debit Note
+                <Button
+                  size="sm"
+                  className="gap-1.5 shrink-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"
+                  onClick={handlePrint}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Print
                 </Button>
               </div>
-            )}
-            {damagedItems.length > 0 && (
-              <div className="flex items-center gap-2.5 rounded-lg border border-rose-300/60 bg-rose-50/60 px-3.5 py-2 dark:border-rose-800/40 dark:bg-rose-900/10">
-                <XCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-                <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">Damaged — {totalDamaged} unit{totalDamaged !== 1 ? 's' : ''}</p>
-                <div className="flex gap-1 ml-1">{damagedItems.map((it, idx) => (
-                  <span key={idx} className="rounded-full bg-rose-100 dark:bg-rose-900/30 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-300">
-                    {it.productName} ({it.damageQty})
-                  </span>
-                ))}</div>
-                <Button size="sm" variant="outline"
-                  className="ml-2 gap-1 text-rose-600 border-rose-300 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 h-7 px-2.5 text-[11px]"
-                  onClick={() => { onClose(); navigate(`/purchase/returns?grnId=${grn.id}`) }}>
-                  <RotateCcw className="h-3 w-3" /> Raise Return
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          </SheetHeader>
 
-        {/* ══ ITEMS TABLE ═════════════════════════════════════════ */}
-        <div className="flex-1 overflow-auto min-h-0">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-card border-b-2 border-border/50">
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-7 w-12 text-center">#</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Batch</TableHead>
-                <TableHead className="text-right">Ordered</TableHead>
-                <TableHead className="text-right">Received</TableHead>
-                <TableHead className="text-right">Free</TableHead>
-                <TableHead className="text-right">Damaged</TableHead>
-                <TableHead className="text-right">Short</TableHead>
-                <TableHead className="text-right">Rate</TableHead>
-                <TableHead className="text-right">MRP</TableHead>
-                <TableHead className="text-right">Line Value</TableHead>
-                <TableHead className="pr-7">Expiry</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {grn.items.map((item, i) => {
-                const short        = Math.max(0, item.orderedQty - item.receivedQty)
-                const damaged      = item.damageQty ?? 0
-                const days         = item.expiryDate ? daysUntilExpiry(item.expiryDate) : null
-                const expired      = days !== null && days < 0
-                const expiringSoon = days !== null && days >= 0 && days <= 90
-                const lineValue    = (item.receivedQty + (item.freeQty ?? 0)) * item.purchaseRate
-                return (
-                  <TableRow key={i} className={cn(
-                    'h-14 border-b border-border/30',
-                    damaged > 0 && 'bg-rose-50/40 dark:bg-rose-950/10',
-                    short > 0 && !damaged && 'bg-amber-50/40 dark:bg-amber-950/10',
-                  )}>
-                    <TableCell className="pl-7 text-center text-xs text-muted-foreground font-mono">{i + 1}</TableCell>
-                    <TableCell className="font-semibold text-sm">{item.productName}</TableCell>
-                    <TableCell><span className="font-mono text-xs bg-muted/60 rounded px-2 py-1">{item.batchNumber}</span></TableCell>
-                    <TableCell className="text-right text-sm font-mono text-muted-foreground">{item.orderedQty > 0 ? item.orderedQty : '—'}</TableCell>
-                    <TableCell className="text-right text-sm font-mono font-bold text-emerald-700 dark:text-emerald-300">+{item.receivedQty}</TableCell>
-                    <TableCell className="text-right text-sm font-mono">
-                      {(item.freeQty ?? 0) > 0 ? <span className="text-blue-600 dark:text-blue-400 font-semibold">+{item.freeQty}</span> : <span className="text-muted-foreground/40">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right text-sm font-mono">
-                      {damaged > 0 ? <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400"><XCircle className="h-3.5 w-3.5" />{damaged}</span> : <span className="text-muted-foreground/40">—</span>}
-                    </TableCell>
-                    <TableCell className="text-right text-sm font-mono">
-                      {short > 0
-                        ? <span className="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3.5 w-3.5" />−{short}</span>
-                        : <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Full</span>
-                      }
-                    </TableCell>
-                    <TableCell className="text-right text-sm font-mono">{formatCurrency(item.purchaseRate)}</TableCell>
-                    <TableCell className="text-right text-sm font-mono text-muted-foreground">{formatCurrency(item.mrp)}</TableCell>
-                    <TableCell className="text-right text-sm font-mono font-semibold">{formatCurrency(lineValue)}</TableCell>
-                    <TableCell className="pr-7">
-                      {item.expiryDate ? (
-                        <span className={cn(
-                          'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold',
-                          expired ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-                          : expiringSoon ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                          : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
-                        )}>
-                          {expired ? <XCircle className="h-3 w-3" /> : expiringSoon ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                          {new Date(item.expiryDate).toLocaleDateString('en-IN')}
-                          {expiringSoon && !expired && ` · ${days}d`}
-                          {expired && ' · Expired'}
+          {/* ── Scrollable Body ── */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            {/* Info row — Supplier / GRN Date / Invoice # / Invoice Date / Invoice Amount */}
+            <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+              {[
+                { label: 'Supplier', value: grn.supplierName, icon: <Truck className="h-3 w-3 text-muted-foreground/60" /> },
+                { label: 'GRN Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
+                { label: 'Invoice #', value: grn.supplierInvoiceNo || '—', icon: <FileText className="h-3 w-3 text-muted-foreground/60" /> },
+                { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
+                { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
+              ].map((c, i) => (
+                <div key={c.label} className={cn('flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3', i > 0 && 'border-l border-border/40')}>
+                  <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                    {c.icon}
+                    {c.label}
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium truncate" title={c.value}>{c.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Payment highlight panel */}
+            <div className="flex items-stretch overflow-x-auto rounded-xl border border-emerald-300/40 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-800/40">
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">We Paid</p>
+                <p className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">
+                  {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount || 0)}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">Supplier invoice amount</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GRN Total</p>
+                <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.totalAmount || 0)}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Line Total</p>
+                <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(totalLineValue)}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Inv. Date</p>
+                <p className="mt-0.5 text-sm font-medium whitespace-nowrap">{grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—'}</p>
+              </div>
+            </div>
+
+            {/* Alert banners — conditional */}
+            {(shortItems.length > 0 || damagedItems.length > 0 || resolvedShortages.length > 0) && (
+              <div className="flex flex-col gap-2">
+                {resolvedShortages.length > 0 && (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-emerald-300/60 bg-emerald-50/60 px-4 py-3 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Shortage Resolved</p>
+                      {resolvedShortages.map((r, idx) => (
+                        <span key={idx} className="rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                          {r.item.productName}: {r.missingQty} short → {
+                            r.resolvedBy === 'debit'
+                              ? `debit note ${r.resolvingDebitNotes.map(n => n.split('-').slice(-1)[0]).join(', ')}`
+                              : `GRN ${r.resolvingGrns.map(n => n.split('-').slice(-1)[0]).join(', ')}`
+                          }
                         </span>
-                      ) : <span className="text-muted-foreground/40 text-xs">—</span>}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {/* Totals row */}
-              <TableRow className="bg-muted/30 border-t-2 border-border/50 font-semibold">
-                <TableCell className="pl-7 text-center text-xs text-muted-foreground" colSpan={3}>TOTALS</TableCell>
-                <TableCell className="text-right text-sm font-mono">{totalOrdered}</TableCell>
-                <TableCell className="text-right text-sm font-mono text-emerald-700 dark:text-emerald-300">+{totalReceived}</TableCell>
-                <TableCell className="text-right text-sm font-mono text-blue-600">{totalFree > 0 ? `+${totalFree}` : '—'}</TableCell>
-                <TableCell className="text-right text-sm font-mono text-rose-600">{totalDamaged > 0 ? totalDamaged : '—'}</TableCell>
-                <TableCell className="text-right text-sm font-mono text-amber-600">{totalShort > 0 ? `−${totalShort}` : '—'}</TableCell>
-                <TableCell colSpan={2} />
-                <TableCell className="text-right text-sm font-mono text-primary">{formatCurrency(totalLineValue)}</TableCell>
-                <TableCell className="pr-7" />
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {shortItems.length > 0 && resolvedShortages.length < shortItems.length && (
+                  <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Short Supply — {totalShort} unit{totalShort !== 1 ? 's' : ''}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {shortItems.map((it, idx) => (
+                        <span key={idx} className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                          {it.productName} ({it.orderedQty}→{it.receivedQty})
+                        </span>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto gap-1 text-amber-700 border-amber-300 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-400 h-7 px-2.5 text-[11px]"
+                      onClick={() => setShortBillingOpen(true)}
+                    >
+                      <FileText className="h-3 w-3" /> Raise Short-Billing Debit Note
+                    </Button>
+                  </div>
+                )}
+                {damagedItems.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-rose-300/60 bg-rose-50/60 px-4 py-3 dark:border-rose-800/40 dark:bg-rose-900/10">
+                    <XCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                    <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">Damaged — {totalDamaged} unit{totalDamaged !== 1 ? 's' : ''}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {damagedItems.map((it, idx) => (
+                        <span key={idx} className="rounded-full bg-rose-100 dark:bg-rose-900/30 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-300">
+                          {it.productName} ({it.damageQty})
+                        </span>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto gap-1 text-rose-600 border-rose-300 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 h-7 px-2.5 text-[11px]"
+                      onClick={() => { onClose(); navigate(`/purchase/returns?grnId=${grn.id}`) }}
+                    >
+                      <RotateCcw className="h-3 w-3" /> Raise Return
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
-      </DialogContent>
+            {/* Items table */}
+            <div className="overflow-hidden rounded-xl border border-border/40">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                    <TableRow className="border-b border-border/40 hover:bg-transparent">
+                      <TableHead className="h-9 w-10 px-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ordered</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Received</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Free</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Damaged</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Short</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Line Value</TableHead>
+                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {grn.items.map((item, i) => {
+                      const short        = Math.max(0, item.orderedQty - item.receivedQty)
+                      const damaged      = item.damageQty ?? 0
+                      const days         = item.expiryDate ? daysUntilExpiry(item.expiryDate) : null
+                      const expired      = days !== null && days < 0
+                      const expiringSoon = days !== null && days >= 0 && days <= 90
+                      const lineValue    = (item.receivedQty + (item.freeQty ?? 0)) * item.purchaseRate
+                      return (
+                        <TableRow key={i} className={cn(
+                          'border-b border-border/30 last:border-b-0',
+                          damaged > 0 && 'bg-rose-50/40 dark:bg-rose-950/10',
+                          short > 0 && !damaged && 'bg-amber-50/40 dark:bg-amber-950/10',
+                        )}>
+                          <TableCell className="px-2 py-2.5 text-center text-xs text-muted-foreground font-mono">{i + 1}</TableCell>
+                          <TableCell className="px-3 py-2.5 font-semibold text-sm">{item.productName}</TableCell>
+                          <TableCell className="px-3 py-2.5"><span className="font-mono text-xs bg-muted/60 rounded px-2 py-1 whitespace-nowrap">{item.batchNumber}</span></TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono text-muted-foreground">{item.orderedQty > 0 ? item.orderedQty : '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono font-bold text-emerald-700 dark:text-emerald-300">+{item.receivedQty}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono">
+                            {(item.freeQty ?? 0) > 0 ? <span className="text-blue-600 dark:text-blue-400 font-semibold">+{item.freeQty}</span> : <span className="text-muted-foreground/40">—</span>}
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono">
+                            {damaged > 0 ? <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400"><XCircle className="h-3.5 w-3.5" />{damaged}</span> : <span className="text-muted-foreground/40">—</span>}
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono">
+                            {short > 0
+                              ? <span className="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3.5 w-3.5" />−{short}</span>
+                              : <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs"><CheckCircle2 className="h-3.5 w-3.5" />Full</span>
+                            }
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono whitespace-nowrap">{formatCurrency(item.purchaseRate)}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono text-muted-foreground whitespace-nowrap">{formatCurrency(item.mrp)}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right text-sm font-mono font-semibold whitespace-nowrap">{formatCurrency(lineValue)}</TableCell>
+                          <TableCell className="px-3 py-2.5">
+                            {item.expiryDate ? (
+                              <span className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap',
+                                expired ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                                : expiringSoon ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+                              )}>
+                                {expired ? <XCircle className="h-3 w-3" /> : expiringSoon ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                                {new Date(item.expiryDate).toLocaleDateString('en-IN')}
+                                {expiringSoon && !expired && ` · ${days}d`}
+                                {expired && ' · Expired'}
+                              </span>
+                            ) : <span className="text-muted-foreground/40 text-xs">—</span>}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sticky Footer: Totals strip ── */}
+          <div className="shrink-0 border-t border-border/40 bg-background">
+            <div className="flex items-stretch overflow-x-auto bg-muted/20">
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Totals</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Products</p>
+                <p className="mt-0.5 font-mono text-sm font-bold">{grn.items.length}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Ordered</p>
+                <p className="mt-0.5 font-mono text-sm font-bold">{totalOrdered}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Received</p>
+                <p className="mt-0.5 font-mono text-sm font-bold text-emerald-700 dark:text-emerald-300">+{totalReceived}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Free</p>
+                <p className={cn('mt-0.5 font-mono text-sm font-bold', totalFree > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground/40')}>
+                  {totalFree > 0 ? `+${totalFree}` : '—'}
+                </p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Damaged</p>
+                <p className={cn('mt-0.5 font-mono text-sm font-bold', totalDamaged > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/40')}>
+                  {totalDamaged > 0 ? totalDamaged : '—'}
+                </p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Short</p>
+                <p className={cn('mt-0.5 font-mono text-sm font-bold', totalShort > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/40')}>
+                  {totalShort > 0 ? `−${totalShort}` : '—'}
+                </p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 bg-primary/5 px-3 py-2 whitespace-nowrap">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Line Value</p>
+                <p className="mt-0.5 font-mono text-sm font-bold text-primary">{formatCurrency(totalLineValue)}</p>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <ShortBillingDialog
         open={shortBillingOpen}
         onOpenChange={setShortBillingOpen}
@@ -553,7 +604,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
         }))}
         onSuccess={() => onClose()}
       />
-    </Dialog>
+    </>
   )
 }
 
@@ -608,22 +659,6 @@ export default function GRNListPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Goods Received</h1>
-          <p className="text-sm text-muted-foreground">All purchase receipts — against PO and direct entries</p>
-        </div>
-        <div className="flex items-center gap-2 self-start">
-          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} /> Refresh
-          </Button>
-          <Button size="sm" onClick={() => navigate('/purchase/grn')} className="gap-1.5">
-            <PackageCheck className="h-4 w-4" /> New GRN
-          </Button>
-        </div>
-      </div>
-
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
@@ -646,16 +681,36 @@ export default function GRNListPage() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search GRN #, supplier or invoice..."
-          value={search}
-          onChange={e => { setSearch(e.target.value); setCurrentPage(1) }}
-        />
-      </div>
+      {/* Search + actions */}
+      <DataTableFilterBar
+        searchQuery={search}
+        onSearchChange={(val) => { setSearch(val); setCurrentPage(1) }}
+        searchPlaceholder="Search GRN #, supplier or invoice..."
+        resultsCount={filtered.length}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={load}
+            >
+              <RefreshCw className={cn('mr-1.5 h-4 w-4', loading && 'animate-spin')} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={() => navigate('/purchase/grn')}
+            >
+              <PackageCheck className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">New GRN</span>
+              <span className="sm:hidden">New</span>
+            </Button>
+          </div>
+        }
+      />
 
       {/* Table */}
       <Card className="overflow-hidden">

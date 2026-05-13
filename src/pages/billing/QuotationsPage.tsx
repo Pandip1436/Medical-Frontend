@@ -3,24 +3,19 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useRoute } from '@/lib/router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search,
   Plus,
-  MoreHorizontal,
-  Eye,
   Send,
   ArrowRightLeft,
-  Trash2,
   FileText,
   Download,
   Printer,
-  SlidersHorizontal,
   X,
-  ChevronLeft,
-  ChevronRight,
   IndianRupee,
   CheckCircle2,
   Clock,
   XCircle,
+  Package,
+  Share2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -53,11 +48,11 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
@@ -346,26 +341,6 @@ export default function QuotationsPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Quotations</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create and manage quotations for customers
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => navigate('/billing/new?type=quotation')}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Create Quotation
-          </Button>
-          <Button variant="outline" onClick={() => navigate('/billing/sales')}>
-            <FileText className="mr-1.5 h-4 w-4" />
-            Sales List
-          </Button>
-        </div>
-      </div>
-
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -427,6 +402,28 @@ export default function QuotationsPage() {
         resultsCount={filteredQuotations.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={() => navigate('/billing/new?type=quotation')}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Create Quotation</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => navigate('/billing/sales')}
+            >
+              <FileText className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Sales List</span>
+            </Button>
+          </div>
+        }
       >
         <EnumSelect
           label="Period"
@@ -748,85 +745,137 @@ export default function QuotationsPage() {
       </Card>
     </motion.div>
 
-    {/* ── Quotation Detail Dialog ── */}
-    <Dialog open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
-      <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
-        {detailQt && (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                {detailQt.quotationNumber}
-              </DialogTitle>
-            </DialogHeader>
+    {/* ── Quotation Detail Drawer ── */}
+    <Sheet open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+      >
+        {detailQt && (() => {
+          const canMarkSent = detailQt.status === 'DRAFT'
+          const canConvert = detailQt.status !== 'CONVERTED' && detailQt.status !== 'REJECTED'
+          return (
+            <>
+              {/* ── Sticky Header ── */}
+              <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                <div className="flex items-center justify-between gap-3 pr-8">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <SheetTitle className="font-mono text-base font-semibold truncate">
+                      {detailQt.quotationNumber}
+                    </SheetTitle>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(detailQt.date)}
+                    </span>
+                  </div>
+                </div>
+              </SheetHeader>
 
-            {/* Meta */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
-                <p className="mt-0.5 font-medium">{detailQt.customerName}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</p>
-                <p className="mt-0.5">{formatDate(detailQt.date)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
-                <Badge size="sm" variant={statusBadgeVariant[detailQt.status]} className="mt-0.5">
-                  {statusLabel[detailQt.status]}
-                </Badge>
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-                <p className="mt-0.5 font-mono font-bold">{formatCurrency(detailQt.total)}</p>
-              </div>
-            </div>
+              {/* ── Scrollable Body ── */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* Customer / Items / Status — single row, equal width */}
+                <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
+                    <p className="mt-0.5 text-sm font-medium truncate" title={detailQt.customerName}>{detailQt.customerName}</p>
+                  </div>
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Items</p>
+                    <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium whitespace-nowrap">
+                      <Package className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      {detailQt.items.length} {detailQt.items.length === 1 ? 'item' : 'items'}
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Status</p>
+                    <div className="mt-0.5">
+                      <Badge variant={statusBadgeVariant[detailQt.status]} size="sm" dot>
+                        {statusLabel[detailQt.status]}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
 
-            {/* Items */}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Rate</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {detailQt.items.map((item, i) => (
-                  <TableRow key={i}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell className="text-right">{item.qty}</TableCell>
-                    <TableCell className="text-right font-mono">{formatCurrency(item.rate)}</TableCell>
-                    <TableCell className="text-right font-mono">{formatCurrency(item.qty * item.rate)}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="border-t-2 font-semibold">
-                  <TableCell colSpan={3} className="text-right">Total</TableCell>
-                  <TableCell className="text-right font-mono">{formatCurrency(detailQt.total)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+                {/* Items — proper table with sticky header */}
+                <div className="overflow-hidden rounded-xl border border-border/40">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                      <TableRow className="border-b border-border/40 hover:bg-transparent">
+                        <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Item</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detailQt.items.map((item, idx) => (
+                        <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
+                          <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm font-medium">{item.name}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.qty}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.qty * item.rate)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
 
-            {/* Actions */}
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              {detailQt.status === 'DRAFT' && (
-                <Button variant="outline" size="sm" onClick={() => { handleUpdateStatus(detailQt, 'SENT'); setDetailQt(null) }}>
-                  <Send className="mr-1.5 h-4 w-4" />
-                  Mark as Sent
-                </Button>
-              )}
-              {detailQt.status !== 'CONVERTED' && detailQt.status !== 'REJECTED' && (
-                <Button size="sm" onClick={() => { handleConvert(detailQt); setDetailQt(null) }}>
-                  <ArrowRightLeft className="mr-1.5 h-4 w-4" />
-                  Convert to Invoice
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+              {/* ── Sticky Footer: total + actions ── */}
+              <div className="shrink-0 border-t border-border/40 bg-background">
+                {/* Total strip — single cell */}
+                <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
+                  <p className="font-mono text-base font-bold">{formatCurrency(detailQt.total)}</p>
+                </div>
+
+                {/* Action buttons — vary by status */}
+                <div className="px-5 py-3 flex gap-2">
+                  {canMarkSent && (
+                    <Button
+                      className="flex-1 gap-2"
+                      onClick={() => { handleUpdateStatus(detailQt, 'SENT'); setDetailQt(null) }}
+                    >
+                      <Send className="h-4 w-4" />
+                      Mark as Sent
+                    </Button>
+                  )}
+                  {canConvert && (
+                    <Button
+                      variant={canMarkSent ? 'outline' : 'default'}
+                      className="flex-1 gap-2"
+                      onClick={() => { handleConvert(detailQt); setDetailQt(null) }}
+                    >
+                      <ArrowRightLeft className="h-4 w-4" />
+                      <span className="hidden sm:inline">Convert to Invoice</span>
+                      <span className="sm:hidden">Convert</span>
+                    </Button>
+                  )}
+                  {!canMarkSent && !canConvert && (
+                    <div className="flex-1 text-xs text-muted-foreground italic flex items-center">
+                      No further actions for {statusLabel[detailQt.status].toLowerCase()} quotations.
+                    </div>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="shrink-0 gap-2"
+                    onClick={() => {
+                      const text = `Quotation ${detailQt.quotationNumber} — Total: ₹${detailQt.total.toLocaleString('en-IN')}`
+                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+                    }}
+                  >
+                    <Share2 className="h-4 w-4" />
+                    Share
+                  </Button>
+                </div>
+              </div>
+            </>
+          )
+        })()}
+      </SheetContent>
+    </Sheet>
     </>
   )
 }

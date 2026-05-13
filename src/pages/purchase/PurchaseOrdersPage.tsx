@@ -49,6 +49,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -660,26 +666,6 @@ export default function PurchaseOrdersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Purchase Orders</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage purchase orders and supplier communications
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Create PO
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/grn')}>
-            <PackageCheck className="mr-1.5 h-4 w-4" />
-            Goods Receipt
-          </Button>
-        </div>
-      </div>
-
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -739,6 +725,29 @@ export default function PurchaseOrdersPage() {
         resultsCount={filteredPOs.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Create PO</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => navigate('/purchase/grn')}
+            >
+              <PackageCheck className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Goods Receipt</span>
+              <span className="sm:hidden">GRN</span>
+            </Button>
+          </div>
+        }
       >
         <EnumSelect
           label="Period"
@@ -1148,144 +1157,178 @@ export default function PurchaseOrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── PO Detail Dialog ── */}
-      <Dialog open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>
-        <DialogContent className="max-w-4xl! w-full! flex flex-col overflow-hidden p-0 gap-0">
-          {detailPO && (
-            <>
-              {/* Header */}
-              <div className="flex items-start justify-between gap-4 border-b border-border/40 px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                    <FileText className="h-5 w-5 text-primary" />
+      {/* ── PO Detail Drawer ── */}
+      <Sheet open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        >
+          {detailPO && (() => {
+            const canReceive = detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED' || detailPO.status === 'PARTIALLY_RECEIVED'
+            const isPartial = detailPO.status === 'PARTIALLY_RECEIVED'
+            const poDoc = {
+              poNumber: detailPO.poNumber,
+              date: detailPO.date,
+              supplierName: detailPO.supplierName,
+              expectedDelivery: detailPO.expectedDelivery,
+              status: detailPO.status,
+              totalAmount: detailPO.totalAmount,
+              items: detailPO.items,
+            }
+            return (
+              <>
+                {/* ── Sticky Header ── */}
+                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                  <div className="flex items-center justify-between gap-3 pr-8">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <SheetTitle className="font-mono text-base font-semibold truncate">
+                        {detailPO.poNumber}
+                      </SheetTitle>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(detailPO.date)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {detailPOLoading && (
+                        <div className="h-3.5 w-3.5 rounded-full border-b-2 border-primary animate-spin" />
+                      )}
+                      <Badge variant="info" size="sm" className="gap-1">
+                        <Package className="h-3 w-3" />
+                        {detailPO.items.length} {detailPO.items.length === 1 ? 'item' : 'items'}
+                      </Badge>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-bold font-mono">{detailPO.poNumber}</h2>
-                    <p className="text-sm text-muted-foreground">{formatDate(detailPO.date)} · {detailPO.supplierName}</p>
+                </SheetHeader>
+
+                {/* ── Scrollable Body ── */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Supplier / Expected Delivery / Status — single row, equal width */}
+                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+                      <p className="mt-0.5 text-sm font-medium truncate" title={detailPO.supplierName}>{detailPO.supplierName}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Expected Delivery</p>
+                      <p className="mt-0.5 text-sm font-medium whitespace-nowrap">{detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—'}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Status</p>
+                      <div className="mt-0.5">{renderStatusBadge(detailPO.status)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {renderStatusBadge(detailPO.status)}
-                  {detailPOLoading && (
-                    <div className="h-3.5 w-3.5 rounded-full border-b-2 border-primary animate-spin" />
+
+                  {/* Partial delivery banner */}
+                  {isPartial && (
+                    <div className="flex items-start gap-3 rounded-xl border border-amber-200/60 bg-amber-50/50 px-4 py-3 dark:border-amber-800/30 dark:bg-amber-900/10">
+                      <Package className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Partial Delivery in Progress</p>
+                        <p className="mt-0.5 text-[11px] text-amber-600/80 dark:text-amber-400/70">Some items have been received. Click "Receive Remaining Goods" to create a supplementary GRN for the rest.</p>
+                      </div>
+                    </div>
                   )}
-                </div>
-              </div>
 
-              {/* Meta info bar */}
-              <div className="grid grid-cols-2 gap-0 border-b border-border/40 sm:grid-cols-4">
-                {[
-                  { label: 'Supplier', value: detailPO.supplierName },
-                  { label: 'Expected Delivery', value: detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—' },
-                  { label: 'Items', value: `${detailPO.items.length} product${detailPO.items.length !== 1 ? 's' : ''}` },
-                  { label: 'Total Amount', value: formatCurrency(detailPO.totalAmount), highlight: true },
-                ].map((meta) => (
-                  <div key={meta.label} className="flex flex-col gap-0.5 border-r border-border/40 last:border-r-0 px-6 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{meta.label}</p>
-                    <p className={cn('text-sm font-semibold', meta.highlight && 'font-mono text-base text-primary')}>{meta.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Partial delivery banner */}
-              {detailPO.status === 'PARTIALLY_RECEIVED' && (
-                <div className="flex items-center gap-3 border-b border-amber-200/60 bg-amber-50/50 px-6 py-3 dark:border-amber-800/30 dark:bg-amber-900/10">
-                  <Package className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Partial Delivery in Progress</p>
-                    <p className="text-[11px] text-amber-600/80 dark:text-amber-400/70">Some items have been received. Click "Receive Remaining Goods" to create a supplementary GRN for the rest.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Items table — scrollable */}
-              <div className="overflow-y-auto max-h-[45vh]">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="sticky top-0 bg-background z-10">
-                      <TableHead className="pl-6 w-12 text-center">#</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead className="text-center w-32">Ordered Qty</TableHead>
-                      <TableHead className="text-center w-32">Received Qty</TableHead>
-                      <TableHead className="text-right w-36">Unit Rate</TableHead>
-                      <TableHead className="text-right pr-6 w-36">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detailPO.items.map((item, idx) => (
-                      <TableRow key={item.id} className="hover:bg-muted/20">
-                        <TableCell className="pl-6 text-center text-sm text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell>
-                          <p className="font-medium text-sm">{item.productName}</p>
-                          {item.remarks && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{item.remarks}</p>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="inline-flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono font-semibold text-sm px-3 py-0.5">
-                            {item.requiredQty}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className={cn(
-                              'inline-flex items-center justify-center rounded-lg font-mono font-semibold text-sm px-3 py-0.5',
-                              item.receivedQty >= item.requiredQty
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                : item.receivedQty > 0
-                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  : 'bg-muted/60 text-muted-foreground'
-                            )}>
-                              {item.receivedQty}
-                            </span>
-                            {item.receivedQty > 0 && item.receivedQty < item.requiredQty && (
-                              <div className="w-16 h-1 rounded-full bg-muted overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-amber-500"
-                                  style={{ width: `${Math.min(100, (item.receivedQty / item.requiredQty) * 100)}%` }}
-                                />
+                  {/* Items — proper table with sticky header */}
+                  <div className="overflow-hidden rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          <TableHead className="h-9 w-10 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                          <TableHead className="h-9 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Ordered</TableHead>
+                          <TableHead className="h-9 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Received</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detailPO.items.map((item, idx) => (
+                          <TableRow key={item.id} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
+                            <TableCell className="px-3 py-2.5 text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                            <TableCell className="px-3 py-2.5">
+                              <p className="text-sm font-medium leading-snug">{item.productName}</p>
+                              {item.remarks && (
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">{item.remarks}</p>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-center">
+                              <span className="inline-flex items-center justify-center rounded-lg bg-blue-500/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                                {item.requiredQty}
+                              </span>
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={cn(
+                                  'inline-flex items-center justify-center rounded-lg px-2.5 py-0.5 font-mono text-xs font-semibold',
+                                  item.receivedQty >= item.requiredQty
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                    : item.receivedQty > 0
+                                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                      : 'bg-muted/60 text-muted-foreground'
+                                )}>
+                                  {item.receivedQty}
+                                </span>
+                                {item.receivedQty > 0 && item.receivedQty < item.requiredQty && (
+                                  <div className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                      className="h-full rounded-full bg-amber-500"
+                                      style={{ width: `${Math.min(100, (item.receivedQty / item.requiredQty) * 100)}%` }}
+                                    />
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.expectedRate)}</TableCell>
-                        <TableCell className="text-right font-mono font-semibold text-sm pr-6">{formatCurrency(item.requiredQty * item.expectedRate)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.expectedRate)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.requiredQty * item.expectedRate)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
 
-              {/* Footer total + actions */}
-              <div className="flex flex-col gap-3 border-t border-border/40 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-4 rounded-xl bg-muted/40 px-5 py-2.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</span>
-                  <span className="text-xl font-bold font-mono text-primary">{formatCurrency(detailPO.totalAmount)}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setDetailPO(null)}>Close</Button>
-                  <Button variant="outline" size="sm" onClick={() => printPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
-                    <Printer className="mr-1.5 h-4 w-4" />Print
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => downloadPoPdf({ poNumber: detailPO.poNumber, date: detailPO.date, supplierName: detailPO.supplierName, expectedDelivery: detailPO.expectedDelivery, status: detailPO.status, totalAmount: detailPO.totalAmount, items: detailPO.items })}>
-                    <Download className="mr-1.5 h-4 w-4" />Download PDF
-                  </Button>
-                  {(detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED' || detailPO.status === 'PARTIALLY_RECEIVED') && (
-                    <Button
-                      onClick={() => { navigate(`/purchase/grn?poId=${detailPO.id}`); setDetailPO(null) }}
-                      variant={detailPO.status === 'PARTIALLY_RECEIVED' ? 'outline' : 'default'}
-                      className={detailPO.status === 'PARTIALLY_RECEIVED' ? 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/20' : ''}
-                    >
-                      <PackageCheck className="mr-1.5 h-4 w-4" />
-                      {detailPO.status === 'PARTIALLY_RECEIVED' ? 'Receive Remaining Goods' : 'Receive Goods'}
+                {/* ── Sticky Footer: grand total + actions ── */}
+                <div className="shrink-0 border-t border-border/40 bg-background">
+                  {/* Grand Total strip */}
+                  <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</p>
+                    <p className="font-mono text-base font-bold text-primary">{formatCurrency(detailPO.totalAmount)}</p>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="px-5 py-3 flex gap-2">
+                    <Button className="flex-1 gap-2" onClick={() => printPoPdf(poDoc)}>
+                      <Printer className="h-4 w-4" />
+                      Print
                     </Button>
-                  )}
+                    <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadPoPdf(poDoc)}>
+                      <Download className="h-4 w-4" />
+                      <span className="hidden sm:inline">Download PDF</span>
+                      <span className="sm:hidden">PDF</span>
+                    </Button>
+                    {canReceive && (
+                      <Button
+                        variant={isPartial ? 'outline' : 'default'}
+                        className={cn(
+                          'flex-1 gap-2',
+                          isPartial && 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/20'
+                        )}
+                        onClick={() => { navigate(`/purchase/grn?poId=${detailPO.id}`); setDetailPO(null) }}
+                      >
+                        <PackageCheck className="h-4 w-4" />
+                        <span className="hidden sm:inline">{isPartial ? 'Receive Remaining' : 'Receive Goods'}</span>
+                        <span className="sm:hidden">Receive</span>
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              </>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </motion.div>
   )
 }

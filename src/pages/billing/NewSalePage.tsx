@@ -22,8 +22,6 @@ import {
   SplitSquareHorizontal,
   Package,
   ChevronDown,
-  Layers,
-  Keyboard,
   Receipt,
   History,
   Users,
@@ -41,7 +39,6 @@ import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import {
   Dialog,
   DialogContent,
@@ -506,63 +503,90 @@ function BillingRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.15 }}
-      className={cn("group transition-colors hover:bg-muted/20 data-[state=selected]:bg-muted", productHistory.length > 0 && historyOpen ? '' : 'border-b border-border/40')}
+      className={cn(
+        "group transition-colors hover:bg-muted/25 data-[state=selected]:bg-muted",
+        productHistory.length > 0 && historyOpen ? '' : 'border-b border-border/40',
+        !item.productId && 'opacity-90'
+      )}
     >
       {/* S.No */}
-      <TableCell className="w-9 px-2 py-1.5 text-center text-[11px] text-muted-foreground/70">
-        {index + 1}
+      <TableCell className="w-10 px-2 py-2.5 text-center align-middle">
+        <div className="flex flex-col gap-0.5 items-center">
+          <div className="h-3.5" aria-hidden />
+          <span className={cn(
+            'inline-flex h-8 w-8 items-center justify-center rounded-md text-[10px] font-bold font-mono',
+            item.productId
+              ? 'bg-primary/10 text-primary'
+              : 'bg-muted/40 text-muted-foreground/50'
+          )}>
+            {index + 1}
+          </span>
+        </div>
       </TableCell>
 
-      {/* Product + Schedule */}
-      <TableCell className="min-w-55 px-2 py-1" ref={productRef}>
-        <div className="relative group/search">
-          <input
-            ref={inputRef}
-            value={productSearch}
-            onChange={(e) => {
-              setProductSearch(e.target.value)
-              setSelectedIndex(0)
-              if (inputRef.current) {
-                const rect = inputRef.current.getBoundingClientRect()
-                setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: 400 })
-              }
-              setShowProductDropdown(true)
-            }}
-            onFocus={() => {
-              if (inputRef.current) {
-                const rect = inputRef.current.getBoundingClientRect()
-                setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: 400 })
-              }
-              setShowProductDropdown(true)
-            }}
-            onBlur={() => setTimeout(() => setShowProductDropdown(false), 150)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search product..."
-            className={cn(
-              'w-full h-8 rounded-lg border border-transparent bg-transparent px-2 text-xs font-semibold transition-all',
-              'placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/40 focus:border-primary/20',
-              !item.productId && 'italic font-normal'
+      {/* Product + Schedule + Generic */}
+      <TableCell className="min-w-55 px-3 py-2.5 align-middle" ref={productRef}>
+        <div className="flex flex-col gap-0.5">
+          {/* Helper row (top) — manufacturer · generic */}
+          <div className="h-3.5 flex items-center">
+            {selectedProduct && (selectedProduct.manufacturer || selectedProduct.genericName) && (
+              <div className="px-2 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 truncate">
+                {selectedProduct.manufacturer && <span className="truncate">{selectedProduct.manufacturer}</span>}
+                {selectedProduct.manufacturer && selectedProduct.genericName && <span className="opacity-30">·</span>}
+                {selectedProduct.genericName && <span className="truncate">{selectedProduct.genericName}</span>}
+              </div>
             )}
-          />
-          {productHistory.length > 0 ? (
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); setHistoryOpen(v => !v) }}
-              title={historyOpen ? 'Hide purchase history' : `${productHistory.length} past purchase${productHistory.length > 1 ? 's' : ''}`}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded-md px-1 py-0.5 bg-violet-500/10 hover:bg-violet-500/20 transition-colors"
-            >
-              <History className="h-3 w-3 text-violet-500" />
-              <span className="text-[9px] font-bold text-violet-500">{productHistory.length}</span>
-            </button>
-          ) : (
-            <Search className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors" />
-          )}
-          {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
-            <div className="absolute -bottom-4 left-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-tight text-rose-500/80">
-              <ShieldAlert className="h-2.5 w-2.5" />
-              Sch {selectedProduct.schedule}
-            </div>
-          )}
+          </div>
+        <div className="relative group/search">
+          <div className="flex items-center gap-1.5">
+            <input
+              ref={inputRef}
+              value={productSearch}
+              onChange={(e) => {
+                setProductSearch(e.target.value)
+                setSelectedIndex(0)
+                if (inputRef.current) {
+                  const rect = inputRef.current.getBoundingClientRect()
+                  setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+                }
+                setShowProductDropdown(true)
+              }}
+              onFocus={() => {
+                if (inputRef.current) {
+                  const rect = inputRef.current.getBoundingClientRect()
+                  setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+                }
+                setShowProductDropdown(true)
+              }}
+              onBlur={() => setTimeout(() => setShowProductDropdown(false), 150)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search product..."
+              className={cn(
+                'flex-1 min-w-0 h-8 rounded-lg border border-transparent bg-transparent px-2 text-xs font-bold transition-all',
+                'placeholder:text-muted-foreground/40 placeholder:font-normal placeholder:italic',
+                'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/40 focus:border-primary/20'
+              )}
+            />
+            {selectedProduct && (selectedProduct.schedule === 'H' || selectedProduct.schedule === 'H1') && (
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tight text-rose-600 dark:text-rose-400 shrink-0">
+                <ShieldAlert className="h-2.5 w-2.5" />
+                Sch {selectedProduct.schedule}
+              </span>
+            )}
+            {productHistory.length > 0 ? (
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); setHistoryOpen(v => !v) }}
+                title={historyOpen ? 'Hide purchase history' : `${productHistory.length} past purchase${productHistory.length > 1 ? 's' : ''}`}
+                className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 bg-violet-500/10 hover:bg-violet-500/20 transition-colors shrink-0"
+              >
+                <History className="h-3 w-3 text-violet-500" />
+                <span className="text-[9px] font-bold text-violet-500">{productHistory.length}</span>
+              </button>
+            ) : (
+              <Search className="h-3 w-3 text-muted-foreground/20 group-hover/search:text-muted-foreground/40 transition-colors shrink-0" />
+            )}
+          </div>
           {showProductDropdown && createPortal(
             <div
               style={{ 
@@ -666,264 +690,338 @@ function BillingRow({
             document.body
           )}
         </div>
+        </div>
       </TableCell>
 
-      {/* Batch + Expiry */}
-      <TableCell className="w-37.5 px-1.5 py-1">
-        <Select
-          value={item.batchId}
-          onValueChange={handleBatchChange}
-          disabled={!item.productId}
-        >
-          <SelectTrigger
-            ref={batchRef}
-            className={cn(
-              'h-8 w-full bg-transparent border-0 px-2 text-xs font-medium transition-all focus:ring-1 focus:ring-primary/20',
-              !item.batchId && 'text-muted-foreground/40 italic'
-            )}>
-            <SelectValue placeholder="Select Batch" />
-          </SelectTrigger>
-          <SelectContent className="bg-popover/95 backdrop-blur-xl">
-            {productBatches.map((b, idx) => (
-              <SelectItem key={b.id} value={b.id} className="text-xs">
-                <div className="flex items-center justify-between gap-3 w-full min-w-40">
-                  <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
-                  <div className="flex items-center gap-1.5">
-                    {idx === 0 && (
-                      <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
-                    )}
-                    <span className="text-[10px] opacity-60">Qty: {b.quantity}</span>
-                  </div>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-          <div
-            className={cn(
-              'text-[10px] mt-0.5 px-2 font-bold uppercase tracking-tight',
-              isExpired(item.expiryDate)
-                ? 'text-rose-600 dark:text-rose-400'
-                : isNearExpiry(item.expiryDate)
-                  ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-slate-600 dark:text-slate-400'
-            )}
-          >
-            {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
-            {formatExpiryShort(item.expiryDate)}
+      {/* Batch + Expiry — helper on top, control below */}
+      <TableCell className="w-37.5 px-2 py-2.5 align-middle">
+        <div className="flex flex-col gap-0.5">
+          {/* Helper row (top) — expiry chip */}
+          <div className="h-3.5 flex items-center justify-center">
+            {item.batchId && item.expiryDate ? (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-widest tabular-nums',
+                  isExpired(item.expiryDate)
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : isNearExpiry(item.expiryDate)
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-emerald-600 dark:text-emerald-400'
+                )}
+              >
+                {isExpired(item.expiryDate) ? '⚠ Exp' : 'Exp'} {formatExpiryShort(item.expiryDate)}
+              </span>
+            ) : null}
           </div>
-      </TableCell>
-
-      {/* Qty with +/- */}
-      <TableCell className="w-27.5 px-1.5 py-1">
-        <div className="flex items-center gap-0.5 bg-muted/20 rounded-lg p-0.5 border border-border/20 focus-within:border-primary/30 transition-all">
-          <button
-            type="button"
-            onClick={() => handleQtyChange(item.quantity - 1)}
-            disabled={!item.productId || item.quantity <= 0}
-            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-          >
-            <Minus className="h-3 w-3" />
-          </button>
-          <input
-            ref={qtyRef}
-            type="number"
-            min={0}
-            max={selectedBatch?.quantity ?? 9999}
-            value={item.quantity || ''}
-            onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
-            className={cn(
-              'w-full h-7 border-0 bg-transparent text-xs text-center font-bold font-mono',
-              'focus:outline-none focus:ring-0',
-              'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-              qtyExceeds && 'text-rose-600'
-            )}
+          {/* Main control */}
+          <Select
+            value={item.batchId}
+            onValueChange={handleBatchChange}
             disabled={!item.productId}
-          />
-          <button
-            type="button"
-            onClick={() => handleQtyChange(item.quantity + 1)}
-            disabled={!item.productId}
-            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
           >
-            <Plus className="h-3 w-3" />
-          </button>
+            <SelectTrigger
+              ref={batchRef}
+              className={cn(
+                'h-8 w-full bg-muted/30 border border-border/30 hover:border-primary/30 px-2 text-xs font-bold rounded-lg transition-all focus:ring-1 focus:ring-primary/30',
+                !item.batchId && 'text-muted-foreground/50 italic font-normal'
+              )}>
+              <SelectValue placeholder="Select Batch" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover/95 backdrop-blur-xl">
+              {productBatches.map((b, idx) => (
+                <SelectItem key={b.id} value={b.id} className="text-xs">
+                  <div className="flex items-center justify-between gap-3 w-full min-w-40">
+                    <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
+                    <div className="flex items-center gap-1.5">
+                      {idx === 0 && (
+                        <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
+                      )}
+                      <span className="text-[10px] opacity-60">Qty: {b.quantity}</span>
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </TableCell>
 
-      {/* Rate / Qty (Merged) */}
-      <TableCell className="w-50 px-1.5 py-1">
-        <div className="flex items-center gap-2">
-          {(() => {
-            const originalRate = selectedProduct
-              ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
-              : 0
-            const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
-            return (
-              <>
-                <div className="flex flex-col items-end shrink-0 w-14">
-                  {originalRate > 0 && (
-                    <span className={cn(
-                      'text-[10px] font-mono font-semibold',
-                      isModified ? 'line-through text-muted-foreground/40' : 'text-muted-foreground/80'
-                    )}>
-                      {formatCurrency(originalRate)}
-                    </span>
-                  )}
-                  {item.productId ? (
-                    <span className={cn(
-                      'text-[10px] font-mono font-bold mt-0.5',
-                      item.mrp === 0
-                        ? 'text-muted-foreground/40 italic'
-                        : Number(item.rate) > item.mrp
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-slate-600 dark:text-slate-400'
-                    )}>
-                      MRP {item.mrp > 0 ? formatCurrency(item.mrp) : '—'}
-                    </span>
-                  ) : originalRate === 0 && (
-                    <span className="text-muted-foreground/30 text-xs">—</span>
-                  )}
-                </div>
+      {/* Qty — helper on top, stepper below */}
+      <TableCell className="w-27.5 px-2 py-2.5 align-middle">
+        <div className="flex flex-col gap-0.5">
+          {/* Helper row (top) — stock available */}
+          <div className="h-3.5 flex items-center justify-center">
+            {selectedBatch && item.quantity > 0 ? (
+              <span className={cn(
+                'text-[9px] font-bold uppercase tracking-widest tabular-nums',
+                qtyExceeds ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/50'
+              )}>
+                {qtyExceeds ? `Max ${selectedBatch.quantity}` : `of ${selectedBatch.quantity}`}
+              </span>
+            ) : null}
+          </div>
+          {/* Stepper */}
+          <div className={cn(
+            "flex items-center gap-0.5 bg-muted/30 rounded-lg p-0.5 border transition-all",
+            qtyExceeds ? 'border-rose-400/50 bg-rose-50/30 dark:bg-rose-900/10' : 'border-border/30 focus-within:border-primary/40'
+          )}>
+            <button
+              type="button"
+              onClick={() => handleQtyChange(item.quantity - 1)}
+              disabled={!item.productId || item.quantity <= 0}
+              className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+            <input
+              ref={qtyRef}
+              type="number"
+              min={0}
+              max={selectedBatch?.quantity ?? 9999}
+              value={item.quantity || ''}
+              onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
+              className={cn(
+                'w-full h-7 border-0 bg-transparent text-sm text-center font-black font-mono',
+                'focus:outline-none focus:ring-0',
+                'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                qtyExceeds && 'text-rose-600'
+              )}
+              disabled={!item.productId}
+            />
+            <button
+              type="button"
+              onClick={() => handleQtyChange(item.quantity + 1)}
+              disabled={!item.productId}
+              className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      </TableCell>
 
-                <div className={cn(
-                  'flex items-center gap-0.5 rounded-lg border bg-muted/20 px-0.5 transition-all focus-within:border-primary/40 flex-1',
-                  isModified ? 'border-amber-400/50 bg-amber-50/20 dark:bg-amber-900/10' : 'border-border/20'
-                )}>
-                  <button
-                    type="button"
-                    onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
-                    disabled={!item.productId}
-                    className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </button>
-                  <input
-                    type="number"
-                    step={0.01}
-                    min={0}
-                    max={item.mrp > 0 ? item.mrp : undefined}
-                    value={item.rate || ''}
-                    onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
-                    title={item.mrp > 0 ? `Maximum: MRP ₹${item.mrp}` : undefined}
-                    className={cn(
-                      'w-full h-7 border-0 bg-transparent text-sm text-center font-bold font-mono',
-                      'focus:outline-none focus:ring-0',
-                      'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                      isModified ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+      {/* Rate — MRP/original on top, editable stepper below */}
+      <TableCell className="w-50 px-2 py-2.5 align-middle">
+        {(() => {
+          const originalRate = selectedProduct
+            ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
+            : 0
+          const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
+          const overMrp = item.mrp > 0 && Number(item.rate) > item.mrp
+          return (
+            <div className="flex flex-col gap-0.5">
+              {/* Helper row (top) — MRP + original rate */}
+              <div className="h-3.5 flex items-center justify-center gap-2 text-[9px] font-mono px-1">
+                {item.productId && item.mrp > 0 && (
+                  <span className={cn(
+                    'inline-flex items-center gap-0.5 font-bold uppercase tracking-widest',
+                    overMrp ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/60'
+                  )}>
+                    <span className="opacity-70">MRP</span>
+                    {formatCurrency(item.mrp)}
+                  </span>
+                )}
+                {item.productId && originalRate > 0 && (
+                  <span className={cn(
+                    'inline-flex items-center gap-0.5 font-bold uppercase tracking-widest',
+                    isModified ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-muted-foreground/40'
+                  )}>
+                    {isModified ? (
+                      <span className="line-through opacity-60">{formatCurrency(originalRate)}</span>
+                    ) : (
+                      <span className="opacity-60">orig {formatCurrency(originalRate)}</span>
                     )}
-                    disabled={!item.productId}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleRateChange(Number(item.rate) + 1)}
-                    disabled={!item.productId}
-                    className="h-7 w-6 shrink-0 rounded flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </div>
-              </>
-            )
-          })()}
-        </div>
+                  </span>
+                )}
+              </div>
+
+              {/* Editable rate stepper */}
+              <div className={cn(
+                'flex items-center gap-0.5 rounded-lg border bg-muted/30 p-0.5 transition-all focus-within:border-primary/40',
+                isModified ? 'border-amber-400/50 bg-amber-50/30 dark:bg-amber-900/15' : 'border-border/30',
+                overMrp && 'border-rose-400/50 bg-rose-50/30 dark:bg-rose-900/10'
+              )}>
+                <button
+                  type="button"
+                  onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
+                  disabled={!item.productId}
+                  className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+                >
+                  <Minus className="h-3 w-3" />
+                </button>
+                <input
+                  type="number"
+                  step={0.01}
+                  min={0}
+                  max={item.mrp > 0 ? item.mrp : undefined}
+                  value={item.rate || ''}
+                  onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
+                  title={item.mrp > 0 ? `Maximum: MRP ₹${item.mrp}` : undefined}
+                  className={cn(
+                    'w-full h-7 border-0 bg-transparent text-sm text-center font-black font-mono tabular-nums',
+                    'focus:outline-none focus:ring-0',
+                    'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                    overMrp ? 'text-rose-600 dark:text-rose-400'
+                      : isModified ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-foreground'
+                  )}
+                  disabled={!item.productId}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRateChange(Number(item.rate) + 1)}
+                  disabled={!item.productId}
+                  className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          )
+        })()}
       </TableCell>
 
-      {/* Disc% */}
-      <TableCell className="w-16.25 px-1.5 py-1">
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step={0.5}
-          value={item.discountPercent || ''}
-          onChange={(e) => handleDiscountChange(parseFloat(e.target.value) || 0)}
-          className={cn(
-            'w-full h-8 rounded-lg border border-transparent bg-transparent text-xs text-center font-mono transition-all',
-            'focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-muted/30 focus:border-primary/20',
-            'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
-          )}
-          disabled={!item.productId}
-        />
+      {/* Disc% — helper spacer on top to align with other cells */}
+      <TableCell className="w-20 px-2 py-2.5 align-middle">
+        <div className="flex flex-col gap-0.5">
+          <div className="h-3.5" aria-hidden />
+          <div className={cn(
+            'relative flex items-center rounded-lg border bg-muted/30 transition-all focus-within:border-primary/40 focus-within:bg-background',
+            item.discountPercent > 0 ? 'border-rose-300/50 bg-rose-50/30 dark:bg-rose-900/10' : 'border-border/30'
+          )}>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={item.discountPercent || ''}
+              onChange={(e) => handleDiscountChange(parseFloat(e.target.value) || 0)}
+              placeholder="0"
+              className={cn(
+                'w-full h-8 border-0 bg-transparent text-xs text-center font-bold font-mono tabular-nums',
+                'placeholder:text-muted-foreground/30',
+                'focus:outline-none focus:ring-0',
+                'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                item.discountPercent > 0 ? 'text-rose-600 dark:text-rose-400 pr-4' : 'text-foreground pr-4'
+              )}
+              disabled={!item.productId}
+            />
+            <span className={cn(
+              'absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold pointer-events-none',
+              item.discountPercent > 0 ? 'text-rose-500/70' : 'text-muted-foreground/40'
+            )}>%</span>
+          </div>
+        </div>
       </TableCell>
 
       {/* GST */}
-      <TableCell className="w-12.5 px-1 py-1 text-center text-[10px] font-bold text-muted-foreground/50 font-mono">
-        {item.gstPercent ? `${item.gstPercent}%` : '—'}
+      <TableCell className="w-14 px-1 py-2.5 text-center align-middle">
+        <div className="flex flex-col gap-0.5 items-center">
+          <div className="h-3.5" aria-hidden />
+          {item.gstPercent ? (
+            <span className="inline-flex items-center rounded-md bg-muted/40 px-1.5 py-1.5 text-[10px] font-black font-mono text-muted-foreground/80 tabular-nums">
+              {item.gstPercent}%
+            </span>
+          ) : (
+            <span className="text-muted-foreground/30 text-xs py-1.5">—</span>
+          )}
+        </div>
       </TableCell>
 
       {/* Amount */}
-      <TableCell className="w-27.5 px-3 py-1 text-right">
-        <span className={cn(
-          'text-sm font-black font-mono tracking-tight',
-          item.amount > 0 ? 'text-primary' : 'text-muted-foreground/30'
-        )}>
-          {item.amount > 0 ? formatCurrency(item.amount) : '₹0.00'}
-        </span>
+      <TableCell className="w-27.5 px-3 py-2.5 text-right align-middle">
+        <div className="flex flex-col gap-0.5 items-end">
+          <div className="h-3.5" aria-hidden />
+          <span className={cn(
+            'font-mono tracking-tight tabular-nums h-8 inline-flex items-center',
+            item.amount > 0
+              ? 'text-base font-black text-primary'
+              : 'text-sm font-bold text-muted-foreground/30'
+          )}>
+            {item.amount > 0 ? formatCurrency(item.amount) : '₹0.00'}
+          </span>
+        </div>
       </TableCell>
 
       {/* Delete */}
-      <TableCell className="w-8 px-1 py-1.5">
-        <button
-          type="button"
-          onClick={() => onRemove(item.id)}
-          className="rounded-md p-1 text-muted-foreground/30 hover:bg-rose-500/10 hover:text-rose-600 transition-all"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+      <TableCell className="w-10 px-1 py-2.5 align-middle">
+        <div className="flex flex-col gap-0.5 items-center">
+          <div className="h-3.5" aria-hidden />
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            title="Remove row"
+            className="rounded-md p-1.5 h-8 w-8 flex items-center justify-center text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 transition-all"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </TableCell>
     </MotionTableRow>
 
-    {/* ── Per-product purchase history sub-row ── */}
+    {/* ── Per-product purchase history sub-rows — aligned with parent columns ── */}
     {productHistory.length > 0 && historyOpen && (
-      <TableRow className="border-b border-border/40 bg-violet-500/2.5">
-        <TableCell colSpan={10} className="px-0 py-0">
-          <div className="pl-8 pr-3 py-2">
-            {/* Header */}
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <History className="h-3 w-3 text-violet-400" />
-              <span className="text-[9px] font-bold uppercase tracking-widest text-violet-400">
+      <>
+        {/* Title strip */}
+        <TableRow className="bg-violet-500/[0.04] dark:bg-violet-500/[0.06] hover:bg-violet-500/[0.04] dark:hover:bg-violet-500/[0.06]">
+          <TableCell className="w-10 px-2 py-1.5 text-center align-middle text-violet-500/70">↳</TableCell>
+          <TableCell colSpan={8} className="px-3 py-1.5 align-middle">
+            <div className="flex items-center gap-1.5">
+              <History className="h-3 w-3 text-violet-500/70" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-violet-500/80">
                 Purchase history for <span className="font-black text-violet-600 dark:text-violet-300 bg-violet-400/10 px-1 py-0.5 rounded">{item.productName}</span>
               </span>
             </div>
-            {/* Table */}
-            <table className="w-full border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b border-violet-200/30 dark:border-violet-800/20">
-                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50 w-28">Date</th>
-                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Invoice #</th>
-                  <th className="text-left pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Batch</th>
-                  <th className="text-right pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Qty</th>
-                  <th className="text-right pb-1 pr-4 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Rate / Qty</th>
-                  <th className="text-center pb-1 font-semibold text-[9px] uppercase tracking-wider text-muted-foreground/50">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productHistory.map((h, i) => (
-                  <tr key={i} className={cn('transition-colors', i < productHistory.length - 1 && 'border-b border-violet-100/20 dark:border-violet-900/20')}>
-                    <td className="py-1 pr-4 text-muted-foreground/60 whitespace-nowrap">
-                      {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                    </td>
-                    <td className="py-1 pr-4 font-mono font-semibold text-primary/70">{h.invoiceNumber}</td>
-                    <td className="py-1 pr-4 font-mono text-muted-foreground/70">{h.batchNumber}</td>
-                    <td className="py-1 pr-4 text-right font-mono font-semibold">{h.qty}</td>
-                    <td className="py-1 pr-4 text-right font-mono font-bold text-foreground/80">₹{h.rate}</td>
-                    <td className="py-1 text-center">
-                      <Badge
-                        variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
-                        size="sm"
-                        className="text-[8px] px-1.5 h-3.5"
-                      >
-                        {h.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </TableCell>
-      </TableRow>
+          </TableCell>
+        </TableRow>
+        {/* Column labels for the sub-rows */}
+        <TableRow className="bg-violet-500/[0.04] dark:bg-violet-500/[0.06] hover:bg-violet-500/[0.04] dark:hover:bg-violet-500/[0.06] border-b border-violet-200/30 dark:border-violet-800/20">
+          <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
+          <TableCell className="min-w-55 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
+          <TableCell className="w-37.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
+          <TableCell className="w-27.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
+          <TableCell className="w-50 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
+          <TableCell className="w-14 px-1 py-1 align-middle"></TableCell>
+          <TableCell className="w-27.5 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
+          <TableCell className="w-10 px-1 py-1 align-middle"></TableCell>
+        </TableRow>
+        {/* Per-history record rows */}
+        {productHistory.map((h, i) => (
+          <TableRow
+            key={i}
+            className={cn(
+              'bg-violet-500/[0.03] dark:bg-violet-500/[0.05] hover:bg-violet-500/[0.06]',
+              i === productHistory.length - 1 ? 'border-b border-border/40' : 'border-b border-violet-100/30 dark:border-violet-900/20'
+            )}
+          >
+            <TableCell className="w-10 px-2 py-1.5 align-middle"></TableCell>
+            <TableCell className="min-w-55 px-3 py-1.5 align-middle">
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-muted-foreground/60 whitespace-nowrap shrink-0">
+                  {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                </span>
+                <span className="font-mono font-semibold text-primary/70 truncate">{h.invoiceNumber}</span>
+              </div>
+            </TableCell>
+            <TableCell className="w-37.5 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
+            <TableCell className="w-27.5 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
+            <TableCell className="w-50 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
+              <Badge
+                variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                size="sm"
+                className="text-[8px] px-1.5 h-3.5"
+              >
+                {h.status}
+              </Badge>
+            </TableCell>
+            <TableCell className="w-10 px-1 py-1.5 align-middle"></TableCell>
+          </TableRow>
+        ))}
+      </>
     )}
     </>
   )
@@ -1174,11 +1272,6 @@ function PaymentPanel({
   onDetailsChange: (d: Partial<PaymentDetails>) => void
   customer: Customer | null
 }) {
-  const changeToReturn = useMemo(() => {
-    if (mode !== 'CASH') return 0
-    return Math.max(0, details.amountReceived - grandTotal)
-  }, [mode, details.amountReceived, grandTotal])
-
   const splitTotal = useMemo(() => {
     return details.splits.reduce((sum, s) => sum + s.amount, 0)
   }, [details.splits])
@@ -1192,7 +1285,8 @@ function PaymentPanel({
     { label: 'Credit', value: 'CREDIT', icon: <Clock className="h-3.5 w-3.5" /> },
   ]
 
-  const denominations = [50, 100, 200, 500, 1000, 2000]
+  const isExact = details.amountReceived > 0 && Math.abs(details.amountReceived - grandTotal) < 0.01
+  const isPartial = details.amountReceived > 0 && details.amountReceived < grandTotal
 
   return (
     <div className="space-y-3">
@@ -1234,46 +1328,38 @@ function PaymentPanel({
             />
           </div>
 
-          {/* Quick denomination buttons */}
-          <div className="flex flex-wrap gap-1">
-            {denominations.map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => onDetailsChange({ amountReceived: d })}
-                className={cn(
-                  'rounded-md border px-2 py-1 text-[11px] font-medium transition-all',
-                  details.amountReceived === d
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/60 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                )}
-              >
-                ₹{d >= 1000 ? `${d / 1000}K` : d}
-              </button>
-            ))}
+          {/* Payment type — Exact / Partial */}
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={() => onDetailsChange({ amountReceived: grandTotal })}
+              disabled={grandTotal <= 0}
               className={cn(
-                'rounded-md border px-2 py-1 text-[11px] font-semibold transition-all',
-                details.amountReceived === grandTotal
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+                isExact
+                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 shadow-sm'
                   : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10'
               )}
             >
+              <ShieldCheck className="h-3.5 w-3.5" />
               Exact
+            </button>
+            <button
+              type="button"
+              onClick={() => onDetailsChange({ amountReceived: Math.round((grandTotal / 2) * 100) / 100 })}
+              disabled={grandTotal <= 0}
+              className={cn(
+                'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+                isPartial
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400 shadow-sm'
+                  : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10'
+              )}
+            >
+              <SplitSquareHorizontal className="h-3.5 w-3.5" />
+              Partial (½)
             </button>
           </div>
 
-          {/* Change to return */}
-          {details.amountReceived > 0 && (
-            <div className="flex items-center justify-between rounded-lg bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-200/50 dark:border-emerald-800/30 px-3 py-2">
-              <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-300">Change</span>
-              <span className="text-sm font-bold font-mono text-emerald-700 dark:text-emerald-400">
-                {formatCurrency(changeToReturn)}
-              </span>
-            </div>
-          )}
         </div>
       )}
 
@@ -2471,20 +2557,31 @@ export default function NewSalePage() {
     }
   }
 
+  const cancelAddCustomer = () => {
+    customerForm.reset()
+    setDocFiles([])
+    setDocPreviews([])
+    setNsPhoneCheckError('')
+    setAddCustomerDialogOpen(false)
+  }
+
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-[calc(100vh-4.5rem)]">
+      <div className="flex flex-col h-screen px-3 pt-3 md:px-4 md:pt-4 overflow-hidden bg-gradient-to-b from-background to-muted/20">
         {/* ═══════════════════════════════════════════════════
-            HEADER BAR
+            HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }}
-          className="flex items-center justify-between mb-3"
+          className="flex items-center justify-between mb-3 shrink-0"
         >
           <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Receipt className="h-4 w-4" />
+            </div>
             <h1 className="text-lg font-bold tracking-tight">New Sale</h1>
             <Badge variant="outline" size="sm" className="hidden sm:inline-flex font-mono text-[10px]">
               {invoiceNumber}
@@ -2499,16 +2596,6 @@ export default function NewSalePage() {
               value={invoiceType}
               onChange={setInvoiceType}
             />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                  <Layers className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Held</span>
-                  <Badge variant="secondary" size="sm" className="px-1.5 py-0 text-[9px]">0</Badge>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Held bills (F10 to hold current)</TooltipContent>
-            </Tooltip>
           </div>
         </motion.div>
 
@@ -2524,22 +2611,22 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             SEARCH BAR + CONTEXT ROW
         ═══════════════════════════════════════════════════ */}
-        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:h-11 md:gap-3", mobileStep === 'checkout' && 'hidden md:flex')}>
+        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:items-stretch md:h-11 md:gap-3 shrink-0", mobileStep === 'checkout' && 'hidden md:flex')}>
           {/* ═══════════════════════════════════════════════════
               TABLE ACTION AREA (Aligned with Table Card)
           ═══════════════════════════════════════════════════ */}
-          <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-stretch md:gap-3">
             {/* Mobile row 1: search + add item button */}
             <div className="flex items-center gap-2 md:contents">
               {/* Hero Product Search */}
-              <div className="flex-1 md:w-[38%] md:flex-none lg:w-[34%] relative">
+              <div className="flex-1 md:w-[40%] md:flex-none lg:w-[42%] relative">
               <div className="relative">
                 {!selectedCustomer ? (
                   /* Locked state — no customer selected */
                   <button
                     type="button"
                     onClick={() => setShowCustomerDropdown(true)}
-                    className="flex w-full h-11 items-center gap-3 rounded-xl border-2 border-dashed border-rose-400/50 bg-rose-50/40 dark:bg-rose-950/20 px-4 text-sm text-rose-500 dark:text-rose-400 font-medium transition-all hover:border-rose-400/80 hover:bg-rose-50/60 dark:hover:bg-rose-950/30"
+                    className="flex w-full h-11 items-center gap-3 rounded-xl border border-dashed border-rose-400/50 bg-rose-50/40 dark:bg-rose-950/20 px-4 text-sm text-rose-500 dark:text-rose-400 font-medium shadow-sm transition-all hover:border-rose-400/80 hover:bg-rose-50/60 dark:hover:bg-rose-950/30"
                   >
                     <Search className="h-4 w-4 shrink-0 opacity-60" />
                     <span className="flex-1 text-left text-xs">Select a customer first to search products</span>
@@ -2560,10 +2647,10 @@ export default function NewSalePage() {
                       onKeyDown={handleHeroKeyDown}
                       placeholder="Scan barcode or search products...  (Alt+S)"
                       className={cn(
-                        'w-full h-11 rounded-xl border-2 border-primary/20 bg-background pl-11 pr-4 text-sm shadow-sm',
+                        'w-full h-11 rounded-xl border border-primary/30 bg-background pl-11 pr-4 text-sm shadow-sm',
                         'placeholder:text-muted-foreground/50 font-medium',
                         'focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary/60',
-                        'transition-all duration-300 hover:border-primary/30'
+                        'transition-all duration-300 hover:border-primary/50'
                       )}
                     />
                     {heroSearch && (
@@ -2705,7 +2792,7 @@ export default function NewSalePage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute z-50 right-0 mt-1 w-[clamp(20rem,90vw,26rem)] rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
+                    className="absolute z-50 left-0 right-0 mt-1 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
                   >
                     <div className="p-2 border-b border-border/40">
                       <input
@@ -2778,40 +2865,12 @@ export default function NewSalePage() {
               </AnimatePresence>
             </div>
 
-            {/* Reminder Button — desktop only, left of Add Item */}
-            {selectedCustomer && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                  setReminderOpen(true)
-                }}
-                className="hidden md:flex h-11 px-3 shrink-0 gap-1.5 border-violet-300/60 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 dark:text-violet-400"
-                title="Set monthly reminder for this customer"
-              >
-                <CalendarClock className="h-4 w-4" />
-                <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
-              </Button>
-            )}
-
-            <Button
-              type="button"
-              onClick={addItem}
-              disabled={!selectedCustomer}
-              title={!selectedCustomer ? 'Select a customer first to add products' : 'Add Item (Alt+N)'}
-              className="hidden md:flex h-11 px-3 lg:px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden lg:inline text-sm">Add Item</span>
-              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
-            </Button>
           </div>
 
           {/* ═══════════════════════════════════════════════════
               SIDEBAR HEADER (Salesperson — read-only, derived from customer)
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden md:flex w-52 lg:w-64 xl:w-72 shrink-0 items-center">
+          <div className="hidden md:flex w-44 lg:w-52 xl:w-56 shrink-0 items-stretch">
             <div className={cn(
               'flex items-center gap-2 w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3 text-xs shadow-sm select-none overflow-hidden',
             )}>
@@ -2828,6 +2887,39 @@ export default function NewSalePage() {
                 <Badge variant="secondary" size="sm" className="shrink-0 text-[9px]">SP</Badge>
               )}
             </div>
+          </div>
+
+          {/* ═══════════════════════════════════════════════════
+              RIGHT-END ACTIONS (Reminder + Add Item) — desktop only
+          ═══════════════════════════════════════════════════ */}
+          <div className="hidden md:flex shrink-0 items-stretch gap-2">
+            {selectedCustomer && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                  setReminderOpen(true)
+                }}
+                className="h-11 md:h-11 px-3 shrink-0 gap-1.5 border-violet-300/60 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 dark:text-violet-400"
+                title="Set monthly reminder for this customer"
+              >
+                <CalendarClock className="h-4 w-4" />
+                <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              onClick={addItem}
+              disabled={!selectedCustomer}
+              title={!selectedCustomer ? 'Select a customer first to add products' : 'Add Item (Alt+N)'}
+              className="h-11 md:h-11 px-3 lg:px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden lg:inline text-sm">Add Item</span>
+              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
+            </Button>
           </div>
         </div>
 
@@ -2883,6 +2975,186 @@ export default function NewSalePage() {
         <div className="flex flex-col gap-3 flex-1 md:flex-row overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
           <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
+            {addCustomerDialogOpen ? (
+              /* ═══════════════════════════════════════════════════
+                  INLINE ADD-CUSTOMER VIEW (replaces tabs + tabbed content)
+              ═══════════════════════════════════════════════════ */
+              <div className="flex-1 flex flex-col min-h-0 border-t border-b border-border/40 bg-card overflow-hidden">
+                {/* Header strip: Back button + title */}
+                <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40 bg-muted/20 shrink-0">
+                  <Button type="button" variant="ghost" size="sm" onClick={cancelAddCustomer} className="gap-1.5 -ml-2 h-8 text-xs text-muted-foreground hover:text-foreground shrink-0">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Back
+                  </Button>
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                      <UserPlus className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-bold">Add New Customer</h2>
+                      <p className="text-[10px] text-muted-foreground truncate">Name, Phone, Type, Address and Referred By are required. Email is optional.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scrollable form body */}
+                <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="flex-1 flex flex-col min-h-0">
+                  <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+
+                    {/* Row 1: Name + Phone */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
+                        <Input {...customerForm.register('name')} placeholder="Customer name" error={!!customerForm.formState.errors.name} />
+                        {customerForm.formState.errors.name && <p className="text-xs text-rose-500">{customerForm.formState.errors.name.message}</p>}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Phone *{nsPhoneChecking && <span className="ml-1 font-normal text-muted-foreground">checking…</span>}
+                        </Label>
+                        <Input
+                          {...customerForm.register('phone')}
+                          placeholder="10-digit number"
+                          inputMode="numeric"
+                          error={!!customerForm.formState.errors.phone || !!nsPhoneCheckError}
+                          onBlur={(e) => checkNsPhoneDuplicate(e.target.value)}
+                        />
+                        {customerForm.formState.errors.phone && <p className="text-xs text-rose-500">{customerForm.formState.errors.phone.message}</p>}
+                        {!customerForm.formState.errors.phone && nsPhoneCheckError && <p className="text-xs text-rose-500">{nsPhoneCheckError}</p>}
+                      </div>
+                    </div>
+
+                    {/* Row 2: Type + Email */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
+                        <Controller control={customerForm.control} name="type" render={({ field }) => (
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="RETAIL">Retail</SelectItem>
+                              <SelectItem value="WHOLESALE">Wholesale</SelectItem>
+                              <SelectItem value="DOCTOR">Doctor</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                        <Input {...customerForm.register('email')} placeholder="email@example.com" type="email" error={!!customerForm.formState.errors.email} />
+                        {customerForm.formState.errors.email && <p className="text-xs text-rose-500">{customerForm.formState.errors.email.message}</p>}
+                      </div>
+                    </div>
+
+                    {/* Row 3a: GSTIN + DL — WHOLESALE only */}
+                    {customerForm.watch('type') === 'WHOLESALE' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
+                          <Input {...customerForm.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!customerForm.formState.errors.gstin} />
+                          {customerForm.formState.errors.gstin && <p className="text-xs text-rose-500">{customerForm.formState.errors.gstin.message}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number *</Label>
+                          <Input {...customerForm.register('dlNumber')} placeholder="Drug License No." error={!!customerForm.formState.errors.dlNumber} />
+                          {customerForm.formState.errors.dlNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.dlNumber.message}</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Row 3b: Registration Number — DOCTOR only */}
+                    {customerForm.watch('type') === 'DOCTOR' && (
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Medical Registration Number *</Label>
+                        <Input {...customerForm.register('registrationNumber')} placeholder="MCI / State Medical Council Reg. No." error={!!customerForm.formState.errors.registrationNumber} />
+                        {customerForm.formState.errors.registrationNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.registrationNumber.message}</p>}
+                      </div>
+                    )}
+
+                    {/* Row 4: Referred By + Address */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
+                        <Controller control={customerForm.control} name="referredBy" render={({ field }) => (
+                          <Select value={field.value || ''} onValueChange={field.onChange}>
+                            <SelectTrigger className={cn(customerForm.formState.errors.referredBy && 'border-rose-500')}>
+                              <SelectValue placeholder="Select salesperson" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {salespersons.map((sp) => (
+                                <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )} />
+                        {customerForm.formState.errors.referredBy && <p className="text-xs text-rose-500">{customerForm.formState.errors.referredBy.message}</p>}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address *</Label>
+                        <Textarea {...customerForm.register('address')} placeholder="Full address" rows={1} className="min-h-9 resize-none" />
+                        {customerForm.formState.errors.address && <p className="text-xs text-rose-500">{customerForm.formState.errors.address.message}</p>}
+                      </div>
+                    </div>
+
+                    {/* Row 6: Multi-file upload */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address Proof &amp; Documents</Label>
+                        {docFiles.length > 0 && <span className="text-[10px] text-muted-foreground">{docFiles.length} file{docFiles.length !== 1 ? 's' : ''} selected</span>}
+                      </div>
+                      {docPreviews.length > 0 && (
+                        <div className="space-y-1.5">
+                          {docPreviews.map((doc, idx) => (
+                            <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                              {doc.preview
+                                ? <img src={doc.preview} alt={doc.name} className="h-8 w-10 rounded object-cover shrink-0" />
+                                : <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted"><FileText className="h-4 w-4 text-muted-foreground" /></div>
+                              }
+                              <span className="min-w-0 flex-1 truncate text-xs">{doc.name}</span>
+                              <button type="button" onClick={() => removeDocFile(idx)}
+                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
+                        <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                          <FileImage className="h-5 w-5 text-muted-foreground/50" />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">Upload ID proof, address proof, or prescriptions</p>
+                        <div className="flex items-center gap-2">
+                          <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                            <Upload className="h-3.5 w-3.5 text-amber-500" />
+                            Add Files
+                            <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
+                              ref={multiDocInputRef} onChange={(e) => handleMultiDocFiles(e.target.files)} />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 7: Notes */}
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
+                      <Textarea {...customerForm.register('notes')} placeholder="Additional notes (optional)" rows={2} />
+                    </div>
+                  </div>
+
+                  {/* Sticky footer */}
+                  <div className="flex items-center justify-end gap-2 border-t border-border/40 px-4 py-3 bg-muted/20 shrink-0">
+                    <Button type="button" variant="outline" onClick={cancelAddCustomer}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={customerForm.formState.isSubmitting || !!nsPhoneCheckError}>
+                      {customerForm.formState.isSubmitting ? 'Saving...' : 'Save Customer'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <>
             {/* Tab strip — order: Customer History | Products | Reminders */}
             <div className="flex items-center gap-1 mb-2">
               {/* Tab 1: Customer History — always accessible, shown first */}
@@ -2964,33 +3236,30 @@ export default function NewSalePage() {
               </button>
             </div>
 
-            <Card className="flex-1 flex flex-col min-h-0">
-              <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+            <Card className="flex-1 flex flex-col min-h-0 shadow-none border-0 bg-transparent">
+              <CardContent className="p-0 flex-1 flex flex-col min-h-0 rounded-xl border border-border/40 bg-card overflow-hidden">
 
                 {/* ── Products Tab ── */}
                 {tableView === 'products' && (
                   <div className="flex-1 flex flex-col min-h-0">
                     <div className="flex-1 flex flex-col min-h-0 relative">
-                      {/* Desktop Table View */}
-                      <div className="hidden md:flex flex-col flex-1 absolute inset-0">
-                        <Table className="w-full min-w-150 relative">
-                          <TableHeader className="sticky top-0 z-20 w-full bg-muted/95 backdrop-blur-md">
-                            <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
-                              <TableHead className="w-10 px-2 py-3 text-center h-auto items-center justify-center">#</TableHead>
-                              <TableHead className="min-w-55 px-2 py-3 text-left h-auto">Product Selection</TableHead>
-                              <TableHead className="w-37.5 px-1.5 py-3 text-left h-auto">Batch / Expiry</TableHead>
-                              <TableHead className="w-27.5 px-1.5 py-3 text-center h-auto">Quantity</TableHead>
-                              <TableHead className="w-50 px-1.5 py-3 text-center h-auto">Rate / Qty</TableHead>
-                              <TableHead className="w-16.25 px-1.5 py-3 text-center h-auto">Disc %</TableHead>
-                              <TableHead className="w-12.5 px-1 py-3 text-center h-auto">GST</TableHead>
-                              <TableHead className="w-27.5 px-3 py-3 text-right h-auto">Amount</TableHead>
-                              <TableHead className="w-8 px-1 py-3 h-auto"></TableHead>
+                      {/* Desktop Table View — single Table, sticky header, perfect column alignment */}
+                      <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-hidden">
+                        <Table className="w-full min-w-150">
+                          <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-md">
+                            <TableRow className="border-b border-border/40 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent whitespace-nowrap">
+                              <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
+                              <TableHead className="min-w-55 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
+                              <TableHead className="w-37.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
+                              <TableHead className="w-27.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
+                              <TableHead className="w-50 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
+                              <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
+                              <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
+                              <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
+                              <TableHead className="w-10 px-1 py-3.5 h-auto"></TableHead>
                             </TableRow>
                           </TableHeader>
-                        </Table>
-                        <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                          <Table className="w-full min-w-150">
-                            <TableBody>
+                          <TableBody>
                             <AnimatePresence mode="popLayout">
                               {items.map((item, idx) => (
                                 <BillingRow
@@ -3007,7 +3276,6 @@ export default function NewSalePage() {
                             </AnimatePresence>
                           </TableBody>
                         </Table>
-                      </div>
                       </div>
 
                       {/* Mobile Card View */}
@@ -3027,7 +3295,7 @@ export default function NewSalePage() {
                       </div>
 
                       {items.length === 1 && !items[0].productId && (
-                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 top-32 hidden md:flex flex-col items-center justify-center text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
                             <Package className="h-6 w-6 text-muted-foreground/30" />
                           </div>
@@ -3036,13 +3304,6 @@ export default function NewSalePage() {
                         </div>
                       )}
 
-                    </div>
-                    <div className="flex items-center justify-end border-t border-border/40 px-3 py-1.5 bg-muted/10 shrink-0">
-                      {activeItemCount > 0 && (
-                        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                          {activeItemCount} item{activeItemCount !== 1 ? 's' : ''} in cart
-                        </span>
-                      )}
                     </div>
                   </div>
                 )}
@@ -3155,7 +3416,218 @@ export default function NewSalePage() {
                         <FileText className="h-10 w-10 text-muted-foreground/20 mb-3" />
                         <p className="text-sm font-medium text-muted-foreground/60">No previous invoices for {selectedCustomer.name}</p>
                       </div>
+                    ) : selectedHistoryInvoice ? (
+                      /* ════════════════════════════════════════════
+                          INLINE INVOICE DETAIL VIEW
+                          (replaces the modal — uses full left panel)
+                      ════════════════════════════════════════════ */
+                      <div className="flex-1 flex flex-col min-h-0">
+                        {/* Single-row header: Back · invoice info · badges · Re-purchase */}
+                        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40 bg-muted/20 shrink-0">
+                          {/* Back button */}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedHistoryInvoice(null)}
+                            className="gap-1.5 -ml-2 h-8 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            Back
+                          </Button>
+
+                          {/* Invoice icon + number */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                              <FileText className="h-3.5 w-3.5 text-primary" />
+                            </div>
+                            <h2 className="text-sm font-bold font-mono text-primary truncate max-w-[14rem]">{selectedHistoryInvoice.invoiceNumber}</h2>
+                          </div>
+
+                          {/* Meta — date · billingType · salesperson */}
+                          <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden text-[10px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 shrink-0">
+                              <Clock className="h-2.5 w-2.5 opacity-50" />
+                              {new Date(selectedHistoryInvoice.date ?? selectedHistoryInvoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>
+                            {selectedHistoryInvoice.billingType && (
+                              <span className="px-1.5 py-0.5 rounded bg-muted/60 font-bold text-[9px] uppercase tracking-wider shrink-0">{selectedHistoryInvoice.billingType}</span>
+                            )}
+                            {selectedHistoryInvoice.salespersonName && (
+                              <span className="truncate">SP: <strong className="text-foreground">{selectedHistoryInvoice.salespersonName}</strong></span>
+                            )}
+                          </div>
+
+                          {/* Status + type badges */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Badge
+                              variant={selectedHistoryInvoice.status === 'PAID' ? 'success' : selectedHistoryInvoice.status === 'CREDIT' ? 'warning' : selectedHistoryInvoice.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                              size="sm"
+                              className="text-[9px]"
+                            >
+                              {selectedHistoryInvoice.status}
+                            </Badge>
+                            <Badge variant="outline" size="sm" className="text-[9px]">{selectedHistoryInvoice.type}</Badge>
+                          </div>
+
+                          {/* Re-purchase button — moved into header */}
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="gap-1.5 h-8 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-500/10 shrink-0"
+                            onClick={() => {
+                              if (!selectedHistoryInvoice?.items?.length) return
+                              const repurchaseItems = selectedHistoryInvoice.items.map((it) => {
+                                const base: BillingItem = {
+                                  ...createEmptyItem(),
+                                  productId: it.productId,
+                                  productName: it.productName,
+                                  batchId: it.batchId,
+                                  batchNumber: it.batchNumber,
+                                  expiryDate: it.expiryDate,
+                                  quantity: it.quantity,
+                                  mrp: Number(it.mrp),
+                                  rate: Number(it.rate),
+                                  discountPercent: Number(it.discountPercent),
+                                  gstPercent: Number(it.gstPercent),
+                                  amount: 0,
+                                }
+                                base.amount = calculateItemAmount(base)
+                                return base
+                              })
+                              setItems(repurchaseItems)
+                              setSelectedHistoryInvoice(null)
+                              setTableView('products')
+                              toast.success(`${repurchaseItems.length} item${repurchaseItems.length !== 1 ? 's' : ''} loaded from previous invoice`)
+                            }}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Re-purchase
+                          </Button>
+                        </div>
+
+                        {/* Items table — scrollable */}
+                        <div className="flex-1 overflow-y-auto [&>div]:rounded-none [&>div]:border-0">
+                          <Table>
+                            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-md">
+                              <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent whitespace-nowrap">
+                                <TableHead className="w-10 px-2 py-2.5 text-center h-auto whitespace-nowrap">#</TableHead>
+                                <TableHead className="px-3 py-2.5 h-auto whitespace-nowrap">Product</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto whitespace-nowrap">Batch</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto whitespace-nowrap">Expiry</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto text-center whitespace-nowrap">Qty</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto text-right whitespace-nowrap">MRP</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto text-right whitespace-nowrap">Rate</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto text-center whitespace-nowrap">Disc %</TableHead>
+                                <TableHead className="px-2 py-2.5 h-auto text-center whitespace-nowrap">GST</TableHead>
+                                <TableHead className="px-3 py-2.5 h-auto text-right whitespace-nowrap">Amount</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
+                                <TableRow key={item.id} className="hover:bg-accent/20 border-b border-border/20">
+                                  <TableCell className="w-10 px-2 py-2.5 text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
+                                  <TableCell className="px-3 py-2.5">
+                                    <div className="text-xs font-semibold">{item.productName}</div>
+                                  </TableCell>
+                                  <TableCell className="px-2 py-2.5 font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>
+                                  <TableCell className="px-2 py-2.5 text-[11px] text-muted-foreground">
+                                    {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}
+                                  </TableCell>
+                                  <TableCell className="px-2 py-2.5 text-center text-xs font-bold font-mono tabular-nums">{item.quantity}</TableCell>
+                                  <TableCell className="px-2 py-2.5 text-right font-mono text-xs text-muted-foreground tabular-nums">{formatCurrency(Number(item.mrp))}</TableCell>
+                                  <TableCell className="px-2 py-2.5 text-right font-mono text-xs tabular-nums">{formatCurrency(Number(item.rate))}</TableCell>
+                                  <TableCell className="px-2 py-2.5 text-center text-xs">
+                                    {Number(item.discountPercent) > 0
+                                      ? <span className="text-rose-500 font-bold">{item.discountPercent}%</span>
+                                      : <span className="text-muted-foreground/40">—</span>}
+                                  </TableCell>
+                                  <TableCell className="px-2 py-2.5 text-center text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
+                                  <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-bold tabular-nums">{formatCurrency(Number(item.amount))}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+
+                        {/* Footer — single-row horizontal totals bar */}
+                        <div className="border-t border-border/40 bg-muted/20 shrink-0">
+                          <div className="flex items-stretch gap-px bg-border/30">
+                            {/* Payment Mode */}
+                            <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Payment</span>
+                              <span className="text-sm font-black tabular-nums text-foreground">{selectedHistoryInvoice.paymentMode}</span>
+                            </div>
+
+                            {/* Amount Paid — conditional */}
+                            {Number(selectedHistoryInvoice.amountPaid) > 0 && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Paid</span>
+                                <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(Number(selectedHistoryInvoice.amountPaid))}</span>
+                              </div>
+                            )}
+
+                            {/* Change Returned — conditional */}
+                            {Number(selectedHistoryInvoice.changeReturned) > 0 && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Change</span>
+                                <span className="font-mono text-sm font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(selectedHistoryInvoice.changeReturned))}</span>
+                              </div>
+                            )}
+
+                            {/* Subtotal */}
+                            <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Subtotal</span>
+                              <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(Number(selectedHistoryInvoice.subtotal))}</span>
+                            </div>
+
+                            {/* Discount — conditional */}
+                            {Number(selectedHistoryInvoice.productDiscount) > 0 && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Discount</span>
+                                <span className="font-mono text-sm font-bold tabular-nums text-rose-500">-{formatCurrency(Number(selectedHistoryInvoice.productDiscount))}</span>
+                              </div>
+                            )}
+
+                            {/* Taxable */}
+                            <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Taxable</span>
+                              <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(Number(selectedHistoryInvoice.taxableAmount))}</span>
+                            </div>
+
+                            {/* CGST + SGST — conditional */}
+                            {(Number(selectedHistoryInvoice.cgst) > 0 || Number(selectedHistoryInvoice.sgst) > 0) && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">CGST + SGST</span>
+                                <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(Number(selectedHistoryInvoice.cgst) + Number(selectedHistoryInvoice.sgst))}</span>
+                              </div>
+                            )}
+
+                            {/* Round Off — conditional */}
+                            {Number(selectedHistoryInvoice.roundOff) !== 0 && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Round Off</span>
+                                <span className={cn(
+                                  'font-mono text-sm font-bold tabular-nums',
+                                  Number(selectedHistoryInvoice.roundOff) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
+                                )}>
+                                  {Number(selectedHistoryInvoice.roundOff) > 0 ? '+' : ''}{Number(selectedHistoryInvoice.roundOff).toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Grand Total — highlighted hero cell */}
+                            <div className="flex-[1.4] relative flex flex-col items-center justify-center gap-0.5 bg-gradient-to-br from-primary to-primary/85 px-3 py-2 text-primary-foreground shadow-inner overflow-hidden">
+                              <span className="text-[9px] font-black uppercase tracking-widest opacity-90 relative z-10">Grand Total</span>
+                              <span className="font-mono text-base font-black tabular-nums tracking-tight relative z-10">{formatCurrency(Number(selectedHistoryInvoice.grandTotal))}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
+                      /* ════════════════════════════════════════════
+                          INVOICE LIST VIEW
+                      ════════════════════════════════════════════ */
                       <ScrollArea className="flex-1">
                         <div className="px-3 py-2 border-b border-border/40 bg-muted/20">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -3178,7 +3650,7 @@ export default function NewSalePage() {
                               <TableRow
                                 key={inv.id}
                                 className="cursor-pointer hover:bg-accent/40 transition-colors"
-                                onClick={() => { setSelectedHistoryInvoice(inv); setHistoryInvoiceOpen(true) }}
+                                onClick={() => setSelectedHistoryInvoice(inv)}
                               >
                                 <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</TableCell>
                                 <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
@@ -3210,6 +3682,8 @@ export default function NewSalePage() {
 
               </CardContent>
             </Card>
+              </>
+            )}
 
             {/* Mobile sticky checkout bar — hidden on md+ */}
             <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border/40 bg-background/95 backdrop-blur-sm px-4 py-3 md:hidden">
@@ -3239,219 +3713,268 @@ export default function NewSalePage() {
               </Button>
             </div>
 
-            {/* Summary + Grand Total */}
-            <Card className="overflow-x-auto shrink-0">
-              <CardContent className="p-0">
-                <div className="px-4 py-3 bg-muted/30 border-b border-border/40">
-                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 flex items-center justify-between">
+            {/* Credit mode indicator — shown above payment when applicable */}
+            {paymentMode === 'CREDIT' && (
+              <div className="flex justify-between items-center rounded-lg bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200/50 dark:border-amber-800/30 px-3 py-2 text-amber-800 dark:text-amber-300 text-[11px] shrink-0">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  Credit Sale
+                </span>
+                <span className="font-mono font-bold">{formatCurrency(totals.grandTotal)} due</span>
+              </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════
+                UNIFIED CHECKOUT PANEL — Payment + Actions in one card
+            ═══════════════════════════════════════════════════ */}
+            <Card className="flex-1 flex flex-col min-h-0 shadow-md">
+              <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+                {/* Invoice Summary Section — moved from footer */}
+                <div className="p-4 pt-4 border-b border-border/40">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground/80 mb-3 flex items-center gap-2">
+                    <Receipt className="h-4 w-4" />
                     Invoice Summary
-                    <Badge variant="outline" className="h-4 px-1 text-[8px] font-mono border-muted-foreground/20">
-                      {activeItemCount} items
-                    </Badge>
                   </h3>
-                </div>
-                <div className="p-4 space-y-3">
-                  <div className="space-y-1.5 text-[11px]">
-                    {/* Subtotal (before discount) */}
-                    <div className="flex justify-between items-center text-muted-foreground">
-                      <span>Subtotal</span>
-                      <span className="font-mono">{formatCurrency(totals.subtotal)}</span>
+
+                  {/* Items in cart — prominent first row */}
+                  <div className="flex items-center justify-between rounded-lg bg-muted/40 border border-border/40 px-3 py-2 mb-3">
+                    <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      <Package className="h-3.5 w-3.5 text-primary/70" />
+                      Items in Cart
+                    </span>
+                    <span className="font-mono text-base font-black tabular-nums text-foreground">
+                      {activeItemCount}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    {/* Subtotal */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground font-medium">Subtotal</span>
+                      <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.subtotal)}</span>
                     </div>
 
-                    {/* Discount row — only shown when > 0 */}
+                    {/* Discount — only when > 0 */}
                     {totals.productDiscount > 0 && (
-                      <div className="flex justify-between items-center text-rose-500 font-medium">
-                        <span className="flex items-center gap-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="flex items-center gap-1.5 text-rose-500 font-medium">
                           Discount
                           {totals.subtotal > 0 && (
-                            <Badge variant="destructive" size="sm" className="h-3.5 px-1 text-[8px]">
+                            <Badge variant="destructive" size="sm" className="h-4 px-1 text-[9px]">
                               -{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
                             </Badge>
                           )}
                         </span>
-                        <span className="font-mono">-{formatCurrency(totals.productDiscount)}</span>
+                        <span className="font-mono font-bold tabular-nums text-rose-500">-{formatCurrency(totals.productDiscount)}</span>
                       </div>
                     )}
 
-                    <Separator className="my-1.5 opacity-40" />
-
-                    {/* Taxable Value */}
-                    <div className="flex justify-between items-center font-medium">
-                      <span className="text-muted-foreground">Taxable Value</span>
-                      <span className="font-mono">{formatCurrency(totals.taxableAmount)}</span>
+                    {/* Taxable */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground font-medium">Taxable</span>
+                      <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
                     </div>
 
-                    {/* GST split: CGST + SGST */}
+                    {/* GST */}
                     {totals.cgst > 0 && (
-                      <div className="flex justify-between items-center text-muted-foreground/70">
-                        <span>CGST + SGST</span>
-                        <span className="font-mono">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground font-medium">CGST + SGST</span>
+                        <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
                       </div>
                     )}
                     {totals.igst > 0 && (
-                      <div className="flex justify-between items-center text-muted-foreground/70">
-                        <span>IGST</span>
-                        <span className="font-mono">{formatCurrency(totals.igst)}</span>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground font-medium">IGST</span>
+                        <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.igst)}</span>
                       </div>
                     )}
 
-                    {/* Round-off — only shown when non-zero */}
+                    {/* Round Off — only when non-zero */}
                     {totals.roundOff !== 0 && (
-                      <div className="flex justify-between items-center text-muted-foreground/50">
-                        <span>Round Off</span>
-                        <span className="font-mono">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground font-medium">Round Off</span>
+                        <span className={cn(
+                          'font-mono font-bold tabular-nums',
+                          totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
+                        )}>
                           {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
                         </span>
                       </div>
                     )}
-
-                    {/* Credit mode indicator */}
-                    {paymentMode === 'CREDIT' && (
-                      <div className="flex justify-between items-center rounded-md bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200/50 dark:border-amber-800/30 px-2 py-1.5 text-amber-800 dark:text-amber-300">
-                        <span className="flex items-center gap-1">
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-                          Credit Sale
-                        </span>
-                        <span className="font-mono font-semibold">{formatCurrency(totals.grandTotal)} due</span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* Grand Total Highlight */}
-                  <div className="relative overflow-hidden rounded-xl bg-primary/10 dark:bg-primary/20 p-4 border border-primary/10">
+                  {/* Net Payable — large highlighted block */}
+                  <div className="relative mt-4 overflow-hidden rounded-xl bg-gradient-to-br from-primary/15 via-primary/8 to-transparent border-2 border-primary/25 p-4 shadow-sm">
                     <div className="relative z-10 flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary/80">Net Payable</p>
-                        <p className="text-2xl font-black font-mono tracking-tight text-primary">
-                          {formatCurrency(totals.grandTotal)}
-                        </p>
-                      </div>
-                      <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Receipt className="h-6 w-6" />
-                      </div>
+                      <span className="text-xs font-black uppercase tracking-widest text-primary/90">Net Payable</span>
+                      <span className="font-mono text-3xl font-black tabular-nums tracking-tight text-primary">
+                        {formatCurrency(totals.grandTotal)}
+                      </span>
                     </div>
-                    {/* Subtle decorative background detail */}
-                    <div className="absolute -right-2 -bottom-2 opacity-5 scale-150 rotate-12">
-                      <Receipt className="h-20 w-20" />
-                    </div>
+                    <Receipt className="absolute -right-2 -bottom-2 h-16 w-16 opacity-[0.08] rotate-12 text-primary" />
                   </div>
+                </div>
+
+                {/* Payment Section — now second */}
+                <div className="flex-1 p-4 pt-3 min-h-0 overflow-y-auto">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 mb-2 flex items-center gap-2">
+                    <CreditCard className="h-3 w-3" />
+                    Payment
+                  </h3>
+                  <PaymentPanel
+                    mode={paymentMode}
+                    onModeChange={setPaymentMode}
+                    grandTotal={totals.grandTotal}
+                    details={paymentDetails}
+                    onDetailsChange={(d) =>
+                      setPaymentDetails((prev) => ({ ...prev, ...d }))
+                    }
+                    customer={selectedCustomer}
+                  />
                 </div>
               </CardContent>
             </Card>
-
-            {/* Payment */}
-            <Card className="shrink-0">
-              <CardContent className="p-4 pt-3">
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                  Payment
-                </h3>
-                <PaymentPanel
-                  mode={paymentMode}
-                  onModeChange={setPaymentMode}
-                  grandTotal={totals.grandTotal}
-                  details={paymentDetails}
-                  onDetailsChange={(d) =>
-                    setPaymentDetails((prev) => ({ ...prev, ...d }))
-                  }
-                  customer={selectedCustomer}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-1.5 mt-auto shrink-0">
-              {/* Preview Button */}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full gap-2 h-9 text-sm font-semibold border-primary/30 text-primary hover:bg-primary/5"
-                disabled={!selectedCustomer || items.filter(i => i.productId && i.quantity > 0).length === 0}
-                onClick={() => setPreviewOpen(true)}
-              >
-                <FileText className="h-4 w-4" />
-                Preview Invoice
-                <kbd className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono text-primary/70">F7</kbd>
-              </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="default"
-                    className={`w-full gap-2 h-10 text-sm font-semibold shadow-md cursor-pointer ${isCreditBlocked && isPharmacist ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'shadow-primary/20'}`}
-                    onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
-                    disabled={isSubmitting || !selectedCustomer}
-                  >
-                    {isCreditBlocked && isPharmacist
-                      ? <ShieldCheck className="h-4 w-4" />
-                      : <Printer className="h-4 w-4" />
-                    }
-                    {isSubmitting
-                      ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving...')
-                      : (isCreditBlocked && isPharmacist ? 'Request Approval' : 'Save & Print')
-                    }
-                    <kbd className="ml-auto rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-mono">F8</kbd>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Save and print invoice (F8)</TooltipContent>
-              </Tooltip>
-
-              <div className="grid grid-cols-2 gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="secondary" size="sm" className="gap-1.5 text-xs h-8"
-                      onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}>
-                      <Share2 className="h-3.5 w-3.5" /> Share
-                      <kbd className="ml-auto text-[9px] font-mono opacity-50">F9</kbd>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={holdCurrentBill}>
-                      <Save className="h-3.5 w-3.5" /> Draft
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Save as draft</TooltipContent>
-                </Tooltip>
-              </div>
-
-              <div className="grid grid-cols-2 gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={holdCurrentBill}>
-                      <Pause className="h-3.5 w-3.5" /> Hold
-                      <kbd className="ml-auto text-[9px] font-mono opacity-50">F10</kbd>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Hold bill for later (F10)</TooltipContent>
-                </Tooltip>
-                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5 text-xs h-8 relative" onClick={() => setHeldBillsOpen(true)}>
-                  <Receipt className="h-3.5 w-3.5" /> Held
-                  {heldBills.length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white">{heldBills.length}</span>
-                  )}
-                </Button>
-              </div>
-            </div>
           </div>
         </div>
 
         {/* ═══════════════════════════════════════════════════
-            KEYBOARD SHORTCUT BAR
+            ACTIONS FOOTER — Fixed bottom POS-style action bar
         ═══════════════════════════════════════════════════ */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-          className="hidden md:flex items-center gap-4 mt-2 py-1.5 px-1 border-t border-border/30">
-          <Keyboard className="h-3 w-3 text-muted-foreground/30 shrink-0" />
-          {[
-            { keys: 'Alt+S', label: 'Search' }, { keys: 'Alt+N', label: 'New Row' },
-            { keys: 'F7', label: 'Preview' }, { keys: 'F8', label: 'Print' },
-            { keys: 'F9', label: 'Share' }, { keys: 'F10', label: 'Hold' }, { keys: 'Esc', label: 'Clear Search' },
-          ].map((s) => (
-            <div key={s.keys} className="flex items-center gap-1">
-              <kbd className="rounded border border-border/40 bg-muted/30 px-1 py-0.5 text-[9px] font-mono text-muted-foreground/60">{s.keys}</kbd>
-              <span className="text-[10px] text-muted-foreground/40">{s.label}</span>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] as const }}
+          className="hidden md:block shrink-0 -mx-3 md:-mx-4 mt-3"
+        >
+          <div className="relative border-t border-border/50 bg-gradient-to-r from-background/80 via-background/95 to-background/80 backdrop-blur-xl shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.5)]">
+            <div className="grid grid-cols-7 gap-px bg-border/30">
+              {/* Held — with count badge */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setHeldBillsOpen(true)}
+                    className="group relative flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                  >
+                    <Receipt className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Held</span>
+                    {heldBills.length > 0 && (
+                      <span className="absolute top-1.5 right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-black text-white">
+                        {heldBills.length}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>View held bills</TooltipContent>
+              </Tooltip>
+
+              {/* Hold (F10) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={holdCurrentBill}
+                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                  >
+                    <Pause className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Hold</span>
+                      <kbd className="rounded bg-muted/60 px-1 text-[8px] font-mono text-muted-foreground/60">F10</kbd>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Hold bill for later (F10)</TooltipContent>
+              </Tooltip>
+
+              {/* Draft */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={holdCurrentBill}
+                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                  >
+                    <Save className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Draft</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Save as draft</TooltipContent>
+              </Tooltip>
+
+              {/* Share (F9) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
+                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                  >
+                    <Share2 className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Share</span>
+                      <kbd className="rounded bg-muted/60 px-1 text-[8px] font-mono text-muted-foreground/60">F9</kbd>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
+              </Tooltip>
+
+              {/* Preview (F7) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOpen(true)}
+                    disabled={!selectedCustomer || items.filter(i => i.productId && i.quantity > 0).length === 0}
+                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-primary/5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/95"
+                  >
+                    <FileText className="h-4 w-4 text-primary/80 group-hover:text-primary transition-colors" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-primary/80">Preview</span>
+                      <kbd className="rounded bg-primary/10 px-1 text-[8px] font-mono text-primary/60">F7</kbd>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Preview invoice (F7)</TooltipContent>
+              </Tooltip>
+
+              {/* Save & Print (F8) — primary hero, spans 2 cols */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
+                    disabled={isSubmitting || !selectedCustomer}
+                    className={cn(
+                      'group col-span-2 relative flex items-center justify-center gap-2.5 px-3 py-2.5 text-primary-foreground shadow-inner overflow-hidden transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                      isCreditBlocked && isPharmacist
+                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
+                        : 'bg-gradient-to-br from-primary to-primary/85 hover:from-primary hover:to-primary'
+                    )}
+                  >
+                    {isCreditBlocked && isPharmacist
+                      ? <ShieldCheck className="h-5 w-5 relative z-10" />
+                      : <Printer className="h-5 w-5 relative z-10" />
+                    }
+                    <div className="flex flex-col items-start relative z-10">
+                      <span className="text-[9px] font-black uppercase tracking-widest opacity-90">
+                        {isCreditBlocked && isPharmacist ? 'Approval' : 'Save & Print'}
+                      </span>
+                      <span className="text-sm font-black tracking-tight leading-tight">
+                        {isSubmitting
+                          ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving...')
+                          : (isCreditBlocked && isPharmacist ? 'Request Approval' : `${formatCurrency(totals.grandTotal)}`)
+                        }
+                      </span>
+                    </div>
+                    <kbd className="ml-2 rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-mono font-bold relative z-10">F8</kbd>
+                    <Receipt className="absolute -right-2 -bottom-2 h-14 w-14 opacity-10 rotate-12" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Save and print invoice (F8)</TooltipContent>
+              </Tooltip>
             </div>
-          ))}
+          </div>
         </motion.div>
       </div>
 
@@ -3684,409 +4207,6 @@ export default function NewSalePage() {
               ))}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Invoice Detail Dialog ── */}
-      <Dialog open={historyInvoiceOpen} onOpenChange={setHistoryInvoiceOpen}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-4xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex md:flex-col">
-          {selectedHistoryInvoice && (
-            <>
-              {/* Header */}
-              <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-border/40">
-                <div>
-                  <div className="flex items-center gap-2.5 mb-1">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                      <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <h2 className="text-base font-bold">{selectedHistoryInvoice.invoiceNumber}</h2>
-                    <Badge
-                      variant={selectedHistoryInvoice.status === 'PAID' ? 'success' : selectedHistoryInvoice.status === 'CREDIT' ? 'warning' : selectedHistoryInvoice.status === 'CANCELLED' ? 'destructive' : 'secondary'}
-                      className="text-[10px]"
-                    >
-                      {selectedHistoryInvoice.status}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px]">{selectedHistoryInvoice.type}</Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1.5 hover:text-foreground transition-colors">
-                      <Clock className="h-3 w-3 text-muted-foreground/40" />
-                      {new Date(selectedHistoryInvoice.date ?? selectedHistoryInvoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
-                    </span>
-                    <span className="hidden sm:inline text-border">·</span>
-                    <span className="flex items-center gap-1.5 hover:text-foreground transition-colors">
-                      <Users className="h-3 w-3 text-muted-foreground/40" />
-                      <strong className="font-semibold text-foreground">{selectedHistoryInvoice.customerName}</strong>
-                    </span>
-                    {selectedHistoryInvoice.billingType && (
-                      <>
-                        <span className="hidden sm:inline text-border">·</span>
-                        <span className="px-1.5 py-0.5 rounded-md bg-muted/50 font-medium text-[10px] uppercase tracking-wider">{selectedHistoryInvoice.billingType}</span>
-                      </>
-                    )}
-                    {selectedHistoryInvoice.salespersonName && (
-                      <>
-                        <span className="hidden sm:inline text-border">·</span>
-                        <span className="text-[11px]">SP: <strong className="text-foreground">{selectedHistoryInvoice.salespersonName}</strong></span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Body — scrollable */}
-              <div className="flex-1 overflow-y-auto">
-                {/* Desktop View: Items table */}
-                <div className="hidden md:block">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
-                      <TableRow className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent border-b border-border/40">
-                        <TableHead className="px-4 py-2.5 h-auto w-8 text-center">#</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto">Product</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto">Batch</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto">Expiry</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-center">Qty</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-right">MRP</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-right">Rate</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-center">Disc%</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-center">GST%</TableHead>
-                        <TableHead className="px-4 py-2.5 h-auto text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
-                        <TableRow key={item.id} className="hover:bg-accent/30 border-b border-border/20">
-                          <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
-                          <TableCell className="px-4 py-3">
-                            <div className="text-xs font-semibold">{item.productName}</div>
-                          </TableCell>
-                          <TableCell className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{item.batchNumber}</TableCell>
-                          <TableCell className="px-4 py-3 text-[11px] text-muted-foreground">
-                            {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}
-                          </TableCell>
-                          <TableCell className="px-4 py-3 text-center text-xs font-semibold">{item.quantity}</TableCell>
-                          <TableCell className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{formatCurrency(Number(item.mrp))}</TableCell>
-                          <TableCell className="px-4 py-3 text-right font-mono text-xs">{formatCurrency(Number(item.rate))}</TableCell>
-                          <TableCell className="px-4 py-3 text-center text-xs">{Number(item.discountPercent) > 0 ? <span className="text-rose-500 font-semibold">{item.discountPercent}%</span> : <span className="text-muted-foreground/40">—</span>}</TableCell>
-                          <TableCell className="px-4 py-3 text-center text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
-                          <TableCell className="px-4 py-3 text-right font-mono text-xs font-bold">{formatCurrency(Number(item.amount))}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                {/* Mobile View: Item Cards */}
-                <div className="md:hidden p-4 space-y-3">
-                  {(selectedHistoryInvoice.items ?? []).map((item, idx) => (
-                    <Card key={item.id} className="overflow-hidden border-border/40 bg-muted/10">
-                      <CardContent className="p-3">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-[10px] font-bold text-muted-foreground/40 font-mono">#{idx + 1}</span>
-                              <h4 className="text-xs font-bold truncate leading-tight">{item.productName}</h4>
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                              <Badge variant="outline" className="h-4 px-1 text-[8px] font-mono">{item.batchNumber}</Badge>
-                              <span>Exp: {item.expiryDate ? formatExpiryShort(item.expiryDate) : '—'}</span>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase leading-none mb-1">Amount</p>
-                            <p className="text-sm font-black font-mono text-primary">{formatCurrency(Number(item.amount))}</p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/5 text-[10px]">
-                          <div>
-                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">Qty</p>
-                            <p className="font-bold">{item.quantity}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">Rate</p>
-                            <p className="font-mono font-medium">{formatCurrency(Number(item.rate))}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground/60 uppercase text-[8px] font-black">GST/Disc</p>
-                            <p className="font-medium">
-                              {item.gstPercent}% / {Number(item.discountPercent) > 0 ? `${item.discountPercent}%` : '—'}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-
-              {/* Footer — totals + actions */}
-              <div className="border-t border-border/40 px-6 py-4 bg-muted/20">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                  {/* Left: payment info */}
-                  <div className="space-y-1.5 text-xs text-muted-foreground order-2 md:order-1">
-                    <div className="flex items-center justify-between md:justify-start gap-3 border-b md:border-0 border-border/10 pb-1 md:pb-0">
-                      <span>Payment Mode</span>
-                      <strong className="text-foreground">{selectedHistoryInvoice.paymentMode}</strong>
-                    </div>
-                    {Number(selectedHistoryInvoice.amountPaid) > 0 && (
-                      <div className="flex items-center justify-between md:justify-start gap-3">
-                        <span>Amount Paid</span>
-                        <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.amountPaid))}</strong>
-                      </div>
-                    )}
-                    {Number(selectedHistoryInvoice.changeReturned) > 0 && (
-                      <div className="flex items-center justify-between md:justify-start gap-3">
-                        <span>Change Returned</span>
-                        <strong className="text-foreground font-mono">{formatCurrency(Number(selectedHistoryInvoice.changeReturned))}</strong>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right: totals breakdown */}
-                  <div className="space-y-1 text-xs min-w-full md:min-w-52 order-1 md:order-2">
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Subtotal</span>
-                      <span className="font-mono">{formatCurrency(Number(selectedHistoryInvoice.subtotal))}</span>
-                    </div>
-                    {Number(selectedHistoryInvoice.productDiscount) > 0 && (
-                      <div className="flex justify-between text-rose-500">
-                        <span>Discount</span>
-                        <span className="font-mono">-{formatCurrency(Number(selectedHistoryInvoice.productDiscount))}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Taxable Value</span>
-                      <span className="font-mono">{formatCurrency(Number(selectedHistoryInvoice.taxableAmount))}</span>
-                    </div>
-                    {(Number(selectedHistoryInvoice.cgst) > 0 || Number(selectedHistoryInvoice.sgst) > 0) && (
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>CGST + SGST</span>
-                        <span className="font-mono">{formatCurrency(Number(selectedHistoryInvoice.cgst) + Number(selectedHistoryInvoice.sgst))}</span>
-                      </div>
-                    )}
-                    {Number(selectedHistoryInvoice.roundOff) !== 0 && (
-                      <div className="flex justify-between text-muted-foreground/50">
-                        <span>Round Off</span>
-                        <span className="font-mono">{Number(selectedHistoryInvoice.roundOff) > 0 ? '+' : ''}{Number(selectedHistoryInvoice.roundOff).toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center pt-2 mt-2 border-t border-primary/20">
-                      <span className="font-black uppercase tracking-widest text-[10px] text-primary/60">Grand Total</span>
-                      <span className="font-mono font-black text-lg text-primary">{formatCurrency(Number(selectedHistoryInvoice.grandTotal))}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex gap-2 mt-6">
-                  <Button variant="outline" className="flex-1 h-10 text-xs font-semibold" onClick={() => setHistoryInvoiceOpen(false)}>
-                    Close
-                  </Button>
-                  <Button
-                    className="flex-2 h-10 text-xs font-bold gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/10"
-                    onClick={() => {
-                      if (!selectedHistoryInvoice?.items?.length) return
-                      const repurchaseItems = selectedHistoryInvoice.items.map((it) => {
-                        const base: BillingItem = {
-                          ...createEmptyItem(),
-                          productId: it.productId,
-                          productName: it.productName,
-                          batchId: it.batchId,
-                          batchNumber: it.batchNumber,
-                          expiryDate: it.expiryDate,
-                          quantity: it.quantity,
-                          mrp: Number(it.mrp),
-                          rate: Number(it.rate),
-                          discountPercent: Number(it.discountPercent),
-                          gstPercent: Number(it.gstPercent),
-                          amount: 0,
-                        }
-                        base.amount = calculateItemAmount(base)
-                        return base
-                      })
-                      setItems(repurchaseItems)
-                      setHistoryInvoiceOpen(false)
-                      setTableView('products')
-                      toast.success(`${repurchaseItems.length} item${repurchaseItems.length !== 1 ? 's' : ''} loaded from previous invoice`)
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Re-purchase Items
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={addCustomerDialogOpen} onOpenChange={(open) => {
-        if (!open) { customerForm.reset(); setDocFiles([]); setDocPreviews([]); setNsPhoneCheckError('') }
-        setAddCustomerDialogOpen(open)
-      }}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex! md:flex-col!">
-          <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
-            <DialogTitle>Add New Customer</DialogTitle>
-            <DialogDescription>Name, Phone, Type, Address and Referred By are required. Email is optional.</DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="flex flex-col flex-1 min-h-0 relative">
-            <div className="flex-1 overflow-y-auto px-5 py-4 pb-20 space-y-3">
-
-              {/* Row 1: Name + Phone */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
-                  <Input {...customerForm.register('name')} placeholder="Customer name" error={!!customerForm.formState.errors.name} />
-                  {customerForm.formState.errors.name && <p className="text-xs text-rose-500">{customerForm.formState.errors.name.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Phone *{nsPhoneChecking && <span className="ml-1 font-normal text-muted-foreground">checking…</span>}
-                  </Label>
-                  <Input
-                    {...customerForm.register('phone')}
-                    placeholder="10-digit number"
-                    inputMode="numeric"
-                    error={!!customerForm.formState.errors.phone || !!nsPhoneCheckError}
-                    onBlur={(e) => checkNsPhoneDuplicate(e.target.value)}
-                  />
-                  {customerForm.formState.errors.phone && <p className="text-xs text-rose-500">{customerForm.formState.errors.phone.message}</p>}
-                  {!customerForm.formState.errors.phone && nsPhoneCheckError && <p className="text-xs text-rose-500">{nsPhoneCheckError}</p>}
-                </div>
-              </div>
-
-              {/* Row 2: Type + Email (optional) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
-                  <Controller control={customerForm.control} name="type" render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="RETAIL">Retail</SelectItem>
-                        <SelectItem value="WHOLESALE">Wholesale</SelectItem>
-                        <SelectItem value="DOCTOR">Doctor</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
-                  <Input {...customerForm.register('email')} placeholder="email@example.com" type="email" error={!!customerForm.formState.errors.email} />
-                  {customerForm.formState.errors.email && <p className="text-xs text-rose-500">{customerForm.formState.errors.email.message}</p>}
-                </div>
-              </div>
-
-              {/* Row 3a: GSTIN + DL — WHOLESALE only */}
-              {customerForm.watch('type') === 'WHOLESALE' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
-                    <Input {...customerForm.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!customerForm.formState.errors.gstin} />
-                    {customerForm.formState.errors.gstin && <p className="text-xs text-rose-500">{customerForm.formState.errors.gstin.message}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number *</Label>
-                    <Input {...customerForm.register('dlNumber')} placeholder="Drug License No." error={!!customerForm.formState.errors.dlNumber} />
-                    {customerForm.formState.errors.dlNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.dlNumber.message}</p>}
-                  </div>
-                </div>
-              )}
-
-              {/* Row 3b: Registration Number — DOCTOR only */}
-              {customerForm.watch('type') === 'DOCTOR' && (
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Medical Registration Number *</Label>
-                  <Input {...customerForm.register('registrationNumber')} placeholder="MCI / State Medical Council Reg. No." error={!!customerForm.formState.errors.registrationNumber} />
-                  {customerForm.formState.errors.registrationNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.registrationNumber.message}</p>}
-                </div>
-              )}
-
-              {/* Row 4: Referred By */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
-                  <Controller control={customerForm.control} name="referredBy" render={({ field }) => (
-                    <Select value={field.value || ''} onValueChange={field.onChange}>
-                      <SelectTrigger className={cn(customerForm.formState.errors.referredBy && 'border-rose-500')}>
-                        <SelectValue placeholder="Select salesperson" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {salespersons.map((sp) => (
-                          <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )} />
-                  {customerForm.formState.errors.referredBy && <p className="text-xs text-rose-500">{customerForm.formState.errors.referredBy.message}</p>}
-                </div>
-              </div>
-
-              {/* Row 5: Address */}
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address *</Label>
-                <Textarea {...customerForm.register('address')} placeholder="Full address" rows={2} />
-                {customerForm.formState.errors.address && <p className="text-xs text-rose-500">{customerForm.formState.errors.address.message}</p>}
-              </div>
-
-              {/* Row 6: Multi-file upload */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address Proof &amp; Documents</Label>
-                  {docFiles.length > 0 && <span className="text-[10px] text-muted-foreground">{docFiles.length} file{docFiles.length !== 1 ? 's' : ''} selected</span>}
-                </div>
-                {docPreviews.length > 0 && (
-                  <div className="space-y-1.5">
-                    {docPreviews.map((doc, idx) => (
-                      <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
-                        {doc.preview
-                          ? <img src={doc.preview} alt={doc.name} className="h-8 w-10 rounded object-cover shrink-0" />
-                          : <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted"><FileText className="h-4 w-4 text-muted-foreground" /></div>
-                        }
-                        <span className="min-w-0 flex-1 truncate text-xs">{doc.name}</span>
-                        <button type="button" onClick={() => removeDocFile(idx)}
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
-                  <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
-                    <FileImage className="h-5 w-5 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">Upload ID proof, address proof, or prescriptions</p>
-                  <div className="flex items-center gap-2">
-                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
-                      <Upload className="h-3.5 w-3.5 text-amber-500" />
-                      Add Files
-                      <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,application/pdf" multiple
-                        ref={multiDocInputRef} onChange={(e) => handleMultiDocFiles(e.target.files)} />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 7: Notes */}
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Textarea {...customerForm.register('notes')} placeholder="Additional notes (optional)" rows={2} />
-              </div>
-
-            </div>
-
-            {/* Sticky footer */}
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { customerForm.reset(); setDocFiles([]); setDocPreviews([]); setNsPhoneCheckError(''); setAddCustomerDialogOpen(false) }}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={customerForm.formState.isSubmitting || !!nsPhoneCheckError}>
-                {customerForm.formState.isSubmitting ? 'Saving...' : 'Save Customer'}
-              </Button>
-            </div>
-          </form>
         </DialogContent>
       </Dialog>
 

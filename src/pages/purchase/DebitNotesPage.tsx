@@ -1,8 +1,7 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import {
-  Search,
   ChevronRight,
   FileText,
   RotateCcw,
@@ -11,13 +10,20 @@ import {
   Printer,
   Download,
   CheckCircle2,
+  Receipt,
+  IndianRupee,
+  AlertTriangle,
 } from 'lucide-react'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { DatePicker } from '@/components/ui/date-picker'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EnumSelect } from '@/components/shared/EnumSelect'
 import {
   Table,
   TableBody,
@@ -26,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
@@ -66,6 +72,27 @@ type ReturnDetail = {
   replacementGrnId: string | null; notes?: string;
 }
 
+const PERIOD_OPTIONS = [
+  { value: 'all', label: 'All Time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month' },
+  { value: 'quarter', label: 'This Quarter' },
+  { value: 'custom', label: 'Custom Range' },
+] as const
+
+const TYPE_OPTIONS = [
+  { value: 'all', label: 'All Types' },
+  { value: 'goods-returned', label: 'Goods Returned' },
+  { value: 'short-billing', label: 'Short-Billing' },
+] as const
+
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All Status' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'SETTLED', label: 'Settled' },
+] as const
+
 export default function DebitNotesPage() {
   const [pastReturns, setPastReturns] = useState<ApiReturn[]>([])
   const [allReturns, setAllReturns] = useState<ApiReturn[]>([])
@@ -74,6 +101,15 @@ export default function DebitNotesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
+
+  // ── Filters ──
+  const [period, setPeriod] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [selectedType, setSelectedType] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [amountMin, setAmountMin] = useState('')
+  const [amountMax, setAmountMax] = useState('')
 
   const fetchReturns = useCallback(async () => {
     setReturnsLoading(true)
@@ -92,22 +128,108 @@ export default function DebitNotesPage() {
   useEffect(() => { fetchReturns() }, [fetchReturns])
   useBranchRefresh(fetchReturns)
 
-  // Client-side search
+  // Client-side search + filters
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setPastReturns(allReturns)
-    } else {
+    let result = [...allReturns]
+
+    // Period filter
+    const now = new Date()
+    const todayStr = now.toISOString().slice(0, 10)
+    switch (period) {
+      case 'today':
+        result = result.filter(r => r.date?.slice(0, 10) === todayStr)
+        break
+      case 'week': {
+        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
+        result = result.filter(r => r.date?.slice(0, 10) >= weekAgo.toISOString().slice(0, 10))
+        break
+      }
+      case 'month': {
+        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+        result = result.filter(r => r.date?.slice(0, 10) >= monthStart)
+        break
+      }
+      case 'quarter': {
+        const qMonth = Math.floor(now.getMonth() / 3) * 3
+        const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
+        result = result.filter(r => r.date?.slice(0, 10) >= quarterStart)
+        break
+      }
+      case 'custom':
+        if (dateFrom) result = result.filter(r => r.date?.slice(0, 10) >= dateFrom)
+        if (dateTo)   result = result.filter(r => r.date?.slice(0, 10) <= dateTo)
+        break
+    }
+
+    // Type filter (matched against `reason`)
+    if (selectedType === 'short-billing') {
+      result = result.filter(r => /short/i.test(r.reason || ''))
+    } else if (selectedType === 'goods-returned') {
+      result = result.filter(r => !/short/i.test(r.reason || ''))
+    }
+
+    // Status filter
+    if (selectedStatus !== 'all') {
+      result = result.filter(r => (r.status || '').toUpperCase() === selectedStatus)
+    }
+
+    // Amount range
+    if (amountMin) result = result.filter(r => Number(r.totalAmount || 0) >= parseFloat(amountMin))
+    if (amountMax) result = result.filter(r => Number(r.totalAmount || 0) <= parseFloat(amountMax))
+
+    // Search
+    if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      setPastReturns(allReturns.filter(p =>
+      result = result.filter(p =>
         p.debitNoteNo?.toLowerCase().includes(q) ||
         p.supplierName?.toLowerCase().includes(q)
-      ))
+      )
     }
+
+    setPastReturns(result)
     setCurrentPage(1)
-  }, [searchQuery, allReturns])
+  }, [searchQuery, allReturns, period, dateFrom, dateTo, selectedType, selectedStatus, amountMin, amountMax])
+
+  // Active filters count + clear
+  const activeFilterCount = [
+    period !== 'all' ? period : '',
+    dateFrom, dateTo,
+    selectedType !== 'all' ? selectedType : '',
+    selectedStatus !== 'all' ? selectedStatus : '',
+    amountMin, amountMax,
+  ].filter(Boolean).length
+
+  const clearFilters = () => {
+    setPeriod('all')
+    setDateFrom('')
+    setDateTo('')
+    setSelectedType('all')
+    setSelectedStatus('all')
+    setAmountMin('')
+    setAmountMax('')
+  }
 
   const totalPages = Math.max(1, Math.ceil(pastReturns.length / PAGE_SIZE))
   const paginatedReturns = pastReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  // ── Summary stats ──
+  const stats = useMemo(() => {
+    const isShortBilling = (r: ApiReturn) => /short/i.test(r.reason || '')
+    const isSettled = (r: ApiReturn) => /settl/i.test(r.status || '')
+    const totalAmount = allReturns.reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const shortBillingCount = allReturns.filter(isShortBilling).length
+    const shortBillingTotal = allReturns.filter(isShortBilling).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const settledCount = allReturns.filter(isSettled).length
+    const settledTotal = allReturns.filter(isSettled).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    return {
+      totalCount: allReturns.length,
+      totalAmount,
+      shortBillingCount,
+      shortBillingTotal,
+      settledCount,
+      settledTotal,
+    }
+  }, [allReturns])
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (!selectedReturnDetails) return
@@ -124,46 +246,33 @@ export default function DebitNotesPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
 
-      {/* ── Header ── */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => {
-              if (selectedReturnDetails) setSelectedReturnDetails(null)
-              else navigate('/purchase/returns')
-            }}
-            className="text-muted-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">
-              {selectedReturnDetails ? `Debit Note — ${selectedReturnDetails.noteNo}` : 'Debit Notes'}
-            </h1>
-            <p className="text-[11px] text-muted-foreground">
-              {selectedReturnDetails
-                ? `Issued to ${selectedReturnDetails.partyName}`
-                : 'Track and manage all purchase return debit notes'}
-            </p>
+      {/* ── Header (only shown in detail view — list view header is gone) ── */}
+      {selectedReturnDetails && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setSelectedReturnDetails(null)}
+              className="text-muted-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight font-mono">
+                Debit Note — {selectedReturnDetails.noteNo}
+              </h1>
+              <p className="text-[11px] text-muted-foreground">
+                Issued to {selectedReturnDetails.partyName}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {!selectedReturnDetails && (
-            <Button size="sm" onClick={() => navigate('/purchase/returns')}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Return
-            </Button>
-          )}
-          {selectedReturnDetails && (
-            <Button variant="outline" size="sm" onClick={() => setSelectedReturnDetails(null)}>
-              ← Back to List
-            </Button>
-          )}
+          <Button variant="outline" size="sm" onClick={() => setSelectedReturnDetails(null)}>
+            ← Back to List
+          </Button>
         </div>
-      </div>
+      )}
 
       {/* ── Content ── */}
       <div className="flex-1 overflow-hidden bg-muted/20">
@@ -180,22 +289,144 @@ export default function DebitNotesPage() {
         ) : (
           /* ── List View ── */
           <div className="flex flex-col h-full">
-            {/* Search bar */}
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 gap-3 border-b border-border/40 bg-background px-4 py-4 sm:px-6 lg:grid-cols-4">
+              {[
+                {
+                  label: 'Total Notes',
+                  value: stats.totalCount.toString(),
+                  subtitle: 'all time',
+                  icon: Receipt,
+                  iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                  borderAccent: 'border-l-blue-500',
+                },
+                {
+                  label: 'Total Debit',
+                  value: formatCurrency(stats.totalAmount),
+                  subtitle: 'issued to suppliers',
+                  icon: IndianRupee,
+                  iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+                  borderAccent: 'border-l-rose-500',
+                },
+                {
+                  label: 'Short-Billing',
+                  value: formatCurrency(stats.shortBillingTotal),
+                  subtitle: `${stats.shortBillingCount} note${stats.shortBillingCount !== 1 ? 's' : ''}`,
+                  icon: AlertTriangle,
+                  iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                  borderAccent: 'border-l-amber-500',
+                },
+                {
+                  label: 'Settled',
+                  value: formatCurrency(stats.settledTotal),
+                  subtitle: `${stats.settledCount} settled`,
+                  icon: CheckCircle2,
+                  iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                  borderAccent: 'border-l-emerald-500',
+                },
+              ].map((s) => (
+                <Card key={s.label} hover className={cn('border-l-[3px]', s.borderAccent)}>
+                  <CardContent className="flex items-center gap-3 p-3">
+                    <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.iconBg)}>
+                      <s.icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                      <p className="text-base font-bold font-mono leading-tight">{s.value}</p>
+                      <p className="text-[10px] text-muted-foreground">{s.subtitle}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Search bar + filters + actions */}
             <div className="border-b border-border/40 bg-background/60 px-4 py-3 sm:px-6 backdrop-blur-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="relative flex-1 min-w-0">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by note number or supplier..."
-                    className="pl-9 h-9"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+              <DataTableFilterBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search by note number or supplier..."
+                resultsCount={pastReturns.length}
+                activeFilterCount={activeFilterCount}
+                onClearFilters={clearFilters}
+                actionNode={
+                  <Button
+                    size="sm"
+                    className="shrink-0 bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+                    onClick={() => navigate('/purchase/returns')}
+                  >
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    <span className="hidden sm:inline">New Return</span>
+                    <span className="sm:hidden">New</span>
+                  </Button>
+                }
+              >
+                <EnumSelect
+                  label="Period"
+                  value={period}
+                  onValueChange={setPeriod}
+                  onClear={() => setPeriod('all')}
+                  options={PERIOD_OPTIONS}
+                />
+
+                <EnumSelect
+                  label="Type"
+                  value={selectedType}
+                  onValueChange={setSelectedType}
+                  onClear={() => setSelectedType('all')}
+                  options={TYPE_OPTIONS}
+                />
+
+                <EnumSelect
+                  label="Status"
+                  value={selectedStatus}
+                  onValueChange={setSelectedStatus}
+                  onClear={() => setSelectedStatus('all')}
+                  options={STATUS_OPTIONS}
+                />
+
+                {/* Amount range */}
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Amount Range
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      placeholder="Min"
+                      value={amountMin}
+                      onChange={(e) => setAmountMin(e.target.value)}
+                      className="w-full"
+                    />
+                    <span className="text-muted-foreground text-xs">-</span>
+                    <Input
+                      type="number"
+                      placeholder="Max"
+                      value={amountMax}
+                      onChange={(e) => setAmountMax(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground shrink-0">
-                  {pastReturns.length} record{pastReturns.length !== 1 ? 's' : ''} found
-                </p>
-              </div>
+
+                {/* Custom date range — only when period is 'custom' */}
+                {period === 'custom' && (
+                  <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Date From
+                      </Label>
+                      <DatePicker value={dateFrom} onChange={setDateFrom} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Date To
+                      </Label>
+                      <DatePicker value={dateTo} onChange={setDateTo} />
+                    </div>
+                  </div>
+                )}
+              </DataTableFilterBar>
             </div>
 
             <div className="flex-1 overflow-auto p-6">
