@@ -28,10 +28,12 @@ const ProductHistoryPage = lazy(() => import('@/pages/inventory/ProductHistoryPa
 const CategoriesPage = lazy(() => import('@/pages/inventory/CategoriesPage'))
 const StockOverviewPage = lazy(() => import('@/pages/inventory/StockOverviewPage'))
 const ExpiryManagementPage = lazy(() => import('@/pages/inventory/ExpiryManagementPage'))
+const BatchDetailPage = lazy(() => import('@/pages/inventory/BatchDetailPage'))
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage'))
 const CustomersPage = lazy(() => import('@/pages/customers/CustomersPage'))
 const OutstandingPage = lazy(() => import('@/pages/customers/OutstandingPage'))
 const CustomerInvoicesPage = lazy(() => import('@/pages/customers/CustomerInvoicesPage'))
+const InvoiceDetailPage = lazy(() => import('@/pages/customers/InvoiceDetailPage'))
 const CustomerDetailPage = lazy(() => import('@/pages/customers/CustomerDetailPage'))
 const CashBookPage = lazy(() => import('@/pages/accounting/CashBookPage'))
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage'))
@@ -44,7 +46,9 @@ const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPag
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 const RemindersPage = lazy(() => import('@/pages/reminders/RemindersPage'))
+const ReminderDetailPage = lazy(() => import('@/pages/reminders/ReminderDetailPage'))
 const ApprovalsPage = lazy(() => import('@/pages/admin/ApprovalsPage'))
+const ApprovalDetailPage = lazy(() => import('@/pages/admin/ApprovalDetailPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -62,10 +66,13 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/categories',
     '/inventory/stock',
     '/inventory/expiry',
+    '/inventory/batches/detail',
     '/customers',
     '/customers/invoices',
+    '/customers/invoices/detail',
     '/customers/outstanding',
     '/reminders',
+    '/reminders/detail',
     '/notifications',
   ],
   INVENTORY_MANAGER: [
@@ -75,6 +82,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/categories',
     '/inventory/stock',
     '/inventory/expiry',
+    '/inventory/batches/detail',
     '/inventory/adjustment',
     '/purchase/orders',
     '/purchase/grn',
@@ -84,6 +92,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/suppliers',
     '/notifications',
     '/admin/approvals',
+    '/admin/approvals/detail',
   ],
   ACCOUNTANT: [
     '/dashboard',
@@ -93,6 +102,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/credit-notes',
     '/customers',
     '/customers/invoices',
+    '/customers/invoices/detail',
     '/customers/outstanding',
     '/inventory/product-history',
     '/purchase/orders',
@@ -109,9 +119,11 @@ export const rolePermissions: Record<string, string[]> = {
     '/dashboard',
     '/customers',
     '/customers/invoices',
+    '/customers/invoices/detail',
     '/inventory/products',
     '/inventory/stock',
     '/inventory/expiry',
+    '/inventory/batches/detail',
     '/billing/sales',
     '/salespersons',
     '/notifications',
@@ -261,6 +273,8 @@ function App() {
         return <StockOverviewPage />
       case '/inventory/expiry':
         return <ExpiryManagementPage />
+      case '/inventory/batches/detail':
+        return <BatchDetailPage />
       case '/inventory/adjustment':
         return <StockAdjustmentPage />
       case '/customers':
@@ -269,6 +283,8 @@ function App() {
         return <OutstandingPage />
       case '/customers/invoices':
         return <CustomerInvoicesPage />
+      case '/customers/invoices/detail':
+        return <InvoiceDetailPage />
       case '/customers/detail':
         return <CustomerDetailPage />
       case '/accounting/cashbook':
@@ -293,8 +309,12 @@ function App() {
         return <NotificationsPage />
       case '/reminders':
         return <RemindersPage />
+      case '/reminders/detail':
+        return <ReminderDetailPage />
       case '/admin/approvals':
         return <ApprovalsPage />
+      case '/admin/approvals/detail':
+        return <ApprovalDetailPage />
       default:
         return <DashboardPage />
     }

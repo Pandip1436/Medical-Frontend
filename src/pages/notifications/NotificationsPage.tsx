@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
-  Bell, Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
-  CheckCheck, Trash2, RefreshCw, Zap, FileX2, Check,
+  Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
+  CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff,
+  Inbox, CalendarClock, ChevronDown, ChevronRight,
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
-import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { cn, timeAgo } from '@/lib/utils'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -15,57 +18,167 @@ import { useNotificationStore } from '@/stores/notificationStore'
 import { useAuthStore } from '@/stores/authStore'
 import type { Notification } from '@/types'
 
-// ─── Tab config ───────────────────────────────────────────────
-type TabKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL'
+// ─── Category config ──────────────────────────────────────────
+type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL' | 'REMINDER' | 'SYSTEM'
 
-const TABS: {
-  key: TabKey
+const CATEGORIES: {
+  key: CategoryKey
   label: string
   icon: typeof Package
-  color: string
-  activeColor: string
-  borderColor: string
-  roles: string[] | null  // null = all roles
+  accent: string
+  roles: string[] | null
 }[] = [
-  { key: 'all',         label: 'All',         icon: Bell,        color: 'text-muted-foreground',                           activeColor: 'text-primary border-primary',         borderColor: 'border-l-primary',    roles: null },
-  { key: 'LOW_STOCK',   label: 'Low Stock',   icon: Package,     color: 'text-amber-600 dark:text-amber-400',               activeColor: 'text-amber-600 border-amber-500',     borderColor: 'border-l-amber-500',  roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
-  { key: 'EXPIRY',      label: 'Expiry',      icon: Clock,       color: 'text-red-600 dark:text-red-400',                   activeColor: 'text-red-600 border-red-500',         borderColor: 'border-l-red-500',    roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
-  { key: 'PAYMENT_DUE', label: 'Payment Due', icon: IndianRupee, color: 'text-blue-600 dark:text-blue-400',                 activeColor: 'text-blue-600 border-blue-500',       borderColor: 'border-l-blue-500',   roles: ['ADMIN', 'PHARMACIST', 'ACCOUNTANT'] },
-  { key: 'APPROVAL',    label: 'Approvals',   icon: ShieldCheck, color: 'text-emerald-600 dark:text-emerald-400',           activeColor: 'text-emerald-600 border-emerald-500', borderColor: 'border-l-emerald-500', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+  { key: 'all',         label: 'All',         icon: Inbox,         accent: 'text-foreground',                       roles: null },
+  { key: 'LOW_STOCK',   label: 'Low Stock',   icon: Package,       accent: 'text-amber-600 dark:text-amber-400',    roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+  { key: 'EXPIRY',      label: 'Expiry',      icon: Clock,         accent: 'text-red-600 dark:text-red-400',        roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+  { key: 'PAYMENT_DUE', label: 'Payment Due', icon: IndianRupee,   accent: 'text-blue-600 dark:text-blue-400',      roles: ['ADMIN', 'PHARMACIST', 'ACCOUNTANT'] },
+  { key: 'APPROVAL',    label: 'Approvals',   icon: ShieldCheck,   accent: 'text-emerald-600 dark:text-emerald-400', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+  { key: 'REMINDER',    label: 'Reminders',   icon: CalendarClock, accent: 'text-cyan-600 dark:text-cyan-400',      roles: null },
+  { key: 'SYSTEM',      label: 'System',      icon: AlertTriangle, accent: 'text-purple-600 dark:text-purple-400',  roles: null },
 ]
 
-const notificationColors: Record<Notification['type'], { icon: string; strip: string; badge: string }> = {
-  LOW_STOCK:   { icon: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',   strip: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
-  EXPIRY:      { icon: 'bg-red-500/10 text-red-600 dark:text-red-400',         strip: 'bg-red-500',     badge: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' },
-  PAYMENT_DUE: { icon: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',      strip: 'bg-blue-500',    badge: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' },
-  SYSTEM:      { icon: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',   strip: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
-  APPROVAL:    { icon: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', strip: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' },
+const typeConfig: Record<Notification['type'], { label: string; icon: typeof Package; tone: string }> = {
+  LOW_STOCK:   { label: 'Low Stock',   icon: Package,       tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
+  EXPIRY:      { label: 'Expiry',      icon: Clock,         tone: 'text-red-600 dark:text-red-400 bg-red-500/10' },
+  PAYMENT_DUE: { label: 'Payment Due', icon: IndianRupee,   tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
+  SYSTEM:      { label: 'System',      icon: AlertTriangle, tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
+  APPROVAL:    { label: 'Approval',    icon: ShieldCheck,   tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
 }
 
-const notificationIcon: Record<Notification['type'], typeof Package> = {
-  LOW_STOCK: Package, EXPIRY: Clock, PAYMENT_DUE: IndianRupee, SYSTEM: AlertTriangle, APPROVAL: ShieldCheck,
+// Reminders are stored with type SYSTEM + a [reminderId:…] marker
+const REMINDER_MARKER = '[reminderId:'
+const isReminder = (n: Notification) => n.type === 'SYSTEM' && n.message.includes(REMINDER_MARKER)
+
+const reminderConfig = {
+  label: 'Reminder',
+  icon: CalendarClock,
+  tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10',
+}
+const cfgFor = (n: Notification) => (isReminder(n) ? reminderConfig : typeConfig[n.type])
+
+const SNOOZE_PRESETS: { label: string; hours: number }[] = [
+  { label: 'For 1 hour',     hours: 1 },
+  { label: 'For 4 hours',    hours: 4 },
+  { label: 'Until tomorrow', hours: 24 },
+  { label: 'For 1 week',     hours: 24 * 7 },
+]
+
+// ─── Action URL resolution ────────────────────────────────────
+// Notifications store the relevant entity id in the message as `[invoiceId:xxx]`,
+// `[productId:xxx]`, etc. At click time we extract that marker and append it
+// as a query param so the destination page can deep-link straight to the row
+// or detail modal. Works for old notifications that pre-date the backend
+// embedding the id in actionUrl directly.
+// Legacy URL rewrites: old notifications stored generic paths; route them to
+// the new dedicated detail pages.
+const URL_REWRITES: Record<string, string> = {
+  '/inventory/products':         '/inventory/product-history',
+  '/inventory/expiry':           '/inventory/batches/detail',
+  '/customers/invoices':         '/customers/invoices/detail',
+  '/reminders':                  '/reminders/detail',
+  '/admin/approvals':            '/admin/approvals/detail',
+}
+// For each base path (after rewrite), which marker in the message holds the
+// entity id and what query param name to use.
+const MARKER_FOR_PATH: Record<string, { marker: string; param: string }> = {
+  '/inventory/product-history':  { marker: 'productId',  param: 'productId' },
+  '/inventory/products':         { marker: 'productId',  param: 'productId' },
+  '/inventory/batches/detail':   { marker: 'batchId',    param: 'id' },
+  '/inventory/expiry':           { marker: 'batchId',    param: 'batchId' },
+  '/customers/invoices/detail':  { marker: 'invoiceId',  param: 'id' },
+  '/customers/invoices':         { marker: 'invoiceId',  param: 'invoiceId' },
+  '/reminders/detail':           { marker: 'reminderId', param: 'id' },
+  '/reminders':                  { marker: 'reminderId', param: 'reminderId' },
+  // Approvals don't have a message marker — the id lives only in the actionUrl
+  // emitted at create time. Legacy approval notifications can't be deep-linked.
+}
+function extractMarker(message: string, marker: string): string | null {
+  const m = message.match(new RegExp(`\\[${marker}:([^\\]]+)\\]`))
+  return m?.[1] ?? null
 }
 
-const typeLabel: Record<Notification['type'], string> = {
-  LOW_STOCK: 'Low Stock', EXPIRY: 'Expiry', PAYMENT_DUE: 'Payment Due', SYSTEM: 'System', APPROVAL: 'Approval',
+// Try every known id-style query param so legacy URLs (?invoiceId=…) still work
+// when we point them at the new detail pages (which read ?id=…).
+const ID_QUERY_KEYS = ['id', 'invoiceId', 'batchId', 'productId', 'reminderId', 'requestId']
+function extractIdFromQuery(query: string): string | null {
+  const params = new URLSearchParams(query)
+  for (const key of ID_QUERY_KEYS) {
+    const v = params.get(key)
+    if (v) return v
+  }
+  return null
 }
 
+function resolveActionUrl(n: Notification): string | null {
+  if (!n.actionUrl) return null
+  const [basePath, existingQuery] = n.actionUrl.split('?')
+  const rewrittenPath = URL_REWRITES[basePath] ?? basePath
+  // Spec for the *destination* page tells us the canonical param name we should emit.
+  const spec = MARKER_FOR_PATH[rewrittenPath] ?? MARKER_FOR_PATH[basePath]
+
+  // Find the entity id — first try the URL's existing query, then the message marker.
+  let id: string | null = null
+  if (existingQuery) id = extractIdFromQuery(existingQuery)
+  if (!id && spec) id = extractMarker(n.message, spec.marker)
+
+  if (id && spec) return `${rewrittenPath}?${spec.param}=${id}`
+  // Fallback: preserve the original query (unlikely to match anymore, but safer than dropping).
+  if (existingQuery) return `${rewrittenPath}?${existingQuery}`
+  return rewrittenPath
+}
+
+// Strip dedup markers for display
+function cleanMessage(msg: string): string {
+  return msg.replace(/\s*\[\w+Id:[^\]]+\](?:\[[^\]]+\])*/g, '').trim()
+}
+
+// ─── Date grouping ──────────────────────────────────────────
 function groupByDate(notifications: Notification[]): { label: string; items: Notification[] }[] {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterdayStart = new Date(todayStart.getTime() - 86400000)
-  const weekStart = new Date(todayStart.getTime() - 6 * 86400000)
-  const groups: Record<string, Notification[]> = { 'Just now': [], 'Earlier today': [], Yesterday: [], 'This week': [], Older: [] }
+  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000)
+  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000)
+  const buckets: Record<string, Notification[]> = {
+    'Just now': [], 'Earlier today': [], 'Yesterday': [], 'This week': [], 'Older': [],
+  }
   for (const n of notifications) {
     const ts = new Date(n.timestamp)
-    const diffMin = (now.getTime() - ts.getTime()) / 60000
-    if (diffMin < 5) groups['Just now'].push(n)
-    else if (ts >= todayStart) groups['Earlier today'].push(n)
-    else if (ts >= yesterdayStart) groups['Yesterday'].push(n)
-    else if (ts >= weekStart) groups['This week'].push(n)
-    else groups['Older'].push(n)
+    const diffMin = (now.getTime() - ts.getTime()) / 60_000
+    if (diffMin < 5) buckets['Just now'].push(n)
+    else if (ts >= todayStart) buckets['Earlier today'].push(n)
+    else if (ts >= yesterdayStart) buckets['Yesterday'].push(n)
+    else if (ts >= weekStart) buckets['This week'].push(n)
+    else buckets['Older'].push(n)
   }
-  return Object.entries(groups).filter(([, items]) => items.length > 0).map(([label, items]) => ({ label, items }))
+  return Object.entries(buckets)
+    .filter(([, items]) => items.length > 0)
+    .map(([label, items]) => ({ label, items }))
+}
+
+// ─── Smart grouping ──────────────────────────────────────────
+// Runs of `MIN_GROUP_SIZE` consecutive same-type rows collapse into one
+// expandable cluster so 400 Low Stock alerts don't drown out other categories.
+const MIN_GROUP_SIZE = 5
+
+type ListEntry =
+  | { kind: 'single'; item: Notification }
+  | { kind: 'cluster'; type: Notification['type']; items: Notification[] }
+
+function clusterSameType(items: Notification[]): ListEntry[] {
+  const out: ListEntry[] = []
+  let i = 0
+  while (i < items.length) {
+    const start = i
+    const t = items[i].type
+    while (i < items.length && items[i].type === t) i++
+    const run = items.slice(start, i)
+    if (run.length >= MIN_GROUP_SIZE) {
+      out.push({ kind: 'cluster', type: t, items: run })
+    } else {
+      for (const item of run) out.push({ kind: 'single', item })
+    }
+  }
+  return out
 }
 
 const containerVariants: Variants = {
@@ -77,161 +190,120 @@ const itemVariants: Variants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const } },
 }
 
-// ─── Main Page ────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────
 export default function NotificationsPage() {
-  const { notifications, isLoading, fetchNotifications, markAsRead, markAllAsRead, removeNotification, generateAlerts } =
-    useNotificationStore()
+  const {
+    notifications, isLoading, fetchNotifications,
+    markAsRead, markAllAsRead, snooze, resolve, removeNotification,
+  } = useNotificationStore()
   const userRole = useAuthStore((s) => s.user?.role ?? 'PHARMACIST')
 
-  const visibleTabs = useMemo(
-    () => TABS.filter(t => t.roles === null || t.roles.includes(userRole)),
+  const visibleCategories = useMemo(
+    () => CATEGORIES.filter((c) => c.roles === null || c.roles.includes(userRole)),
     [userRole]
   )
 
-  const [activeTab, setActiveTab] = useState<TabKey>('all')
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all')
-  const [generating, setGenerating] = useState(false)
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set())
 
   useEffect(() => { fetchNotifications() }, [fetchNotifications])
 
-  const handleGenerateAlerts = async () => {
-    setGenerating(true)
-    try { await generateAlerts(); toast.success('Alerts generated and refreshed') }
-    catch { toast.error('Failed to generate alerts') }
-    finally { setGenerating(false) }
-  }
-
-  const handleMarkAllRead = async () => {
-    await markAllAsRead()
-    toast.success('All notifications marked as read')
-  }
-
-  const handleNotificationClick = async (n: Notification) => {
-    if (!n.isRead) await markAsRead(n.id)
-    if (n.actionUrl) navigate(n.actionUrl)
-  }
-
-  // ── Per-tab counts (unread) ────────────────────────────────
-  const tabCounts = useMemo(() => {
-    const counts: Record<TabKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, APPROVAL: 0 }
+  // ── Per-category unread counts ────────────────────────────
+  const categoryCounts = useMemo(() => {
+    const counts: Record<CategoryKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, APPROVAL: 0, REMINDER: 0, SYSTEM: 0 }
     for (const n of notifications) {
-      if (!n.isRead) {
-        counts.all++
-        if (n.type in counts) counts[n.type as TabKey]++
+      if (n.isRead) continue
+      counts.all++
+      if (n.type === 'SYSTEM') {
+        if (isReminder(n)) counts.REMINDER++
+        else counts.SYSTEM++
+      } else if (n.type in counts) {
+        counts[n.type as CategoryKey]++
       }
     }
     return counts
   }, [notifications])
 
-  // ── Filtered list for current tab ─────────────────────────
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 15
-
+  // ── Filtered list ──────────────────────────────────────────
   const filtered = useMemo(() => {
     let result = notifications
-    if (activeTab !== 'all') result = result.filter(n => n.type === activeTab)
-    if (readFilter === 'unread') result = result.filter(n => !n.isRead)
-    if (readFilter === 'read') result = result.filter(n => n.isRead)
+    if (activeCategory === 'REMINDER') {
+      result = result.filter(isReminder)
+    } else if (activeCategory === 'SYSTEM') {
+      result = result.filter((n) => n.type === 'SYSTEM' && !isReminder(n))
+    } else if (activeCategory !== 'all') {
+      result = result.filter((n) => n.type === activeCategory)
+    }
+    if (readFilter === 'unread') result = result.filter((n) => !n.isRead)
+    if (readFilter === 'read') result = result.filter((n) => n.isRead)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      result = result.filter(n => n.title.toLowerCase().includes(q) || n.message.toLowerCase().includes(q))
+      result = result.filter((n) => n.title.toLowerCase().includes(q) || n.message.toLowerCase().includes(q))
     }
     return result
-  }, [notifications, activeTab, readFilter, searchQuery])
+  }, [notifications, activeCategory, readFilter, searchQuery])
 
-  // Reset pagination on filter change
-  useEffect(() => { setCurrentPage(1) }, [activeTab, readFilter, searchQuery])
+  const grouped = useMemo(() => groupByDate(filtered), [filtered])
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginatedFiltered = useMemo(() => {
-    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [filtered, currentPage])
+  // ── Handlers ───────────────────────────────────────────────
+  // Single click on a row: mark read + navigate to the deep-linked destination.
+  // The row IS the action — no separate detail pane to fill in.
+  const openNotification = (n: Notification) => {
+    if (!n.isRead) markAsRead(n.id)
+    const url = resolveActionUrl(n)
+    if (url) navigate(url)
+  }
 
-  const grouped = useMemo(() => groupByDate(paginatedFiltered), [paginatedFiltered])
+  const handleSnooze = async (id: string, hours: number) => {
+    const until = new Date(Date.now() + hours * 3_600_000)
+    await snooze(id, until)
+    toast.success(`Snoozed ${hours < 24 ? `for ${hours}h` : `for ${Math.round(hours / 24)}d`}`)
+  }
 
-  const unreadInTab = filtered.filter(n => !n.isRead).length
-  const activeFilterCount = [readFilter !== 'all', searchQuery.trim() !== ''].filter(Boolean).length
+  const handleResolve = async (id: string) => {
+    await resolve(id)
+    toast.success('Marked as resolved')
+  }
+
+  const handleDelete = async (id: string) => {
+    await removeNotification(id)
+    toast.success('Notification deleted')
+  }
+
+  const toggleCluster = (key: string) => {
+    setExpandedClusters((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const activeCategoryLabel =
+    visibleCategories.find((c) => c.key === activeCategory)?.label ?? 'All'
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-5">
-
-      {/* Header */}
-      <motion.div variants={itemVariants} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Notifications</h1>
-          <p className="text-sm text-muted-foreground">System alerts and activity updates</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => fetchNotifications()} disabled={isLoading}>
-            <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} /> Refresh
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleGenerateAlerts} disabled={generating}>
-            <Zap className="h-4 w-4" /> {generating ? 'Generating…' : 'Generate Alerts'}
-          </Button>
-          {unreadInTab > 0 && (
-            <Button size="sm" className="gap-1.5" onClick={handleMarkAllRead}>
-              <CheckCheck className="h-4 w-4" /> Mark All Read
-            </Button>
-          )}
-        </div>
-      </motion.div>
-
-      {/* Tab bar */}
+    <motion.div variants={containerVariants} initial="hidden" animate="visible">
       <motion.div variants={itemVariants}>
-        <Card className="overflow-hidden">
-          {/* Tabs */}
-          <div className="flex overflow-x-auto border-b border-border/60 px-1 shrink-0">
-            {visibleTabs.map(tab => {
-              const Icon = tab.icon
-              const count = tabCounts[tab.key]
-              const isActive = activeTab === tab.key
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => { setActiveTab(tab.key); setSearchQuery(''); setReadFilter('all') }}
-                  className={cn(
-                    'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
-                    isActive
-                      ? `border-current ${tab.activeColor}`
-                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                  {count > 0 && (
-                    <span className={cn(
-                      'flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[10px] font-bold',
-                      isActive ? 'bg-current/15' : 'bg-muted text-muted-foreground'
-                    )}>
-                      {count > 99 ? '99+' : count}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Filter bar inside card */}
-          <div className="border-b border-border/40">
-            <DataTableFilterBar
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              searchPlaceholder="Search notifications…"
-              resultsCount={filtered.length}
-              activeFilterCount={activeFilterCount}
-              onClearFilters={() => { setReadFilter('all'); setSearchQuery('') }}
-            >
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
-                {(['all', 'unread', 'read'] as const).map(v => (
+        <Card className="overflow-hidden p-0">
+          {/* Slim toolbar — count, view filter, and global actions all live here */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {categoryCounts.all > 0
+                ? <><span className="font-semibold text-foreground">{categoryCounts.all}</span> unread · {notifications.length} total</>
+                : <>You&apos;re all caught up · {notifications.length} total</>}
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded-md border border-border/60 bg-background p-0.5">
+                {(['all', 'unread', 'read'] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
                     onClick={() => setReadFilter(v)}
                     className={cn(
-                      'rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors',
+                      'rounded px-2 py-1 text-[11px] font-medium capitalize transition-colors',
                       readFilter === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
@@ -239,93 +311,300 @@ export default function NotificationsPage() {
                   </button>
                 ))}
               </div>
-            </DataTableFilterBar>
+              <Button variant="ghost" size="icon-sm" className="h-7 w-7" onClick={() => fetchNotifications()} disabled={isLoading} aria-label="Refresh">
+                <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+              </Button>
+              {categoryCounts.all > 0 && (
+                <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2 text-[11px]" onClick={() => markAllAsRead()}>
+                  <CheckCheck className="h-3.5 w-3.5" /> Mark all read
+                </Button>
+              )}
+            </div>
           </div>
 
-          {/* Notification list */}
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-sm text-muted-foreground">Loading notifications…</p>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center px-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
-                <FileX2 className="h-7 w-7 text-muted-foreground/40" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">No notifications found</p>
-                <p className="text-xs text-muted-foreground/60 mt-0.5">
-                  {activeFilterCount > 0 ? 'Try clearing the filters' : 'Click "Generate Alerts" to scan for issues'}
+          <div className="flex h-[calc(100vh-160px)] min-h-100 flex-col lg:flex-row">
+
+            {/* ── Sidebar: categories ── */}
+            <aside className="shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r">
+              <div className="px-3 py-3">
+                <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Folders
                 </p>
-              </div>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/30 overflow-y-auto max-h-150">
-              {grouped.map((group) => (
-                <div key={group.label}>
-                  <div className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm px-4 py-2 border-b border-border/30">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">{group.label}</p>
-                  </div>
-                  {group.items.map((n) => {
-                    const Icon = notificationIcon[n.type]
-                    const colors = notificationColors[n.type]
+                <nav className="space-y-0.5">
+                  {visibleCategories.map((cat) => {
+                    const Icon = cat.icon
+                    const count = categoryCounts[cat.key]
+                    const isActive = activeCategory === cat.key
                     return (
-                      <div
-                        key={n.id}
+                      <button
+                        key={cat.key}
+                        type="button"
+                        onClick={() => setActiveCategory(cat.key)}
                         className={cn(
-                          'flex items-start gap-3 px-4 py-3.5 transition-colors cursor-pointer hover:bg-muted/30',
-                          !n.isRead && 'bg-primary/3 dark:bg-primary/5'
+                          'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                          isActive
+                            ? 'bg-accent font-medium text-foreground'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                         )}
-                        onClick={() => handleNotificationClick(n)}
                       >
-                        <div className={cn('mt-1 w-1 self-stretch rounded-full shrink-0', colors.strip)} />
-                        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', colors.icon)}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className={cn('text-sm font-medium', !n.isRead && 'font-semibold')}>{n.title}</p>
-                            {activeTab === 'all' && (
-                              <span className={cn('inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold', colors.badge)}>
-                                {typeLabel[n.type]}
-                              </span>
-                            )}
-                            {!n.isRead && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.message}</p>
-                          <p className="text-[11px] text-muted-foreground/60 mt-1">{timeAgo(n.timestamp)}</p>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0 mt-0.5" onClick={(e) => e.stopPropagation()}>
-                          {!n.isRead && (
-                            <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-emerald-600"
-                              onClick={() => markAsRead(n.id)} title="Mark as read">
-                              <Check className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeNotification(n.id)} title="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
+                        {isActive && (
+                          <motion.span
+                            layoutId="sidebar-active"
+                            className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                          />
+                        )}
+                        <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
+                        <span className="flex-1 truncate">{cat.label}</span>
+                        {count > 0 && (
+                          <span className={cn(
+                            'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
+                            isActive
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted text-muted-foreground'
+                          )}>
+                            {count > 99 ? '99+' : count}
+                          </span>
+                        )}
+                      </button>
                     )
                   })}
+                </nav>
+              </div>
+            </aside>
+
+            {/* ── Main: list (now full width with no detail pane) ── */}
+            <section className="flex min-h-0 flex-1 flex-col">
+
+              {/* Search row */}
+              <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={`Search ${activeCategoryLabel.toLowerCase()}…`}
+                    className="h-8 border-border/60 pl-8 text-xs"
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-          {totalPages > 1 && (
-            <div className="border-t px-4 py-4">
-              <DataTablePagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
-            </div>
-          )}
+                <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  {filtered.length} in {activeCategoryLabel}
+                </span>
+              </div>
+
+              {/* List body */}
+              <div className="flex-1 overflow-y-auto">
+                {isLoading ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 py-16">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
+                      <FileX2 className="h-5 w-5 text-muted-foreground/50" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">No notifications</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {searchQuery || readFilter !== 'all'
+                          ? 'Try clearing the filters'
+                          : 'Nothing in this folder'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  grouped.map((group) => {
+                    const entries = clusterSameType(group.items)
+                    return (
+                      <div key={group.label}>
+                        <div className="sticky top-0 z-10 bg-background/95 px-3 py-1 backdrop-blur-sm">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                            {group.label}
+                          </p>
+                        </div>
+                        {entries.map((entry, entryIdx) => {
+                          if (entry.kind === 'cluster') {
+                            const clusterKey = `${group.label}-${entry.type}-${entryIdx}`
+                            const isExpanded = expandedClusters.has(clusterKey)
+                            const sample = entry.items[0]
+                            const cfg = sample ? cfgFor(sample) : typeConfig[entry.type]
+                            const Icon = cfg.icon
+                            const unreadCount = entry.items.filter((n) => !n.isRead).length
+                            return (
+                              <div key={clusterKey}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCluster(clusterKey)}
+                                  className="flex w-full items-center gap-2.5 border-b border-border/30 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                                >
+                                  <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
+                                    <Icon className="h-3.5 w-3.5" />
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[13px] font-semibold leading-tight">
+                                      {cfg.label} · {entry.items.length} alerts
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                      {unreadCount > 0
+                                        ? `${unreadCount} unread · click to ${isExpanded ? 'collapse' : 'expand'}`
+                                        : `All read · click to ${isExpanded ? 'collapse' : 'expand'}`}
+                                    </p>
+                                  </div>
+                                  <ChevronDown
+                                    className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
+                                  />
+                                </button>
+                                {isExpanded && entry.items.map((n) => (
+                                  <NotificationRow
+                                    key={n.id}
+                                    notification={n}
+                                    indented
+                                    onOpen={openNotification}
+                                    onSnooze={handleSnooze}
+                                    onResolve={handleResolve}
+                                    onDelete={handleDelete}
+                                  />
+                                ))}
+                              </div>
+                            )
+                          }
+                          return (
+                            <NotificationRow
+                              key={entry.item.id}
+                              notification={entry.item}
+                              onOpen={openNotification}
+                              onSnooze={handleSnooze}
+                              onResolve={handleResolve}
+                              onDelete={handleDelete}
+                            />
+                          )
+                        })}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </section>
+          </div>
         </Card>
       </motion.div>
     </motion.div>
+  )
+}
+
+// ─── List row ────────────────────────────────────────────────
+// Single notification row. Click anywhere (except action area) to open the
+// deep-linked destination. Hover reveals snooze/resolve/delete actions.
+function NotificationRow({
+  notification: n,
+  indented,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+}: {
+  notification: Notification
+  indented?: boolean
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const cfg = cfgFor(n)
+  const Icon = cfg.icon
+  const isResolved = !!n.resolvedAt
+  const message = cleanMessage(n.message)
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(n)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(n)
+        }
+      }}
+      className={cn(
+        'group flex cursor-pointer items-start gap-2.5 border-b border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
+        indented && 'pl-9',
+        isResolved && 'opacity-70',
+      )}
+    >
+      <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className={cn(
+            'truncate text-[13px] leading-tight',
+            !n.isRead ? 'font-semibold text-foreground' : 'font-normal text-foreground/80',
+          )}>
+            {n.title}
+          </p>
+          {isResolved ? (
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              <Check className="h-2.5 w-2.5" /> Resolved
+            </span>
+          ) : !n.isRead ? (
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+          ) : null}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{message}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground/60">{timeAgo(n.timestamp)}</p>
+      </div>
+
+      {/* Action cluster — fades in on hover, taps stop propagation so the row click doesn't fire */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+      >
+        {!isResolved && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon-sm" variant="ghost" className="h-7 w-7" aria-label="Snooze">
+                <BellOff className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {SNOOZE_PRESETS.map((p) => (
+                <DropdownMenuItem key={p.label} onClick={() => onSnooze(n.id, p.hours)}>
+                  {p.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {!isResolved && (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="h-7 w-7 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+            onClick={() => onResolve(n.id)}
+            aria-label="Mark resolved"
+          >
+            <Check className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+          onClick={() => onDelete(n.id)}
+          aria-label="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Click affordance — only shown when hover actions aren't */}
+      <ChevronRight
+        className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-opacity group-hover:opacity-0"
+        aria-hidden
+      />
+    </div>
   )
 }

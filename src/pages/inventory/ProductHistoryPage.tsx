@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
@@ -39,6 +40,19 @@ interface TimelineRow {
   amount: number
   runningStock: number
   note?: string    // e.g. reason or settlement mode
+}
+
+// ─── Stock status badge ──────────────────────────────────────
+// Shown next to the product name in the header so the user immediately sees
+// the alert state when arriving from a Low Stock notification.
+function StockStatusBadge({ product }: { product: { totalStock: number; minStock: number } }) {
+  if (product.totalStock <= 0) {
+    return <Badge variant="destructive" size="sm">OUT OF STOCK</Badge>
+  }
+  if (product.minStock > 0 && product.totalStock <= product.minStock) {
+    return <Badge variant="warning" size="sm">LOW STOCK</Badge>
+  }
+  return <Badge variant="success" size="sm">IN STOCK</Badge>
 }
 
 // ─── Tab button ────────────────────────────────────────────────
@@ -331,15 +345,31 @@ export default function ProductHistoryPage() {
     >
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <Button variant="outline" size="icon-sm" onClick={() => navigate('/inventory/products')}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Product History</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              View full sales and purchase transaction history for any product
-            </p>
+          <div className="min-w-0">
+            {selectedProduct ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{selectedProduct.name}</h1>
+                  <StockStatusBadge product={selectedProduct} />
+                </div>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {selectedProduct.genericName}
+                  {selectedProduct.manufacturer && <> · {selectedProduct.manufacturer}</>}
+                  {selectedProduct.packSize && <> · {selectedProduct.packSize}</>}
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight">Product History</h1>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  View full sales and purchase transaction history for any product
+                </p>
+              </>
+            )}
           </div>
         </div>
         {history && (
@@ -375,8 +405,11 @@ export default function ProductHistoryPage() {
           {[
             {
               label: 'In Stock',
-              value: String(history.summary.currentStock),
-              subtitle: `${history.product.activeBatches} active batch${history.product.activeBatches !== 1 ? 'es' : ''}`,
+              // Show "current / min" so the Low Stock context is obvious from the badge alone.
+              value: selectedProduct
+                ? `${history.summary.currentStock} / ${selectedProduct.minStock}`
+                : String(history.summary.currentStock),
+              subtitle: `${history.product.activeBatches} active batch${history.product.activeBatches !== 1 ? 'es' : ''}${selectedProduct ? ' · min stock threshold' : ''}`,
               icon: Package,
               iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
               borderAccent: 'border-l-blue-500',

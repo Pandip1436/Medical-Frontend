@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 
@@ -85,8 +86,14 @@ export default function ExpiryManagementPage() {
   const [selectedSupplier, setSelectedSupplier] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const [activeTab, setActiveTab] = useState<'all' | ExpiryBucket>('all')
   const PAGE_SIZE = 10
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Deep-link from notifications: /inventory/expiry?batchId=xxx
+  const { targetId: deepLinkBatchId, clearParam: clearDeepLink } =
+    useDeepLinkParam('batchId', '/inventory/expiry')
+  const { highlightId: highlightBatchId, highlight } = useDeepLinkHighlightState()
 
   const today = new Date()
 
@@ -111,6 +118,22 @@ export default function ExpiryManagementPage() {
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batches, suppliers])
+
+  // When a deep-link target is present and data is loaded, switch to All tab,
+  // jump to the page containing the batch, and pulse a highlight on the row.
+  useEffect(() => {
+    if (!deepLinkBatchId || enrichedBatches.length === 0) return
+    const sortedAll = [...enrichedBatches].sort((a, b) => a.daysToExpiry - b.daysToExpiry)
+    const idx = sortedAll.findIndex((b) => b.batchId === deepLinkBatchId)
+    if (idx < 0) return
+    setActiveTab('all')
+    setCurrentPage(Math.floor(idx / PAGE_SIZE) + 1)
+    highlight(deepLinkBatchId)
+    setTimeout(() => {
+      document.getElementById(`batchId-${deepLinkBatchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    clearDeepLink()
+  }, [deepLinkBatchId, enrichedBatches, highlight, clearDeepLink])
 
   const filteredBatches = useMemo(() => {
     let result = enrichedBatches
@@ -197,7 +220,15 @@ export default function ExpiryManagementPage() {
         ) : (
           <div className="divide-y divide-border/40">
             {paginated.map((batch) => (
-              <div key={batch.batchId} className="flex items-start justify-between gap-2 px-4 py-3">
+              <div
+                key={batch.batchId}
+                id={`batchId-${batch.batchId}`}
+                onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                className={cn(
+                  'flex items-start justify-between gap-2 px-4 py-3 transition-colors cursor-pointer hover:bg-muted/30',
+                  highlightBatchId === batch.batchId && 'bg-amber-500/15 ring-2 ring-amber-500/40'
+                )}
+              >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{batch.productName}</p>
                   <p className="font-mono text-[10px] text-muted-foreground">{batch.batchNumber}</p>
@@ -242,7 +273,15 @@ export default function ExpiryManagementPage() {
           </TableHeader>
           <TableBody>
             {paginated.map((batch) => (
-              <TableRow key={batch.batchId} className="border-b border-border/40 hover:bg-muted/10 transition-colors">
+              <TableRow
+                key={batch.batchId}
+                id={`batchId-${batch.batchId}`}
+                onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                className={cn(
+                  'cursor-pointer border-b border-border/40 hover:bg-muted/10 transition-colors',
+                  highlightBatchId === batch.batchId && 'bg-amber-500/15 hover:bg-amber-500/20'
+                )}
+              >
                 <TableCell className="font-medium">{batch.productName}</TableCell>
                 <TableCell className="font-mono text-xs">{batch.batchNumber}</TableCell>
                 <TableCell>
@@ -263,9 +302,9 @@ export default function ExpiryManagementPage() {
                 <TableCell className="text-right font-mono text-sm">{formatCurrency(batch.mrp)}</TableCell>
                 <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(batch.stockValue)}</TableCell>
                 <TableCell className="text-sm">{batch.supplierName}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <DataTableRowActions
-                    onView={() => navigate(`/inventory/product-history?productId=${batch.productId}`)}
+                    onView={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
                     customActions={[
                       {
                         label: 'Create Return',
@@ -362,7 +401,7 @@ export default function ExpiryManagementPage() {
       {/* Tabs */}
       <motion.div variants={containerVariants} initial="hidden" animate="visible">
         <motion.div variants={itemVariants}>
-          <Tabs defaultValue="all">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | ExpiryBucket)}>
             <TabsList>
               <TabsTrigger value="all" onClick={() => setCurrentPage(1)}>
                 All Batches

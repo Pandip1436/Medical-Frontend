@@ -120,6 +120,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Expiry Management',
     breadcrumbs: [{ label: 'Inventory' }, { label: 'Expiry Management' }],
   },
+  '/inventory/batches/detail': {
+    label: 'Batch Detail',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Expiry Management', href: '/inventory/expiry' }, { label: 'Batch Detail' }],
+  },
   '/inventory/adjustment': {
     label: 'Stock Adjustment',
     breadcrumbs: [{ label: 'Inventory' }, { label: 'Stock Adjustment' }],
@@ -135,6 +139,10 @@ export const routes: Record<string, RouteConfig> = {
   '/customers/invoices': {
     label: 'Invoices',
     breadcrumbs: [{ label: 'Customers' }, { label: 'Invoices' }],
+  },
+  '/customers/invoices/detail': {
+    label: 'Invoice Detail',
+    breadcrumbs: [{ label: 'Customers' }, { label: 'Invoices', href: '/customers/invoices' }, { label: 'Detail' }],
   },
   '/customers/detail': {
     label: 'Customer Detail',
@@ -184,9 +192,17 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Reminders',
     breadcrumbs: [{ label: 'Reminders' }],
   },
+  '/reminders/detail': {
+    label: 'Reminder Detail',
+    breadcrumbs: [{ label: 'Reminders', href: '/reminders' }, { label: 'Detail' }],
+  },
   '/admin/approvals': {
     label: 'Approvals',
     breadcrumbs: [{ label: 'Admin' }, { label: 'Approvals' }],
+  },
+  '/admin/approvals/detail': {
+    label: 'Approval Detail',
+    breadcrumbs: [{ label: 'Admin' }, { label: 'Approvals', href: '/admin/approvals' }, { label: 'Detail' }],
   },
 }
 

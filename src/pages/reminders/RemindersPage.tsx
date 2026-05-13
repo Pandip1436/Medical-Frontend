@@ -20,9 +20,11 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import api from '@/lib/api'
+import { navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -135,6 +137,23 @@ export default function RemindersPage() {
   }, [filteredReminders, currentPage])
 
   const todayCount = reminders.filter(r => r.dayOfMonth === todayDay).length
+
+  // Deep-link from notifications: expand the target reminder, jumping to its page.
+  const { targetId: deepLinkReminderId, clearParam: clearDeepLink } =
+    useDeepLinkParam('reminderId', '/reminders')
+  const { highlightId: highlightReminderId, highlight } = useDeepLinkHighlightState()
+  useEffect(() => {
+    if (!deepLinkReminderId || filteredReminders.length === 0) return
+    const idx = filteredReminders.findIndex((r) => r.id === deepLinkReminderId)
+    if (idx < 0) return
+    setCurrentPage(Math.floor(idx / PAGE_SIZE) + 1)
+    setExpandedId(deepLinkReminderId)
+    highlight(deepLinkReminderId)
+    setTimeout(() => {
+      document.getElementById(`reminderId-${deepLinkReminderId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    clearDeepLink()
+  }, [deepLinkReminderId, filteredReminders, highlight, clearDeepLink])
 
   const handleAdd = async () => {
     if (!form.customerId || !form.dayOfMonth || !form.title) {
@@ -335,6 +354,7 @@ export default function RemindersPage() {
               return (
                 <motion.div
                   key={r.id}
+                  id={`reminderId-${r.id}`}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
@@ -342,7 +362,8 @@ export default function RemindersPage() {
                 >
                   <Card className={cn(
                     'transition-all',
-                    isToday && 'border-amber-400/60 shadow-amber-100/50 dark:shadow-amber-900/20 shadow-sm'
+                    isToday && 'border-amber-400/60 shadow-amber-100/50 dark:shadow-amber-900/20 shadow-sm',
+                    highlightReminderId === r.id && 'ring-2 ring-cyan-500/50'
                   )}>
                     <CardContent className="p-0">
                       {/* Main row */}
@@ -358,8 +379,19 @@ export default function RemindersPage() {
                           </span>
                         </div>
 
-                        {/* Customer info */}
-                        <div className="flex-1 min-w-0">
+                        {/* Customer info — click navigates to the dedicated detail page */}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => navigate(`/reminders/detail?id=${r.id}`)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              navigate(`/reminders/detail?id=${r.id}`)
+                            }
+                          }}
+                          className="flex-1 min-w-0 cursor-pointer rounded-md -m-1 p-1 transition-colors hover:bg-muted/30"
+                        >
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold truncate">{r.customer.name}</span>
                             <Badge variant="secondary" size="sm" className="text-[9px]">{r.customer.type}</Badge>

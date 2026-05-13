@@ -3,7 +3,7 @@ import { motion, type Variants } from 'framer-motion'
 import {
   ChevronLeft, User, Phone, Mail, MapPin, CreditCard, Star,
   IndianRupee, Receipt, FileText, Clock, CheckCircle2, AlertTriangle,
-  Wallet, Printer, Download, Share2, Plus, Trash2, Upload, FileImage,
+  Wallet, Plus, Trash2, Upload, FileImage,
   Eye, X,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -23,7 +23,6 @@ import { useRoute, navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api, { API_SERVER_URL } from '@/lib/api'
-import { printInvoicePdf, downloadInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 
 // ─────────────────────────────────────────────────────────────
 
@@ -84,9 +83,6 @@ export default function CustomerDetailPage() {
   const [prescNotes, setPrescNotes] = useState('')
   const [prescValidUntil, setPrescValidUntil] = useState('')
   const [prescUploading, setPrescUploading] = useState(false)
-
-  // Invoice detail dialog
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
 
   const fetchAll = useCallback(async () => {
     if (!customerId) return
@@ -382,7 +378,7 @@ export default function CustomerDetailPage() {
                     </TableHeader>
                     <TableBody>
                       {invoices.slice(0, 5).map((inv) => (
-                        <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedInvoice(inv)}>
+                        <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}>
                           <TableCell className="font-mono text-sm">{inv.invoiceNumber}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{formatDate(inv.date)}</TableCell>
                           <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal))}</TableCell>
@@ -429,7 +425,7 @@ export default function CustomerDetailPage() {
                     </TableHeader>
                     <TableBody>
                       {invoices.slice((invPage - 1) * PAGE_SIZE, invPage * PAGE_SIZE).map((inv) => (
-                        <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedInvoice(inv)}>
+                        <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}>
                           <TableCell className="font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
                           <TableCell className="text-muted-foreground text-sm">{formatDate(inv.date)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
@@ -722,89 +718,6 @@ export default function CustomerDetailPage() {
               {prescUploading ? 'Uploading…' : 'Upload'}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Invoice Detail Dialog ── */}
-      <Dialog open={!!selectedInvoice} onOpenChange={(open) => { if (!open) setSelectedInvoice(null) }}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-3xl md:h-auto md:max-h-[90vh] md:overflow-y-auto overflow-y-auto">
-          {selectedInvoice && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <DialogTitle className="flex items-center gap-2 font-mono text-base">
-                      <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
-                      {selectedInvoice.invoiceNumber}
-                    </DialogTitle>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(selectedInvoice.date)}</p>
-                  </div>
-                  <StatusBadge status={selectedInvoice.status} />
-                </div>
-              </DialogHeader>
-
-              {/* Items table */}
-              <div className="overflow-hidden rounded-xl border border-border/40 mx-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Batch</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Rate</TableHead>
-                      <TableHead className="text-right">GST%</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(selectedInvoice.items ?? []).map((item: any, idx: number) => (
-                      <TableRow key={item.id ?? idx}>
-                        <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
-                        <TableCell className="text-sm font-medium">{item.productName}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{item.batchNumber}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{item.quantity}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{formatCurrency(item.rate)}</TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">{Number(item.gstPercent).toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(item.amount)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Totals */}
-              <div className="space-y-1.5 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm mx-4">
-                {[
-                  { label: 'Subtotal', value: selectedInvoice.subtotal },
-                  { label: 'CGST', value: selectedInvoice.cgst },
-                  { label: 'SGST', value: selectedInvoice.sgst },
-                ].map((row) => (
-                  <div key={row.label} className="flex justify-between text-muted-foreground">
-                    <span>{row.label}</span>
-                    <span className="font-mono">{formatCurrency(row.value)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
-                  <span>Grand Total</span>
-                  <span className="font-mono text-base text-emerald-600 dark:text-emerald-400">{formatCurrency(selectedInvoice.grandTotal)}</span>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2 px-4 pb-4">
-                <Button className="flex-1 gap-2 min-w-24" onClick={() => printInvoicePdf(selectedInvoice)}>
-                  <Printer className="h-4 w-4" /> Print
-                </Button>
-                <Button variant="outline" className="flex-1 gap-2 min-w-24" onClick={() => downloadInvoicePdf(selectedInvoice)}>
-                  <Download className="h-4 w-4" /> Download
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={() => shareInvoiceViaWhatsApp(selectedInvoice)}>
-                  <Share2 className="h-4 w-4" /> Share
-                </Button>
-              </div>
-            </>
-          )}
         </DialogContent>
       </Dialog>
 

@@ -15,9 +15,11 @@ import {
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
+import { navigate } from '@/lib/router'
 import { cn, formatCurrency } from '@/lib/utils'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useAuthStore } from '@/stores/authStore'
+import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
 // ─── Types ────────────────────────────────────────────────────
 type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN'
@@ -180,7 +182,9 @@ function RequestCard({
             </div>
           </div>
           {isAdmin && isPending && (
-            <div className="flex items-center gap-2 shrink-0">
+            // stopPropagation so clicking the inline action doesn't also trigger
+            // the row's navigate-to-detail.
+            <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
               <Button
                 size="sm"
                 variant="outline"
@@ -251,6 +255,27 @@ export default function ApprovalsPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  // Deep-link from notifications: locate the request across all status/type tabs
+  // and jump to the page containing it.
+  const { targetId: deepLinkRequestId, clearParam: clearDeepLink } =
+    useDeepLinkParam('requestId', '/admin/approvals')
+  const { highlightId: highlightRequestId, highlight } = useDeepLinkHighlightState()
+  useEffect(() => {
+    if (!deepLinkRequestId || allRequests.length === 0) return
+    const req = allRequests.find((r) => r.id === deepLinkRequestId)
+    if (!req) return
+    setStatusTab('all')
+    setTypeTab('all')
+    // Position to the page containing the request within an unfiltered list.
+    const idx = allRequests.findIndex((r) => r.id === deepLinkRequestId)
+    setCurrentPage(Math.floor(idx / PAGE_SIZE) + 1)
+    highlight(deepLinkRequestId)
+    setTimeout(() => {
+      document.getElementById(`requestId-${deepLinkRequestId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    clearDeepLink()
+  }, [deepLinkRequestId, allRequests, highlight, clearDeepLink])
 
   // Counts per status tab (respecting type filter)
   const counts = useMemo(() => {
@@ -384,7 +409,23 @@ export default function ApprovalsPage() {
           <>
             <div className="divide-y divide-border/30 overflow-y-auto max-h-150">
               {paginated.map(req => (
-                <div key={req.id} className="p-4 sm:p-5">
+                <div
+                  key={req.id}
+                  id={`requestId-${req.id}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/admin/approvals/detail?id=${req.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigate(`/admin/approvals/detail?id=${req.id}`)
+                    }
+                  }}
+                  className={cn(
+                    'cursor-pointer p-4 sm:p-5 transition-colors hover:bg-muted/30',
+                    highlightRequestId === req.id && 'bg-emerald-500/10 ring-1 ring-emerald-500/40'
+                  )}
+                >
                   <RequestCard
                     req={req}
                     isAdmin={isAdmin}

@@ -264,6 +264,9 @@ export interface Notification {
   createdAt?: string
   actionUrl?: string
   branchId?: string
+  snoozedUntil?: string | null
+  resolvedAt?: string | null
+  resolvedById?: string | null
 }
 
 export type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
