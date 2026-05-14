@@ -20,7 +20,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import type { GRN } from '@/types'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -631,6 +631,20 @@ export default function GRNListPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Deep-link support: open the GRN drawer when arrived with `?grnId=<id>`
+  // (e.g. from the Supplier Detail page's GRNs tab). Runs only when URL param
+  // or the loaded list changes.
+  const { search: routeSearch } = useRoute()
+  useEffect(() => {
+    const params = new URLSearchParams(routeSearch)
+    const target = params.get('grnId')
+    if (!target || grns.length === 0) return
+    if (selectedGrn?.id === target) return
+    const match = grns.find((g) => g.id === target)
+    if (match) setSelectedGrn(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeSearch, grns])
 
   const filtered = useMemo(() => {
     if (!search.trim()) return grns

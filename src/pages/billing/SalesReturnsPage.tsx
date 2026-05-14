@@ -67,7 +67,7 @@ import { printCreditNotePdf, downloadCreditNotePdf, type NoteData } from '@/lib/
 // TYPES & CONSTANTS
 // ─────────────────────────────────────────────────────────────
 
-const RETURN_REASONS = [
+export const RETURN_REASONS = [
   'Expired',
   'Damaged',
   'Wrong Product',

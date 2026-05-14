@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 interface DataTableFilterBarProps {
   searchQuery: string
@@ -17,6 +18,10 @@ interface DataTableFilterBarProps {
   children?: React.ReactNode // The filter inputs/dropdowns
   actionNode?: React.ReactNode // Custom actions aligned right
   midNode?: React.ReactNode   // Extra control between search and filters button
+  // Override the search container's width class. Default behaviour fills the
+  // remaining row width (flex-1). Pass e.g. "w-full sm:w-80" to constrain it
+  // when there are many action buttons on the right.
+  searchClassName?: string
 }
 
 export function DataTableFilterBar({
@@ -30,14 +35,15 @@ export function DataTableFilterBar({
   children,
   actionNode,
   midNode,
+  searchClassName,
 }: DataTableFilterBarProps) {
   const [filtersOpen, setFiltersOpen] = useState(defaultFiltersOpen)
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        {/* Search — grows to fill available space */}
-        <div className="min-w-0 flex-1">
+        {/* Search — fills remaining row width by default, or override via searchClassName */}
+        <div className={cn('min-w-0', searchClassName ?? 'flex-1')}>
           <Input
             icon={<Search className="h-4 w-4" />}
             suffix={
@@ -53,45 +59,45 @@ export function DataTableFilterBar({
           />
         </div>
 
-        {midNode && <div className="shrink-0">{midNode}</div>}
+        {/* Right cluster: midNode + filter toggle + clear + actionNode. ml-auto keeps it
+            pinned to the right edge when the search is constrained via searchClassName. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {midNode}
 
-        {/* Filter toggle + clear — always visible, never wraps off-screen */}
-        {children && (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              variant={filtersOpen ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setFiltersOpen(!filtersOpen)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 && (
-                <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-                  {activeFilterCount}
-                </Badge>
-              )}
-            </Button>
-
-            {onClearFilters && activeFilterCount > 0 && (
+          {/* Filter toggle + clear — always visible, never wraps off-screen */}
+          {children && (
+            <div className="flex shrink-0 items-center gap-1.5">
               <Button
-                variant="ghost"
+                variant={filtersOpen ? 'default' : 'outline'}
                 size="sm"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={onClearFilters}
+                className="gap-1.5"
+                onClick={() => setFiltersOpen(!filtersOpen)}
               >
-                <X className="h-3.5 w-3.5 sm:mr-1" />
-                <span className="hidden sm:inline">Clear</span>
+                <SlidersHorizontal className="h-4 w-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 && (
+                  <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
+                    {activeFilterCount}
+                  </Badge>
+                )}
               </Button>
-            )}
-          </div>
-        )}
 
-        {actionNode && (
-          <div className="shrink-0">
-            {actionNode}
-          </div>
-        )}
+              {onClearFilters && activeFilterCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={onClearFilters}
+                >
+                  <X className="h-3.5 w-3.5 sm:mr-1" />
+                  <span className="hidden sm:inline">Clear</span>
+                </Button>
+              )}
+            </div>
+          )}
+
+          {actionNode}
+        </div>
       </div>
 
       <AnimatePresence>

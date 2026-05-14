@@ -713,14 +713,16 @@ export default function PurchaseReturnsPage() {
                         ))}
                       </div>
                     </ScrollArea>
-                    <DataTablePagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={setCurrentPage}
-                      totalItems={matchingGRNs.length}
-                      itemsPerPage={PAGE_SIZE}
-                      className="border-t border-border/40 px-4 py-2"
-                    />
+                    <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
+                      <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                        totalItems={matchingGRNs.length}
+                        itemsPerPage={PAGE_SIZE}
+                        className="!justify-center !gap-2 !py-0 [&>div]:!ml-0 [&_button]:!h-9 [&_input]:!h-9"
+                      />
+                    </div>
                   </div>
 
                   {/* Right: GRN Detail Panel */}
@@ -735,33 +737,33 @@ export default function PurchaseReturnsPage() {
                     ) : (
                       <div className="flex h-full flex-col">
                         <div className="shrink-0 border-b border-border/40 p-5">
-                          <div className="flex items-start justify-between">
-                            <div>
+                          <div className="grid grid-cols-1 sm:grid-cols-[11rem_minmax(0,1fr)_6rem_5rem] items-end gap-x-6 gap-y-3">
+                            <div className="min-w-0">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selected GRN</p>
-                              <p className="mt-1 font-mono text-lg font-bold">{selectedGRN.grnNumber}</p>
+                              <p className="mt-0.5 font-mono text-sm font-bold truncate" title={selectedGRN.grnNumber}>{selectedGRN.grnNumber}</p>
                             </div>
-                            <Badge variant="success" size="sm" dot>Received</Badge>
-                          </div>
-                          <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
-                              <p className="mt-0.5 text-sm font-medium">{selectedGRN.supplierName}</p>
+                              <p className="mt-0.5 text-sm font-medium truncate" title={selectedGRN.supplierName}>{selectedGRN.supplierName}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Received</p>
-                              <p className="mt-0.5 text-sm">{formatDate(selectedGRN.date)}</p>
+                              <p className="mt-0.5 text-sm whitespace-nowrap">{formatDate(selectedGRN.date)}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-                              <p className="mt-0.5 font-mono text-sm font-bold">{formatCurrency(selectedGRN.totalAmount)}</p>
+                              <p className="mt-0.5 font-mono text-sm font-bold whitespace-nowrap truncate">{formatCurrency(selectedGRN.totalAmount)}</p>
                             </div>
                           </div>
                         </div>
                         <ScrollArea className="min-h-0 flex-1">
                           <div className="p-5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                              Items ({selectedGRN.items.length})
-                            </p>
+                            <div className="mb-3 flex items-center justify-between">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Items ({selectedGRN.items.length})
+                              </p>
+                              <Badge variant="success" size="sm" dot>Received</Badge>
+                            </div>
                             <div className="space-y-2">
                               {selectedGRN.items.map((item) => (
                                 <div key={item.productId} className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 p-3 dark:bg-muted/10">
@@ -779,11 +781,15 @@ export default function PurchaseReturnsPage() {
                             </div>
                           </div>
                         </ScrollArea>
-                        <div className="shrink-0 border-t border-border/40 bg-muted/10 p-4">
-                          <Button className="w-full" onClick={() => goToStep(2)}>
+                        <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
+                          <button
+                            type="button"
+                            onClick={() => goToStep(2)}
+                            className="flex w-full h-9 items-center justify-center gap-1 rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all duration-150 hover:bg-primary/90 active:scale-[0.97]"
+                          >
                             Continue to Select Items
                             <ChevronRight className="ml-1 h-4 w-4" />
-                          </Button>
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1008,28 +1014,26 @@ export default function PurchaseReturnsPage() {
                   {/* Left: Document Preview */}
                   <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[60%]">
                     <div className="shrink-0 bg-linear-to-r from-primary/5 to-primary/2 border-b border-border/40 p-5">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Debit Note</p>
-                          <p className="mt-1 font-mono text-xl font-bold">{debitNoteNumber}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against GRN</p>
-                          <p className="font-mono text-sm font-medium">{selectedGRN.grnNumber}</p>
-                        </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Debit Note</p>
+                        <p className="mt-1 font-mono text-xl font-bold">{debitNoteNumber}</p>
                       </div>
-                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                        <div>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-8 gap-y-3 text-sm">
+                        <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
-                          <p className="mt-0.5 font-medium">{selectedGRN.supplierName}</p>
+                          <p className="mt-0.5 font-medium truncate" title={selectedGRN.supplierName}>{selectedGRN.supplierName}</p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against GRN</p>
+                          <p className="mt-0.5 font-mono font-medium whitespace-nowrap" title={selectedGRN.grnNumber}>{selectedGRN.grnNumber}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GRN Date</p>
-                          <p className="mt-0.5">{formatDate(selectedGRN.date)}</p>
+                          <p className="mt-0.5 whitespace-nowrap">{formatDate(selectedGRN.date)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Return Date</p>
-                          <p className="mt-0.5">{formatDate(new Date().toISOString())}</p>
+                          <p className="mt-0.5 whitespace-nowrap">{formatDate(new Date().toISOString())}</p>
                         </div>
                       </div>
                     </div>
@@ -1040,8 +1044,8 @@ export default function PurchaseReturnsPage() {
                           <div className="col-span-4">Product</div>
                           <div className="col-span-2 text-center">Qty</div>
                           <div className="col-span-2 text-right">Rate</div>
-                          <div className="col-span-2 text-right">Amount</div>
-                          <div className="col-span-2">Reason</div>
+                          <div className="col-span-2 text-center">Amount</div>
+                          <div className="col-span-2 text-center">Reason</div>
                         </div>
                         {selectedReturnItems.map((ri) => {
                           const lineAmount = ri.rate * ri.returnQty
@@ -1055,8 +1059,8 @@ export default function PurchaseReturnsPage() {
                               </div>
                               <div className="col-span-2 text-center font-mono font-semibold">{ri.returnQty}</div>
                               <div className="col-span-2 text-right font-mono">{formatCurrency(ri.rate)}</div>
-                              <div className="col-span-2 text-right font-mono font-semibold">{formatCurrency(lineAmount)}</div>
-                              <div className="col-span-2">
+                              <div className="col-span-2 text-center font-mono font-semibold">{formatCurrency(lineAmount)}</div>
+                              <div className="col-span-2 flex justify-center">
                                 <Badge variant={badgeVariant} size="sm" dot>{displayReason}</Badge>
                               </div>
                             </div>
@@ -1066,7 +1070,11 @@ export default function PurchaseReturnsPage() {
                     </ScrollArea>
 
                     <div className="shrink-0 border-t border-border/40 bg-muted/10 px-5 py-4 dark:bg-muted/5">
-                      <div className="flex items-center justify-end gap-8">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <Button variant="outline" size="sm" onClick={() => goToStep(2)}>
+                          <ChevronLeft className="mr-1.5 h-4 w-4" />
+                          Back to Items
+                        </Button>
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-muted-foreground">Items</span>
                           <span className="font-mono font-medium">{selectedReturnItems.length}</span>
@@ -1075,7 +1083,6 @@ export default function PurchaseReturnsPage() {
                           <span className="text-muted-foreground">Total Qty</span>
                           <span className="font-mono font-medium">{selectedReturnItems.reduce((sum, ri) => sum + ri.returnQty, 0)}</span>
                         </div>
-                        <Separator orientation="vertical" className="h-6" />
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">Debit Total</span>
                           <span className="font-mono text-lg font-bold text-primary">{formatCurrency(debitSummary.total)}</span>
@@ -1167,29 +1174,23 @@ export default function PurchaseReturnsPage() {
                           </div>
                         </div>
 
-                        <Separator />
-
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">After Creating</p>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
-                              onClick={() => lastCreatedReturn && printDebitNotePdf(lastCreatedReturn)}>
-                              <Printer className="mr-1.5 h-3.5 w-3.5" />
-                              Print
-                            </Button>
-                            <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
-                              onClick={() => lastCreatedReturn && downloadDebitNotePdf(lastCreatedReturn)}>
-                              <Download className="mr-1.5 h-3.5 w-3.5" />
-                              Download
-                            </Button>
-                          </div>
-                        </div>
                       </div>
                     </ScrollArea>
 
-                    <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
+                    <div className="shrink-0 border-t border-border/40 bg-background p-4 flex items-center gap-2">
+                      <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
+                        onClick={() => lastCreatedReturn && printDebitNotePdf(lastCreatedReturn)}>
+                        <Printer className="mr-1.5 h-3.5 w-3.5" />
+                        Print
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
+                        onClick={() => lastCreatedReturn && downloadDebitNotePdf(lastCreatedReturn)}>
+                        <Download className="mr-1.5 h-3.5 w-3.5" />
+                        Download
+                      </Button>
                       <Button
-                        className={`w-full ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+                        size="sm"
+                        className={`flex-1 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
                         onClick={handleConfirmReturn}
                       >
                         {needsApproval
@@ -1197,10 +1198,6 @@ export default function PurchaseReturnsPage() {
                           : <CheckCircle2 className="mr-1.5 h-4 w-4" />
                         }
                         {needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
-                      </Button>
-                      <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
-                        <ChevronLeft className="mr-1.5 h-4 w-4" />
-                        Back to Items
                       </Button>
                     </div>
                   </div>

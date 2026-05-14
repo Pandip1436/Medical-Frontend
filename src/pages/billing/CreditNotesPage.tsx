@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import { RETURN_REASONS } from './SalesReturnsPage'
 import { printHtmlInPage } from '@/lib/printUtils'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -40,11 +42,12 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv } from '@/lib/exportUtils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -122,6 +125,10 @@ export default function CreditNotesPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedSettlement, setSelectedSettlement] = useState('all')
+  const [selectedCustomer, setSelectedCustomer] = useState('all')
+  const [selectedReason, setSelectedReason] = useState('all')
+  const [amountMin, setAmountMin] = useState('')
+  const [amountMax, setAmountMax] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [detailNote, setDetailNote] = useState<CreditNote | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -153,6 +160,25 @@ export default function CreditNotesPage() {
 
   useEffect(() => { fetchCreditNotes() }, [fetchCreditNotes])
   useBranchRefresh(fetchCreditNotes)
+
+  // Deep-link support: open the credit-note drawer when arrived with `?id=<id>`
+  // (e.g. from the Customer Detail page's Credit Notes tab). Runs only when
+  // the URL param or the loaded list changes.
+  const { search: routeSearch } = useRoute()
+  useEffect(() => {
+    const params = new URLSearchParams(routeSearch)
+    const target = params.get('id')
+    if (!target || creditNotes.length === 0) return
+    if (detailNote?.id === target) return
+    const match = creditNotes.find((c) => c.id === target)
+    if (match) void openDetail(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeSearch, creditNotes])
+
+  // Master data — for filters that should list ALL options
+  const { customers, fetchMasterData } = useMasterDataStore()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchMasterData() }, [])
 
   // ── Filtering ──
   const filtered = useMemo(() => {
@@ -199,8 +225,50 @@ export default function CreditNotesPage() {
       result = result.filter(cn => cn.settlementMode === selectedSettlement)
     }
 
+    if (selectedCustomer !== 'all') {
+      result = result.filter(cn => cn.customerName === selectedCustomer)
+    }
+
+    if (selectedReason !== 'all') {
+      // Case-insensitive prefix match — catches both exact reasons ("Damaged")
+      // and free-text variations the user typed ("Damaged packaging — 5 strips returned").
+      const sel = selectedReason.toLowerCase()
+      result = result.filter(cn => (cn.reason || '').toLowerCase().startsWith(sel))
+    }
+
+    if (amountMin) result = result.filter(cn => Number(cn.totalAmount) >= parseFloat(amountMin))
+    if (amountMax) result = result.filter(cn => Number(cn.totalAmount) <= parseFloat(amountMax))
+
     return result
-  }, [creditNotes, searchQuery, period, dateFrom, dateTo, selectedSettlement])
+  }, [creditNotes, searchQuery, period, dateFrom, dateTo, selectedSettlement, selectedCustomer, selectedReason, amountMin, amountMax])
+
+  // Backend-paginated customer fetcher. CreditNotes filter by customerName,
+  // so value === name.
+  const customerFetcher = useCallback(
+    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
+      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
+      if (query) params.set('q', query)
+      const res = await api.get(`/customers?${params.toString()}`)
+      const payload = res.data
+      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
+      return {
+        data: items.map((c) => ({ value: c.name, label: c.name })),
+        hasMore: Boolean(payload?.hasMore),
+      }
+    },
+    [],
+  )
+
+  const selectedCustomerLabel =
+    selectedCustomer && selectedCustomer !== 'all' ? selectedCustomer : undefined
+
+  // Reason options — sourced from the canonical RETURN_REASONS master list
+  // (same list used by the Sales Returns creation form), so the dropdown
+  // always shows the full set regardless of which reasons appear on this page.
+  const reasonOptions = useMemo(() => [
+    { value: 'all', label: 'All Reasons' },
+    ...RETURN_REASONS.map(r => ({ value: r, label: r })),
+  ], [])
 
   // ── Stats ──
   const stats = useMemo(() => {
@@ -218,11 +286,17 @@ export default function CreditNotesPage() {
     period !== 'all' ? period : '',
     dateFrom, dateTo,
     selectedSettlement !== 'all' ? selectedSettlement : '',
+    selectedCustomer !== 'all' ? selectedCustomer : '',
+    selectedReason !== 'all' ? selectedReason : '',
+    amountMin, amountMax,
   ].filter(Boolean).length
 
   const clearFilters = () => {
     setPeriod('all'); setDateFrom(''); setDateTo('')
     setSelectedSettlement('all')
+    setSelectedCustomer('all')
+    setSelectedReason('all')
+    setAmountMin(''); setAmountMax('')
   }
 
   const handlePrint = (cn: CreditNote) => {
@@ -378,32 +452,81 @@ export default function CreditNotesPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Period"
-          value={period}
-          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-          options={PERIOD_OPTIONS}
-        />
-        {period === 'custom' && (
-          <>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-              <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+        {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <EnumSelect
+            label="Period"
+            value={period}
+            onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+            options={PERIOD_OPTIONS}
+          />
+
+          <EnumSelect
+            label="Settlement"
+            value={selectedSettlement}
+            onValueChange={(val) => { setSelectedSettlement(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedSettlement('all'); setCurrentPage(1) }}
+            options={SETTLEMENT_OPTIONS}
+          />
+
+          <EnumSelect
+            label="Reason"
+            value={selectedReason}
+            onValueChange={(val) => { setSelectedReason(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedReason('all'); setCurrentPage(1) }}
+            options={reasonOptions}
+          />
+
+          <PaginatedSelect
+            label="Customer"
+            value={selectedCustomer}
+            onValueChange={(val) => { setSelectedCustomer(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedCustomer('all'); setCurrentPage(1) }}
+            fetcher={customerFetcher}
+            pinnedOption={{ value: 'all', label: 'All Customers' }}
+            selectedLabel={selectedCustomerLabel}
+            pageSize={10}
+          />
+
+          {/* Amount range */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Amount Range
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                placeholder="Min"
+                value={amountMin}
+                onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
+                className="w-full"
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <Input
+                type="number"
+                placeholder="Max"
+                value={amountMax}
+                onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
+                className="w-full"
+              />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-              <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+          </div>
+
+          {/* Custom date range — only when period is 'custom', full-width row below */}
+          {period === 'custom' && (
+            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+              </div>
             </div>
-          </>
-        )}
-        <EnumSelect
-          label="Settlement"
-          value={selectedSettlement}
-          onValueChange={(val) => { setSelectedSettlement(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedSettlement('all'); setCurrentPage(1) }}
-          options={SETTLEMENT_OPTIONS}
-        />
+          )}
+        </div>
       </DataTableFilterBar>
 
       {/* ── Table ── */}

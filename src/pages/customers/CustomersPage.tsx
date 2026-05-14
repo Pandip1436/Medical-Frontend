@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useAuthStore } from '@/stores/authStore'
@@ -9,7 +9,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
   Plus,
-  Eye,
   Pencil,
   Users,
   IndianRupee,
@@ -22,24 +21,20 @@ import {
   Camera,
   Download,
   Stethoscope,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { exportToExcel, importFromExcel } from '@/lib/excelUtils'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
+import { EmptyState } from '@/components/shared/EmptyState'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Card,
-  CardContent,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -54,7 +49,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '@/components/ui/dialog'
 import {
   Select,
@@ -63,7 +57,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,20 +67,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { cn, formatCurrency, formatDate, generateId } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 import type { Customer } from '@/types'
-import api, { API_SERVER_URL } from '@/lib/api'
+import api from '@/lib/api'
 import { navigate } from '@/lib/router'
-
-interface PrescriptionRecord {
-  id: string
-  doctorName: string
-  notes?: string | null
-  imageUrl?: string | null
-  validUntil?: string | null
-  isActive: boolean
-  createdAt: string
-}
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -173,6 +156,29 @@ const typeAvatarColor: Record<string, string> = {
 const PAGE_SIZE = 15
 
 // ─────────────────────────────────────────────────────────────
+// Filter option constants
+// ─────────────────────────────────────────────────────────────
+
+const CUSTOMER_TYPE_OPTIONS = [
+  { value: 'all', label: 'All Types' },
+  { value: 'RETAIL', label: 'Retail' },
+  { value: 'WHOLESALE', label: 'Wholesale' },
+  { value: 'DOCTOR', label: 'Doctor' },
+] as const
+
+const OUTSTANDING_OPTIONS = [
+  { value: 'all', label: 'Any Outstanding' },
+  { value: 'has', label: 'Has outstanding' },
+  { value: 'none', label: 'No outstanding' },
+] as const
+
+const GSTIN_OPTIONS = [
+  { value: 'all', label: 'Any GSTIN' },
+  { value: 'has', label: 'Has GSTIN' },
+  { value: 'none', label: 'No GSTIN' },
+] as const
+
+// ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
@@ -186,40 +192,43 @@ function outstandingColor(outstanding: number) {
 // ─────────────────────────────────────────────────────────────
 
 export default function CustomersPage() {
-  const customers = useMasterDataStore((s) => s.customers)
-  const isLoading = useMasterDataStore((s) => s.isLoading)
+  // The store is still the cache used by other pages' customer dropdowns.
+  // We don't read its list here anymore — this page drives its own paginated
+  // fetch — but we keep `fetchCustomers` to refresh the cache after CRUD.
   const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
   const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
   const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
   const importCustomers = useMasterDataStore((s) => s.importCustomers)
   const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
 
+  // Server-driven list state
+  const [pageRows, setPageRows] = useState<Customer[]>([])
+  const [total, setTotal] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Global summary (for the top stat cards — stable across filter changes)
+  const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number }>({
+    total: 0,
+    withOutstanding: 0,
+    totalOutstanding: 0,
+  })
+
+  // Filters + pagination
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<string>('all')
+  const [outstandingFilter, setOutstandingFilter] = useState<string>('all')
+  const [gstinFilter, setGstinFilter] = useState<string>('all')
+
+  // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false)
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   // Customer queued for deletion — null when the dialog is closed.
   const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
-  // Dialog Pagination
-  const [dialogInvPage, setDialogInvPage] = useState(1)
-  const [dialogLedgerPage, setDialogLedgerPage] = useState(1)
-  const DIALOG_PAGE_SIZE = 10
-
-  useEffect(() => {
-    setDialogInvPage(1)
-    setDialogLedgerPage(1)
-  }, [selectedCustomer])
-
   const [isImporting, setIsImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Customer invoices + credit notes for detail dialog
-  const [customerInvoices, setCustomerInvoices] = useState<any[]>([])
-  const [customerCreditNotes, setCustomerCreditNotes] = useState<any[]>([])
 
   // Multi-file upload state for address proof / prescription docs
   const [docFiles, setDocFiles] = useState<File[]>([])
@@ -262,7 +271,7 @@ export default function CustomersPage() {
     try {
       const res = await api.get(`/customers?q=${phone}`)
       const list = Array.isArray(res.data) ? res.data : []
-      const dup = list.find((c: any) => c.phone?.replace(/\D/g, '') === phone && c.id !== editingCustomer?.id)
+      const dup = list.find((c: Customer) => c.phone?.replace(/\D/g, '') === phone && c.id !== editingCustomer?.id)
       if (dup) {
         setPhoneCheckError(`Phone already used by "${dup.name}". Please verify.`)
       }
@@ -271,103 +280,113 @@ export default function CustomersPage() {
     }
   }
 
-  const fetchCustomerInvoices = async (customerId: string) => {
-    try {
-      const res = await api.get(`/billing?customerId=${customerId}`)
-      setCustomerInvoices(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      setCustomerInvoices([])
-    }
-  }
+  // ── Server-driven list ──
+  const buildQueryParams = useCallback((): URLSearchParams => {
+    const params = new URLSearchParams()
+    params.set('skip', String((currentPage - 1) * PAGE_SIZE))
+    params.set('take', String(PAGE_SIZE))
+    if (searchQuery.trim()) params.set('q', searchQuery.trim())
+    if (customerTypeFilter !== 'all') params.set('customerType', customerTypeFilter)
+    if (outstandingFilter !== 'all') params.set('hasOutstanding', outstandingFilter === 'has' ? 'true' : 'false')
+    if (gstinFilter !== 'all') params.set('hasGstin', gstinFilter === 'has' ? 'true' : 'false')
+    return params
+  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter])
 
-  const fetchCustomerCreditNotes = async (customerId: string) => {
-    try {
-      const res = await api.get(`/credit-notes?customerId=${customerId}`)
-      setCustomerCreditNotes(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      setCustomerCreditNotes([])
-    }
-  }
-
-  // Prescriptions
-  const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([])
-  const [prescLoading, setPrescLoading] = useState(false)
-  const [prescUploadOpen, setPrescUploadOpen] = useState(false)
-  const [prescFile, setPrescFile] = useState<File | null>(null)
-  const [prescDoctorName, setPrescDoctorName] = useState('')
-  const [prescNotes, setPrescNotes] = useState('')
-  const [prescValidUntil, setPrescValidUntil] = useState('')
-  const [prescUploading, setPrescUploading] = useState(false)
-
-  const fetchPrescriptions = async (customerId: string) => {
-    setPrescLoading(true)
-    try {
-      const res = await api.get(`/prescriptions?customerId=${customerId}`)
-      setPrescriptions(res.data)
-    } catch {
-      setPrescriptions([])
-    } finally {
-      setPrescLoading(false)
-    }
-  }
-
-  const handlePrescUpload = async () => {
-    if (!prescFile || !prescDoctorName || !selectedCustomer) return
-    setPrescUploading(true)
-    try {
-      const form = new FormData()
-      form.append('file', prescFile)
-      form.append('customerId', selectedCustomer.id)
-      form.append('doctorName', prescDoctorName)
-      if (prescNotes) form.append('notes', prescNotes)
-      if (prescValidUntil) form.append('validUntil', prescValidUntil)
-      await api.post('/prescriptions/upload', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      toast.success('Prescription uploaded successfully')
-      setPrescUploadOpen(false)
-      setPrescFile(null)
-      setPrescDoctorName('')
-      setPrescNotes('')
-      setPrescValidUntil('')
-      fetchPrescriptions(selectedCustomer.id)
-    } catch {
-      toast.error('Failed to upload prescription')
-    } finally {
-      setPrescUploading(false)
-    }
-  }
-
-  const handlePrescDelete = async (id: string) => {
-    try {
-      await api.delete(`/prescriptions/${id}`)
-      toast.success('Prescription deleted')
-      if (selectedCustomer) fetchPrescriptions(selectedCustomer.id)
-    } catch {
-      toast.error('Failed to delete prescription')
-    }
-  }
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
-    fetchCustomers()
-  }, [])
-  useBranchRefresh(fetchCustomers)
+    const delay = searchQuery.trim() ? 300 : 0
+    const handle = setTimeout(async () => {
+      fetchAbortRef.current?.abort()
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+      setIsLoading(true)
+      try {
+        const res = await api.get(`/customers?${buildQueryParams().toString()}`, { signal: controller.signal })
+        const payload = res.data
+        const items = (payload?.data ?? payload ?? []) as Customer[]
+        setPageRows(items)
+        setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
+      } catch (err: unknown) {
+        const e = err as { name?: string; code?: string }
+        if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
+          setPageRows([])
+          setTotal(0)
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }, delay)
+    return () => clearTimeout(handle)
+  }, [buildQueryParams, searchQuery])
 
-  const handleExport = () => {
-    const exportData = filtered.map((c) => ({
-      Name: c.name,
-      Phone: c.phone,
-      Type: c.type,
-      Email: c.email || '',
-      Address: c.address || '',
-      GSTIN: c.gstin || '',
-      'DL Number': c.dlNumber || '',
-      'Credit Limit': c.creditLimit,
-      Outstanding: c.currentOutstanding,
-      'Loyalty Points': c.loyaltyPoints,
-    }))
-    exportToExcel(exportData, 'customers')
+  // ── Global summary (does NOT depend on filters) ──
+  const fetchSummary = useCallback(async () => {
+    try {
+      const res = await api.get('/customers/summary')
+      const data = res.data?.data ?? res.data
+      if (data) setSummary(data)
+    } catch { /* silent — leaves last good values */ }
+  }, [])
+
+  useEffect(() => { fetchSummary() }, [fetchSummary])
+  useBranchRefresh(fetchSummary)
+
+  // Reset page to 1 whenever any filter or search changes
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  const activeFilterCount =
+    (customerTypeFilter !== 'all' ? 1 : 0) +
+    (outstandingFilter !== 'all' ? 1 : 0) +
+    (gstinFilter !== 'all' ? 1 : 0)
+
+  const clearFilters = () => {
+    setCustomerTypeFilter('all')
+    setOutstandingFilter('all')
+    setGstinFilter('all')
+  }
+
+  // Refresh list + summary + the global master-data cache (used by other pages' dropdowns).
+  const refetchAll = useCallback(async () => {
+    fetchSummary()
+    fetchCustomers()
+    // Re-trigger the list fetch by aborting any in-flight and bumping a state.
+    // Easiest: just re-run a manual fetch with current params.
+    try {
+      const res = await api.get(`/customers?${buildQueryParams().toString()}`)
+      const payload = res.data
+      const items = (payload?.data ?? payload ?? []) as Customer[]
+      setPageRows(items)
+      setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
+    } catch { /* surface via toast where caller invoked */ }
+  }, [buildQueryParams, fetchSummary, fetchCustomers])
+
+  const handleExport = async () => {
+    // Fetch the full filtered list (no skip/take) so the export includes every match,
+    // not just the current page.
+    const params = buildQueryParams()
+    params.delete('skip')
+    params.delete('take')
+    try {
+      const res = await api.get(`/customers?${params.toString()}`)
+      const all = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as Customer[]
+      const exportData = all.map((c) => ({
+        Name: c.name,
+        Phone: c.phone,
+        Type: c.type,
+        Email: c.email || '',
+        Address: c.address || '',
+        GSTIN: c.gstin || '',
+        'DL Number': c.dlNumber || '',
+        'Credit Limit': c.creditLimit,
+        Outstanding: c.currentOutstanding,
+        'Loyalty Points': c.loyaltyPoints,
+      }))
+      exportToExcel(exportData, 'customers')
+    } catch {
+      toast.error('Failed to export customers')
+    }
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -375,16 +394,16 @@ export default function CustomersPage() {
     if (!file) return
     setIsImporting(true)
     try {
-      const data = await importFromExcel<any>(file)
+      const data = await importFromExcel<Record<string, string | number | undefined>>(file)
       if (!data.length) throw new Error('File is empty')
       const formattedData = data.map((row) => ({
-        name: row.Name || row.name,
-        phone: String(row.Phone || row.phone),
-        type: (row.Type || row.type || 'RETAIL').toUpperCase(),
-        email: row.Email || row.email || '',
-        address: row.Address || row.address || '',
-        gstin: row.GSTIN || row.gstin || '',
-        dlNumber: row['DL Number'] || row.dlNumber || '',
+        name: String(row.Name ?? row.name ?? ''),
+        phone: String(row.Phone ?? row.phone ?? ''),
+        type: String(row.Type ?? row.type ?? 'RETAIL').toUpperCase(),
+        email: String(row.Email ?? row.email ?? ''),
+        address: String(row.Address ?? row.address ?? ''),
+        gstin: String(row.GSTIN ?? row.gstin ?? ''),
+        dlNumber: String(row['DL Number'] ?? row.dlNumber ?? ''),
       }))
       const res = await importCustomers(formattedData)
       if (res.skippedCount > 0) {
@@ -395,55 +414,26 @@ export default function CustomersPage() {
       } else {
         toast.success(`Successfully imported ${res.createdCount} customers`)
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to import customers')
+      refetchAll()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to import customers'
+      toast.error(message)
     } finally {
       setIsImporting(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
-  // Stats
-  const stats = useMemo(() => {
-    const totalCustomers = customers.length
-    const withOutstanding = customers.filter((c) => c.currentOutstanding > 0).length
-    const outstandingAmount = customers.reduce((sum, c) => sum + c.currentOutstanding, 0)
-    return { totalCustomers, withOutstanding, outstandingAmount }
-  }, [customers])
-
-  // Filtered customers
-  const filtered = useMemo(() => {
-    return customers.filter((c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone.includes(searchQuery)
-    )
-  }, [customers, searchQuery])
-
-  // ── Pagination ─────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paginatedCustomers = useMemo(() => {
-    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [filtered, currentPage])
-
-  // Reset page when search changes
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery])
-
   // Salespersons for "Referred by" dropdown
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   useEffect(() => {
     api.get('/salespersons', { params: { branchId: undefined } })
-      .then((res) => setSalespersons(
-        (res.data || []).filter((s: any) => s.isActive).map((s: any) => ({ id: s.id, name: s.name }))
-      ))
+      .then((res) => {
+        const list = (res.data || []) as { id: string; name: string; isActive: boolean }[]
+        setSalespersons(list.filter((s) => s.isActive).map((s) => ({ id: s.id, name: s.name })))
+      })
       .catch(() => {})
   }, [])
-
-  // Legacy camera shim — delegates to multi-file system
-  const handleDocFile = (file: File | null) => {
-    if (file) handleMultiDocFiles(({ length: 1, 0: file, item: (i: number) => i === 0 ? file : null } as unknown as FileList))
-  }
 
   // Camera scan state
   const [scanOpen, setScanOpen] = useState(false)
@@ -511,22 +501,6 @@ export default function CustomersPage() {
     },
   })
 
-  const handleAddCustomer = async (values: any) => {
-    try {
-      const payload = { ...values, type: values.type }
-      const result = await addCustomerAction(payload)
-      if ((result as any)?.approvalRequested) {
-        toast.success(`Approval request sent to admin. Customer "${values.name}" will be created once approved.`, { duration: 6000 })
-      } else {
-        toast.success(`Customer "${values.name}" added successfully`)
-      }
-      form.reset()
-      setAddDialogOpen(false)
-    } catch (error) {
-      toast.error("Failed to add customer. Please try again.")
-    }
-  }
-
   const handleDeleteCustomer = async () => {
     if (!deleteCandidate) return
     setDeleteSubmitting(true)
@@ -534,10 +508,11 @@ export default function CustomersPage() {
       await deleteCustomerAction(deleteCandidate.id)
       toast.success(`Customer "${deleteCandidate.name}" deleted`)
       setDeleteCandidate(null)
-    } catch (error: any) {
+      refetchAll()
+    } catch (error: unknown) {
       // BE guard returns a clear message if the customer has open invoices /
       // outstanding balance — surface that verbatim so the user knows why.
-      const msg = error?.response?.data?.message ?? 'Failed to delete customer'
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to delete customer'
       toast.error(msg)
     } finally {
       setDeleteSubmitting(false)
@@ -549,12 +524,12 @@ export default function CustomersPage() {
     form.reset({
       name: customer.name,
       phone: customer.phone,
-      type: customer.type as any,
+      type: customer.type,
       email: customer.email ?? '',
       address: customer.address ?? '',
       gstin: customer.gstin ?? '',
       dlNumber: customer.dlNumber ?? '',
-      registrationNumber: (customer as any).registrationNumber ?? '',
+      registrationNumber: (customer as { registrationNumber?: string }).registrationNumber ?? '',
       referredBy: customer.referredBy ?? '',
       notes: customer.notes ?? '',
     })
@@ -564,7 +539,7 @@ export default function CustomersPage() {
     setAddDialogOpen(true)
   }
 
-  const handleSaveCustomer = async (values: any) => {
+  const handleSaveCustomer = async (values: CustomerFormValues) => {
     if (phoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
     try {
       let customerId: string
@@ -573,8 +548,8 @@ export default function CustomersPage() {
         customerId = editingCustomer.id
         toast.success(`Customer "${values.name}" updated`)
       } else {
-        const result = await addCustomerAction(values)
-        if ((result as any)?.approvalRequested) {
+        const result = await addCustomerAction(values) as { approvalRequested?: boolean; id?: string } | undefined
+        if (result?.approvalRequested) {
           toast.success(`Approval request sent to admin. Customer "${values.name}" will be created once approved.`, { duration: 6000 })
           form.reset()
           setDocFiles([])
@@ -584,7 +559,7 @@ export default function CustomersPage() {
           setAddDialogOpen(false)
           return
         }
-        customerId = (result as any)?.id
+        customerId = result?.id ?? ''
         toast.success(`Customer "${values.name}" added successfully`)
       }
       // Upload all documents (address proofs + prescriptions)
@@ -607,7 +582,7 @@ export default function CustomersPage() {
       setPhoneCheckError('')
       setEditingCustomer(null)
       setAddDialogOpen(false)
-      fetchCustomers()
+      refetchAll()
     } catch {
       toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer')
     }
@@ -617,47 +592,6 @@ export default function CustomersPage() {
     navigate(`/customers/detail?customerId=${customer.id}`)
   }
 
-  // Build ledger entries from loaded invoices
-  const buildLedger = () => {
-    const entries: {
-      date: string
-      particular: string
-      type: 'Sale' | 'Payment'
-      debit: number
-      credit: number
-      balance: number
-    }[] = []
-
-    let balance = 0
-    const sorted = [...customerInvoices].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    )
-
-    for (const inv of sorted) {
-      balance += inv.grandTotal
-      entries.push({
-        date: inv.date,
-        particular: `Invoice ${inv.invoiceNumber}`,
-        type: 'Sale',
-        debit: inv.grandTotal,
-        credit: 0,
-        balance,
-      })
-      if (inv.amountPaid > 0) {
-        balance -= inv.amountPaid
-        entries.push({
-          date: inv.date,
-          particular: `Payment for ${inv.invoiceNumber}`,
-          type: 'Payment',
-          debit: 0,
-          credit: inv.amountPaid,
-          balance,
-        })
-      }
-    }
-    return entries
-  }
-
   return (
     <motion.div
       variants={containerVariants}
@@ -665,97 +599,137 @@ export default function CustomersPage() {
       animate="visible"
       className="space-y-6"
     >
-      {/* ─── Custom Flex Header ─── */}
-      <motion.div variants={itemVariants} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Customers</h1>
-          <p className="text-sm text-muted-foreground">Manage your customer accounts and relationships</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 mt-3 sm:mt-0">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-1.5 h-4 w-4" />
-            Export
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-            <Upload className="mr-1.5 h-4 w-4" />
-            {isImporting ? 'Importing...' : 'Import'}
-          </Button>
-          <input
-            type="file"
-            accept=".xlsx, .xls"
-            className="hidden"
-            ref={fileInputRef}
-            onChange={handleImport}
-          />
-          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add Customer
-          </Button>
-        </div>
-      </motion.div>
+      {/* Hidden file input used by the Import button in the filter bar */}
+      <input
+        type="file"
+        accept=".xlsx, .xls"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={handleImport}
+      />
 
       {/* ─── Summary Cards ─── */}
       <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-        {/* Total Customers */}
-        <Card hover>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10">
-              <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Total Customers
-              </p>
-              <p className="text-2xl font-bold tabular-nums">{stats.totalCustomers}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* With Outstanding */}
-        <Card hover>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
-              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                With Outstanding
-              </p>
-              <p className="text-2xl font-bold tabular-nums">{stats.withOutstanding}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Total Outstanding */}
-        <Card hover>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-500/10">
-              <IndianRupee className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Total Outstanding
-              </p>
-              <p className="text-2xl font-bold tabular-nums text-rose-600 dark:text-rose-400">
-                {formatCurrency(stats.outstandingAmount)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {[
+          {
+            label: 'Total Customers',
+            value: summary.total.toString(),
+            subtitle: 'directory',
+            icon: Users,
+            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+            borderAccent: 'border-l-blue-500',
+          },
+          {
+            label: 'With Outstanding',
+            value: summary.withOutstanding.toString(),
+            subtitle: 'pending dues',
+            icon: AlertCircle,
+            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            borderAccent: 'border-l-amber-500',
+          },
+          {
+            label: 'Total Outstanding',
+            value: formatCurrency(summary.totalOutstanding),
+            subtitle: 'across all customers',
+            icon: IndianRupee,
+            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+            borderAccent: 'border-l-rose-500',
+          },
+        ].map((stat) => (
+          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </p>
+                <p className="text-lg font-bold font-mono leading-tight truncate" title={stat.value}>{stat.value}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </motion.div>
 
-      {/* ─── Search ─── */}
+      {/* ─── Search + Filters ─── */}
       <DataTableFilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search by name or phone..."
-        resultsCount={filtered.length}
-      />
+        searchPlaceholder="Search by name, phone, or GSTIN..."
+        resultsCount={total}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearFilters}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">{isImporting ? 'Importing…' : 'Import'}</span>
+            </Button>
+            <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Add Customer</span>
+            </Button>
+          </div>
+        }
+      >
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <EnumSelect
+            label="Type"
+            value={customerTypeFilter}
+            onValueChange={setCustomerTypeFilter}
+            onClear={() => setCustomerTypeFilter('all')}
+            options={CUSTOMER_TYPE_OPTIONS}
+          />
+          <EnumSelect
+            label="Outstanding"
+            value={outstandingFilter}
+            onValueChange={setOutstandingFilter}
+            onClear={() => setOutstandingFilter('all')}
+            options={OUTSTANDING_OPTIONS}
+          />
+          <EnumSelect
+            label="GSTIN"
+            value={gstinFilter}
+            onValueChange={setGstinFilter}
+            onClear={() => setGstinFilter('all')}
+            options={GSTIN_OPTIONS}
+          />
+        </div>
+      </DataTableFilterBar>
 
       {/* ─── Customers Table ─── */}
       <motion.div variants={itemVariants}>
         <Card className="overflow-x-auto">
           <CardContent className="p-0">
+            {/* Empty state — single shared block for both mobile + desktop */}
+            {!isLoading && pageRows.length === 0 && (
+              <EmptyState
+                icon={Users}
+                title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
+                description={
+                  searchQuery || activeFilterCount > 0
+                    ? 'Try adjusting your search or filters.'
+                    : 'Add your first customer to start billing.'
+                }
+                actionLabel={
+                  searchQuery || activeFilterCount > 0
+                    ? 'Clear filters'
+                    : 'Add Customer'
+                }
+                onAction={
+                  searchQuery || activeFilterCount > 0
+                    ? () => { clearFilters(); setSearchQuery('') }
+                    : () => setAddDialogOpen(true)
+                }
+              />
+            )}
+
             {/* Mobile + Tablet card list (hidden on lg+) */}
             <div className="lg:hidden">
               {isLoading && (
@@ -771,11 +745,8 @@ export default function CustomersPage() {
                   ))}
                 </div>
               )}
-              {!isLoading && filtered.length === 0 && (
-                <div className="py-12 text-center text-sm text-muted-foreground">No customers found</div>
-              )}
               <div className="divide-y divide-border/40">
-                {!isLoading && paginatedCustomers.map((customer) => (
+                {!isLoading && pageRows.map((customer) => (
                   <div
                     key={customer.id}
                     className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 cursor-pointer"
@@ -792,9 +763,9 @@ export default function CustomersPage() {
                         <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
                           {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                         </Badge>
-                        {Number((customer as any).pendingCreditCount ?? 0) > 0 && (
+                        {Number(customer.pendingCreditCount ?? 0) > 0 && (
                           <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
-                            {(customer as any).pendingCreditCount} pending
+                            {customer.pendingCreditCount} pending
                           </Badge>
                         )}
                       </div>
@@ -836,7 +807,7 @@ export default function CustomersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedCustomers.map((customer) => (
+                {pageRows.map((customer) => (
                   <TableRow
                     key={customer.id}
                     className={cn(
@@ -848,9 +819,9 @@ export default function CustomersPage() {
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
                         {customer.name}
-                        {Number((customer as any).pendingCreditCount ?? 0) > 0 && (
+                        {Number(customer.pendingCreditCount ?? 0) > 0 && (
                           <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
-                            {(customer as any).pendingCreditCount} pending
+                            {customer.pendingCreditCount} pending
                           </Badge>
                         )}
                       </span>
@@ -898,26 +869,19 @@ export default function CustomersPage() {
                     </TableCell>
                     </TableRow>
                 ))}
-                {filtered.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
-                      No customers found
-                    </TableCell>
-                  </TableRow>
-                )}
               </TableBody>
             </Table>
             </div>
           </CardContent>
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={total}
+            itemsPerPage={PAGE_SIZE}
+            className="border-t border-border/40 px-4"
+          />
         </Card>
-        <DataTablePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          totalItems={filtered.length}
-          itemsPerPage={PAGE_SIZE}
-          className="mt-4 px-2"
-        />
       </motion.div>
 
       {/* ─── Add / Edit Customer Dialog ─── */}
@@ -1143,450 +1107,6 @@ export default function CustomersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Customer Detail Dialog ─── */}
-      <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-        <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
-          {selectedCustomer && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-xl text-sm font-bold text-white',
-                      typeAvatarColor[selectedCustomer.type] || 'bg-gray-400'
-                    )}
-                  >
-                    {selectedCustomer.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <DialogTitle className="text-lg">{selectedCustomer.name}</DialogTitle>
-                    <DialogDescription className="flex items-center gap-2 mt-0.5">
-                      <Badge
-                        variant={typeBadgeVariant[selectedCustomer.type] || 'secondary'}
-                        size="sm"
-                        dot
-                      >
-                        {selectedCustomer.type.charAt(0) + selectedCustomer.type.slice(1).toLowerCase()}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{selectedCustomer.phone}</span>
-                    </DialogDescription>
-                  </div>
-                </div>
-              </DialogHeader>
-
-              <Tabs defaultValue="overview" className="mt-4">
-                <div className="overflow-x-auto pb-px">
-                  <TabsList className="inline-flex w-max min-w-full rounded-xl">
-                    <TabsTrigger value="overview" className="rounded-lg text-xs flex-1 min-w-20">Overview</TabsTrigger>
-                    <TabsTrigger value="purchases" className="rounded-lg text-xs flex-1 min-w-20">Purchases</TabsTrigger>
-                    <TabsTrigger value="ledger" className="rounded-lg text-xs flex-1 min-w-18">Ledger</TabsTrigger>
-                    <TabsTrigger value="credit-notes" className="rounded-lg text-xs flex-1 min-w-24">Credit Notes</TabsTrigger>
-                    <TabsTrigger value="prescriptions" className="rounded-lg text-xs flex-1 min-w-15">Rx</TabsTrigger>
-                  </TabsList>
-                </div>
-
-                {/* Overview Tab */}
-                <TabsContent value="overview" className="space-y-4 mt-4">
-                  <div className="rounded-xl border border-border/40 p-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phone</p>
-                        <p className="mt-0.5 font-medium">{selectedCustomer.phone}</p>
-                      </div>
-                      {selectedCustomer.alternatePhone && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Alternate Phone</p>
-                          <p className="mt-0.5 font-medium">{selectedCustomer.alternatePhone}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.email && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email</p>
-                          <p className="mt-0.5 font-medium">{selectedCustomer.email}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.address && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address</p>
-                          <p className="mt-0.5 font-medium">{selectedCustomer.address}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.gstin && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN</p>
-                          <p className="mt-0.5 font-medium font-mono">{selectedCustomer.gstin}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.dlNumber && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number</p>
-                          <p className="mt-0.5 font-medium font-mono">{selectedCustomer.dlNumber}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.referredBy && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By</p>
-                          <p className="mt-0.5 font-medium">{selectedCustomer.referredBy}</p>
-                        </div>
-                      )}
-                      {selectedCustomer.doctorRef && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Doctor Reference</p>
-                          <p className="mt-0.5 font-medium">{selectedCustomer.doctorRef}</p>
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Member Since</p>
-                        <p className="mt-0.5 font-medium">{formatDate(selectedCustomer.createdAt)}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Financial summary cards */}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Total Business
-                      </p>
-                      <p className="mt-1 text-xl font-bold font-mono">
-                        {formatCurrency(customerInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0))}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Outstanding
-                      </p>
-                      <p className={cn('mt-1 text-xl font-bold font-mono', outstandingColor(selectedCustomer.currentOutstanding))}>
-                        {formatCurrency(selectedCustomer.currentOutstanding)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {selectedCustomer.notes && (
-                    <div className="rounded-xl border border-border/40 p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</p>
-                      <p className="mt-1 text-sm text-foreground/80">{selectedCustomer.notes}</p>
-                    </div>
-                  )}
-                </TabsContent>
-
-                {/* Purchase History Tab */}
-                <TabsContent value="purchases" className="mt-4">
-                  <Card className="overflow-x-auto">
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Invoice #</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Payment</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {customerInvoices.slice((dialogInvPage - 1) * DIALOG_PAGE_SIZE, dialogInvPage * DIALOG_PAGE_SIZE).map((inv) => (
-                            <TableRow key={inv.id}>
-                              <TableCell className="font-mono text-sm">
-                                {inv.invoiceNumber}
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">{formatDate(inv.date)}</TableCell>
-                              <TableCell className="text-right font-mono text-sm">
-                                {formatCurrency(inv.grandTotal)}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  size="sm"
-                                  dot
-                                  variant={
-                                    inv.status === 'PAID'
-                                      ? 'success'
-                                      : inv.status === 'CREDIT'
-                                        ? 'warning'
-                                        : inv.status === 'RETURNED'
-                                          ? 'destructive'
-                                          : 'secondary'
-                                  }
-                                >
-                                  {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="capitalize text-muted-foreground">{inv.paymentMode}</TableCell>
-                            </TableRow>
-                          ))}
-                          {customerInvoices.length === 0 && (
-                            <TableRow>
-                              <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
-                                No purchase history
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                    {customerInvoices.length > DIALOG_PAGE_SIZE && (
-                      <DataTablePagination
-                        currentPage={dialogInvPage}
-                        totalPages={Math.ceil(customerInvoices.length / DIALOG_PAGE_SIZE)}
-                        onPageChange={setDialogInvPage}
-                        totalItems={customerInvoices.length}
-                        itemsPerPage={DIALOG_PAGE_SIZE}
-                        className="border-t border-border/40 px-4"
-                      />
-                    )}
-                  </Card>
-                </TabsContent>
-
-                {/* Ledger Tab */}
-                <TabsContent value="ledger" className="mt-4">
-                  <Card className="overflow-x-auto">
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Particular</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead className="text-right">Debit</TableHead>
-                            <TableHead className="text-right">Credit</TableHead>
-                            <TableHead className="text-right">Balance</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {buildLedger().slice((dialogLedgerPage - 1) * DIALOG_PAGE_SIZE, dialogLedgerPage * DIALOG_PAGE_SIZE).map((entry, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="text-muted-foreground">{formatDate(entry.date)}</TableCell>
-                              <TableCell>{entry.particular}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  size="sm"
-                                  dot
-                                  variant={entry.type === 'Sale' ? 'warning' : 'success'}
-                                >
-                                  {entry.type}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-sm">
-                                {entry.debit > 0 ? formatCurrency(entry.debit) : '-'}
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-sm">
-                                {entry.credit > 0 ? formatCurrency(entry.credit) : '-'}
-                              </TableCell>
-                              <TableCell
-                                className={cn(
-                                  'text-right font-mono text-sm font-semibold',
-                                  entry.balance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                                )}
-                              >
-                                {formatCurrency(entry.balance)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          {buildLedger().length === 0 && (
-                            <TableRow>
-                              <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
-                                No ledger entries
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                    {buildLedger().length > DIALOG_PAGE_SIZE && (
-                      <DataTablePagination
-                        currentPage={dialogLedgerPage}
-                        totalPages={Math.ceil(buildLedger().length / DIALOG_PAGE_SIZE)}
-                        onPageChange={setDialogLedgerPage}
-                        totalItems={buildLedger().length}
-                        itemsPerPage={DIALOG_PAGE_SIZE}
-                        className="border-t border-border/40 px-4"
-                      />
-                    )}
-                  </Card>
-                </TabsContent>
-
-                {/* Credit Notes Tab */}
-                <TabsContent value="credit-notes" className="mt-4">
-                  <Card className="overflow-x-auto">
-                    <CardContent className="p-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>CN #</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Invoice Ref</TableHead>
-                            <TableHead>Reason</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
-                            <TableHead>Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {customerCreditNotes.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                                No credit notes found
-                              </TableCell>
-                            </TableRow>
-                          ) : customerCreditNotes.map((cn) => (
-                            <TableRow key={cn.id}>
-                              <TableCell className="font-mono text-sm">{cn.creditNoteNo}</TableCell>
-                              <TableCell className="text-muted-foreground">{formatDate(cn.date)}</TableCell>
-                              <TableCell className="font-mono text-sm">{cn.invoiceNumber}</TableCell>
-                              <TableCell>{cn.reason ?? '—'}</TableCell>
-                              <TableCell className="text-right font-mono text-sm">
-                                {formatCurrency(Number(cn.totalAmount))}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  size="sm"
-                                  dot
-                                  variant={cn.settlementMode === 'CREDIT' ? 'success' : 'warning'}
-                                >
-                                  {cn.settlementMode ?? 'REFUND'}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-                {/* Prescriptions Tab */}
-                <TabsContent value="prescriptions" className="mt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {prescriptions.length} prescription{prescriptions.length !== 1 ? 's' : ''} on file
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-xs h-8"
-                      onClick={() => setPrescUploadOpen(true)}
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Upload Rx
-                    </Button>
-                  </div>
-
-                  {prescLoading ? (
-                    <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
-                      Loading...
-                    </div>
-                  ) : prescriptions.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground">
-                      <FileImage className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">No prescriptions uploaded yet</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {prescriptions.map((rx) => (
-                        <div
-                          key={rx.id}
-                          className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3"
-                        >
-                          <FileImage className="h-8 w-8 shrink-0 text-muted-foreground/50" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">Dr. {rx.doctorName}</p>
-                            {rx.notes && (
-                              <p className="text-[11px] text-muted-foreground truncate">{rx.notes}</p>
-                            )}
-                            <p className="text-[10px] text-muted-foreground/60">
-                              {formatDate(rx.createdAt)}
-                              {rx.validUntil && ` · Valid until ${formatDate(rx.validUntil)}`}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {rx.imageUrl && (
-                              <Button
-                                size="icon-sm"
-                                variant="ghost"
-                                onClick={() => window.open(
-                                  `${API_SERVER_URL}${rx.imageUrl}`,
-                                  '_blank'
-                                )}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handlePrescDelete(rx.id)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Upload dialog */}
-                  <Dialog open={prescUploadOpen} onOpenChange={setPrescUploadOpen}>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Upload Prescription</DialogTitle>
-                        <DialogDescription>
-                          Upload a prescription image or PDF for {selectedCustomer?.name}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="space-y-1.5">
-                          <Label>Doctor Name <span className="text-destructive">*</span></Label>
-                          <Input
-                            placeholder="Dr. Ramesh Kumar"
-                            value={prescDoctorName}
-                            onChange={(e) => setPrescDoctorName(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Prescription File <span className="text-destructive">*</span></Label>
-                          <Input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,application/pdf"
-                            onChange={(e) => setPrescFile(e.target.files?.[0] ?? null)}
-                          />
-                          <p className="text-[10px] text-muted-foreground">JPG, PNG, WEBP or PDF · max 5 MB</p>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Valid Until</Label>
-                          <DatePicker
-                            value={prescValidUntil}
-                            onChange={setPrescValidUntil}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Notes</Label>
-                          <Textarea
-                            placeholder="Any notes about this prescription..."
-                            rows={2}
-                            value={prescNotes}
-                            onChange={(e) => setPrescNotes(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setPrescUploadOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handlePrescUpload}
-                          disabled={prescUploading || !prescFile || !prescDoctorName}
-                        >
-                          {prescUploading ? 'Uploading...' : 'Upload'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </TabsContent>
-              </Tabs>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* Delete-customer confirmation. Shows the customer's open balance + pending
           credit count so the user knows what's at stake before confirming. */}
       <AlertDialog
@@ -1615,7 +1135,7 @@ export default function CustomersPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Pending credit invoices</span>
-                      <span className="font-mono">{Number((deleteCandidate as any).pendingCreditCount ?? 0)}</span>
+                      <span className="font-mono">{Number(deleteCandidate.pendingCreditCount ?? 0)}</span>
                     </div>
                   </div>
                 )}

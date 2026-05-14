@@ -47,6 +47,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import {
   Sheet,
   SheetContent,
@@ -58,6 +59,7 @@ import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 
 type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
 
@@ -121,7 +123,7 @@ const statusLabel: Record<QuotationStatus, string> = {
 // ─────────────────────────────────────────────────────────────
 
 export default function QuotationsPage() {
-  const { path } = useRoute()
+  const { path, search: routeSearch } = useRoute()
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -131,6 +133,7 @@ export default function QuotationsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [amountMin, setAmountMin] = useState('')
   const [amountMax, setAmountMax] = useState('')
 
@@ -144,6 +147,11 @@ export default function QuotationsPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [detailQt, setDetailQt] = useState<Quotation | null>(null)
+
+  // Master data — for filters that should list ALL options (not just what's on this page)
+  const { customers, fetchMasterData } = useMasterDataStore()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchMasterData() }, [])
 
   const fetchQuotations = useCallback(async () => {
     setIsLoading(true)
@@ -174,6 +182,18 @@ export default function QuotationsPage() {
   // Re-fetch whenever this page becomes active (e.g. after creating a quotation)
   useEffect(() => { fetchQuotations() }, [fetchQuotations, path])
   useBranchRefresh(fetchQuotations)
+
+  // Deep-link support: open the quotation drawer when arrived with
+  // `?quotationId=<id>` (e.g. from the Customer Detail page's Quotations tab).
+  useEffect(() => {
+    const params = new URLSearchParams(routeSearch)
+    const target = params.get('quotationId')
+    if (!target || quotations.length === 0) return
+    if (detailQt?.id === target) return
+    const match = quotations.find((q) => q.id === target)
+    if (match) setDetailQt(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeSearch, quotations])
 
   const handleUpdateStatus = async (qt: Quotation, status: QuotationStatus) => {
     try {
@@ -206,6 +226,7 @@ export default function QuotationsPage() {
     setDateFrom('')
     setDateTo('')
     setSelectedStatus('all')
+    setSelectedCustomer('all')
     setAmountMin('')
     setAmountMax('')
   }
@@ -255,6 +276,11 @@ export default function QuotationsPage() {
       result = result.filter((qt) => qt.status === selectedStatus)
     }
 
+    // Customer
+    if (selectedCustomer && selectedCustomer !== 'all') {
+      result = result.filter((qt) => qt.customerName === selectedCustomer)
+    }
+
     // Amount range
     if (amountMin) {
       result = result.filter((qt) => qt.total >= parseFloat(amountMin))
@@ -264,7 +290,27 @@ export default function QuotationsPage() {
     }
 
     return result
-  }, [quotations, searchQuery, period, dateFrom, dateTo, selectedStatus, amountMin, amountMax])
+  }, [quotations, searchQuery, period, dateFrom, dateTo, selectedStatus, selectedCustomer, amountMin, amountMax])
+
+  // Backend-paginated customer fetcher. Quotations match by customerName,
+  // so we keep value === name for compatibility with the existing filter.
+  const customerFetcher = useCallback(
+    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
+      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
+      if (query) params.set('q', query)
+      const res = await api.get(`/customers?${params.toString()}`)
+      const payload = res.data
+      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
+      return {
+        data: items.map((c) => ({ value: c.name, label: c.name })),
+        hasMore: Boolean(payload?.hasMore),
+      }
+    },
+    [],
+  )
+
+  const selectedCustomerLabel =
+    selectedCustomer && selectedCustomer !== 'all' ? selectedCustomer : undefined
 
   // ── Stats ──
 
@@ -329,6 +375,7 @@ export default function QuotationsPage() {
     dateFrom,
     dateTo,
     selectedStatus !== 'all' ? selectedStatus : '',
+    selectedCustomer !== 'all' ? selectedCustomer : '',
     amountMin,
     amountMax,
   ].filter(Boolean).length
@@ -425,68 +472,82 @@ export default function QuotationsPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Period"
-          value={period}
-          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-          options={PERIOD_OPTIONS}
-        />
+        {/* Custom 4-col grid that overrides DataTableFilterBar's inner grid for equal-width filters */}
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EnumSelect
+            label="Period"
+            value={period}
+            onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+            options={PERIOD_OPTIONS}
+          />
 
-        {/* Custom date range */}
-        {period === 'custom' && (
-          <>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date From
-              </Label>
-              <DatePicker
-                value={dateFrom}
-                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+          <EnumSelect
+            label="Status"
+            value={selectedStatus}
+            onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+            options={STATUS_OPTIONS}
+          />
+
+          <PaginatedSelect
+            label="Customer"
+            value={selectedCustomer}
+            onValueChange={(val) => { setSelectedCustomer(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedCustomer('all'); setCurrentPage(1) }}
+            fetcher={customerFetcher}
+            pinnedOption={{ value: 'all', label: 'All Customers' }}
+            selectedLabel={selectedCustomerLabel}
+            pageSize={10}
+          />
+
+          {/* Amount range */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Amount Range
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                placeholder="Min"
+                value={amountMin}
+                onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
+                className="w-full"
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <Input
+                type="number"
+                placeholder="Max"
+                value={amountMax}
+                onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
+                className="w-full"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date To
-              </Label>
-              <DatePicker
-                value={dateTo}
-                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-              />
-            </div>
-          </>
-        )}
-
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-          options={STATUS_OPTIONS}
-        />
-
-        {/* Amount range */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Amount Range
-          </Label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              placeholder="Min"
-              value={amountMin}
-              onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
-              className="w-full"
-            />
-            <span className="text-muted-foreground text-xs">-</span>
-            <Input
-              type="number"
-              placeholder="Max"
-              value={amountMax}
-              onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
-              className="w-full"
-            />
           </div>
+
+          {/* Custom date range — only when period is 'custom', full-width row below */}
+          {period === 'custom' && (
+            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Date From
+                </Label>
+                <DatePicker
+                  value={dateFrom}
+                  onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Date To
+                </Label>
+                <DatePicker
+                  value={dateTo}
+                  onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </DataTableFilterBar>
 

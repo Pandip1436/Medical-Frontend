@@ -59,6 +59,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import {
   Select,
   SelectContent,
@@ -68,7 +69,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
 import type { PurchaseOrder, Product } from '@/types'
@@ -408,6 +409,23 @@ export default function PurchaseOrdersPage() {
     }
   }
 
+  // Deep-link support: when arrived from a `?poId=<id>` URL (e.g. clicked
+  // from the Supplier Detail page's POs tab), auto-open that PO's drawer once
+  // the list has loaded. Runs only once per id so the user can manually close
+  // it without it reopening on the next render.
+  const { search } = useRoute()
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const target = params.get('poId')
+    if (!target || purchaseOrders.length === 0) return
+    if (detailPO?.id === target) return
+    const match = purchaseOrders.find((p) => p.id === target)
+    if (match) void openDetailPO(match)
+    // openDetailPO + detailPO?.id intentionally omitted — we want to fire only
+    // when the URL param or the loaded list changes, not on every fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, purchaseOrders])
+
   const clearFilters = () => {
     setPeriod('all')
     setDateFrom('')
@@ -496,6 +514,29 @@ export default function PurchaseOrdersPage() {
       partialCount,
     }
   }, [purchaseOrders])
+
+  // Backend-paginated supplier fetcher for the filter dropdown.
+  const supplierFetcher = useCallback(
+    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
+      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
+      if (query) params.set('q', query)
+      const res = await api.get(`/suppliers?${params.toString()}`)
+      const payload = res.data
+      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
+      return {
+        data: items.map((s) => ({ value: s.id, label: s.name })),
+        hasMore: Boolean(payload?.hasMore),
+      }
+    },
+    [],
+  )
+
+  // Resolve the selected supplier's name for the trigger label (the master
+  // store is still preloaded on boot, so we can use it as a lookup cache).
+  const selectedSupplierLabel = useMemo(() => {
+    if (selectedSupplier === 'all' || !selectedSupplier) return undefined
+    return suppliers.find((s) => s.id === selectedSupplier)?.name
+  }, [selectedSupplier, suppliers])
 
   // ── Pagination ──
 
@@ -749,65 +790,68 @@ export default function PurchaseOrdersPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Period"
-          value={period}
-          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-          options={PERIOD_OPTIONS}
-        />
+        {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EnumSelect
+            label="Period"
+            value={period}
+            onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+            options={PERIOD_OPTIONS}
+          />
 
-        {/* Custom date range */}
-        {period === 'custom' && (
-          <>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date From
-              </Label>
-              <DatePicker
-                value={dateFrom}
-                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
-              />
+          <PaginatedSelect
+            label="Supplier"
+            value={selectedSupplier}
+            onValueChange={(val) => { setSelectedSupplier(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
+            fetcher={supplierFetcher}
+            pinnedOption={{ value: 'all', label: 'All Suppliers' }}
+            selectedLabel={selectedSupplierLabel}
+            pageSize={10}
+          />
+
+          <EnumSelect
+            label="Status"
+            value={selectedStatus}
+            onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+            options={STATUS_OPTIONS}
+          />
+
+          {/* Amount Range */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Range</Label>
+            <div className="flex items-center gap-2">
+              <Input type="number" placeholder="Min" value={amountMin} onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }} className="w-full" />
+              <span className="text-muted-foreground text-xs">-</span>
+              <Input type="number" placeholder="Max" value={amountMax} onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }} className="w-full" />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date To
-              </Label>
-              <DatePicker
-                value={dateTo}
-                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-              />
-            </div>
-          </>
-        )}
-
-        <EnumSelect
-          label="Supplier"
-          value={selectedSupplier}
-          onValueChange={(val) => { setSelectedSupplier(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
-          options={[
-            { value: 'all', label: 'All Suppliers' },
-            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
-          ]}
-        />
-
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-          options={STATUS_OPTIONS}
-        />
-
-        {/* Amount Range */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Range</Label>
-          <div className="flex items-center gap-2">
-            <Input type="number" placeholder="Min" value={amountMin} onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }} className="w-full" />
-            <span className="text-muted-foreground text-xs">-</span>
-            <Input type="number" placeholder="Max" value={amountMax} onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }} className="w-full" />
           </div>
+
+          {/* Custom date range — only when period is 'custom', full-width row below */}
+          {period === 'custom' && (
+            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Date From
+                </Label>
+                <DatePicker
+                  value={dateFrom}
+                  onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Date To
+                </Label>
+                <DatePicker
+                  value={dateTo}
+                  onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </DataTableFilterBar>
 
@@ -958,13 +1002,13 @@ export default function PurchaseOrdersPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedPOs.map((po, idx) => (
+                paginatedPOs.map((po) => (
                   <motion.tr
                     key={po.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.15, delay: idx * 0.02 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.1 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
                     onClick={() => openDetailPO(po)}
                   >

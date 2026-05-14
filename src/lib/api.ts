@@ -66,6 +66,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Requests we cancel via AbortController land here with no response and
+    // axios `code === 'ERR_CANCELED'`. Those are intentional (e.g. user typed
+    // a new search query, stale request aborted) — never show a toast for them.
+    if (axios.isCancel(error) || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
+      return Promise.reject(error);
+    }
     if (error.response) {
       if (error.response.status === 401) {
         // Clear stored credentials

@@ -1,9 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import { motion, type Variants } from 'framer-motion'
-import { useForm, Controller } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -12,15 +9,22 @@ import {
   IndianRupee,
   Clock,
   Send,
+  ExternalLink,
+  Wallet,
+  Receipt,
+  User,
 } from 'lucide-react'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
+import { EmptyState } from '@/components/shared/EmptyState'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
@@ -31,13 +35,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import {
   Select,
   SelectContent,
@@ -45,27 +47,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
 import api from '@/lib/api'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
-
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
-}
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
-}
-
-const paymentSchema = z.object({
-  amount: z.coerce.number().min(1, 'Amount must be greater than 0'),
-  paymentMode: z.enum(['cash', 'cheque', 'neft_upi']),
-  referenceNumber: z.string().optional(),
-})
-type PaymentFormValues = z.input<typeof paymentSchema>
+// Types & constants
+// ─────────────────────────────────────────────────────────────
 
 type OutstandingRow = {
   customerId: string | null
@@ -79,122 +68,305 @@ type OutstandingRow = {
   invoiceCount: number
 }
 
+type OutstandingInvoice = {
+  id: string
+  invoiceNumber: string
+  date: string
+  grandTotal: number
+  amountPaid: number
+  balance: number
+  status: string
+  daysOverdue: number
+}
+
+const PAGE_SIZE = 15
+
+const BUCKET_OPTIONS = [
+  { value: 'all', label: 'All Aging' },
+  { value: 'current', label: 'Current (not yet due)' },
+  { value: '0-30', label: '0–30 days' },
+  { value: '31-60', label: '31–60 days' },
+  { value: '61-90', label: '61–90 days' },
+  { value: '90+', label: '90+ days' },
+] as const
+
+const MIN_OUTSTANDING_OPTIONS = [
+  { value: 'all', label: 'Any Amount' },
+  { value: '1000', label: '> ₹1,000' },
+  { value: '10000', label: '> ₹10,000' },
+  { value: '50000', label: '> ₹50,000' },
+  { value: '100000', label: '> ₹1,00,000' },
+] as const
+
+// ─────────────────────────────────────────────────────────────
+// Page
 // ─────────────────────────────────────────────────────────────
 
 export default function OutstandingPage() {
+  // List state
   const [rows, setRows] = useState<OutstandingRow[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Filters
   const [searchQuery, setSearchQuery] = useState('')
-
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
-  const [selectedRow, setSelectedRow] = useState<OutstandingRow | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const fetchData = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const res = await api.get('/customers/outstanding')
-      setRows(res.data?.rows ?? [])
-    } catch {
-      toast.error('Failed to load outstanding data')
-      setRows([])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { fetchData() }, [fetchData])
-  useBranchRefresh(fetchData)
+  const [bucketFilter, setBucketFilter] = useState<string>('all')
+  const [minOutstandingFilter, setMinOutstandingFilter] = useState<string>('all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 15
 
-  const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return rows
-    const q = searchQuery.toLowerCase()
-    return rows.filter((r) => r.customer.toLowerCase().includes(q))
-  }, [rows, searchQuery])
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
 
-  // Reset pagination on search
-  useEffect(() => { setCurrentPage(1) }, [searchQuery])
+  // Drawer
+  const [selectedRow, setSelectedRow] = useState<OutstandingRow | null>(null)
+  const [drawerInvoices, setDrawerInvoices] = useState<OutstandingInvoice[]>([])
+  const [drawerInvoicesLoading, setDrawerInvoicesLoading] = useState(false)
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginatedRows = useMemo(() => {
-    return filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [filtered, currentPage])
+  // Inline collect-payment form (lives inside drawer)
+  const [collectMode, setCollectMode] = useState<'cash' | 'cheque' | 'neft_upi'>('cash')
+  const [collectAmount, setCollectAmount] = useState('')
+  const [collectReference, setCollectReference] = useState('')
+  const [collectSubmitting, setCollectSubmitting] = useState(false)
 
+  // ── Query builder ──
+  const buildQueryParams = useCallback((): URLSearchParams => {
+    const params = new URLSearchParams()
+    if (searchQuery.trim()) params.set('q', searchQuery.trim())
+    if (bucketFilter !== 'all') params.set('bucket', bucketFilter)
+    if (minOutstandingFilter !== 'all') params.set('minOutstanding', minOutstandingFilter)
+    return params
+  }, [searchQuery, bucketFilter, minOutstandingFilter])
+
+  // ── Fetch list (debounced on search) ──
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const fetchRows = useCallback(async () => {
+    fetchAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+    setIsLoading(true)
+    try {
+      const res = await api.get(`/customers/outstanding?${buildQueryParams().toString()}`, { signal: controller.signal })
+      setRows(res.data?.rows ?? [])
+    } catch (err: unknown) {
+      const e = err as { name?: string; code?: string }
+      if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
+        toast.error('Failed to load outstanding data')
+        setRows([])
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [buildQueryParams])
+
+  useEffect(() => {
+    const delay = searchQuery.trim() ? 300 : 0
+    const handle = setTimeout(() => { fetchRows() }, delay)
+    return () => clearTimeout(handle)
+  }, [fetchRows, searchQuery])
+
+  useBranchRefresh(fetchRows)
+
+  // Reset to page 1 + clear selection when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+    setSelectedIds(new Set())
+  }, [searchQuery, bucketFilter, minOutstandingFilter])
+
+  // ── Derived ──
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const paginatedRows = useMemo(
+    () => rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [rows, currentPage],
+  )
+
+  // Summary cards reflect the filtered set so the user understands what's on screen.
   const summary = useMemo(() => {
-    const total = filtered.reduce((s, r) => s + r.outstanding, 0)
-    const d0_30 = filtered.reduce((s, r) => s + r.current + r['0-30'], 0)
-    const d31_60 = filtered.reduce((s, r) => s + r['31-60'], 0)
-    const d60plus = filtered.reduce((s, r) => s + r['61-90'] + r['90+'], 0)
+    const total = rows.reduce((s, r) => s + r.outstanding, 0)
+    const d0_30 = rows.reduce((s, r) => s + r.current + r['0-30'], 0)
+    const d31_60 = rows.reduce((s, r) => s + r['31-60'], 0)
+    const d60plus = rows.reduce((s, r) => s + r['61-90'] + r['90+'], 0)
     return { total, d0_30, d31_60, d60plus }
-  }, [filtered])
+  }, [rows])
 
-  const form = useForm<PaymentFormValues>({
-    resolver: zodResolver(paymentSchema),
-    defaultValues: { amount: 0, paymentMode: 'cash', referenceNumber: '' },
-  })
+  const activeFilterCount =
+    (bucketFilter !== 'all' ? 1 : 0) +
+    (minOutstandingFilter !== 'all' ? 1 : 0)
 
-  const handleCollectPayment = (row: OutstandingRow) => {
-    if (!row.customerId) return
-    setSelectedRow(row)
-    form.reset({ amount: 0, paymentMode: 'cash', referenceNumber: '' })
-    setPaymentDialogOpen(true)
+  const clearFilters = () => {
+    setBucketFilter('all')
+    setMinOutstandingFilter('all')
   }
 
-  const onSubmitPayment = async (values: PaymentFormValues) => {
-    if (!selectedRow?.customerId) return
-    setIsSubmitting(true)
+  // ── Bulk selection helpers ──
+  const allOnPageSelected =
+    paginatedRows.length > 0 &&
+    paginatedRows.every((r) => r.customerId && selectedIds.has(r.customerId))
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allOnPageSelected) {
+        paginatedRows.forEach((r) => { if (r.customerId) next.delete(r.customerId) })
+      } else {
+        paginatedRows.forEach((r) => { if (r.customerId) next.add(r.customerId) })
+      }
+      return next
+    })
+  }
+
+  const toggleSelectOne = (customerId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(customerId)) next.delete(customerId)
+      else next.add(customerId)
+      return next
+    })
+  }
+
+  const handleBulkReminders = async () => {
+    if (selectedIds.size === 0) return
+    setBulkSubmitting(true)
     try {
-      const res = await api.post(`/customers/${selectedRow.customerId}/payment`, {
-        amount: values.amount,
-        paymentMode: values.paymentMode,
-        referenceNumber: values.referenceNumber,
+      const res = await api.post('/reminders/bulk', {
+        customerIds: Array.from(selectedIds),
       })
-      toast.success(`Payment of ${formatCurrency(values.amount)} recorded. Receipt: ${res.data.receiptNumber}`)
-      setPaymentDialogOpen(false)
-      fetchData()
-    } catch {
-      toast.error('Failed to record payment')
+      const { created, skipped } = (res.data ?? {}) as { created: number; skipped: number }
+      const msg =
+        created > 0 && skipped > 0
+          ? `${created} reminder${created !== 1 ? 's' : ''} created (${skipped} already existed)`
+          : created > 0
+            ? `${created} reminder${created !== 1 ? 's' : ''} created`
+            : `All ${skipped} customers already had this reminder`
+      toast.success(msg)
+      setSelectedIds(new Set())
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create bulk reminders'
+      toast.error(msg)
     } finally {
-      setIsSubmitting(false)
+      setBulkSubmitting(false)
     }
   }
 
+  // Per-row send: creates a single reminder via the existing /reminders endpoint.
+  const handleSendReminder = async (row: OutstandingRow) => {
+    if (!row.customerId) return
+    try {
+      const dayOfMonth = Math.min(new Date().getDate(), 28)
+      await api.post('/reminders', {
+        customerId: row.customerId,
+        dayOfMonth,
+        title: 'Payment follow-up',
+      })
+      toast.success(`Reminder created for ${row.customer}`)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create reminder'
+      toast.error(msg)
+    }
+  }
+
+  // ── Drawer flow ──
+  const openDrawer = (row: OutstandingRow) => {
+    if (!row.customerId) return
+    setSelectedRow(row)
+    setCollectAmount('')
+    setCollectReference('')
+    setCollectMode('cash')
+  }
+
+  const fetchDrawerInvoices = useCallback(async (customerId: string) => {
+    setDrawerInvoicesLoading(true)
+    try {
+      const res = await api.get(`/customers/${customerId}/outstanding-invoices`)
+      setDrawerInvoices(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setDrawerInvoices([])
+    } finally {
+      setDrawerInvoicesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedRow?.customerId) {
+      fetchDrawerInvoices(selectedRow.customerId)
+    } else {
+      setDrawerInvoices([])
+    }
+  }, [selectedRow, fetchDrawerInvoices])
+
+  const handleCollectPayment = async () => {
+    if (!selectedRow?.customerId) return
+    const amount = parseFloat(collectAmount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid amount')
+      return
+    }
+    if (amount > selectedRow.outstanding) {
+      toast.error(`Amount exceeds outstanding (${formatCurrency(selectedRow.outstanding)})`)
+      return
+    }
+    setCollectSubmitting(true)
+    try {
+      const res = await api.post(`/customers/${selectedRow.customerId}/payment`, {
+        amount,
+        paymentMode: collectMode,
+        referenceNumber: collectReference || undefined,
+      })
+      toast.success(`Payment recorded · Receipt ${res.data?.receiptNumber ?? '—'}`)
+      setCollectAmount('')
+      setCollectReference('')
+      // Refresh list + the drawer's invoice table; row may now be settled.
+      await fetchRows()
+      if (selectedRow.customerId) {
+        await fetchDrawerInvoices(selectedRow.customerId)
+      }
+      // Re-resolve the selected row from the refreshed list (or close drawer if customer now settled).
+      const updated = (await api.get('/customers/outstanding')).data?.rows as OutstandingRow[]
+      const stillOutstanding = updated?.find((r) => r.customerId === selectedRow.customerId)
+      if (stillOutstanding) setSelectedRow(stillOutstanding)
+      else setSelectedRow(null)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to record payment'
+      toast.error(msg)
+    } finally {
+      setCollectSubmitting(false)
+    }
+  }
+
+  // ── Stat card config ──
   const kpiCards = [
     {
-      title: 'Total Outstanding',
+      label: 'Total Outstanding',
       value: formatCurrency(summary.total),
+      subtitle: `${rows.length} customer${rows.length !== 1 ? 's' : ''}`,
       icon: IndianRupee,
-      iconBg: 'bg-red-500/15',
-      iconColor: 'text-red-600 dark:text-red-400',
-      valueColor: 'text-red-600 dark:text-red-400',
+      iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+      accent: 'border-l-rose-500',
     },
     {
-      title: '0–30 Days',
+      label: '0–30 Days',
       value: formatCurrency(summary.d0_30),
+      subtitle: 'current + early',
       icon: Clock,
-      iconBg: 'bg-yellow-500/15',
-      iconColor: 'text-yellow-600 dark:text-yellow-400',
-      valueColor: 'text-yellow-600 dark:text-yellow-400',
+      iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+      accent: 'border-l-amber-500',
     },
     {
-      title: '30–60 Days',
+      label: '30–60 Days',
       value: formatCurrency(summary.d31_60),
+      subtitle: 'follow up',
       icon: AlertTriangle,
-      iconBg: 'bg-orange-500/15',
-      iconColor: 'text-orange-600 dark:text-orange-400',
-      valueColor: 'text-orange-600 dark:text-orange-400',
+      iconBg: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+      accent: 'border-l-orange-500',
     },
     {
-      title: '60+ Days',
+      label: '60+ Days',
       value: formatCurrency(summary.d60plus),
+      subtitle: 'overdue · escalate',
       icon: AlertTriangle,
-      iconBg: 'bg-red-500/15',
-      iconColor: 'text-red-600 dark:text-red-400',
-      valueColor: 'text-red-700 dark:text-red-400',
+      iconBg: 'bg-red-500/10 text-red-700 dark:text-red-400',
+      accent: 'border-l-red-500',
     },
   ]
 
@@ -202,271 +374,444 @@ export default function OutstandingPage() {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-6"
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-5"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <IndianRupee className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Outstanding Receivables</h1>
-            <p className="text-sm text-muted-foreground">Track and collect pending payments from customers</p>
-          </div>
-        </div>
-        <DataTableFilterBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="Search customer..."
-          resultsCount={filtered.length}
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast.success(`Payment reminders sent to ${filtered.length} customers`)}
-            disabled={filtered.length === 0}
-          >
-            <Bell className="mr-2 h-4 w-4" />
-            Bulk Reminders
-          </Button>
-        </DataTableFilterBar>
+      {/* ── Summary cards ── */}
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        {kpiCards.map((kpi) => (
+          <Card key={kpi.label} hover className={cn('border-l-[3px]', kpi.accent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>
+                <kpi.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
+                <p className="text-lg font-bold font-mono leading-tight truncate" title={kpi.value}>{kpi.value}</p>
+                <p className="text-[11px] text-muted-foreground">{kpi.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Summary Cards */}
-      <motion.div
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
+      {/* ── Filters ── */}
+      <DataTableFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search customer…"
+        resultsCount={rows.length}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearFilters}
+        actionNode={
+          <Button
+            size="sm"
+            onClick={handleBulkReminders}
+            disabled={selectedIds.size === 0 || bulkSubmitting}
+          >
+            <Bell className="mr-1.5 h-4 w-4" />
+            {bulkSubmitting
+              ? 'Sending…'
+              : selectedIds.size > 0
+                ? `Bulk Reminders (${selectedIds.size})`
+                : 'Bulk Reminders'}
+          </Button>
+        }
       >
-        {kpiCards.map((kpi) => {
-          const Icon = kpi.icon
-          return (
-            <motion.div key={kpi.title} variants={itemVariants}>
-              <div className="glass rounded-2xl border border-border/60 p-5 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.title}</p>
-                    <p className={cn('font-mono mt-1 text-2xl font-bold', kpi.valueColor)}>{kpi.value}</p>
-                  </div>
-                  <div className={cn('rounded-full p-2.5', kpi.iconBg)}>
-                    <Icon className={cn('h-5 w-5', kpi.iconColor)} />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )
-        })}
-      </motion.div>
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <EnumSelect
+            label="Aging Bucket"
+            value={bucketFilter}
+            onValueChange={setBucketFilter}
+            onClear={() => setBucketFilter('all')}
+            options={BUCKET_OPTIONS}
+          />
+          <EnumSelect
+            label="Min Outstanding"
+            value={minOutstandingFilter}
+            onValueChange={setMinOutstandingFilter}
+            onClear={() => setMinOutstandingFilter('all')}
+            options={MIN_OUTSTANDING_OPTIONS}
+          />
+        </div>
+      </DataTableFilterBar>
 
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          {/* Mobile */}
+      {/* ── Body ── */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={IndianRupee}
+              title={searchQuery || activeFilterCount > 0 ? 'No matching customers' : 'All settled'}
+              description={
+                searchQuery || activeFilterCount > 0
+                  ? 'Try adjusting your search or filters.'
+                  : 'No customers have outstanding balances right now.'
+              }
+              actionLabel={
+                searchQuery || activeFilterCount > 0 ? 'Clear filters' : undefined
+              }
+              onAction={
+                searchQuery || activeFilterCount > 0
+                  ? () => { clearFilters(); setSearchQuery('') }
+                  : undefined
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          {/* Mobile card list */}
           <div className="md:hidden divide-y divide-border/40">
-            {isLoading && (
-              <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
-            )}
-            {!isLoading && filtered.length === 0 && (
-              <div className="py-8 text-center text-sm text-muted-foreground">No outstanding receivables</div>
-            )}
-            {!isLoading && paginatedRows.map((row, i) => (
-              <div key={row.customerId ?? i} className="flex items-start justify-between gap-2 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{row.customer}</p>
-                  <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
-                  {(row['61-90'] + row['90+']) > 0 && (
-                    <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(row['61-90'] + row['90+'])}</p>
+            {paginatedRows.map((row, i) => {
+              const overdue60 = row['61-90'] + row['90+']
+              const isSelected = !!row.customerId && selectedIds.has(row.customerId)
+              return (
+                <div
+                  key={row.customerId ?? i}
+                  className={cn(
+                    'flex items-start gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/30 active:bg-muted/50',
+                    isSelected && 'bg-primary/5',
                   )}
+                  onClick={() => openDrawer(row)}
+                >
+                  <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
+                    {row.customerId && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => row.customerId && toggleSelectOne(row.customerId)}
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{row.customer}</p>
+                    <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
+                    {overdue60 > 0 && (
+                      <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(overdue60)}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">{formatCurrency(row.outstanding)}</p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="font-mono text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(row.outstanding)}</p>
-                  {row.customerId && (
-                    <button className="mt-1 text-[10px] text-primary underline" onClick={() => handleCollectPayment(row)}>
-                      Collect
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* Desktop */}
-          <div className="hidden md:block">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allOnPageSelected}
+                      onCheckedChange={toggleSelectAllOnPage}
+                    />
+                  </TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead className="text-center">Invoices</TableHead>
                   <TableHead className="text-right">Total Outstanding</TableHead>
                   <TableHead className="text-right">0–30 Days</TableHead>
                   <TableHead className="text-right">30–60 Days</TableHead>
                   <TableHead className="text-right">60+ Days</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell>
-                  </TableRow>
-                )}
-                {!isLoading && filtered.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No outstanding receivables</TableCell>
-                  </TableRow>
-                )}
-                {!isLoading && paginatedRows.map((row, i) => (
-                  <TableRow key={row.customerId ?? i} className="border-b border-border/40">
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{row.customer}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center text-sm text-muted-foreground">
-                      {row.invoiceCount}
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-bold text-red-600 dark:text-red-400 text-sm">
-                      {formatCurrency(row.outstanding)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {formatCurrency(row.current + row['0-30'])}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {formatCurrency(row['31-60'])}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold text-rose-500">
-                      {formatCurrency(row['61-90'] + row['90+'])}
-                    </TableCell>
-                    <TableCell className="text-right px-4">
-                      <DataTableRowActions
-                        onView={row.customerId ? () => navigate(`/accounting/ledger?customerId=${row.customerId}&name=${encodeURIComponent(row.customer)}`) : undefined}
-                        customActions={[
-                          ...(row.customerId ? [
-                            {
-                              label: 'Collect Payment',
-                              icon: <CreditCard className="h-4 w-4" />,
-                              onClick: () => handleCollectPayment(row),
-                            },
-                            {
-                              label: 'View Invoices',
-                              icon: <Send className="h-4 w-4" />,
-                              onClick: () => navigate(`/customers/invoices?customerId=${row.customerId}`),
-                            },
-                          ] : []),
-                          {
-                            label: 'Send Reminder',
-                            icon: <Send className="h-4 w-4" />,
-                            onClick: () => toast.success(`Reminder sent to ${row.customer}`),
-                          },
-                        ]}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {paginatedRows.map((row, i) => {
+                  const isSelected = !!row.customerId && selectedIds.has(row.customerId)
+                  return (
+                    <TableRow
+                      key={row.customerId ?? i}
+                      className={cn(
+                        'cursor-pointer transition-colors',
+                        isSelected ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/30',
+                      )}
+                      onClick={() => openDrawer(row)}
+                    >
+                      <TableCell onClick={(e) => e.stopPropagation()} className="w-10">
+                        {row.customerId && (
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => row.customerId && toggleSelectOne(row.customerId)}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">{row.customer}</TableCell>
+                      <TableCell className="text-center text-sm text-muted-foreground">
+                        {row.invoiceCount}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 text-sm whitespace-nowrap">
+                        {formatCurrency(row.outstanding)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {formatCurrency(row.current + row['0-30'])}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {formatCurrency(row['31-60'])}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm font-semibold text-rose-500 whitespace-nowrap">
+                        {formatCurrency(row['61-90'] + row['90+'])}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()} className="w-12">
+                        <DataTableRowActions
+                          onView={row.customerId ? () => openDrawer(row) : undefined}
+                          customActions={[
+                            ...(row.customerId ? [
+                              {
+                                label: 'View Customer Profile',
+                                icon: <User className="h-4 w-4" />,
+                                onClick: () => navigate(`/customers/detail?customerId=${row.customerId}`),
+                              },
+                              {
+                                label: 'View Invoices',
+                                icon: <Receipt className="h-4 w-4" />,
+                                onClick: () => navigate(`/customers/invoices?customerId=${row.customerId}&customerName=${encodeURIComponent(row.customer)}`),
+                              },
+                              {
+                                label: 'Send Reminder',
+                                icon: <Send className="h-4 w-4" />,
+                                onClick: () => handleSendReminder(row),
+                              },
+                            ] : []),
+                          ]}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
-          {totalPages > 1 && (
-            <div className="border-t px-4 py-4">
-              <DataTablePagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Collect Payment Dialog */}
-      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Collect Payment</DialogTitle>
-            <DialogDescription>Record a payment from {selectedRow?.customer}</DialogDescription>
-          </DialogHeader>
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={rows.length}
+            itemsPerPage={PAGE_SIZE}
+            className="border-t border-border/40 px-4"
+          />
+        </Card>
+      )}
 
+      {/* ── Drawer ── */}
+      <Sheet open={!!selectedRow} onOpenChange={(open) => { if (!open) setSelectedRow(null) }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        >
           {selectedRow && (
-            <form onSubmit={form.handleSubmit(onSubmitPayment)} className="space-y-4">
-              <div className="rounded-xl border border-border/60 p-3 space-y-2 bg-muted/50 dark:bg-muted/30">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Customer</span>
-                  <span className="font-medium">{selectedRow.customer}</span>
+            <>
+              {/* Sticky header */}
+              <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                <div className="flex items-start justify-between gap-3 pr-8">
+                  <div className="min-w-0">
+                    <SheetTitle className="text-base font-semibold truncate">{selectedRow.customer}</SheetTitle>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {selectedRow.invoiceCount} unpaid invoice{selectedRow.invoiceCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {(selectedRow['61-90'] + selectedRow['90+']) > 0 && (
+                      <Badge variant="destructive" size="sm" className="gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        60+ days
+                      </Badge>
+                    )}
+                    <div className="text-right">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Outstanding</p>
+                      <p className="font-mono text-base font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                        {formatCurrency(selectedRow.outstanding)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Outstanding Amount</span>
-                  <span className="font-bold text-red-600 dark:text-red-400 font-mono">
-                    {formatCurrency(selectedRow.outstanding)}
-                  </span>
+              </SheetHeader>
+
+              {/* Scrollable body */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* Aging mini-strip */}
+                <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                  {[
+                    { label: 'Current', value: selectedRow.current },
+                    { label: '0–30', value: selectedRow['0-30'] },
+                    { label: '31–60', value: selectedRow['31-60'] },
+                    { label: '61–90', value: selectedRow['61-90'] },
+                    { label: '90+', value: selectedRow['90+'], tone: 'rose' as const },
+                  ].map((cell, i) => (
+                    <div
+                      key={cell.label}
+                      className={cn(
+                        'flex flex-1 min-w-[80px] flex-col justify-center whitespace-nowrap px-3 py-2.5',
+                        i > 0 && 'border-l border-border/40',
+                      )}
+                    >
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{cell.label}</p>
+                      <p className={cn(
+                        'mt-0.5 font-mono text-xs',
+                        cell.value === 0 && 'text-muted-foreground/60',
+                        cell.value > 0 && cell.tone === 'rose' && 'text-rose-600 dark:text-rose-400 font-bold',
+                      )}>
+                        {cell.value > 0 ? formatCurrency(cell.value) : '—'}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Payment Amount *
-                </Label>
-                <Input type="number" className="font-mono" {...form.register('amount')} placeholder="Enter amount" />
-                {form.formState.errors.amount && (
-                  <p className="text-xs text-destructive">{form.formState.errors.amount.message}</p>
-                )}
-              </div>
+                {/* Overdue invoices */}
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    Open Invoices ({drawerInvoices.length})
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader className="bg-muted/40">
+                        <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice #</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Age</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Paid</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {drawerInvoicesLoading ? (
+                          <TableRow><TableCell colSpan={7} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</TableCell></TableRow>
+                        ) : drawerInvoices.length === 0 ? (
+                          <TableRow><TableCell colSpan={7} className="py-6 text-center text-xs text-muted-foreground">No open invoices.</TableCell></TableRow>
+                        ) : drawerInvoices.map((inv) => (
+                          <TableRow
+                            key={inv.id}
+                            className="border-b border-border/30 last:border-b-0 hover:bg-muted/20 cursor-pointer"
+                            onClick={() => {
+                              if (!selectedRow?.customerId) return
+                              navigate(`/customers/invoices?customerId=${selectedRow.customerId}&customerName=${encodeURIComponent(selectedRow.customer)}`)
+                              setSelectedRow(null)
+                            }}
+                          >
+                            <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
+                            <TableCell className={cn('px-3 py-2.5 text-xs font-mono whitespace-nowrap', inv.daysOverdue > 60 && 'text-rose-600 dark:text-rose-400 font-semibold')}>
+                              {inv.daysOverdue}d
+                            </TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap">{formatCurrency(inv.grandTotal)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">{formatCurrency(inv.amountPaid)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(inv.balance)}</TableCell>
+                            <TableCell className="px-3 py-2.5">
+                              <Badge variant={inv.status === 'PARTIAL' ? 'warning' : 'secondary'} size="sm">
+                                {inv.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
 
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Payment Mode
-                </Label>
-                <Controller
-                  control={form.control}
-                  name="paymentMode"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                {/* Inline Record Payment form (FIFO allocation) */}
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                      Record Payment · FIFO (oldest invoice first)
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr_180px_auto] gap-2">
+                    <Select value={collectMode} onValueChange={(v) => setCollectMode(v as 'cash' | 'cheque' | 'neft_upi')}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="cheque">Cheque</SelectItem>
                         <SelectItem value="neft_upi">NEFT / UPI</SelectItem>
                       </SelectContent>
                     </Select>
-                  )}
-                />
+                    <Input
+                      type="number"
+                      placeholder="Amount"
+                      className="h-9 font-mono text-sm"
+                      value={collectAmount}
+                      onChange={(e) => setCollectAmount(e.target.value)}
+                      max={selectedRow.outstanding}
+                    />
+                    <Input
+                      type="text"
+                      placeholder={collectMode === 'cheque' ? 'Cheque #' : collectMode === 'neft_upi' ? 'UPI / Txn ref' : 'Reference (optional)'}
+                      className="h-9 text-sm"
+                      value={collectReference}
+                      onChange={(e) => setCollectReference(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      className="gap-1.5 h-9"
+                      disabled={collectSubmitting || !collectAmount}
+                      onClick={handleCollectPayment}
+                    >
+                      <Wallet className="h-4 w-4" />
+                      {collectSubmitting ? 'Saving…' : 'Receive'}
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
+                    Payment will be allocated to oldest unpaid invoice(s) first.
+                  </p>
+                </div>
               </div>
 
-              {(form.watch('paymentMode') === 'cheque' || form.watch('paymentMode') === 'neft_upi') && (
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {form.watch('paymentMode') === 'cheque' ? 'Cheque Number' : 'Transaction Reference'}
-                  </Label>
-                  <Input
-                    className="font-mono"
-                    {...form.register('referenceNumber')}
-                    placeholder={form.watch('paymentMode') === 'cheque' ? 'Enter cheque number' : 'Enter UPI/NEFT reference'}
-                  />
-                </div>
-              )}
-
-              <div className="rounded-xl border border-border/60 p-3 bg-muted/50 dark:bg-muted/30">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Receipt Number</span>
-                  <span className="font-mono text-xs text-muted-foreground">Generated on confirm</span>
-                </div>
-                <p className="text-xs text-muted-foreground/60 mt-1">Payment is allocated oldest invoice first (FIFO)</p>
+              {/* Sticky footer */}
+              <div className="shrink-0 border-t border-border/40 bg-background px-5 py-3 flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2"
+                  onClick={() => {
+                    if (!selectedRow.customerId) return
+                    navigate(`/customers/detail?customerId=${selectedRow.customerId}`)
+                    setSelectedRow(null)
+                  }}
+                >
+                  <User className="h-4 w-4" />
+                  <span className="hidden sm:inline">View Customer Profile</span>
+                  <span className="sm:hidden">Profile</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2"
+                  onClick={() => {
+                    if (!selectedRow.customerId) return
+                    navigate(`/customers/invoices?customerId=${selectedRow.customerId}&customerName=${encodeURIComponent(selectedRow.customer)}`)
+                    setSelectedRow(null)
+                  }}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  <span className="hidden sm:inline">View Invoices</span>
+                  <span className="sm:hidden">Invoices</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-2"
+                  onClick={() => handleSendReminder(selectedRow)}
+                >
+                  <Send className="h-4 w-4" />
+                  <span className="hidden sm:inline">Send Reminder</span>
+                  <span className="sm:hidden">Reminder</span>
+                </Button>
               </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)} disabled={isSubmitting}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Processing...' : 'Confirm Payment'}
-                </Button>
-              </DialogFooter>
-            </form>
+            </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </motion.div>
   )
 }

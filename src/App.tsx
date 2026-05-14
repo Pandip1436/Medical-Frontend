@@ -23,6 +23,7 @@ const GRNListPage = lazy(() => import('@/pages/purchase/GRNListPage'))
 const PurchaseReturnsPage = lazy(() => import('@/pages/purchase/PurchaseReturnsPage'))
 const DebitNotesPage = lazy(() => import('@/pages/purchase/DebitNotesPage'))
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
+const SupplierDetailPage = lazy(() => import('@/pages/purchase/SupplierDetailPage'))
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage'))
 const ProductHistoryPage = lazy(() => import('@/pages/inventory/ProductHistoryPage'))
 const CategoriesPage = lazy(() => import('@/pages/inventory/CategoriesPage'))
@@ -90,6 +91,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/returns',
     '/purchase/debit-notes',
     '/purchase/suppliers',
+    '/purchase/suppliers/detail',
     '/notifications',
     '/admin/approvals',
     '/admin/approvals/detail',
@@ -263,6 +265,8 @@ function App() {
         return <DebitNotesPage />
       case '/purchase/suppliers':
         return <SuppliersPage />
+      case '/purchase/suppliers/detail':
+        return <SupplierDetailPage />
       case '/inventory/products':
         return <ProductsPage />
       case '/inventory/product-history':

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -19,6 +19,7 @@ import {
   Clock,
   FileWarning,
   XCircle,
+  ChevronLeft,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -29,6 +30,14 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
@@ -107,6 +116,71 @@ export default function GRNPage() {
   const [directSupplierName, setDirectSupplierName] = useState(prefilledSupplierName)
   const [supplierSearch, setSupplierSearch] = useState('')
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+
+  // Backend-paginated supplier search for the Direct Entry picker.
+  // Loads 10 at a time, fetches next 10 on scroll-to-bottom, debounces typing.
+  const [supplierResults, setSupplierResults] = useState<Array<{ id: string; name: string; phone?: string }>>([])
+  const [supplierResultsLoading, setSupplierResultsLoading] = useState(false)
+  const [supplierResultsHasMore, setSupplierResultsHasMore] = useState(true)
+  const supplierDropdownScrollRef = useRef<HTMLDivElement>(null)
+  const supplierFetchAbort = useRef<AbortController | null>(null)
+
+  // Debounced fetch when search query changes or dropdown opens
+  useEffect(() => {
+    if (!supplierDropdownOpen) return
+    const delay = supplierSearch.trim() ? 250 : 0
+    const handle = setTimeout(async () => {
+      // cancel any in-flight request
+      supplierFetchAbort.current?.abort()
+      const controller = new AbortController()
+      supplierFetchAbort.current = controller
+      setSupplierResultsLoading(true)
+      try {
+        const params = new URLSearchParams({ skip: '0', take: '10' })
+        if (supplierSearch.trim()) params.set('q', supplierSearch.trim())
+        const res = await api.get(`/suppliers?${params.toString()}`, { signal: controller.signal })
+        const payload = res.data
+        const items = (payload?.data ?? payload ?? []) as Array<{ id: string; name: string; phone?: string }>
+        setSupplierResults(items)
+        setSupplierResultsHasMore(Boolean(payload?.hasMore))
+        // reset scroll to top on new query
+        if (supplierDropdownScrollRef.current) supplierDropdownScrollRef.current.scrollTop = 0
+      } catch (err: any) {
+        if (err?.name !== 'CanceledError' && err?.code !== 'ERR_CANCELED') {
+          // Quiet failure — keep prior results visible
+        }
+      } finally {
+        setSupplierResultsLoading(false)
+      }
+    }, delay)
+    return () => clearTimeout(handle)
+  }, [supplierSearch, supplierDropdownOpen])
+
+  // Scroll-to-load-more handler for the supplier dropdown
+  const handleSupplierDropdownScroll = useCallback(() => {
+    const el = supplierDropdownScrollRef.current
+    if (!el) return
+    if (supplierResultsLoading || !supplierResultsHasMore) return
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 60) return
+
+    const nextSkip = supplierResults.length
+    setSupplierResultsLoading(true)
+    ;(async () => {
+      try {
+        const params = new URLSearchParams({ skip: String(nextSkip), take: '10' })
+        if (supplierSearch.trim()) params.set('q', supplierSearch.trim())
+        const res = await api.get(`/suppliers?${params.toString()}`)
+        const payload = res.data
+        const items = (payload?.data ?? payload ?? []) as Array<{ id: string; name: string; phone?: string }>
+        setSupplierResults((prev) => [...prev, ...items])
+        setSupplierResultsHasMore(Boolean(payload?.hasMore))
+      } catch {
+        // ignore
+      } finally {
+        setSupplierResultsLoading(false)
+      }
+    })()
+  }, [supplierResults.length, supplierResultsLoading, supplierResultsHasMore, supplierSearch])
 
   // Items
   const [grnItems, setGrnItems] = useState<GRNFormItem[]>([])
@@ -628,8 +702,156 @@ export default function GRNPage() {
       {/* MAIN WORKSPACE — Two-column layout                        */}
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ─── LEFT: Item Workspace (70%) ──────────────────────── */}
+        {/* ─── LEFT: Item Workspace (70%) — or Review View when confirming ─── */}
         <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[70%]">
+        {showConfirm ? (
+          /* ─── REVIEW VIEW ─── replaces the edit form while confirming ─── */
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Review header */}
+            <div className="shrink-0 border-b border-border/40 bg-background px-6 py-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
+                  aria-label="Back to edit"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div>
+                  <h2 className="text-base font-bold tracking-tight">Review Goods Receipt</h2>
+                  <p className="text-[11px] text-muted-foreground">Verify everything below — confirming will update stock</p>
+                </div>
+              </div>
+            </div>
+
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="p-6 space-y-5">
+                {/* KPI strip — Items / Total Qty / Value / Short */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold">{totalItems}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold">{totalQty}</p>
+                  </div>
+                  <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Value</p>
+                    <p className="mt-0.5 font-mono text-xl font-bold text-primary">{formatCurrency(gstBreakdown.total)}</p>
+                  </div>
+                  <div className={cn(
+                    'rounded-xl border px-4 py-3',
+                    shortSupplyCount > 0
+                      ? 'border-amber-300/60 bg-amber-50/60 dark:border-amber-800/40 dark:bg-amber-900/10'
+                      : 'border-emerald-300/40 bg-emerald-50/40 dark:border-emerald-800/30 dark:bg-emerald-900/10',
+                  )}>
+                    <p className={cn(
+                      'text-[10px] font-semibold uppercase tracking-wider',
+                      shortSupplyCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400',
+                    )}>
+                      {shortSupplyCount > 0 ? 'Short Supply' : 'Status'}
+                    </p>
+                    <p className={cn(
+                      'mt-0.5 font-mono text-xl font-bold',
+                      shortSupplyCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400',
+                    )}>
+                      {shortSupplyCount > 0 ? `${shortSupplyCount}` : '✓ Ready'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Source / Invoice meta — single horizontal card */}
+                <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Source</p>
+                    <p className="mt-0.5 text-sm font-medium truncate">
+                      {sourceType === 'po' && selectedPO ? `PO · ${selectedPO.poNumber}` : 'Direct Entry'}
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+                    <p className="mt-0.5 text-sm font-medium truncate" title={selectedPO?.supplierName || '—'}>
+                      {selectedPO?.supplierName || '—'}
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier Invoice</p>
+                    <p className="mt-0.5 font-mono text-sm font-medium truncate">{invoiceNo || '—'}</p>
+                  </div>
+                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Inv. Amount</p>
+                    <p className="mt-0.5 font-mono text-sm font-medium">{invoiceAmount > 0 ? formatCurrency(invoiceAmount) : '—'}</p>
+                  </div>
+                </div>
+
+                {/* Short-supply alert if applicable */}
+                {shortSupplyCount > 0 && (
+                  <div className="flex items-start gap-3 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/10">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {shortSupplyCount} item{shortSupplyCount !== 1 ? 's' : ''} received less than ordered
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-amber-700/80 dark:text-amber-400/70">
+                        You'll be offered to raise a debit note or wait for a supplementary delivery after confirming.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Received items — full table for clarity */}
+                <div className="overflow-hidden rounded-xl border border-border/40">
+                  <div className="border-b border-border/40 bg-muted/20 px-4 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Items to Receive ({receivedItems.length})
+                    </p>
+                  </div>
+                  <Table>
+                    <TableHeader className="bg-muted/30">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="h-9 w-10 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Free</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {receivedItems.map((item, idx) => (
+                        <TableRow key={item.id} className="border-b border-border/30 last:border-b-0">
+                          <TableCell className="px-3 py-2.5 text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm font-medium">{item.productName}</TableCell>
+                          <TableCell className="px-3 py-2.5">
+                            {item.batchNumber ? (
+                              <span className="font-mono text-xs bg-muted/60 rounded px-2 py-1 whitespace-nowrap">{item.batchNumber}</span>
+                            ) : (
+                              <span className="text-muted-foreground/40 text-xs">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-700 dark:text-emerald-300">{item.receivedQty}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">
+                            {item.freeQty ? (
+                              <span className="text-blue-600 dark:text-blue-400 font-semibold">+{item.freeQty}</span>
+                            ) : (
+                              <span className="text-muted-foreground/40">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.purchaseRate)}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.receivedQty * item.purchaseRate)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </ScrollArea>
+          </div>
+        ) : (
+        <>
           {/* Source bar — PO selector or Direct label */}
           {sourceType === 'po' && (
             <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 dark:bg-muted/5">
@@ -778,25 +1000,31 @@ export default function GRNPage() {
                       onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
                     />
                     {supplierDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg">
-                        {suppliers
-                          .filter(s => !supplierSearch.trim() || s.name.toLowerCase().includes(supplierSearch.toLowerCase()))
-                          .slice(0, 20)
-                          .map(s => (
-                            <button
-                              key={s.id}
-                              type="button"
-                              className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
-                              onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
-                            >
-                              <div>
-                                <p className="text-sm font-medium">{s.name}</p>
-                                {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
-                              </div>
-                            </button>
-                          ))
-                        }
-                        {suppliers.filter(s => !supplierSearch.trim() || s.name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
+                      <div
+                        ref={supplierDropdownScrollRef}
+                        onScroll={handleSupplierDropdownScroll}
+                        className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
+                      >
+                        {supplierResults.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
+                            onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
+                          >
+                            <div>
+                              <p className="text-sm font-medium">{s.name}</p>
+                              {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
+                            </div>
+                          </button>
+                        ))}
+                        {supplierResultsLoading && (
+                          <div className="flex items-center justify-center gap-2 px-4 py-3 text-[11px] text-muted-foreground">
+                            <div className="h-3 w-3 rounded-full border-b-2 border-current animate-spin" />
+                            Loading suppliers…
+                          </div>
+                        )}
+                        {!supplierResultsLoading && supplierResults.length === 0 && (
                           <p className="px-4 py-3 text-sm text-muted-foreground">No suppliers found</p>
                         )}
                       </div>
@@ -1032,6 +1260,8 @@ export default function GRNPage() {
               </AnimatePresence>
             </div>
           </ScrollArea>
+        </>
+        )}
         </div>
 
         {/* ─── RIGHT: Context Panel (30%) ──────────────────────── */}
@@ -1224,21 +1454,37 @@ export default function GRNPage() {
             </div>
           </ScrollArea>
 
-          {/* ── Pinned Action Footer ── */}
+          {/* ── Pinned Action Footer ── (context-aware: review vs edit mode) ── */}
           <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
             <Button
               className="w-full"
-              disabled={!canConfirm}
-              onClick={() => setShowConfirm(true)}
+              disabled={!canConfirm || (showConfirm && isSubmitting)}
+              onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
             >
-              <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              Review & Confirm GRN
+              {showConfirm && isSubmitting ? (
+                <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+              )}
+              {showConfirm
+                ? (isSubmitting ? 'Saving…' : 'Confirm & Create GRN')
+                : 'Review & Confirm GRN'}
             </Button>
-            {grnItems.length > 0 && (
+            {showConfirm ? (
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={isSubmitting}
+                onClick={() => setShowConfirm(false)}
+              >
+                <ChevronLeft className="mr-1.5 h-4 w-4" />
+                Back to Edit
+              </Button>
+            ) : grnItems.length > 0 ? (
               <Button variant="outline" className="w-full text-muted-foreground" onClick={handleDiscard}>
                 Discard & Start Over
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -1347,117 +1593,8 @@ export default function GRNPage() {
         )}
       </AnimatePresence>
 
-      {/* ══════════════════════════════════════════════════════════ */}
-      {/* CONFIRMATION OVERLAY                                      */}
-      {/* ══════════════════════════════════════════════════════════ */}
-      <AnimatePresence>
-        {showConfirm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowConfirm(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="w-full max-w-lg rounded-2xl border border-border/60 bg-background p-6 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="text-center mb-5">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-                  <Package className="h-7 w-7 text-primary" />
-                </div>
-                <h2 className="text-lg font-bold">Confirm Goods Receipt</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  This will update stock quantities for all received items
-                </p>
-              </div>
-
-              {/* Summary */}
-              <div className="rounded-xl bg-muted/30 p-4 space-y-3 mb-5 dark:bg-muted/15">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="font-mono text-xl font-bold">{totalItems}</p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-xl font-bold">{totalQty}</p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-xl font-bold text-primary">{formatCurrency(gstBreakdown.total)}</p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Value</p>
-                  </div>
-                </div>
-
-                {shortSupplyCount > 0 && (
-                  <>
-                    <Separator className="bg-border/40" />
-                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="h-4 w-4" />
-                      <p className="text-xs font-medium">{shortSupplyCount} item(s) have short supply</p>
-                    </div>
-                  </>
-                )}
-
-                {selectedPO && (
-                  <>
-                    <Separator className="bg-border/40" />
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">PO Reference</span>
-                      <span className="font-mono font-medium">{selectedPO.poNumber}</span>
-                    </div>
-                  </>
-                )}
-
-                {invoiceNo && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Supplier Invoice</span>
-                    <span className="font-mono font-medium">{invoiceNo}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Received items compact list */}
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-border/40 mb-5">
-                {receivedItems.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between border-b border-border/20 px-3 py-2 text-xs last:border-b-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-medium truncate">{item.productName}</span>
-                      {item.batchNumber && (
-                        <Badge variant="secondary" size="sm" className="font-mono shrink-0">{item.batchNumber}</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-muted-foreground">x{item.receivedQty}</span>
-                      <span className="font-mono font-semibold">{formatCurrency(item.receivedQty * item.purchaseRate)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setShowConfirm(false)}>
-                  Go Back
-                </Button>
-                <Button className="flex-1" onClick={handleConfirm} disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                  )}
-                  {isSubmitting ? 'Saving...' : 'Confirm & Create GRN'}
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Confirmation overlay was here — replaced by the in-panel Review View
+          rendered in the LEFT workspace when `showConfirm === true`. */}
 
       {shortActionDialog && (
         <ShortBillingDialog

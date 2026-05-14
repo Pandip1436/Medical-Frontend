@@ -1,39 +1,28 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
   Pencil,
   UserX,
-  Phone,
-  Mail,
-  MapPin,
   IndianRupee,
-  TrendingUp,
   Building2,
   Download,
   Printer,
   X,
-  ChevronLeft,
-  ChevronRight,
   Users,
   CheckCircle2,
   AlertCircle,
   ClipboardList,
   Upload,
 } from 'lucide-react'
-import { useForm } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Separator } from '@/components/ui/separator'
 import {
   Table,
   TableBody,
@@ -42,18 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,13 +46,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
@@ -84,36 +59,7 @@ import type { Supplier } from '@/types'
 // Supplier form schema
 // ─────────────────────────────────────────────────────────────
 
-const supplierSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  contactPerson: z.string().min(2, 'Contact person is required'),
-  phone: z
-    .string()
-    .min(10, 'Phone must be 10 digits')
-    .max(10, 'Phone must be 10 digits')
-    .regex(/^\d+$/, 'Phone must contain only digits'),
-  email: z.string().email('Invalid email address'),
-  gstin: z
-    .string()
-    .length(15, 'GSTIN must be 15 characters')
-    // Standard GSTIN format: 2-digit state + 10-char PAN + entity code + Z + check digit
-    .regex(
-      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
-      'Invalid GSTIN format (e.g. 33ABCDE1234F1Z5)',
-    ),
-  drugLicense: z
-    .string()
-    .min(5, 'Drug license number required')
-    // Allow alphanumeric + hyphen/slash, common for state-issued numbers
-    .regex(/^[A-Za-z0-9\-/]+$/, 'Drug license can only contain letters, digits, - and /'),
-  address: z.string().min(10, 'Address is required'),
-  paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
-    message: 'Select payment terms',
-  }),
-  bankDetails: z.string().optional(),
-})
-
-type SupplierForm = z.input<typeof supplierSchema>
+// (Supplier add/edit schema + form now live in components/shared/SupplierFormDialog.tsx)
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -134,16 +80,33 @@ const PAYMENT_TERMS_OPTIONS = [
   { value: 'NET_60', label: 'Net 60' },
 ] as const
 
+const GSTIN_OPTIONS = [
+  { value: 'all', label: 'All Suppliers' },
+  { value: 'yes', label: 'With GSTIN' },
+  { value: 'no', label: 'Without GSTIN' },
+] as const
+
 // ─────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
 export default function SuppliersPage() {
-  const { suppliers, fetchMasterData, importSuppliers } = useMasterDataStore()
+  // Master store is kept only for the directory-wide stats cards (counts that
+  // don't change with filters), and for the importSuppliers action.
+  const {
+    suppliers: directorySuppliers,
+    fetchMasterData,
+    importSuppliers,
+  } = useMasterDataStore()
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchMasterData() }, [])
   useBranchRefresh(fetchMasterData)
+
+  // ── Server-side filtered/paginated supplier list ──
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [totalSuppliers, setTotalSuppliers] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
@@ -151,11 +114,65 @@ export default function SuppliersPage() {
   const [isImporting, setIsImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // ── Filters ──
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedPaymentTerms, setSelectedPaymentTerms] = useState<string>('all')
+  const [selectedGstin, setSelectedGstin] = useState<string>('all')
+  const [outstandingMin, setOutstandingMin] = useState('')
+  const [outstandingMax, setOutstandingMax] = useState('')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Build query params from current filter + search + pagination state.
+  const buildQueryParams = useCallback(
+    (opts?: { paginated?: boolean }): URLSearchParams => {
+      const params = new URLSearchParams()
+      if (opts?.paginated !== false) {
+        params.set('skip', String((currentPage - 1) * PAGE_SIZE))
+        params.set('take', String(PAGE_SIZE))
+      }
+      if (searchQuery.trim()) params.set('q', searchQuery.trim())
+      if (selectedStatus !== 'all') params.set('isActive', selectedStatus === 'ACTIVE' ? 'true' : 'false')
+      if (selectedPaymentTerms !== 'all') params.set('paymentTerms', selectedPaymentTerms)
+      if (selectedGstin !== 'all') params.set('hasGstin', selectedGstin === 'yes' ? 'true' : 'false')
+      if (outstandingMin) params.set('outstandingMin', outstandingMin)
+      if (outstandingMax) params.set('outstandingMax', outstandingMax)
+      return params
+    },
+    [currentPage, searchQuery, selectedStatus, selectedPaymentTerms, selectedGstin, outstandingMin, outstandingMax],
+  )
+
+  // Fetch suppliers from backend whenever filters/search/page change (debounced for search).
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const delay = searchQuery.trim() ? 250 : 0
+    const handle = setTimeout(async () => {
+      fetchAbortRef.current?.abort()
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+      setIsLoading(true)
+      try {
+        const res = await api.get(`/suppliers?${buildQueryParams().toString()}`, { signal: controller.signal })
+        const payload = res.data
+        const items = (payload?.data ?? payload ?? []) as Supplier[]
+        setSuppliers(items)
+        setTotalSuppliers(typeof payload?.total === 'number' ? payload.total : items.length)
+      } catch (err: any) {
+        if (err?.name !== 'CanceledError' && err?.code !== 'ERR_CANCELED') {
+          setSuppliers([])
+          setTotalSuppliers(0)
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }, delay)
+    return () => clearTimeout(handle)
+  }, [buildQueryParams, searchQuery])
+  useBranchRefresh(() => {
+    // Refetch the current view if the branch context changes
+    setCurrentPage(1)
+  })
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -164,47 +181,45 @@ export default function SuppliersPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
-  const [supplierStats, setSupplierStats] = useState<{
-    totalPurchases: number; pendingPayment: number; ordersThisYear: number
-  } | null>(null)
-
-  const fetchSupplierStats = async (supplierId: string) => {
-    setSupplierStats(null)
-    try {
-      const res = await api.get(`/reports/financial/supplier-ledger/${supplierId}`)
-      const kpis = res.data?.kpis
-      if (kpis) {
-        setSupplierStats({
-          totalPurchases: kpis.totalPurchases ?? 0,
-          pendingPayment: kpis.outstandingBalance ?? 0,
-          ordersThisYear: kpis.totalTransactions ?? 0,
-        })
-      }
-    } catch {
-      setSupplierStats(null)
-    }
-  }
+  // (supplierStats + fetchSupplierStats removed — the supplier detail page now
+  // owns business-summary fetching via its own dedicated hook.)
 
   const clearFilters = () => {
     setSelectedStatus('all')
     setSelectedPaymentTerms('all')
+    setSelectedGstin('all')
+    setOutstandingMin('')
+    setOutstandingMax('')
   }
 
-  const handleExport = () => {
-    const exportData = filteredSuppliers.map((s) => ({
-      Name: s.name,
-      'Contact Person': s.contactPerson,
-      Phone: s.phone,
-      Email: s.email || '',
-      GSTIN: s.gstin,
-      'Drug License': s.drugLicense,
-      Address: s.address,
-      'Payment Terms': s.paymentTerms,
-      'Bank Details': s.bankDetails || '',
-      Outstanding: s.currentOutstanding,
-      Status: s.isActive ? 'Active' : 'Inactive',
-    }))
-    exportToExcel(exportData, 'suppliers')
+  const handleExport = async () => {
+    try {
+      // Export ALL matching suppliers (apply filters, drop pagination).
+      const params = buildQueryParams({ paginated: false })
+      const res = await api.get(`/suppliers?${params.toString()}`)
+      const payload = res.data
+      const allMatching = (payload?.data ?? payload ?? []) as Supplier[]
+      if (allMatching.length === 0) {
+        toast.info('No suppliers to export')
+        return
+      }
+      const exportData = allMatching.map((s) => ({
+        Name: s.name,
+        'Contact Person': s.contactPerson,
+        Phone: s.phone,
+        Email: s.email || '',
+        GSTIN: s.gstin,
+        'Drug License': s.drugLicense,
+        Address: s.address,
+        'Payment Terms': s.paymentTerms,
+        'Bank Details': s.bankDetails || '',
+        Outstanding: s.currentOutstanding,
+        Status: s.isActive ? 'Active' : 'Inactive',
+      }))
+      exportToExcel(exportData, 'suppliers')
+    } catch {
+      toast.error('Failed to export suppliers')
+    }
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -242,52 +257,19 @@ export default function SuppliersPage() {
     }
   }
 
-  // ── Filtering logic ──
+  // Filtering happens on the backend — `suppliers` is already the current page
+  // of matching results. `totalSuppliers` is the matching-count across all pages.
 
-  const filteredSuppliers = useMemo(() => {
-    let result = [...suppliers]
-
-    // Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (s) =>
-          (s.name?.toLowerCase().includes(q) || false) ||
-          (s.contactPerson?.toLowerCase().includes(q) || false) ||
-          (s.phone?.includes(q) || false) ||
-          (s.gstin?.toLowerCase().includes(q) || false)
-      )
-    }
-
-    // Status
-    if (selectedStatus !== 'all') {
-      const isActive = selectedStatus === 'ACTIVE'
-      result = result.filter((s) => s.isActive === isActive)
-    }
-
-    // Payment Terms
-    if (selectedPaymentTerms !== 'all') {
-      result = result.filter((s) => s.paymentTerms === selectedPaymentTerms)
-    }
-
-    return result
-  }, [suppliers, searchQuery, selectedStatus, selectedPaymentTerms])
-
-  // ── Stats ──
-
+  // ── Stats (directory-wide, NOT filtered) ──
   const stats = useMemo(() => {
-    const activeCount = suppliers.filter((s) => s.isActive).length
-    const inactiveCount = suppliers.filter((s) => !s.isActive).length
-    return { totalCount: suppliers.length, activeCount, inactiveCount }
-  }, [suppliers])
+    const activeCount = directorySuppliers.filter((s) => s.isActive).length
+    const inactiveCount = directorySuppliers.filter((s) => !s.isActive).length
+    return { totalCount: directorySuppliers.length, activeCount, inactiveCount }
+  }, [directorySuppliers])
 
-  // ── Pagination ──
-
-  const totalPages = Math.ceil(filteredSuppliers.length / PAGE_SIZE)
-  const paginatedSuppliers = filteredSuppliers.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  )
+  // ── Pagination (server-driven) ──
+  const totalPages = Math.max(1, Math.ceil(totalSuppliers / PAGE_SIZE))
+  const paginatedSuppliers = suppliers
 
   // ── Bulk select ──
 
@@ -317,78 +299,21 @@ export default function SuppliersPage() {
   const activeFilterCount = [
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedPaymentTerms !== 'all' ? selectedPaymentTerms : '',
+    selectedGstin !== 'all' ? selectedGstin : '',
+    outstandingMin,
+    outstandingMax,
   ].filter(Boolean).length
 
-  // ── Form ──
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    formState: { errors },
-  } = useForm<SupplierForm>({
-    resolver: zodResolver(supplierSchema),
-    defaultValues: {
-      name: '',
-      contactPerson: '',
-      phone: '',
-      email: '',
-      gstin: '',
-      drugLicense: '',
-      address: '',
-      paymentTerms: 'NET_30',
-      bankDetails: '',
-    },
-  })
-
+  // The form itself + its useForm wiring lives in SupplierFormDialog (shared
+  // with the detail page). These helpers just open the dialog in the right mode.
   function openAddDialog() {
     setEditingSupplier(null)
-    reset({
-      name: '',
-      contactPerson: '',
-      phone: '',
-      email: '',
-      gstin: '',
-      drugLicense: '',
-      address: '',
-      paymentTerms: 'NET_30',
-      bankDetails: '',
-    })
     setDialogOpen(true)
   }
 
   function openEditDialog(supplier: Supplier) {
     setEditingSupplier(supplier)
-    reset({
-      name: supplier.name,
-      contactPerson: supplier.contactPerson,
-      phone: supplier.phone,
-      email: supplier.email,
-      gstin: supplier.gstin,
-      drugLicense: supplier.drugLicense,
-      address: supplier.address,
-      paymentTerms: supplier.paymentTerms,
-      bankDetails: supplier.bankDetails || '',
-    })
     setDialogOpen(true)
-  }
-
-  async function onSubmit(data: SupplierForm) {
-    try {
-      if (editingSupplier) {
-        await api.patch(`/suppliers/${editingSupplier.id}`, data)
-        toast.success(`Supplier "${data.name}" updated successfully`)
-      } else {
-        await api.post('/suppliers', data)
-        toast.success(`Supplier "${data.name}" added successfully`)
-      }
-      setDialogOpen(false)
-      reset()
-      setEditingSupplier(null)
-      await fetchMasterData()
-    } catch {
-      toast.error('Failed to save supplier. Please try again.')
-    }
   }
 
   // Supplier queued for deactivate/activate confirmation. Null when dialog
@@ -419,40 +344,14 @@ export default function SuppliersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage your supplier directory and relationships
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-1.5 h-4 w-4" />
-            Export
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-            <Upload className="mr-1.5 h-4 w-4" />
-            {isImporting ? 'Importing...' : 'Import'}
-          </Button>
-          <input
-            type="file"
-            accept=".xlsx, .xls"
-            className="hidden"
-            ref={fileInputRef}
-            onChange={handleImport}
-          />
-          <Button size="sm" onClick={openAddDialog}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add Supplier
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/purchase/orders')}>
-            <ClipboardList className="mr-1.5 h-4 w-4" />
-            Purchase Orders
-          </Button>
-        </div>
-      </div>
+      {/* Hidden file input — triggered by the Import button in the filter bar below */}
+      <input
+        type="file"
+        accept=".xlsx, .xls"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={handleImport}
+      />
 
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -510,24 +409,99 @@ export default function SuppliersPage() {
         searchQuery={searchQuery}
         onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
         searchPlaceholder="Search name, contact, phone, GSTIN..."
-        resultsCount={filteredSuppliers.length}
+        resultsCount={totalSuppliers}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={handleExport}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-400 dark:border-amber-800/60 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 dark:hover:border-amber-700"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+            >
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">{isImporting ? 'Importing…' : 'Import'}</span>
+            </Button>
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={openAddDialog}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Add Supplier</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => navigate('/purchase/orders')}
+            >
+              <ClipboardList className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Purchase Orders</span>
+              <span className="sm:hidden">POs</span>
+            </Button>
+          </div>
+        }
       >
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-          options={STATUS_OPTIONS}
-        />
-        <EnumSelect
-          label="Payment Terms"
-          value={selectedPaymentTerms}
-          onValueChange={(val) => { setSelectedPaymentTerms(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedPaymentTerms('all'); setCurrentPage(1) }}
-          options={PAYMENT_TERMS_OPTIONS}
-        />
+        {/* Equal-width filter grid — 4 filters served by the backend */}
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EnumSelect
+            label="Status"
+            value={selectedStatus}
+            onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+            options={STATUS_OPTIONS}
+          />
+          <EnumSelect
+            label="Payment Terms"
+            value={selectedPaymentTerms}
+            onValueChange={(val) => { setSelectedPaymentTerms(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedPaymentTerms('all'); setCurrentPage(1) }}
+            options={PAYMENT_TERMS_OPTIONS}
+          />
+          <EnumSelect
+            label="GSTIN"
+            value={selectedGstin}
+            onValueChange={(val) => { setSelectedGstin(val); setCurrentPage(1) }}
+            onClear={() => { setSelectedGstin('all'); setCurrentPage(1) }}
+            options={GSTIN_OPTIONS}
+          />
+          {/* Outstanding range */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Outstanding (₹)
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                placeholder="Min"
+                value={outstandingMin}
+                onChange={(e) => { setOutstandingMin(e.target.value); setCurrentPage(1) }}
+                className="w-full"
+              />
+              <span className="text-muted-foreground text-xs">-</span>
+              <Input
+                type="number"
+                placeholder="Max"
+                value={outstandingMax}
+                onChange={(e) => { setOutstandingMax(e.target.value); setCurrentPage(1) }}
+                className="w-full"
+              />
+            </div>
+          </div>
+        </div>
       </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}
@@ -543,7 +517,7 @@ export default function SuppliersPage() {
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
                 <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredSuppliers.filter((s) => selectedIds.has(s.id))
+                  const selected = suppliers.filter((s) => selectedIds.has(s.id))
                   exportToCsv(selected.map((s) => ({
                     Name: s.name,
                     Phone: s.phone,
@@ -556,7 +530,7 @@ export default function SuppliersPage() {
                   Export
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredSuppliers.filter((s) => selectedIds.has(s.id))
+                  const selected = suppliers.filter((s) => selectedIds.has(s.id))
                   printReport(selected.map((s) => ({
                     Name: s.name,
                     Phone: s.phone,
@@ -609,7 +583,7 @@ export default function SuppliersPage() {
                 <div
                   key={supplier.id}
                   className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                  onClick={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
+                  onClick={() => navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`)}
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="truncate font-medium text-sm">{supplier.name}</p>
@@ -643,7 +617,7 @@ export default function SuppliersPage() {
               <TableHead>Phone</TableHead>
               <TableHead>GSTIN</TableHead>
               <TableHead>Payment Terms</TableHead>
-              <TableHead className="text-right">Outstanding</TableHead>
+              <TableHead className="text-center">Outstanding</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -673,7 +647,7 @@ export default function SuppliersPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
+                    onClick={() => navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selectedIds.has(supplier.id)} onCheckedChange={() => toggleSelectOne(supplier.id)} />
@@ -692,7 +666,7 @@ export default function SuppliersPage() {
                     <TableCell>
                       <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
+                    <TableCell className="text-center font-mono text-xs">
                       {Number(supplier.currentOutstanding ?? 0) > 0 ? (
                         <span className="font-semibold text-amber-600 dark:text-amber-400">
                           {formatCurrency(Number(supplier.currentOutstanding))}
@@ -712,7 +686,7 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => { setDetailSupplier(supplier); fetchSupplierStats(supplier.id) }}
+                        onView={() => navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`)}
                         customActions={[
                           {
                             label: 'Edit',
@@ -736,296 +710,26 @@ export default function SuppliersPage() {
         </Table>
         </div>
 
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={totalSuppliers}
+          itemsPerPage={PAGE_SIZE}
+          className="border-t border-border/40 px-4"
+        />
       </Card>
-      <DataTablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={filteredSuppliers.length}
-        itemsPerPage={PAGE_SIZE}
-        className="mt-4 px-2"
+
+      {/* ── Add/Edit Supplier Dialog (shared with detail page) ── */}
+      <SupplierFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editingSupplier={editingSupplier}
+        onSaved={() => { setEditingSupplier(null); void fetchMasterData() }}
       />
 
-      {/* ── Add/Edit Supplier Dialog ──────────────────────── */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
-            </DialogTitle>
-            <DialogDescription>
-              {editingSupplier
-                ? 'Update supplier information below.'
-                : 'Fill in the supplier details to add them to your directory.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Company Name
-                </Label>
-                <Input placeholder="e.g. Cipla Ltd" {...register('name')} />
-                {errors.name && (
-                  <p className="text-xs text-destructive">{errors.name.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Contact Person
-                </Label>
-                <Input placeholder="e.g. Arun Menon" {...register('contactPerson')} />
-                {errors.contactPerson && (
-                  <p className="text-xs text-destructive">{errors.contactPerson.message}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Phone
-                </Label>
-                <Input placeholder="10-digit phone number" {...register('phone')} />
-                {errors.phone && (
-                  <p className="text-xs text-destructive">{errors.phone.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Email
-                </Label>
-                <Input type="email" placeholder="supplier@company.com" {...register('email')} />
-                {errors.email && (
-                  <p className="text-xs text-destructive">{errors.email.message}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  GSTIN
-                </Label>
-                <Input placeholder="15-character GSTIN" className="font-mono" {...register('gstin')} />
-                {errors.gstin && (
-                  <p className="text-xs text-destructive">{errors.gstin.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Drug License #
-                </Label>
-                <Input placeholder="Drug license number" className="font-mono" {...register('drugLicense')} />
-                {errors.drugLicense && (
-                  <p className="text-xs text-destructive">{errors.drugLicense.message}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Address
-              </Label>
-              <Textarea placeholder="Full address" {...register('address')} />
-              {errors.address && (
-                <p className="text-xs text-destructive">{errors.address.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Payment Terms
-                </Label>
-                <Select
-                  defaultValue={editingSupplier?.paymentTerms || 'NET_30'}
-                  onValueChange={(val) =>
-                    setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60')
-                  }
-                >
-                  <SelectTrigger className="rounded-xl">
-                    <SelectValue placeholder="Select payment terms" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NET_30">Net 30</SelectItem>
-                    <SelectItem value="NET_45">Net 45</SelectItem>
-                    <SelectItem value="NET_60">Net 60</SelectItem>
-                  </SelectContent>
-                </Select>
-                {errors.paymentTerms && (
-                  <p className="text-xs text-destructive">{errors.paymentTerms.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Bank Details
-                </Label>
-                <Input
-                  placeholder="Bank, A/c, IFSC (optional)"
-                  {...register('bankDetails')}
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                {editingSupplier ? 'Update Supplier' : 'Add Supplier'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Supplier Detail Dialog ────────────────────────── */}
-      <Dialog
-        open={!!detailSupplier}
-        onOpenChange={(open) => !open && setDetailSupplier(null)}
-      >
-        {detailSupplier && (
-          <DialogContent className="max-w-2xl rounded-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-primary" />
-                {detailSupplier.name}
-              </DialogTitle>
-              <DialogDescription>
-                Supplier details and business summary
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-6">
-              {/* Contact Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-mono">{detailSupplier.phone}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span>{detailSupplier.email}</span>
-                </div>
-                <div className="col-span-2 flex items-start gap-2">
-                  <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-                  <span>{detailSupplier.address}</span>
-                </div>
-              </div>
-
-              <Separator className="bg-border/60" />
-
-              {/* Compliance */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN</span>
-                  <p className="mt-1 font-mono">{detailSupplier.gstin}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug License</span>
-                  <p className="mt-1 font-mono">{detailSupplier.drugLicense}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Payment Terms</span>
-                  <p className="mt-1 font-medium">{detailSupplier.paymentTerms}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-                  <p className="mt-1">
-                    <Badge
-                      variant={detailSupplier.isActive ? 'success' : 'destructive'}
-                      dot
-                      size="sm"
-                    >
-                      {detailSupplier.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </p>
-                </div>
-              </div>
-
-              <Separator className="bg-border/60" />
-
-              {/* Business summary */}
-              <div className="space-y-3">
-                <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Business Summary
-                </h4>
-                {supplierStats === null ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                    <div className="h-4 w-4 rounded-full border-b-2 border-primary animate-spin" />
-                    Loading...
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <IndianRupee className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                        <p className="font-mono text-lg font-bold">
-                          {formatCurrency(supplierStats.totalPurchases)}
-                        </p>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Total Purchases
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <TrendingUp className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />
-                        <p className="font-mono text-lg font-bold">
-                          {supplierStats.ordersThisYear}
-                        </p>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Transactions
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-3 text-center">
-                        <IndianRupee className="mx-auto mb-1 h-4 w-4 text-amber-500" />
-                        <p className="font-mono text-lg font-bold">
-                          {formatCurrency(supplierStats.pendingPayment)}
-                        </p>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Outstanding
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-              </div>
-
-              {detailSupplier.bankDetails && (
-                <>
-                  <Separator className="bg-border/60" />
-                  <div className="text-sm">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Bank Details
-                    </span>
-                    <p className="mt-1">{detailSupplier.bankDetails}</p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDetailSupplier(null)}>
-                Close
-              </Button>
-              <Button
-                onClick={() => {
-                  setDetailSupplier(null)
-                  openEditDialog(detailSupplier)
-                }}
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit Supplier
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-      </Dialog>
+      {/* The old "supplier detail modal" was replaced by a full route at
+          /purchase/suppliers/detail?supplierId=... — opens via row-click. */}
 
       {/* Confirm before flipping a supplier's active status — single-row toggle
           previously was a one-click silent change. Bulk had a window.confirm

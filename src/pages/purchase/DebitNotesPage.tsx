@@ -6,7 +6,6 @@ import {
   FileText,
   RotateCcw,
   Plus,
-  ArrowLeft,
   Printer,
   Download,
   CheckCircle2,
@@ -19,11 +18,17 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { DatePicker } from '@/components/ui/date-picker'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import {
   Table,
   TableBody,
@@ -33,11 +38,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // ─────────────────────────────────────────────────────────────
 // DEBIT NOTES HISTORY PAGE
@@ -94,6 +100,7 @@ const STATUS_OPTIONS = [
 ] as const
 
 export default function DebitNotesPage() {
+  const businessProfile = useSettingsStore(s => s.businessProfile)
   const [pastReturns, setPastReturns] = useState<ApiReturn[]>([])
   const [allReturns, setAllReturns] = useState<ApiReturn[]>([])
   const [returnsLoading, setReturnsLoading] = useState(true)
@@ -108,8 +115,68 @@ export default function DebitNotesPage() {
   const [dateTo, setDateTo] = useState('')
   const [selectedType, setSelectedType] = useState('all')
   const [selectedStatus, setSelectedStatus] = useState('all')
+  const [selectedSupplier, setSelectedSupplier] = useState('all')
   const [amountMin, setAmountMin] = useState('')
   const [amountMax, setAmountMax] = useState('')
+
+  // Master data — Supplier filter pulls from the full suppliers list
+  const { suppliers, fetchMasterData } = useMasterDataStore()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchMasterData() }, [])
+
+  // Deep-link support: open the debit-note drawer when arrived with `?id=<id>`
+  // (e.g. from the Supplier Detail page's Debit Notes tab). Builds the same
+  // ReturnDetail shape used by the row click handler so the drawer fields all
+  // populate identically.
+  const { search } = useRoute()
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const target = params.get('id')
+    if (!target || allReturns.length === 0) return
+    if (selectedReturnDetails?.id === target) return
+    const pr = allReturns.find((r) => r.id === target)
+    if (!pr) return
+    setSelectedReturnDetails({
+      id: pr.id,
+      noteNo: pr.debitNoteNo,
+      date: pr.date,
+      partyName: pr.supplierName,
+      supplierId: pr.supplierId,
+      referenceValue: pr.grn?.grnNumber ?? 'Direct',
+      reason: pr.reason,
+      items: pr.items,
+      grnItems: pr.grn?.items ?? [],
+      subtotal: pr.subtotal,
+      cgst: pr.cgst,
+      sgst: pr.sgst,
+      totalAmount: pr.totalAmount,
+      status: pr.status,
+      settlementMode: pr.settlementMode ?? 'REFUND',
+      replacementGrnId: pr.replacementGrnId ?? null,
+      notes: pr.notes,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, allReturns])
+
+  const supplierFetcher = useCallback(
+    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
+      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
+      if (query) params.set('q', query)
+      const res = await api.get(`/suppliers?${params.toString()}`)
+      const payload = res.data
+      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
+      return {
+        data: items.map((s) => ({ value: s.id, label: s.name })),
+        hasMore: Boolean(payload?.hasMore),
+      }
+    },
+    [],
+  )
+
+  const selectedSupplierLabel = useMemo(() => {
+    if (selectedSupplier === 'all' || !selectedSupplier) return undefined
+    return suppliers.find((s) => s.id === selectedSupplier)?.name
+  }, [selectedSupplier, suppliers])
 
   const fetchReturns = useCallback(async () => {
     setReturnsLoading(true)
@@ -173,6 +240,11 @@ export default function DebitNotesPage() {
       result = result.filter(r => (r.status || '').toUpperCase() === selectedStatus)
     }
 
+    // Supplier filter (matched by supplierId from master data)
+    if (selectedSupplier !== 'all') {
+      result = result.filter(r => r.supplierId === selectedSupplier)
+    }
+
     // Amount range
     if (amountMin) result = result.filter(r => Number(r.totalAmount || 0) >= parseFloat(amountMin))
     if (amountMax) result = result.filter(r => Number(r.totalAmount || 0) <= parseFloat(amountMax))
@@ -188,7 +260,7 @@ export default function DebitNotesPage() {
 
     setPastReturns(result)
     setCurrentPage(1)
-  }, [searchQuery, allReturns, period, dateFrom, dateTo, selectedType, selectedStatus, amountMin, amountMax])
+  }, [searchQuery, allReturns, period, dateFrom, dateTo, selectedType, selectedStatus, selectedSupplier, amountMin, amountMax])
 
   // Active filters count + clear
   const activeFilterCount = [
@@ -196,6 +268,7 @@ export default function DebitNotesPage() {
     dateFrom, dateTo,
     selectedType !== 'all' ? selectedType : '',
     selectedStatus !== 'all' ? selectedStatus : '',
+    selectedSupplier !== 'all' ? selectedSupplier : '',
     amountMin, amountMax,
   ].filter(Boolean).length
 
@@ -205,6 +278,7 @@ export default function DebitNotesPage() {
     setDateTo('')
     setSelectedType('all')
     setSelectedStatus('all')
+    setSelectedSupplier('all')
     setAmountMin('')
     setAmountMax('')
   }
@@ -246,49 +320,10 @@ export default function DebitNotesPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
 
-      {/* ── Header (only shown in detail view — list view header is gone) ── */}
-      {selectedReturnDetails && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setSelectedReturnDetails(null)}
-              className="text-muted-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight font-mono">
-                Debit Note — {selectedReturnDetails.noteNo}
-              </h1>
-              <p className="text-[11px] text-muted-foreground">
-                Issued to {selectedReturnDetails.partyName}
-              </p>
-            </div>
-          </div>
-
-          <Button variant="outline" size="sm" onClick={() => setSelectedReturnDetails(null)}>
-            ← Back to List
-          </Button>
-        </div>
-      )}
-
       {/* ── Content ── */}
       <div className="flex-1 overflow-hidden bg-muted/20">
-        {selectedReturnDetails ? (
-          /* ── Detail View ── */
-          <ScrollArea className="h-full p-6">
-            <div className="mx-auto max-w-4xl space-y-6 pb-12">
-              <DebitNoteDetail
-                data={selectedReturnDetails}
-                onStatusUpdate={handleStatusUpdate}
-              />
-            </div>
-          </ScrollArea>
-        ) : (
-          /* ── List View ── */
-          <div className="flex flex-col h-full">
+        {/* ── List View ── */}
+        <div className="flex flex-col h-full">
             {/* Summary cards */}
             <div className="grid grid-cols-2 gap-3 border-b border-border/40 bg-background px-4 py-4 sm:px-6 lg:grid-cols-4">
               {[
@@ -361,71 +396,85 @@ export default function DebitNotesPage() {
                   </Button>
                 }
               >
-                <EnumSelect
-                  label="Period"
-                  value={period}
-                  onValueChange={setPeriod}
-                  onClear={() => setPeriod('all')}
-                  options={PERIOD_OPTIONS}
-                />
+                {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
+                <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                  <EnumSelect
+                    label="Period"
+                    value={period}
+                    onValueChange={setPeriod}
+                    onClear={() => setPeriod('all')}
+                    options={PERIOD_OPTIONS}
+                  />
 
-                <EnumSelect
-                  label="Type"
-                  value={selectedType}
-                  onValueChange={setSelectedType}
-                  onClear={() => setSelectedType('all')}
-                  options={TYPE_OPTIONS}
-                />
+                  <EnumSelect
+                    label="Type"
+                    value={selectedType}
+                    onValueChange={setSelectedType}
+                    onClear={() => setSelectedType('all')}
+                    options={TYPE_OPTIONS}
+                  />
 
-                <EnumSelect
-                  label="Status"
-                  value={selectedStatus}
-                  onValueChange={setSelectedStatus}
-                  onClear={() => setSelectedStatus('all')}
-                  options={STATUS_OPTIONS}
-                />
+                  <EnumSelect
+                    label="Status"
+                    value={selectedStatus}
+                    onValueChange={setSelectedStatus}
+                    onClear={() => setSelectedStatus('all')}
+                    options={STATUS_OPTIONS}
+                  />
 
-                {/* Amount range */}
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Amount Range
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      placeholder="Min"
-                      value={amountMin}
-                      onChange={(e) => setAmountMin(e.target.value)}
-                      className="w-full"
-                    />
-                    <span className="text-muted-foreground text-xs">-</span>
-                    <Input
-                      type="number"
-                      placeholder="Max"
-                      value={amountMax}
-                      onChange={(e) => setAmountMax(e.target.value)}
-                      className="w-full"
-                    />
+                  <PaginatedSelect
+                    label="Supplier"
+                    value={selectedSupplier}
+                    onValueChange={setSelectedSupplier}
+                    onClear={() => setSelectedSupplier('all')}
+                    fetcher={supplierFetcher}
+                    pinnedOption={{ value: 'all', label: 'All Suppliers' }}
+                    selectedLabel={selectedSupplierLabel}
+                    pageSize={10}
+                  />
+
+                  {/* Amount range */}
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Amount Range
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={amountMin}
+                        onChange={(e) => setAmountMin(e.target.value)}
+                        className="w-full"
+                      />
+                      <span className="text-muted-foreground text-xs">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={amountMax}
+                        onChange={(e) => setAmountMax(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
                   </div>
+
+                  {/* Custom date range — only when period is 'custom' */}
+                  {period === 'custom' && (
+                    <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Date From
+                        </Label>
+                        <DatePicker value={dateFrom} onChange={setDateFrom} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Date To
+                        </Label>
+                        <DatePicker value={dateTo} onChange={setDateTo} />
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                {/* Custom date range — only when period is 'custom' */}
-                {period === 'custom' && (
-                  <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Date From
-                      </Label>
-                      <DatePicker value={dateFrom} onChange={setDateFrom} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Date To
-                      </Label>
-                      <DatePicker value={dateTo} onChange={setDateTo} />
-                    </div>
-                  </div>
-                )}
               </DataTableFilterBar>
             </div>
 
@@ -519,7 +568,7 @@ export default function DebitNotesPage() {
                         <TableHead className="w-30">Type</TableHead>
                         <TableHead className="w-27.5">Date</TableHead>
                         <TableHead>Supplier</TableHead>
-                        <TableHead className="w-32.5">GRN</TableHead>
+                        <TableHead className="whitespace-nowrap">GRN</TableHead>
                         <TableHead className="text-right w-30">Amount</TableHead>
                         <TableHead className="w-25">Status</TableHead>
                         <TableHead className="w-12"></TableHead>
@@ -564,7 +613,7 @@ export default function DebitNotesPage() {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>
                           <TableCell className="font-medium text-sm">{pr.supplierName}</TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">{pr.grn?.grnNumber ?? '—'}</TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.grn?.grnNumber ?? '—'}</TableCell>
                           <TableCell className="text-right font-mono font-semibold text-rose-600 dark:text-rose-400">
                             {formatCurrency(pr.totalAmount)}
                           </TableCell>
@@ -601,242 +650,213 @@ export default function DebitNotesPage() {
               )}
             </div>
           </div>
-        )}
       </div>
+
+      {/* ── Detail Drawer ── */}
+      <Sheet open={!!selectedReturnDetails} onOpenChange={(open) => { if (!open) setSelectedReturnDetails(null) }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        >
+          {selectedReturnDetails && (() => {
+            const d = selectedReturnDetails
+            const settlementMode = d.settlementMode ?? 'REFUND'
+            const isReplacement = settlementMode === 'REPLACEMENT'
+            const isSettled = d.status === 'SETTLED'
+            const hasReplacementGrn = !!d.replacementGrnId
+            const displaySettlement = isSettled
+              ? settlementMode === 'REFUND'
+                ? 'Money Refunded'
+                : settlementMode === 'REPLACEMENT'
+                  ? 'Replacement Received'
+                  : 'Adjusted against Outstanding'
+              : settlementMode === 'REFUND'
+                ? 'Pending Refund'
+                : settlementMode === 'REPLACEMENT'
+                  ? (hasReplacementGrn ? 'Replacement GRN Received' : 'Awaiting Replacement')
+                  : settlementMode === 'ADJUST'
+                    ? 'Pending Adjustment'
+                    : 'Pending'
+
+            const pdfData = {
+              noteNo: d.noteNo,
+              date: d.date,
+              partyLabel: 'Supplier',
+              partyName: d.partyName,
+              referenceLabel: 'GRN No',
+              referenceValue: d.referenceValue,
+              reason: d.reason,
+              items: (d.items || []).map((it) => ({
+                productName: it.productName,
+                batchNumber: it.batchNumber,
+                expiryDate: it.expiryDate,
+                returnedQty: it.returnedQty,
+                rate: Number(it.purchaseRate || it.rate || 0),
+                gstPercent: Number(it.gstPercent || 0),
+                amount: Number(it.amount || 0),
+              })),
+              subtotal: Number(d.subtotal),
+              cgst: d.cgst != null ? Number(d.cgst) : undefined,
+              sgst: d.sgst != null ? Number(d.sgst) : undefined,
+              totalAmount: Number(d.totalAmount),
+              footerLine: `Settlement: ${displaySettlement}`,
+              company: businessProfile ? {
+                name: businessProfile.name,
+                address: businessProfile.address,
+                phone: businessProfile.phone,
+                email: businessProfile.email,
+                gstin: businessProfile.gstin,
+              } : undefined,
+            }
+
+            return (
+              <>
+                {/* ── Sticky Header ── */}
+                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                  <div className="flex items-center justify-between gap-3 pr-8">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <SheetTitle className="font-mono text-base font-semibold truncate">
+                        {d.noteNo}
+                      </SheetTitle>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(d.date)}
+                      </span>
+                    </div>
+                    <Badge
+                      variant={d.status === 'SETTLED' ? 'success' : d.status === 'SENT' ? 'info' : 'secondary'}
+                      size="sm"
+                      dot
+                    >
+                      {d.status}
+                    </Badge>
+                  </div>
+                </SheetHeader>
+
+                {/* ── Scrollable Body ── */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Supplier / GRN / Reason / Settlement — single row info strip */}
+                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+                      <p className="mt-0.5 text-sm font-medium truncate" title={d.partyName}>{d.partyName}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GRN Reference</p>
+                      <p className="mt-0.5 font-mono text-xs font-medium truncate" title={d.referenceValue}>{d.referenceValue}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Return Reason</p>
+                      <p className="mt-0.5 text-sm font-medium truncate" title={d.reason}>{d.reason}</p>
+                    </div>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
+                      <p className={cn(
+                        'mt-0.5 text-sm font-medium truncate',
+                        isSettled ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
+                      )} title={displaySettlement}>
+                        {displaySettlement}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Items table */}
+                  <div className="overflow-x-auto rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Expiry</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GST%</TableHead>
+                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(d.items || []).map((it, idx) => {
+                          const rate = Number(it.purchaseRate || it.rate || 0)
+                          const gst = Number(it.gstPercent || 0)
+                          const amount = Number(it.amount) || it.returnedQty * rate
+                          return (
+                            <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
+                              <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-sm font-medium">{it.productName}</TableCell>
+                              <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{it.batchNumber || '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                                {it.expiryDate ? formatDate(it.expiryDate) : '—'}
+                              </TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{it.returnedQty}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(rate)}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{gst}%</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">
+                                {formatCurrency(amount)}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* ── Sticky Footer: total + actions ── */}
+                <div className="shrink-0 border-t border-border/40 bg-background">
+                  <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Debit Amount</p>
+                    <p className="font-mono text-base font-bold text-primary">{formatCurrency(d.totalAmount)}</p>
+                  </div>
+                  <div className="px-5 py-3 flex gap-2">
+                    {!isSettled && isReplacement && (
+                      <Button
+                        className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            replacementReturnId: d.id,
+                            supplierId: d.supplierId ?? '',
+                            supplierName: d.partyName ?? '',
+                          })
+                          navigate(`/purchase/grn?${params.toString()}`)
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Receive Replacement
+                      </Button>
+                    )}
+                    {!isSettled && !isReplacement && (
+                      <Button
+                        variant="outline"
+                        className="flex-1 gap-2"
+                        onClick={() => handleStatusUpdate('SETTLED')}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Mark as Settled
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      onClick={() => printDebitNotePdf(pdfData)}
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
+                    <Button
+                      className="flex-1 gap-2"
+                      onClick={() => downloadDebitNotePdf(pdfData)}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download PDF
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// DEBIT NOTE DETAIL COMPONENT
-// ─────────────────────────────────────────────────────────────
-
-function DebitNoteDetail({ data, onStatusUpdate }: { data: ReturnDetail; onStatusUpdate: (s: string) => void }) {
-  const businessProfile = useSettingsStore(s => s.businessProfile)
-
-  // settlementMode is a structured field on PurchaseReturn; default to REFUND
-  // for legacy rows that predate the column.
-  const settlementMode: string = data.settlementMode ?? 'REFUND'
-
-  const isReplacement = settlementMode === 'REPLACEMENT'
-  const isSettled = data.status === 'SETTLED'
-  const hasReplacementGrn = !!data.replacementGrnId
-
-  const getDisplaySettlement = () => {
-    if (isSettled) {
-      if (settlementMode === 'REFUND') return 'Money Refunded'
-      if (settlementMode === 'REPLACEMENT') return 'Replacement Received'
-      return 'Adjusted against Outstanding'
-    }
-    if (settlementMode === 'REFUND') return 'Pending Refund'
-    if (settlementMode === 'REPLACEMENT') return hasReplacementGrn ? 'Replacement GRN Received' : 'Awaiting Replacement'
-    if (settlementMode === 'ADJUST') return 'Pending Adjustment'
-    return 'Pending'
-  }
-
-  const getPdfData = () => ({
-    noteNo: data.noteNo,
-    date: data.date,
-    partyLabel: 'Supplier',
-    partyName: data.partyName,
-    referenceLabel: 'GRN No',
-    referenceValue: data.referenceValue,
-    reason: data.reason,
-    items: (data.items || []).map((it) => ({
-      productName: it.productName,
-      batchNumber: it.batchNumber,
-      expiryDate: it.expiryDate,
-      returnedQty: it.returnedQty,
-      rate: Number(it.purchaseRate || it.rate || 0),
-      gstPercent: Number(it.gstPercent || 0),
-      amount: Number(it.amount || 0)
-    })),
-    subtotal: Number(data.subtotal),
-    cgst: data.cgst != null ? Number(data.cgst) : undefined,
-    sgst: data.sgst != null ? Number(data.sgst) : undefined,
-    totalAmount: Number(data.totalAmount),
-    footerLine: `Settlement: ${getDisplaySettlement()}`,
-    company: businessProfile ? {
-      name: businessProfile.name,
-      address: businessProfile.address,
-      phone: businessProfile.phone,
-      email: businessProfile.email,
-      gstin: businessProfile.gstin,
-    } : undefined,
-  })
-
-  return (
-    <Card className="overflow-x-auto border-border/40 shadow-xl flex flex-col md:flex-row min-h-150">
-      {/* Left: Note details */}
-      <div className="flex-1 flex flex-col border-r border-border/30">
-        <div className="shrink-0 bg-linear-to-br from-primary/10 via-background to-background p-6 border-b border-border/30">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Debit Note</p>
-              <h2 className="mt-1 font-mono text-2xl font-black tracking-tighter">{data.noteNo}</h2>
-              <div className="mt-2 flex items-center gap-2">
-                <p className="text-xs text-muted-foreground">{formatDate(data.date)}</p>
-                <Badge
-                  variant={data.status === 'SETTLED' ? 'success' : data.status === 'SENT' ? 'info' : 'secondary'}
-                  size="sm"
-                  dot
-                >
-                  {data.status}
-                </Badge>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GRN Reference</p>
-              <p className="font-mono text-sm font-bold">{data.referenceValue}</p>
-            </div>
-          </div>
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1">Supplier / Payee</p>
-              <p className="text-lg font-bold text-foreground/80">{data.partyName}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1">Return Reason</p>
-              <p className="text-sm font-medium">{data.reason}</p>
-            </div>
-            <div>
-               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1">Settlement</p>
-               <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                 {getDisplaySettlement()}
-               </p>
-             </div>
-          </div>
-        </div>
-
-        <ScrollArea className="flex-1 max-h-100">
-          <div className="p-6">
-            <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 rounded-lg bg-muted/50 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 backdrop-blur-sm">
-              <div className="col-span-6">Product</div>
-              <div className="col-span-2 text-center">Qty</div>
-              <div className="col-span-4 text-right">Amount</div>
-            </div>
-            <div className="mt-2 space-y-1">
-              {(data.items || []).map((it, idx) => (
-                <div
-                  key={idx}
-                  className="grid grid-cols-12 gap-2 rounded-lg hover:bg-muted/30 px-4 py-3 items-center text-sm transition-colors border-b border-border/10 last:border-0"
-                >
-                  <div className="col-span-6">
-                    <p className="font-bold text-foreground/80">{it.productName}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono opacity-60">Batch: {it.batchNumber}</p>
-                  </div>
-                  <div className="col-span-2 text-center font-mono font-black text-primary/80 bg-primary/5 rounded py-0.5">
-                    {it.returnedQty}
-                  </div>
-                  <div className="col-span-4 text-right font-mono font-bold tracking-tight">
-                    {formatCurrency(Number(it.amount) || (it.returnedQty * Number(it.purchaseRate)))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </ScrollArea>
-
-        <div className="mt-auto p-6 bg-muted/10 border-t border-border/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase text-muted-foreground">Subtotal</span>
-                <span className="font-mono text-sm">{formatCurrency(data.subtotal)}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase text-muted-foreground">Taxes (CGST+SGST)</span>
-                <span className="font-mono text-sm">{formatCurrency(Number(data.cgst || 0) + Number(data.sgst || 0))}</span>
-              </div>
-            </div>
-            <div className="flex flex-col items-end">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary">Total Debit Amount</p>
-              <p className="font-mono text-3xl font-black tracking-tighter text-primary">{formatCurrency(data.totalAmount)}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right: Actions Sidebar */}
-      <div className="w-full md:w-75 bg-muted/20 p-6 flex flex-col gap-6">
-        <div>
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Document Actions</h4>
-          <div className="grid gap-2">
-            <Button className="w-full shadow-lg shadow-primary/20" onClick={() => downloadDebitNotePdf(getPdfData())}>
-              <Download className="mr-2 h-4 w-4" />
-              Download PDF
-            </Button>
-            <Button variant="outline" className="w-full bg-background" onClick={() => printDebitNotePdf(getPdfData())}>
-              <Printer className="mr-2 h-4 w-4" />
-              Print Copy
-            </Button>
-          </div>
-        </div>
-
-        <Separator className="bg-border/40" />
-
-        {!isSettled && (
-          <div>
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
-              {isReplacement ? 'Replacement' : 'Settlement'}
-            </h4>
-            {isReplacement ? (
-              <>
-                <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800/40 px-3 py-2.5 mb-3">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Awaiting replacement goods from supplier</p>
-                  <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">
-                    Once the supplier sends replacement stock, receive it via a new GRN. The debit note will be marked Settled automatically.
-                  </p>
-                </div>
-                <Button
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/20"
-                  onClick={() => {
-                    // Navigate to GRN with supplier + items prefilled + returnId to auto-link
-                    const params = new URLSearchParams({
-                      replacementReturnId: data.id,
-                      supplierId: data.supplierId ?? '',
-                      supplierName: data.partyName ?? '',
-                    })
-                    navigate(`/purchase/grn?${params.toString()}`)
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Receive Replacement Stock
-                </Button>
-              </>
-            ) : (
-              <>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Mark this debit note as settled once {settlementMode === 'REFUND' ? 'refund is received' : 'amount is adjusted'}.
-                </p>
-                <Button
-                  variant="outline"
-                  className="w-full bg-background hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-800 transition-all"
-                  onClick={() => onStatusUpdate('SETTLED')}
-                >
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Mark as Settled
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-
-        {isSettled && (
-          <div className="flex flex-col items-center gap-2 py-4 text-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Settled</p>
-            <p className="text-xs text-muted-foreground">
-              {isReplacement ? 'Replacement goods received' : 'Credit received from supplier'}
-            </p>
-            {isReplacement && data.replacementGrnId && (
-              <p className="text-[10px] font-mono text-muted-foreground mt-1">GRN: {data.replacementGrnId}</p>
-            )}
-          </div>
-        )}
-      </div>
-    </Card>
   )
 }
