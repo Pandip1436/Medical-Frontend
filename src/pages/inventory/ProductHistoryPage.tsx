@@ -918,7 +918,9 @@ function ProductSearchInput({
             >
               <div className="min-w-0">
                 <p className="font-medium truncate">{p.name}</p>
-                {p.genericName && <p className="text-xs text-muted-foreground truncate">{p.genericName}</p>}
+                <p className="text-xs text-muted-foreground truncate">
+                  {[p.manufacturer, p.genericName].filter(Boolean).join(' · ')}
+                </p>
               </div>
               <span className="text-[10px] font-mono text-muted-foreground shrink-0">{p.totalStock ?? 0} in stock</span>
             </button>

@@ -1055,7 +1055,9 @@ export default function GRNPage() {
                       >
                         <div>
                           <p className="text-sm font-medium">{p.name}</p>
-                          <p className="text-[11px] text-muted-foreground">{p.genericName}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {[p.manufacturer, p.genericName].filter(Boolean).join(' · ')}
+                          </p>
                         </div>
                         <span className="font-mono text-sm text-muted-foreground">{formatCurrency(p.purchaseRate)}</span>
                       </button>

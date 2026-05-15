@@ -276,6 +276,8 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
                     <div className="flex flex-col gap-0.5">
                       <span className="font-bold line-clamp-1">{p.name}</span>
                       <div className="flex items-center gap-2 text-[10px] text-muted-foreground line-clamp-1">
+                        <span className="opacity-70">{p.manufacturer}</span>
+                        <span className="opacity-20">|</span>
                         <span className="opacity-70">{p.genericName}</span>
                         <span className="opacity-20">|</span>
                         <span className="font-mono">{formatCurrency(p.purchaseRate || 0)}</span>
