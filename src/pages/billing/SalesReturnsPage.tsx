@@ -756,7 +756,7 @@ export default function SalesReturnsPage() {
                       currentPage={currentPage}
                       totalPages={totalPages}
                       onPageChange={setCurrentPage}
-                      className="!justify-center !gap-2 !py-0 [&>div]:!ml-0 [&_button]:!h-9 [&_input]:!h-9"
+                      className="justify-center! gap-2! py-0! [&>div]:ml-0! [&_button]:h-9! [&_input]:h-9!"
                     />
                   </div>
                 )}

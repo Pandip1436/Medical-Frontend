@@ -16,7 +16,7 @@ const statusVariantMap: Record<string, BadgeVariant> = {
   approved: 'success',
 
   // Warning (amber)
-  credit: 'warning',
+  unpaid: 'warning',
   pending: 'warning',
   partial: 'warning',
   partially_received: 'warning',

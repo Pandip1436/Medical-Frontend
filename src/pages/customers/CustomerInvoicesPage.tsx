@@ -42,7 +42,7 @@ const PAGE_SIZE = 15
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
   { value: 'PAID', label: 'Paid' },
-  { value: 'CREDIT', label: 'Credit' },
+  { value: 'UNPAID', label: 'Unpaid' },
   { value: 'PARTIAL', label: 'Partial' },
   { value: 'DRAFT', label: 'Draft' },
   { value: 'RETURNED', label: 'Returned' },
@@ -579,7 +579,7 @@ export default function CustomerInvoicesPage() {
       <Sheet open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
         >
           {detailInvoice && (() => {
             const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
@@ -661,7 +661,7 @@ export default function CustomerInvoicesPage() {
                   </div>
 
                   {/* Collect Payment — only for unpaid invoices */}
-                  {(detailInvoice.status === 'CREDIT' || detailInvoice.status === 'PARTIAL') && (
+                  {(detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
                       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                         Collect Payment — Outstanding: {formatCurrency(balanceDue)}
@@ -716,7 +716,7 @@ export default function CustomerInvoicesPage() {
                       <div
                         key={row.label}
                         className={cn(
-                          'flex flex-1 min-w-[72px] flex-col justify-center whitespace-nowrap px-3 py-2',
+                          'flex flex-1 min-w-18 flex-col justify-center whitespace-nowrap px-3 py-2',
                           i > 0 && 'border-l border-border/40',
                           row.highlight && 'bg-primary/5',
                         )}

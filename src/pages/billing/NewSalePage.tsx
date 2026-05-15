@@ -1011,7 +1011,7 @@ function BillingRow({
             <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
               <Badge
-                variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                variant={h.status === 'PAID' ? 'success' : h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
                 size="sm"
                 className="text-[8px] px-1.5 h-3.5"
               >
@@ -2180,7 +2180,7 @@ export default function NewSalePage() {
     }
   }, [items])
 
-  // ── Pending credit check (max 3 open CREDIT/PARTIAL invoices) ──
+  // ── Pending credit check (max 3 open UNPAID/PARTIAL invoices) ──
   const pendingCreditCount = selectedCustomer?.pendingCreditCount ?? 0
   const isCreditBlocked = pendingCreditCount >= 3
 
@@ -2199,7 +2199,7 @@ export default function NewSalePage() {
     try {
       const res = await api.get(`/billing?customerId=${selectedCustomer.id}`)
       const all: Invoice[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
-      setPendingInvoices(all.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL'))
+      setPendingInvoices(all.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL'))
     } catch {
       toast.error('Failed to load pending invoices')
     } finally {
@@ -2228,7 +2228,7 @@ export default function NewSalePage() {
         api.get(`/customers/${selectedCustomer!.id}`),
       ])
       const all: Invoice[] = Array.isArray(invRes.data) ? invRes.data : (invRes.data.data ?? [])
-      const updated = all.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL')
+      const updated = all.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
       setPendingInvoices(updated)
       // Refresh selectedCustomer so pendingCreditCount updates
       if (custRes.data) setSelectedCustomer({ ...selectedCustomer!, ...custRes.data, pendingCreditCount: updated.length })
@@ -2307,7 +2307,7 @@ export default function NewSalePage() {
     roundOff: totals.roundOff,
     grandTotal: totals.grandTotal,
     paymentMode: paymentMode as Invoice['paymentMode'],
-    status: paymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
+    status: paymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
     amountPaid: paymentMode === 'CASH' ? (paymentDetails.amountReceived || totals.grandTotal) : totals.grandTotal,
     changeReturned: paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0,
     salespersonName: selectedSalesperson?.name,
@@ -2472,7 +2472,7 @@ export default function NewSalePage() {
               : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
                 : (Number(paymentDetails.amountReceived) || Number(totals.grandTotal) || 0),
         changeReturned: invoiceType === 'quotation' ? 0 : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
-        status: invoiceType === 'quotation' ? 'DRAFT' : effectivePaymentMode === 'CREDIT' ? 'CREDIT' : 'PAID',
+        status: invoiceType === 'quotation' ? 'DRAFT' : effectivePaymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
 
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
@@ -3569,7 +3569,7 @@ export default function NewSalePage() {
                           {/* Status + type badges */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             <Badge
-                              variant={selectedHistoryInvoice.status === 'PAID' ? 'success' : selectedHistoryInvoice.status === 'CREDIT' ? 'warning' : selectedHistoryInvoice.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                              variant={selectedHistoryInvoice.status === 'PAID' ? 'success' : selectedHistoryInvoice.status === 'UNPAID' ? 'warning' : selectedHistoryInvoice.status === 'CANCELLED' ? 'destructive' : 'secondary'}
                               size="sm"
                               className="text-[9px]"
                             >
@@ -3768,7 +3768,7 @@ export default function NewSalePage() {
                                 <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold">{formatCurrency(Number(inv.grandTotal))}</TableCell>
                                 <TableCell className="px-3 py-2.5 text-center">
                                   <Badge
-                                    variant={inv.status === 'PAID' ? 'success' : inv.status === 'CREDIT' ? 'warning' : inv.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                                    variant={inv.status === 'PAID' ? 'success' : inv.status === 'UNPAID' ? 'warning' : inv.status === 'CANCELLED' ? 'destructive' : 'secondary'}
                                     size="sm"
                                     className="text-[9px]"
                                   >

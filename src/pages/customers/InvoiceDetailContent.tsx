@@ -190,8 +190,8 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         )}
       </div>
 
-      {/* Collect Payment — credit/partial only */}
-      {(invoice.status === 'CREDIT' || invoice.status === 'PARTIAL') && (
+      {/* Collect Payment — unpaid/partial only */}
+      {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
             Collect Payment — Outstanding: {formatCurrency(outstanding)}

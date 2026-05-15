@@ -91,7 +91,7 @@ const PAYMENT_MODE_OPTIONS = [
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
   { value: 'PAID', label: 'Paid' },
-  { value: 'CREDIT', label: 'Credit' },
+  { value: 'UNPAID', label: 'Unpaid' },
   { value: 'PARTIAL', label: 'Partial' },
   { value: 'DRAFT', label: 'Draft' },
   { value: 'RETURNED', label: 'Returned' },
@@ -359,14 +359,14 @@ export default function SalesListPage() {
       .filter((inv) => inv.status === 'PAID')
       .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     const pendingTotal = invs
-      .filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL')
+      .filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
       .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     return {
       totalSales,
       totalInvoices: invs.length,
       paidCount: invs.filter((inv) => inv.status === 'PAID').length,
       paidTotal,
-      creditCount: invs.filter((inv) => inv.status === 'CREDIT' || inv.status === 'PARTIAL').length,
+      creditCount: invs.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL').length,
       pendingTotal,
       returnsCount: invs.filter((inv) => inv.status === 'RETURNED').length,
     }
@@ -1026,7 +1026,7 @@ export default function SalesListPage() {
                   </div>
 
                   {/* Collect Payment — shown only for unpaid invoices */}
-                  {(detailInvoice.status === 'CREDIT' || detailInvoice.status === 'PARTIAL') && (
+                  {(detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
                       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                         Collect Payment — Outstanding: {formatCurrency(balanceDue)}

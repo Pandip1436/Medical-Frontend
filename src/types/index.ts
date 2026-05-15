@@ -149,7 +149,7 @@ export interface Invoice {
   grandTotal: number
   paymentMode: 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
   paymentDetails?: Record<string, unknown>
-  status: 'DRAFT' | 'PAID' | 'CREDIT' | 'PARTIAL' | 'RETURNED' | 'CANCELLED'
+  status: 'DRAFT' | 'PAID' | 'UNPAID' | 'PARTIAL' | 'RETURNED' | 'CANCELLED'
   amountPaid: number
   changeReturned: number
   salespersonId?: string

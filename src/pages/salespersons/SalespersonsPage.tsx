@@ -674,7 +674,7 @@ export default function SalespersonsPage() {
       <Sheet open={!!selectedId} onOpenChange={(open) => { if (!open) setSelectedId(null) }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
         >
           {selected && (
             <SalespersonDrawerBody
