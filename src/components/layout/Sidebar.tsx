@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Pill,
@@ -37,7 +37,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
-import { href as hashHref } from '@/lib/router'
+import { href as hashHref, navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
@@ -49,7 +49,6 @@ import {
 } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface NavItem {
   label: string
@@ -196,6 +195,35 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [pendingApprovals, setPendingApprovals] = useState(0)
 
+  // Persist nav scroll position across renders. Without this, clicking any
+  // sidebar link triggers a parent re-render (currentPath prop changes) and
+  // some downstream layout-animations cause the scrollable container to jump
+  // back to 0. We snapshot scrollTop on user scroll and restore it after every
+  // render via useLayoutEffect (runs before paint, so the user never sees the
+  // jump).
+  const navScrollRef = useRef<HTMLDivElement | null>(null)
+  const navScrollPosRef = useRef(0)
+  const handleNavScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    navScrollPosRef.current = e.currentTarget.scrollTop
+  }, [])
+  useLayoutEffect(() => {
+    if (navScrollRef.current && navScrollRef.current.scrollTop !== navScrollPosRef.current) {
+      navScrollRef.current.scrollTop = navScrollPosRef.current
+    }
+  })
+
+  // Intercept anchor clicks for SPA navigation. Without this, the bare
+  // <a href="/path"> triggers a full browser navigation, which reloads the
+  // app, resets scroll, and wipes in-page state (including the auto-draft
+  // session). We preserve modifier clicks (Ctrl/Cmd/Shift/middle-button) so
+  // power users can still open in a new tab.
+  const handleNavLinkClick = useCallback((path: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Let the browser handle modified clicks (open in new tab, etc.)
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+    e.preventDefault()
+    navigate(path)
+  }, [])
+
   useEffect(() => {
     if (!user) return
     const fetchCount = () => {
@@ -280,6 +308,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const renderLogo = (collapsed: boolean) => (
     <a
       href={hashHref('/dashboard')}
+      onClick={handleNavLinkClick('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
@@ -305,7 +334,11 @@ export function Sidebar({ currentPath }: SidebarProps) {
   )
 
   const renderNavGroups = (collapsed: boolean) => (
-    <ScrollArea className="flex-1 py-2">
+    <div
+      ref={navScrollRef}
+      onScroll={handleNavScroll}
+      className="flex-1 overflow-y-auto py-2 sidebar-scroll"
+    >
       <nav className="flex flex-col gap-0.5 px-2">
         {filteredGroups.map((group) => (
           <div key={group.title} className="mb-1">
@@ -330,6 +363,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
               const linkContent = (
                 <a
                   href={hashHref(item.href)}
+                  onClick={handleNavLinkClick(item.href)}
                   className={cn(
                     'group relative flex h-9 items-center rounded-lg px-3 text-[13px] font-medium transition-all duration-150',
                     active
@@ -400,7 +434,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
           </div>
         ))}
       </nav>
-    </ScrollArea>
+    </div>
   )
 
   const renderBottom = (collapsed: boolean) => (
@@ -556,6 +590,12 @@ export function Sidebar({ currentPath }: SidebarProps) {
                           <a
                             key={item.href + item.label}
                             href={hashHref(item.href)}
+                            onClick={(e) => {
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                              e.preventDefault()
+                              setMoreSheetOpen(false)
+                              navigate(item.href)
+                            }}
                             className={cn(
                               'flex flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-colors',
                               active
@@ -585,6 +625,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
               <a
                 key={item.href}
                 href={hashHref(item.href)}
+                onClick={handleNavLinkClick(item.href)}
                 className={cn(
                   'flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
                   active

@@ -32,14 +32,6 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -763,85 +755,94 @@ export default function BranchesPage() {
         </SheetContent>
       </Sheet>
 
-      {/* ── Add/Edit dialog ── */}
+      {/* ── Add/Edit drawer ── */}
       {isAdmin && (
-        <Dialog open={formOpen} onOpenChange={setFormOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{editing ? 'Edit Branch' : 'Add New Branch'}</DialogTitle>
-              <DialogDescription>
-                {editing ? 'Update branch information' : 'Create a new pharmacy location'}
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Branch Name *</Label>
-                  <Input {...register('name')} placeholder="Main Branch" />
-                  {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+        <Sheet open={formOpen} onOpenChange={setFormOpen}>
+          <SheetContent
+            side="right"
+            className="w-full sm:max-w-[560px] p-0 gap-0 flex flex-col"
+          >
+            <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
+              <div className="flex items-start justify-between gap-4 pr-8">
+                <div className="min-w-0">
+                  <SheetTitle>{editing ? 'Edit Branch' : 'Add New Branch'}</SheetTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {editing ? 'Update branch information' : 'Create a new pharmacy location'}
+                  </p>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Branch Code *</Label>
-                  <Input {...register('code')} placeholder="HQ" className="uppercase" />
-                  {errors.code && <p className="text-xs text-destructive">{errors.code.message}</p>}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Address</Label>
-                <Textarea {...register('address')} placeholder="Full address" rows={2} />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Phone</Label>
-                  <Input {...register('phone')} placeholder="9876543210" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Email</Label>
-                  <Input {...register('email')} placeholder="branch@pharmacy.com" />
-                  {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>GSTIN</Label>
-                  <Input {...register('gstin')} placeholder="22AAAAA0000A1Z5" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Drug License No.</Label>
-                  <Input {...register('drugLicense')} placeholder="DL-XXXX" />
+                <div className="flex items-center gap-4 shrink-0">
+                  <Controller
+                    control={control}
+                    name="isActive"
+                    render={({ field }) => (
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="isActive" className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap">Active</Label>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} id="isActive" />
+                      </div>
+                    )}
+                  />
+                  <Controller
+                    control={control}
+                    name="isDefault"
+                    render={({ field }) => (
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="isDefault" className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap">Set as Default</Label>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} id="isDefault" />
+                      </div>
+                    )}
+                  />
                 </div>
               </div>
-              <div className="flex items-center gap-6">
-                <Controller
-                  control={control}
-                  name="isActive"
-                  render={({ field }) => (
-                    <div className="flex items-center gap-2">
-                      <Switch checked={field.value} onCheckedChange={field.onChange} id="isActive" />
-                      <Label htmlFor="isActive">Active</Label>
-                    </div>
-                  )}
-                />
-                <Controller
-                  control={control}
-                  name="isDefault"
-                  render={({ field }) => (
-                    <div className="flex items-center gap-2">
-                      <Switch checked={field.value} onCheckedChange={field.onChange} id="isDefault" />
-                      <Label htmlFor="isDefault">Set as Default</Label>
-                    </div>
-                  )}
-                />
+            </SheetHeader>
+            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Branch Name *</Label>
+                    <Input {...register('name')} placeholder="Main Branch" />
+                    {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Branch Code *</Label>
+                    <Input {...register('code')} placeholder="HQ" className="uppercase" />
+                    {errors.code && <p className="text-xs text-destructive">{errors.code.message}</p>}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Address</Label>
+                  <Textarea {...register('address')} placeholder="Full address" rows={2} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Phone</Label>
+                    <Input {...register('phone')} placeholder="9876543210" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Email</Label>
+                    <Input {...register('email')} placeholder="branch@pharmacy.com" />
+                    {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>GSTIN</Label>
+                    <Input {...register('gstin')} placeholder="22AAAAA0000A1Z5" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Drug License No.</Label>
+                    <Input {...register('drugLicense')} placeholder="DL-XXXX" />
+                  </div>
+                </div>
               </div>
-              <DialogFooter>
+              <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
                 <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? 'Saving...' : editing ? 'Update' : 'Create Branch'}
                 </Button>
-              </DialogFooter>
+              </div>
             </form>
-          </DialogContent>
-        </Dialog>
+          </SheetContent>
+        </Sheet>
       )}
 
       {/* ── Delete confirm ── */}

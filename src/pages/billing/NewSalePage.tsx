@@ -1784,6 +1784,24 @@ export default function NewSalePage() {
     }
   }, [])
 
+  // ── Auto-draft (crash/reload recovery) ───────────────────
+  // Mirrors the in-progress cart to localStorage on every change so the
+  // user never loses work to an accidental reload, navigation, or net drop.
+  // Cleared on successful save & print, on Hold (since the bill is safely
+  // parked in HOLD_KEY), and when the cart becomes empty.
+  const AUTO_DRAFT_KEY = 'pbims_newsale_autodraft'
+  interface AutoDraftSnapshot {
+    items: BillingItem[]
+    selectedCustomer: Customer | null
+    customerSearch: string
+    paymentMode: PaymentMode
+    paymentDetails: PaymentDetails
+    billingType: 'retail' | 'wholesale'
+    invoiceType: 'invoice' | 'quotation'
+    deliveryCharge: number
+    savedAt: string
+  }
+
   // ── Held Bills ───────────────────────────────────────────
   const HOLD_KEY = 'pbims_held_bills'
   interface HeldBill {
@@ -2080,6 +2098,86 @@ export default function NewSalePage() {
   // Editable Delivery / Packaging fee. Non-taxable add-on folded into the
   // pre-rounding total so Net Payable rounds to a whole rupee.
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0)
+
+  // ── Auto-draft restore (run once on mount, after state is initialized) ──
+  // Skip restoration if the page is opened for an explicit prefill (draftId,
+  // duplicateId, quotation conversion, or re-purchase) — those paths already
+  // populate the cart from their own source of truth.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const hasExplicitPrefill = !!(
+      params.get('draftId') ||
+      params.get('duplicateId') ||
+      sessionStorage.getItem('quotation_prefill') ||
+      sessionStorage.getItem('repurchase_items')
+    )
+    if (hasExplicitPrefill) return
+
+    try {
+      const stored = localStorage.getItem(AUTO_DRAFT_KEY)
+      if (!stored) return
+      const snap = JSON.parse(stored) as AutoDraftSnapshot
+      const hasContent = Array.isArray(snap.items) && snap.items.some((i) => i.productId)
+      if (!hasContent) {
+        localStorage.removeItem(AUTO_DRAFT_KEY)
+        return
+      }
+
+      setItems(snap.items)
+      if (snap.selectedCustomer) {
+        setSelectedCustomer(snap.selectedCustomer)
+        setCustomerSearch(snap.customerSearch ?? snap.selectedCustomer.name)
+      }
+      if (snap.paymentMode) setPaymentMode(snap.paymentMode)
+      if (snap.paymentDetails) setPaymentDetails(snap.paymentDetails)
+      if (snap.billingType) setBillingType(snap.billingType)
+      if (snap.invoiceType) setInvoiceType(snap.invoiceType)
+      if (typeof snap.deliveryCharge === 'number') setDeliveryCharge(snap.deliveryCharge)
+
+      const itemCount = snap.items.filter((i) => i.productId).length
+      const minutesAgo = Math.max(1, Math.round((Date.now() - new Date(snap.savedAt).getTime()) / 60000))
+      toast.info(
+        `Restored your in-progress sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${minutesAgo} min ago)`,
+        { duration: 5000 },
+      )
+
+      // Re-hydrate batches for the restored products so FEFO + batch dropdowns
+      // work immediately after restore. Background fetches, one per unique id.
+      const uniqueProductIds = Array.from(new Set(snap.items.filter((i) => i.productId).map((i) => i.productId)))
+      uniqueProductIds.forEach((pid) => {
+        api.get(`/products/${pid}`)
+          .then((r) => syncProductBatchesIntoStore(r.data))
+          .catch(() => { /* product may have been deleted — keep the stale row */ })
+      })
+    } catch {
+      // Corrupted snapshot — drop it
+      localStorage.removeItem(AUTO_DRAFT_KEY)
+    }
+  }, [])
+
+  // ── Auto-draft save (mirrors cart state to localStorage on every change) ──
+  useEffect(() => {
+    const hasContent = items.some((i) => i.productId) || !!selectedCustomer
+    if (!hasContent) {
+      localStorage.removeItem(AUTO_DRAFT_KEY)
+      return
+    }
+    const snap: AutoDraftSnapshot = {
+      items,
+      selectedCustomer,
+      customerSearch,
+      paymentMode,
+      paymentDetails,
+      billingType,
+      invoiceType,
+      deliveryCharge,
+      savedAt: new Date().toISOString(),
+    }
+    try {
+      localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(snap))
+    } catch { /* localStorage full / unavailable — non-fatal */ }
+  }, [items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge])
 
   // ── Customer last-sale price cache: productId → rate ─────
   const [customerLastRates, setCustomerLastRates] = useState<Record<string, number>>({})
@@ -2706,6 +2804,7 @@ export default function NewSalePage() {
       } else {
         await api.post('/billing', payload)
       }
+      localStorage.removeItem(AUTO_DRAFT_KEY)
       toast.success('Saved as draft — find it in Sales under Drafts')
       navigate('/billing/sales?status=DRAFT')
     } catch (error: unknown) {
@@ -2886,6 +2985,7 @@ export default function NewSalePage() {
       // Backend returned an approval request instead of a finalized invoice
       if (savedInvoice?.approvalRequested) {
         toast.success('Approval request sent to admin. The bill is saved as draft and will be finalized once approved.', { duration: 6000 })
+        localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
         navigate('/billing/sales')
         return
@@ -2893,6 +2993,7 @@ export default function NewSalePage() {
 
       if (invoiceType === 'quotation') {
         toast.success(`Quotation ${savedInvoice.quotationNumber ?? savedInvoice.invoiceNumber} saved successfully`)
+        localStorage.removeItem(AUTO_DRAFT_KEY)
         navigate('/billing/quotations')
       } else {
         // If this invoice was converted from a quotation, mark it as CONVERTED
@@ -2901,6 +3002,7 @@ export default function NewSalePage() {
         }
         printInvoicePdf(savedInvoice)
         toast.success('Invoice saved and sent to printer')
+        localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
         navigate('/billing/sales')
       }
