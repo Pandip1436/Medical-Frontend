@@ -27,7 +27,9 @@ import {
   Receipt,
   Wallet,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  CalendarDays,
   Minus,
   BarChart3,
   PieChart as PieChartIcon,
@@ -35,13 +37,12 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn, formatCurrency } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
@@ -50,15 +51,14 @@ import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 // Period definitions
 // ─────────────────────────────────────────────────────────────
 
-type Period = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom'
+type Period = 'year' | 'month'
 
 const periodLabels: Record<Period, string> = {
-  this_month: 'This Month',
-  last_month: 'Last Month',
-  this_quarter: 'This Quarter',
-  this_year: 'This Year',
-  custom: 'Custom',
+  year: 'Year',
+  month: 'Month',
 }
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 interface PLData {
   salesRevenue: number
@@ -77,20 +77,25 @@ interface PLData {
   netProfitPercent: number
 }
 
-function periodToRange(period: Period): { from: string; to: string } {
+function periodToRange(period: Period, year: number, monthIdx: number): { from: string; to: string } {
   const now = dayjs()
-  if (period === 'last_month') {
-    const lm = now.subtract(1, 'month')
-    return { from: lm.startOf('month').format('YYYY-MM-DD'), to: lm.endOf('month').format('YYYY-MM-DD') }
+  if (period === 'year') {
+    const start = dayjs().year(year).startOf('year')
+    const end = dayjs().year(year).endOf('year')
+    const to = year === now.year() ? now.endOf('day') : end
+    return { from: start.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') }
   }
-  if (period === 'this_quarter') {
-    const qStart = now.startOf('month').subtract((now.month() % 3), 'month')
-    return { from: qStart.format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
-  }
-  if (period === 'this_year') {
-    return { from: now.startOf('year').format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
-  }
-  return { from: now.startOf('month').format('YYYY-MM-DD'), to: now.endOf('day').format('YYYY-MM-DD') }
+  // 'month' — scope to (year, monthIdx)
+  const m = dayjs().year(year).month(monthIdx)
+  const start = m.startOf('month')
+  const end = m.endOf('month')
+  const to = year === now.year() && monthIdx === now.month() ? now.endOf('day') : end
+  return { from: start.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') }
+}
+
+function periodDisplay(period: Period, year: number, monthIdx: number): string {
+  if (period === 'year') return `Year ${year}`
+  return `${MONTH_NAMES[monthIdx]} ${year}`
 }
 
 function mapPLResponse(resp: any): PLData {
@@ -251,6 +256,7 @@ function KPICard({
   icon: Icon,
   iconColor,
   iconBg,
+  borderAccent,
 }: {
   label: string
   value: number
@@ -258,27 +264,30 @@ function KPICard({
   icon: typeof DollarSign
   iconColor: string
   iconBg: string
+  borderAccent: string
 }) {
   const isUp = change >= 0
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-background px-4 py-3">
-      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', iconBg)}>
-        <Icon className={cn('h-5 w-5', iconColor)} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-        <p className="font-mono text-lg font-bold tabular-nums leading-tight">{formatCurrency(value)}</p>
-      </div>
-      {change !== 0 && (
-        <div className={cn(
-          'flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold',
-          isUp ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-        )}>
-          {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-          {Math.abs(change).toFixed(1)}%
+    <Card hover className={cn('border-l-[3px]', borderAccent)}>
+      <CardContent className="flex items-center gap-4 p-4">
+        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', iconBg)}>
+          <Icon className={cn('h-5 w-5', iconColor)} />
         </div>
-      )}
-    </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="font-mono text-lg font-bold tabular-nums leading-tight">{formatCurrency(value)}</p>
+        </div>
+        {change !== 0 && (
+          <div className={cn(
+            'flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold shrink-0',
+            isUp ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+          )}>
+            {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+            {Math.abs(change).toFixed(1)}%
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -287,7 +296,11 @@ function KPICard({
 // ─────────────────────────────────────────────────────────────
 
 export default function ProfitLossPage() {
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>('this_month')
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('month')
+  const [selectedYear, setSelectedYear] = useState(dayjs().year())
+  const [selectedMonthIdx, setSelectedMonthIdx] = useState(dayjs().month())
+  const [yearPopoverOpen, setYearPopoverOpen] = useState(false)
+  const [monthPopoverOpen, setMonthPopoverOpen] = useState(false)
   const [rightTab, setRightTab] = useState<'trend' | 'breakdown'>('trend')
 
   const emptyPL: PLData = {
@@ -301,7 +314,7 @@ export default function ProfitLossPage() {
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; revenue: number; profit: number }[]>([])
 
   const fetchPL = useCallback(() => {
-    const { from, to } = periodToRange(selectedPeriod)
+    const { from, to } = periodToRange(selectedPeriod, selectedYear, selectedMonthIdx)
     api
       .get('/reports/financial/profit-loss', { params: { from, to } })
       .then((res) => setPlData(mapPLResponse(res.data)))
@@ -327,7 +340,7 @@ export default function ProfitLossPage() {
       .then((res) => setMonthlyTrend(res.data?.chartData ?? []))
       .catch(() => setMonthlyTrend([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPeriod])
+  }, [selectedPeriod, selectedYear, selectedMonthIdx])
 
   useEffect(() => { fetchPL() }, [fetchPL])
   useBranchRefresh(fetchPL)
@@ -373,47 +386,10 @@ export default function ProfitLossPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* ══════════════════════════════════════════════════════════ */}
-      {/* FIXED HEADER                                              */}
-      {/* ══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">Profit & Loss Statement</h1>
-            <p className="text-[11px] text-muted-foreground">Revenue, expenses, and profitability analysis</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Period selector */}
-            <Select value={selectedPeriod} onValueChange={(v) => setSelectedPeriod(v as Period)}>
-              <SelectTrigger className="h-8 w-35 rounded-lg text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.entries(periodLabels) as [Period, string][]).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="h-5 w-px bg-border/60" />
-
-            <Button variant="outline" size="sm" onClick={() => handleExport('PDF')} className="h-8 rounded-lg text-xs">
-              <FileDown className="mr-1 h-3.5 w-3.5" />
-              PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport('Excel')} className="h-8 rounded-lg text-xs">
-              <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />
-              Excel
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════ */}
       {/* KPI STRIP                                                  */}
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="shrink-0 border-b border-border/40 bg-muted/10 px-4 py-3 sm:px-6 dark:bg-muted/5">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             label="Net Revenue"
             value={plData.netRevenue}
@@ -421,6 +397,7 @@ export default function ProfitLossPage() {
             icon={DollarSign}
             iconColor="text-blue-600 dark:text-blue-400"
             iconBg="bg-blue-500/10 dark:bg-blue-500/20"
+            borderAccent="border-l-blue-500"
           />
           <KPICard
             label="Gross Profit"
@@ -429,6 +406,7 @@ export default function ProfitLossPage() {
             icon={TrendingUp}
             iconColor="text-emerald-600 dark:text-emerald-400"
             iconBg="bg-emerald-500/10 dark:bg-emerald-500/20"
+            borderAccent="border-l-emerald-500"
           />
           <KPICard
             label="Total Expenses"
@@ -437,6 +415,7 @@ export default function ProfitLossPage() {
             icon={Receipt}
             iconColor="text-amber-600 dark:text-amber-400"
             iconBg="bg-amber-500/10 dark:bg-amber-500/20"
+            borderAccent="border-l-amber-500"
           />
           <KPICard
             label="Net Profit"
@@ -445,8 +424,174 @@ export default function ProfitLossPage() {
             icon={Wallet}
             iconColor={plData.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}
             iconBg={plData.netProfit >= 0 ? 'bg-emerald-500/10 dark:bg-emerald-500/20' : 'bg-rose-500/10 dark:bg-rose-500/20'}
+            borderAccent={plData.netProfit >= 0 ? 'border-l-emerald-500' : 'border-l-rose-500'}
           />
         </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* CONTROLS — Period toggle + Year/Month navigators + Exports */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+        {(() => {
+          const nowYear = dayjs().year()
+          const nowMonth = dayjs().month()
+          const atCurrentMonth = selectedYear === nowYear && selectedMonthIdx === nowMonth
+          const cannotGoNextMonth = selectedYear === nowYear && selectedMonthIdx >= nowMonth
+
+          const goPrevMonth = () => {
+            if (selectedMonthIdx === 0) {
+              setSelectedMonthIdx(11)
+              setSelectedYear((y) => y - 1)
+            } else {
+              setSelectedMonthIdx((m) => m - 1)
+            }
+          }
+          const goNextMonth = () => {
+            if (cannotGoNextMonth) return
+            if (selectedMonthIdx === 11) {
+              setSelectedMonthIdx(0)
+              setSelectedYear((y) => y + 1)
+            } else {
+              setSelectedMonthIdx((m) => m + 1)
+            }
+          }
+          const yearOptions = Array.from({ length: 10 }, (_, i) => nowYear - i)
+
+          return (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Period type toggle */}
+            <div className="inline-flex rounded-md border border-border/60 overflow-hidden h-9">
+              {(['year', 'month'] as Period[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={cn(
+                    'px-3 text-xs font-medium transition-colors',
+                    selectedPeriod === p
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background hover:bg-muted dark:hover:bg-muted/50'
+                  )}
+                  onClick={() => setSelectedPeriod(p)}
+                >
+                  {periodLabels[p]}
+                </button>
+              ))}
+            </div>
+
+            {/* Year picker — always visible */}
+            <Popover open={yearPopoverOpen} onOpenChange={setYearPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  {selectedYear}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-32 p-1" align="start">
+                <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto">
+                  {yearOptions.map((y) => (
+                    <button
+                      key={y}
+                      type="button"
+                      onClick={() => { setSelectedYear(y); setYearPopoverOpen(false) }}
+                      className={cn(
+                        'rounded px-2 py-1.5 text-sm text-left transition-colors hover:bg-muted',
+                        selectedYear === y && 'bg-primary/10 text-primary font-medium'
+                      )}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Month navigator — only when period === 'month' */}
+            {selectedPeriod === 'month' && (
+              <div className="flex items-center gap-1.5">
+                <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrevMonth} aria-label="Previous month">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Popover open={monthPopoverOpen} onOpenChange={setMonthPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+                      {MONTH_NAMES[selectedMonthIdx]}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-2" align="start">
+                    <div className="grid grid-cols-3 gap-1">
+                      {MONTH_NAMES.map((name, idx) => {
+                        const disabled = selectedYear === nowYear && idx > nowMonth
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => { setSelectedMonthIdx(idx); setMonthPopoverOpen(false) }}
+                            className={cn(
+                              'rounded px-2 py-1.5 text-xs font-medium transition-colors',
+                              selectedMonthIdx === idx
+                                ? 'bg-primary text-primary-foreground'
+                                : 'hover:bg-muted',
+                              disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent'
+                            )}
+                          >
+                            {name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={goNextMonth}
+                  disabled={cannotGoNextMonth}
+                  aria-label="Next month"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                {!atCurrentMonth && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => { setSelectedYear(nowYear); setSelectedMonthIdx(nowMonth) }}
+                  >
+                    This Month
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Exports */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-400 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 dark:hover:border-rose-700"
+              onClick={() => handleExport('PDF')}
+            >
+              <FileDown className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">PDF</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={() => handleExport('Excel')}
+            >
+              <FileSpreadsheet className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Excel</span>
+            </Button>
+          </div>
+        </div>
+          )
+        })()}
       </div>
 
       {/* ══════════════════════════════════════════════════════════ */}
@@ -458,7 +603,7 @@ export default function ProfitLossPage() {
           {/* Statement header */}
           <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/5 px-5 py-2 dark:bg-muted/2">
             <span className="text-xs font-semibold text-muted-foreground">
-              P&L Statement — {periodLabels[selectedPeriod]}
+              P&L Statement — {periodDisplay(selectedPeriod, selectedYear, selectedMonthIdx)}
             </span>
             <Badge variant="outline" size="sm" className="font-mono text-[10px]">
               FY 2025-26

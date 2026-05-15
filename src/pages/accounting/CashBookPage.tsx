@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { motion } from 'framer-motion'
@@ -6,6 +6,8 @@ import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
+import dayjs from 'dayjs'
+import { navigate } from '@/lib/router'
 import {
   Plus,
   ArrowDownLeft,
@@ -13,22 +15,24 @@ import {
   Wallet,
   BookOpen,
   Search,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Paperclip,
+  Upload,
+  X,
 } from 'lucide-react'
 
-import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -80,6 +84,7 @@ interface CashTransaction {
   refNumber: string
   debit: number
   credit: number
+  receiptImage?: string | null
 }
 
 const expenseCategories = [
@@ -106,6 +111,8 @@ export default function CashBookPage() {
   )
   const [searchQuery, setSearchQuery] = useState('')
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
   const [apiTransactions, setApiTransactions] = useState<CashTransaction[]>([])
   // Opening balance is now sourced from the BE (sum of all prior CASH
   // receipts/expenses), not hardcoded to 0. Carries yesterday's close into
@@ -129,6 +136,7 @@ export default function CashBookPage() {
           refNumber: r.ref,
           debit: r.type === 'RECEIPT' ? Number(r.amount) : 0,
           credit: r.type === 'PAYMENT' ? Number(r.amount) : 0,
+          receiptImage: r.receiptImage ?? null,
         }))
         setApiTransactions(mapped)
         setOpeningBalance(Number(res.data?.openingBalance ?? 0))
@@ -198,20 +206,32 @@ export default function CashBookPage() {
   const handleAddExpense = async (values: any) => {
     try {
       // Persist via the BE so the expense survives reload, shows up in the
-      // expenses list, and lands in P&L. Previously this only mutated local
-      // state — the user saw it once, then it vanished. paymentMode is sent
-      // UPPERCASE so the cash-book filter picks it up immediately.
-      await api.post('/expenses', {
-        date: values.date,
-        category: values.category,
-        description: values.description,
-        amount: Number(values.amount),
-        paymentMode: String(values.paymentMode ?? 'CASH').toUpperCase(),
-      })
+      // expenses list, and lands in P&L. paymentMode is sent UPPERCASE so the
+      // cash-book filter picks it up immediately. When a receipt file is
+      // attached, switch to multipart/form-data so the backend's
+      // FileInterceptor can stream it straight to R2.
+      if (receiptFile) {
+        const fd = new FormData()
+        fd.append('date', values.date)
+        fd.append('category', values.category)
+        fd.append('description', values.description)
+        fd.append('amount', String(Number(values.amount)))
+        fd.append('paymentMode', String(values.paymentMode ?? 'CASH').toUpperCase())
+        fd.append('receipt', receiptFile)
+        await api.post('/expenses', fd)
+      } else {
+        await api.post('/expenses', {
+          date: values.date,
+          category: values.category,
+          description: values.description,
+          amount: Number(values.amount),
+          paymentMode: String(values.paymentMode ?? 'CASH').toUpperCase(),
+        })
+      }
       toast.success(`Expense of ${formatCurrency(values.amount)} saved to cash book`)
       form.reset({ date: selectedDate, category: '', description: '', amount: 0, paymentMode: 'Cash' })
+      setReceiptFile(null)
       setAddExpenseOpen(false)
-      // Refetch so the new expense appears in the table without a manual reload.
       fetchCashbook()
     } catch (error: any) {
       const msg = error?.response?.data?.message ?? 'Failed to save expense'
@@ -233,160 +253,143 @@ export default function CashBookPage() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="space-y-6"
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="space-y-5"
     >
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Cash Book</h1>
-          <p className="text-sm text-muted-foreground">
-            Daily cash flow register
-          </p>
-        </div>
-        <Button onClick={() => setAddExpenseOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" />
-          Add Expense
-        </Button>
-      </div>
-
-      {/* ── Search + Filter Row ── */}
-      <DataTableFilterBar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search particulars or ref#..."
-        resultsCount={transactions.length}
-      >
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Current Date
-          </Label>
-          <DatePicker
-            value={selectedDate}
-            onChange={setSelectedDate}
-            className="h-9 text-xs"
-            clearable={false}
-          />
-        </div>
-      </DataTableFilterBar>
-
       {/* ── Summary Cards ── */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Opening Balance */}
-        <Card className="rounded-2xl border-border/60">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Opening Balance
-            </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60 dark:bg-muted/30">
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">
-              {formatCurrency(summary.openingBalance)}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Cash In */}
-        <Card className="rounded-2xl border-border/60">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cash In
-            </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 dark:bg-emerald-500/20">
-              <ArrowDownLeft className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-              {formatCurrency(summary.cashIn)}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Cash Out */}
-        <Card className="rounded-2xl border-border/60">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cash Out
-            </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10 dark:bg-rose-500/20">
-              <ArrowUpRight className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
-              {formatCurrency(summary.cashOut)}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Closing Balance */}
-        <Card className="rounded-2xl border-border/60">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Closing Balance
-            </CardTitle>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/60 dark:bg-muted/30">
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div
-              className={cn(
-                'text-2xl font-bold font-mono',
-                summary.closingBalance >= 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-rose-600 dark:text-rose-400'
-              )}
-            >
-              {formatCurrency(summary.closingBalance)}
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          {
+            label: 'Opening Balance',
+            value: formatCurrency(summary.openingBalance),
+            icon: BookOpen,
+            iconBg: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
+            borderAccent: 'border-l-slate-400',
+            valueClass: '',
+          },
+          {
+            label: 'Cash In',
+            value: formatCurrency(summary.cashIn),
+            icon: ArrowDownLeft,
+            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            borderAccent: 'border-l-emerald-500',
+            valueClass: 'text-emerald-600 dark:text-emerald-400',
+          },
+          {
+            label: 'Cash Out',
+            value: formatCurrency(summary.cashOut),
+            icon: ArrowUpRight,
+            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+            borderAccent: 'border-l-rose-500',
+            valueClass: 'text-rose-600 dark:text-rose-400',
+          },
+          {
+            label: 'Closing Balance',
+            value: formatCurrency(summary.closingBalance),
+            icon: Wallet,
+            iconBg: summary.closingBalance >= 0
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              : 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+            borderAccent: summary.closingBalance >= 0 ? 'border-l-emerald-500' : 'border-l-rose-500',
+            valueClass: summary.closingBalance >= 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-rose-600 dark:text-rose-400',
+          },
+        ].map((stat) => (
+          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </p>
+                <p className={cn('text-lg font-bold font-mono leading-tight', stat.valueClass)}>
+                  {stat.value}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* ── Receipt-tape Summary ── */}
-      <Card className="rounded-2xl border-border/60 max-w-sm">
-        <CardContent className="p-4 space-y-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Day Summary
+      {/* ── Date + Actions Row ── */}
+      {(() => {
+        const isToday = dayjs(selectedDate).isSame(dayjs(), 'day')
+        const isFuture = dayjs(selectedDate).isAfter(dayjs(), 'day')
+        const formattedDate = dayjs(selectedDate).format('ddd, DD MMM YYYY')
+        const goPrev = () => setSelectedDate(dayjs(selectedDate).subtract(1, 'day').format('YYYY-MM-DD'))
+        const goNext = () => setSelectedDate(dayjs(selectedDate).add(1, 'day').format('YYYY-MM-DD'))
+        const goToday = () => setSelectedDate(dayjs().format('YYYY-MM-DD'))
+        return (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-1.5">
+              <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrev} aria-label="Previous day">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={goNext}
+                disabled={isToday || isFuture}
+                aria-label="Next day"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium">
+                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                    {formattedDate}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dayjs(selectedDate).toDate()}
+                    onSelect={(d) => d && setSelectedDate(dayjs(d).format('YYYY-MM-DD'))}
+                    disabled={(d) => dayjs(d).isAfter(dayjs(), 'day')}
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button variant="outline" size="sm" className="h-9" onClick={goToday} disabled={isToday}>
+                Today
+              </Button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 hidden md:inline-flex"
+                onClick={() => navigate('/accounting/expenses')}
+              >
+                Manage all expenses →
+              </Button>
+              <Button size="sm" className="h-9" onClick={() => setAddExpenseOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" />
+                Add Expense
+              </Button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Search ── */}
+      <Input
+        icon={<Search className="h-4 w-4" />}
+        placeholder="Search particulars or ref#..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        suffix={
+          <span className="tabular-nums whitespace-nowrap text-xs text-muted-foreground">
+            {transactions.length} found
           </span>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Opening</span>
-            <span className="font-mono">{formatCurrency(summary.openingBalance)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-emerald-600 dark:text-emerald-400">+ Cash In</span>
-            <span className="font-mono text-emerald-600 dark:text-emerald-400">
-              {formatCurrency(summary.cashIn)}
-            </span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-rose-600 dark:text-rose-400">- Cash Out</span>
-            <span className="font-mono text-rose-600 dark:text-rose-400">
-              {formatCurrency(summary.cashOut)}
-            </span>
-          </div>
-          <div className="border-t border-dashed border-border/60 pt-2 flex justify-between text-sm font-bold">
-            <span>Closing</span>
-            <span
-              className={cn(
-                'font-mono',
-                summary.closingBalance >= 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-rose-600 dark:text-rose-400'
-              )}
-            >
-              {formatCurrency(summary.closingBalance)}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
+        }
+      />
 
       {/* ── Transaction Table ── */}
       <Card className="overflow-x-auto rounded-2xl border-border/60">
@@ -403,15 +406,49 @@ export default function CashBookPage() {
               </div>
             ))}
             {!isLoading && transactionsWithBalance.length === 0 && (
-              <div className="py-8 text-center text-muted-foreground text-sm">
-                No transactions for this date
+              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
+                  <BookOpen className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Nothing recorded for this date</p>
+                  <p className="text-xs text-muted-foreground max-w-sm px-4">
+                    Cash invoices and cash expenses logged on this date will appear here.
+                    For bank or UPI expenses, use the Expenses page.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <Button size="sm" onClick={() => setAddExpenseOpen(true)}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    Record Expense
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => navigate('/billing/new')}>
+                    Create Cash Sale
+                  </Button>
+                </div>
               </div>
             )}
             <div className="divide-y divide-border/40">
               {!isLoading && paginatedTransactions.map((txn) => (
                 <div key={txn.id} className="flex items-start justify-between gap-2 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{txn.particular}</p>
+                    <p className="text-sm font-medium truncate">
+                      <span className="inline-flex items-center gap-1.5 align-middle">
+                        {txn.particular}
+                        {txn.receiptImage && (
+                          <a
+                            href={txn.receiptImage}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label="View receipt"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </span>
+                    </p>
                     <div className="mt-0.5 flex items-center gap-2">
                       {typeBadge(txn.type)}
                       <span className="font-mono text-[10px] text-muted-foreground">{txn.time}</span>
@@ -491,10 +528,27 @@ export default function CashBookPage() {
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {txn.time}
                   </TableCell>
-                  <TableCell className="text-sm font-medium">{txn.particular}</TableCell>
+                  <TableCell className="text-sm font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      {txn.particular}
+                      {txn.receiptImage && (
+                        <a
+                          href={txn.receiptImage}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground"
+                          title="View receipt"
+                          aria-label="View receipt"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Paperclip className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                    </span>
+                  </TableCell>
                   <TableCell>{typeBadge(txn.type)}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
-                    {txn.refNumber}
+                    {txn.type === 'Expense' ? '—' : txn.refNumber}
                   </TableCell>
                   <TableCell className="text-right font-mono text-sm text-emerald-600 dark:text-emerald-400">
                     {txn.debit > 0 ? formatCurrency(txn.debit) : '-'}
@@ -508,9 +562,29 @@ export default function CashBookPage() {
                 </TableRow>
               ))}
               {!isLoading && transactionsWithBalance.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    No transactions for this date
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={7} className="p-0">
+                    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
+                        <BookOpen className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Nothing recorded for this date</p>
+                        <p className="text-xs text-muted-foreground max-w-sm">
+                          Cash invoices and cash expenses logged on this date will appear here.
+                          For bank or UPI expenses, use the Expenses page.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button size="sm" onClick={() => setAddExpenseOpen(true)}>
+                          <Plus className="mr-1 h-4 w-4" />
+                          Record Expense
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => navigate('/billing/new')}>
+                          Create Cash Sale
+                        </Button>
+                      </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}
@@ -601,23 +675,70 @@ export default function CashBookPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Payment Mode</Label>
-              <Controller
-                control={form.control}
-                name="paymentMode"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Cash">Cash</SelectItem>
-                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="UPI">UPI</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
+              <Label>Receipt (optional)</Label>
+              {receiptFile ? (
+                <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
+                  <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-xs flex-1 truncate">{receiptFile.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => {
+                      setReceiptFile(null)
+                      if (receiptInputRef.current) receiptInputRef.current.value = ''
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start rounded-xl"
+                  onClick={() => receiptInputRef.current?.click()}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Attach receipt (image or PDF, max 5 MB)
+                </Button>
+              )}
+              <input
+                ref={receiptInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  if (f.size > 5 * 1024 * 1024) {
+                    toast.error('File too large (max 5 MB)')
+                    e.target.value = ''
+                    return
+                  }
+                  setReceiptFile(f)
+                }}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Payment Mode</Label>
+              <div className="flex items-center gap-2 rounded-xl border border-input bg-muted/30 px-3 py-2">
+                <Badge variant="info" size="sm" dot>Cash</Badge>
+                <span className="text-xs text-muted-foreground">Cash Book records cash expenses only.</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                For bank transfer or UPI expenses, use the{' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => { setAddExpenseOpen(false); navigate('/accounting/expenses') }}
+                >
+                  Expenses page
+                </button>
+                .
+              </p>
             </div>
 
             <DialogFooter>

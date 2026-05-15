@@ -128,8 +128,11 @@ export default function ProductsPage() {
     api.get('/categories').then(r => setCategories(r.data)).catch(() => {})
     api.get('/reports/dashboard')
       .then(r => setStockSummary({
-        lowStock: r.data?.lowStockItems ?? 0,
-        outOfStock: r.data?.outOfStockItems ?? 0,
+        // Backend returns the count under `lowStockAlertsCount`; `lowStockItems`
+        // is the actual array of products (used by the dashboard table) and
+        // would render as `[object Object], ...` if we stringified it here.
+        lowStock: r.data?.lowStockAlertsCount ?? 0,
+        outOfStock: r.data?.outOfStockCount ?? 0,
       }))
       .catch(() => {})
   }, [])

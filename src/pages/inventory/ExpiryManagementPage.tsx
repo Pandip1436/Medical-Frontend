@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { BatchDetailView } from './BatchDetailView'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
@@ -59,6 +61,7 @@ export default function ExpiryManagementPage() {
   const [selectedBucket, setSelectedBucket] = useState<'all' | ExpiryBucket>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const [detailBatchId, setDetailBatchId] = useState<string | null>(null)
   const PAGE_SIZE = 10
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -101,7 +104,11 @@ export default function ExpiryManagementPage() {
           q: searchQuery.trim() || undefined,
           supplierId: supplierIdForFilter,
           ...bucketParams,
-          status: selectedBucket === 'expired' ? undefined : (selectedBucket === 'all' ? undefined : 'active'),
+          // status: 'active' on the backend means qty>0 AND not expired, so we
+          // only use it for the time-window buckets. For 'all' and 'expired'
+          // we want expired batches to come through — qty=0 is filtered out
+          // client-side in `enrichedBatches` below.
+          status: (selectedBucket === 'all' || selectedBucket === 'expired') ? undefined : 'active',
           skip: (currentPage - 1) * PAGE_SIZE,
           take: PAGE_SIZE,
         },
@@ -132,25 +139,29 @@ export default function ExpiryManagementPage() {
   }, [])
   useEffect(() => { refreshStats() }, [refreshStats])
 
-  // Convert API rows to the shape the renderer already expects.
+  // Convert API rows to the shape the renderer already expects. Always drop
+  // qty=0 batches — they're already handled (written off / disposed) and have
+  // no further action available on this page.
   const enrichedBatches: EnrichedBatch[] = useMemo(() => {
-    return rows.map((r) => {
-      const days = computeDaysToExpiry(r.expiryDate) ?? Number.NaN
-      return {
-        batchId: r.id,
-        batchNumber: r.batchNumber,
-        productId: r.productId,
-        productName: r.productName ?? 'Unknown',
-        expiryDate: r.expiryDate,
-        mfgDate: r.mfgDate,
-        quantity: r.quantity,
-        mrp: Number(r.mrp),
-        stockValue: r.quantity * Number(r.mrp),
-        supplierName: r.supplierName ?? 'Unknown',
-        daysToExpiry: days,
-        bucket: assignExpiryBucket(r.expiryDate),
-      }
-    })
+    return rows
+      .filter((r) => Number(r.quantity) > 0)
+      .map((r) => {
+        const days = computeDaysToExpiry(r.expiryDate) ?? Number.NaN
+        return {
+          batchId: r.id,
+          batchNumber: r.batchNumber,
+          productId: r.productId,
+          productName: r.productName ?? 'Unknown',
+          expiryDate: r.expiryDate,
+          mfgDate: r.mfgDate,
+          quantity: r.quantity,
+          mrp: Number(r.mrp),
+          stockValue: r.quantity * Number(r.mrp),
+          supplierName: r.supplierName ?? 'Unknown',
+          daysToExpiry: days,
+          bucket: assignExpiryBucket(r.expiryDate),
+        }
+      })
   }, [rows])
 
   // Build the 5 summary cards from the stats bundle (one round-trip, no full
@@ -245,7 +256,7 @@ export default function ExpiryManagementPage() {
               <div
                 key={batch.batchId}
                 id={`batchId-${batch.batchId}`}
-                onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                onClick={() => setDetailBatchId(batch.batchId)}
                 className={cn(
                   'flex items-start justify-between gap-2 px-4 py-3 transition-colors cursor-pointer hover:bg-muted/30',
                   highlightBatchId === batch.batchId && 'bg-amber-500/15 ring-2 ring-amber-500/40'
@@ -315,7 +326,7 @@ export default function ExpiryManagementPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
-                    onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                    onClick={() => setDetailBatchId(batch.batchId)}
                     className={cn(
                       'cursor-pointer border-b border-border/40 transition-colors hover:bg-muted/30',
                       highlightBatchId === batch.batchId && 'bg-amber-500/15 hover:bg-amber-500/20'
@@ -343,7 +354,7 @@ export default function ExpiryManagementPage() {
                     <TableCell className="text-sm">{batch.supplierName}</TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                        onView={() => setDetailBatchId(batch.batchId)}
                         customActions={[
                           {
                             label: 'Adjust Stock',
@@ -464,41 +475,63 @@ export default function ExpiryManagementPage() {
       {/* Batches table */}
       {renderBatchTable(visibleBatches)}
 
+      {/* Batch Detail Side Panel */}
+      <Sheet
+        open={!!detailBatchId}
+        onOpenChange={(open) => { if (!open) setDetailBatchId(null) }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
+        >
+          <SheetTitle className="sr-only">Batch detail</SheetTitle>
+          <BatchDetailView
+            batchId={detailBatchId}
+            onAfterAction={() => {
+              setDetailBatchId(null)
+              setRefreshKey((k) => k + 1)
+              refreshStats()
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+
       {/* Confirm Write-Off / Dispose Dialog */}
       <Dialog open={!!confirmAction} onOpenChange={(open) => { if (!open) setConfirmAction(null) }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {confirmAction?.type === 'writeoff' ? 'Write Off Batch' : 'Mark Batch as Disposed'}
+              {confirmAction?.type === 'writeoff' ? 'Write off batch?' : 'Mark batch as disposed?'}
             </DialogTitle>
             <DialogDescription>
-              This will set the quantity of batch <span className="font-mono font-semibold">{confirmAction?.batch.batchNumber}</span> ({confirmAction?.batch.productName}) to <strong>0</strong>.
-              {' '}This action cannot be undone.
+              {confirmAction?.type === 'writeoff'
+                ? 'Removes expired stock from sellable inventory and records the value as a financial loss. Use for stock that’s past expiry but where no physical disposal is being recorded yet.'
+                : 'Records that this batch was physically destroyed, contaminated, or damaged. Use when documenting actual disposal (incineration, hazardous waste, controlled-substance destruction).'}
             </DialogDescription>
           </DialogHeader>
           {confirmAction && (
-            <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
+            <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-sm space-y-1.5">
+              <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Product</span>
-                <span className="font-medium">{confirmAction?.batch?.productName}</span>
+                <span className="font-medium truncate">{confirmAction.batch.productName}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Batch</span>
-                <span className="font-mono">{confirmAction?.batch?.batchNumber}</span>
+                <span className="font-mono">{confirmAction.batch.batchNumber}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Current Qty</span>
-                <span className="font-mono">{confirmAction?.batch?.quantity}</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Quantity</span>
+                <span className="font-mono">{confirmAction.batch.quantity} units &rarr; 0</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Stock Value</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Stock value</span>
                 <span className="font-mono text-red-600">
-                  {confirmAction?.batch ? formatCurrency(confirmAction.batch.stockValue) : '—'}
+                  {formatCurrency(confirmAction.batch.stockValue)}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Reason</span>
-                <span>{confirmAction?.type === 'writeoff' ? 'Expired Removal' : 'Damaged / Disposed'}</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Recorded reason</span>
+                <span className="font-medium">{confirmAction.type === 'writeoff' ? 'Expired Removal' : 'Damaged'}</span>
               </div>
             </div>
           )}

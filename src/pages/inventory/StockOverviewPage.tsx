@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'sonner'
 import {
   Package,
   IndianRupee,
@@ -10,9 +11,13 @@ import {
   MapPin,
   PackageX,
   Pencil,
+  Upload,
+  Download,
+  FileDown,
 } from 'lucide-react'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import api from '@/lib/api'
+import { exportToExcel } from '@/lib/excelUtils'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -29,10 +34,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from '@/components/ui/sheet'
 
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate, formatNumber } from '@/lib/utils'
+import { BatchDetailView } from './BatchDetailView'
 
 // ─────────────────────────────────────────────────────────────
 // Status helpers
@@ -118,6 +137,9 @@ export default function StockOverviewPage() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [exporting, setExporting] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [detailBatchId, setDetailBatchId] = useState<string | null>(null)
 
   // Server-paginated rows for both views, plus the KPI bundle.
   const [batchRows, setBatchRows] = useState<any[]>([])
@@ -138,6 +160,9 @@ export default function StockOverviewPage() {
   }, [])
 
   // Map UI status → API params for /batches.
+  // Note: the backend's `status: 'active'` means qty>0 AND not expired, so we
+  // can't use it for the Expired filter (it'd cancel itself out). qty=0
+  // exclusion is done client-side in `paginatedRows` below.
   const statusToBatchParams = (status: string): Record<string, string | boolean | undefined> => {
     if (status === 'expired') return { expired: true }
     if (status === 'near_expiry') return { expiringWithin: '90' }
@@ -189,11 +214,81 @@ export default function StockOverviewPage() {
   // Reset to page 1 whenever a filter changes (or the view mode flips).
   useEffect(() => { setCurrentPage(1) }, [viewMode, search, categoryFilter, statusFilter])
 
+  // ── Export: pull all matching rows in one request, then write .xlsx ──
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const res = await api.get('/batches', {
+        params: {
+          q: search.trim() || undefined,
+          ...statusToBatchParams(statusFilter),
+          take: 10000,
+        },
+      })
+      const rawRows: any[] = res.data?.data ?? []
+      const rows = statusFilter === 'out_of_stock'
+        ? rawRows
+        : rawRows.filter((r) => Number(r.quantity) > 0)
+      if (rows.length === 0) {
+        toast.error('No stock records to export for the current filters')
+        return
+      }
+      const exportRows = rows.map((r) => {
+        const qty = Number(r.quantity) || 0
+        const mrp = Number(r.mrp) || 0
+        const status = getBatchStatus(
+          { totalStock: r.productTotalStock, minStock: r.minStock },
+          r,
+        )
+        return {
+          'Product Name': r.productName ?? '',
+          'Batch Number': r.batchNumber ?? '',
+          'Expiry Date': r.expiryDate ? formatDate(r.expiryDate) : '',
+          'Quantity': qty,
+          'MRP': mrp,
+          'Stock Value': qty * mrp,
+          'Rack Location': r.rackLocation ?? '',
+          'Status': statusConfig[status].label,
+        }
+      })
+      const today = new Date().toISOString().slice(0, 10)
+      exportToExcel(exportRows, `stock-overview-${today}`)
+      toast.success(`Exported ${exportRows.length} record${exportRows.length === 1 ? '' : 's'}`)
+    } catch {
+      toast.error('Failed to export stock data')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // ── Import: sample template download only (upload deferred) ──
+  const handleDownloadSampleTemplate = () => {
+    const sampleRows = [
+      {
+        'Product Name': 'Paracetamol 500mg',
+        'Batch Number': 'B-001',
+        'Expiry Date': '31/12/2027',
+        'Quantity': 100,
+        'MRP': 25,
+        'Purchase Rate': 18,
+        'Rack Location': 'A-01',
+        'Supplier Name': 'ABC Pharma',
+      },
+    ]
+    exportToExcel(sampleRows, 'stock-import-template')
+  }
+
   // Map API batch rows → StockRow shape the renderer already expects. Status
   // is computed client-side per row using the joined product info on each
-  // batch (productTotalStock + minStock + expiryDate).
+  // batch (productTotalStock + minStock + expiryDate). qty=0 batches are
+  // hidden by default — they're "handled" (written off / disposed) and
+  // shouldn't clutter the working view. The "Out of Stock" status filter
+  // is the explicit escape hatch when the user wants to see them.
   const paginatedRows: StockRow[] = useMemo(() => {
-    return batchRows.map((r) => ({
+    const source = statusFilter === 'out_of_stock'
+      ? batchRows
+      : batchRows.filter((r) => Number(r.quantity) > 0)
+    return source.map((r) => ({
       productId: r.productId,
       productName: r.productName ?? 'Unknown',
       category: '',
@@ -210,7 +305,7 @@ export default function StockOverviewPage() {
       totalStock: r.productTotalStock ?? 0,
       minStock: r.minStock ?? 0,
     }))
-  }, [batchRows])
+  }, [batchRows, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(batchTotal / PAGE_SIZE))
 
@@ -342,23 +437,44 @@ export default function StockOverviewPage() {
           setCurrentPage(1);
         }}
         actionNode={
-          <div className="flex items-center rounded-xl border border-border/60 p-1">
+          <div className="flex items-center gap-1.5">
             <Button
-              variant={viewMode === 'table' ? 'default' : 'ghost'}
+              variant="outline"
               size="sm"
-              onClick={() => { setViewMode('table'); setCurrentPage(1) }}
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => setImportDialogOpen(true)}
             >
-              <TableProperties className="mr-1 h-4 w-4" />
-              Table
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Import</span>
             </Button>
             <Button
-              variant={viewMode === 'card' ? 'default' : 'ghost'}
+              variant="outline"
               size="sm"
-              onClick={() => { setViewMode('card'); setCurrentPage(1) }}
+              disabled={exporting}
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={handleExport}
             >
-              <LayoutGrid className="mr-1 h-4 w-4" />
-              Cards
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">{exporting ? 'Exporting…' : 'Export'}</span>
             </Button>
+            <div className="flex items-center rounded-xl border border-border/60 p-1">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setViewMode('table'); setCurrentPage(1) }}
+              >
+                <TableProperties className="mr-1 h-4 w-4" />
+                Table
+              </Button>
+              <Button
+                variant={viewMode === 'card' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setViewMode('card'); setCurrentPage(1) }}
+              >
+                <LayoutGrid className="mr-1 h-4 w-4" />
+                Cards
+              </Button>
+            </div>
           </div>
         }
       >
@@ -406,7 +522,7 @@ export default function StockOverviewPage() {
                 {paginatedRows.map((row) => {
                   const sc = statusConfig[row.status]
                   const onRowClick = () => {
-                    if (row.batchId) navigate(`/inventory/batches/detail?id=${row.batchId}`)
+                    if (row.batchId) setDetailBatchId(row.batchId)
                     else navigate(`/inventory/product-history?productId=${row.productId}`)
                   }
                   return (
@@ -457,7 +573,6 @@ export default function StockOverviewPage() {
                 <TableRow>
                   <TableHead>Product</TableHead>
                   <TableHead>Batch</TableHead>
-                  <TableHead>Mfg Date</TableHead>
                   <TableHead>Expiry</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">MRP</TableHead>
@@ -471,7 +586,7 @@ export default function StockOverviewPage() {
                 <AnimatePresence mode="popLayout">
                   {paginatedRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="h-40">
+                      <TableCell colSpan={9} className="h-40">
                         <div className="flex flex-col items-center justify-center gap-3 text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                             <Package className="h-6 w-6 text-muted-foreground/60" />
@@ -487,7 +602,7 @@ export default function StockOverviewPage() {
                     paginatedRows.map((row, idx) => {
                       const sc = statusConfig[row.status]
                       const onRowClick = () => {
-                        if (row.batchId) navigate(`/inventory/batches/detail?id=${row.batchId}`)
+                        if (row.batchId) setDetailBatchId(row.batchId)
                         else navigate(`/inventory/product-history?productId=${row.productId}`)
                       }
                       return (
@@ -502,7 +617,6 @@ export default function StockOverviewPage() {
                         >
                           <TableCell className="font-medium">{row.productName}</TableCell>
                           <TableCell className="font-mono text-xs">{row.batchNumber}</TableCell>
-                          <TableCell className="text-muted-foreground">{formatDate(row.mfgDate)}</TableCell>
                           <TableCell className="text-muted-foreground">{formatDate(row.expiryDate)}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{row.quantity}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(row.mrp)}</TableCell>
@@ -620,6 +734,61 @@ export default function StockOverviewPage() {
           )}
         </>
       )}
+
+      {/* ── Batch Detail Side Panel ── */}
+      <Sheet
+        open={!!detailBatchId}
+        onOpenChange={(open) => { if (!open) setDetailBatchId(null) }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
+        >
+          <SheetTitle className="sr-only">Batch detail</SheetTitle>
+          <BatchDetailView
+            batchId={detailBatchId}
+            onAfterAction={() => {
+              setDetailBatchId(null)
+              // Refresh the table so the just-adjusted batch reflects the new qty.
+              setBatchRows((prev) => prev.filter((r) => r.id !== detailBatchId))
+            }}
+          />
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Import Dialog (sample template only for now) ── */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Stock Batches</DialogTitle>
+            <DialogDescription>
+              Bulk upload is coming soon. For now, download the sample template to see
+              the expected format — share it with whoever is preparing the data, and
+              we'll wire up the upload step once the backend is ready.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={handleDownloadSampleTemplate}
+            >
+              <FileDown className="mr-1.5 h-4 w-4" />
+              Download Sample Template
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Columns: Product Name, Batch Number, Expiry Date (DD/MM/YYYY), Quantity,
+              MRP, Purchase Rate, Rack Location, Supplier Name.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   )
 }
