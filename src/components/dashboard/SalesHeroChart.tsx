@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import dayjs from 'dayjs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import api from '@/lib/api'
 import { cn, formatCurrencyCompact } from '@/lib/utils'
 import { useDateRange } from './useDateRange'
 import type { DateRangePreset } from './types'
 
 const PRESETS: Array<{ value: DateRangePreset; label: string }> = [
-  { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
+  { value: '6m', label: '6M' },
   { value: 'year', label: 'Year' },
 ]
+
+const MONTH_OPTIONS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+].map((label, value) => ({ value, label }))
 
 interface ChartPoint {
   label: string
@@ -20,13 +26,21 @@ interface ChartPoint {
 }
 
 function bucketForPreset(preset: DateRangePreset): 'day' | 'month' {
-  // Year view shows monthly totals; week/month show daily buckets.
-  return preset === 'year' ? 'month' : 'day'
+  // Month shows daily buckets; 6M and Year show monthly buckets.
+  return preset === 'month' ? 'day' : 'month'
 }
 
 export function SalesHeroChart() {
-  const { resolved, range, setPreset } = useDateRange()
+  const { resolved, range, setPreset, setAnchor } = useDateRange()
   const bucket = bucketForPreset(range.preset)
+  const anchor = useMemo(() => dayjs(range.anchor), [range.anchor])
+
+  // 10-year window ending at the current year — enough for normal review,
+  // small enough to fit comfortably in the dropdown.
+  const yearOptions = useMemo(() => {
+    const current = dayjs().year()
+    return Array.from({ length: 10 }, (_, i) => current - 9 + i).reverse()
+  }, [])
 
   const [data, setData] = useState<ChartPoint[]>([])
   const [total, setTotal] = useState(0)
@@ -63,9 +77,9 @@ export function SalesHeroChart() {
   }, [resolved.from, resolved.to, bucket])
 
   const subtitle = (() => {
-    if (range.preset === 'week') return 'Last 7 days · daily'
-    if (range.preset === 'month') return `${dayjs(resolved.from).format('MMM YYYY')} · daily`
-    return `${dayjs(resolved.from).format('YYYY')} · monthly`
+    if (range.preset === 'month') return `${resolved.label} · daily`
+    if (range.preset === '6m') return `${resolved.label} · monthly`
+    return `${resolved.label} · monthly`
   })()
 
   return (
@@ -76,7 +90,40 @@ export function SalesHeroChart() {
             <CardTitle className="text-base">Sales overview</CardTitle>
             <CardDescription>{subtitle}</CardDescription>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Year preset only varies by year; hide the month selector then. */}
+            {range.preset !== 'year' && (
+              <Select
+                value={String(anchor.month())}
+                onValueChange={(v) => setAnchor(anchor.month(Number(v)).format('YYYY-MM-DD'))}
+              >
+                <SelectTrigger className="h-8 w-22 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONTH_OPTIONS.map((m) => (
+                    <SelectItem key={m.value} value={String(m.value)}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select
+              value={String(anchor.year())}
+              onValueChange={(v) => setAnchor(anchor.year(Number(v)).format('YYYY-MM-DD'))}
+            >
+              <SelectTrigger className="h-8 w-20 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {yearOptions.map((y) => (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <RangeTabs active={range.preset} onChange={setPreset} />
             <div className="text-right">
               <div className="text-2xl font-bold tracking-tight">{formatCurrencyCompact(total)}</div>

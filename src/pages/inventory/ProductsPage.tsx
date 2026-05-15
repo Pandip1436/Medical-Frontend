@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
   Plus, Upload, Download,
-  ChevronLeft, ChevronRight, FileDown, FileSpreadsheet,
+  FileDown, FileSpreadsheet,
   Package, AlertTriangle, Layers, PowerOff, Power,
 } from 'lucide-react'
 
@@ -36,7 +36,6 @@ import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
@@ -93,26 +92,14 @@ function CategorySearchDropdown({
   return (
     <Select value={value || '__placeholder__'} onValueChange={v => onChange(v === '__placeholder__' ? '' : v)}>
       <SelectTrigger className={hasError ? 'border-rose-500 focus:ring-rose-500' : ''}>
-        {selected ? (
-          <span className="flex items-center gap-2">
-            {selected.color && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: selected.color }} />}
-            {selected.name}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Select category…</span>
-        )}
+        {selected ? selected.name : <span className="text-muted-foreground">Select category…</span>}
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="__placeholder__" disabled className="hidden">
           Select category…
         </SelectItem>
         {categories.map(c => (
-          <SelectItem key={c.id} value={c.id}>
-            <span className="flex items-center gap-2">
-              {c.color && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: c.color }} />}
-              {c.name}
-            </span>
-          </SelectItem>
+          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -121,28 +108,31 @@ function CategorySearchDropdown({
 
 // ─── Main Page ─────────────────────────────────────────────────
 export default function ProductsPage() {
-  const products = useMasterDataStore(s => s.products)
   const suppliers = useMasterDataStore(s => s.suppliers)
-  const fetchProducts = useMasterDataStore(s => s.fetchProducts)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const importProducts = useMasterDataStore(s => s.importProducts)
   const importProductsHsn = useMasterDataStore(s => s.importProductsHsn)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [categories, setCategories] = useState<Category[]>([])
+  const [stockSummary, setStockSummary] = useState<{ lowStock: number; outOfStock: number } | null>(null)
 
+  // Mount-only fetches. We deliberately DO NOT call fetchProducts() here —
+  // the master "all products" call is the heaviest endpoint in the app
+  // (returns every product + nested batches). The paginated effect below
+  // pulls just the visible page; the stats card pulls its counters from
+  // the dashboard report.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    fetchProducts()
     fetchSuppliers()
     api.get('/categories').then(r => setCategories(r.data)).catch(() => {})
+    api.get('/reports/dashboard')
+      .then(r => setStockSummary({
+        lowStock: r.data?.lowStockItems ?? 0,
+        outOfStock: r.data?.outOfStockItems ?? 0,
+      }))
+      .catch(() => {})
   }, [])
-
-  const manufacturers = useMemo(() => {
-    const fromSuppliers = suppliers.map(s => s.name)
-    const fromProducts = products.map(p => p.manufacturer)
-    return [...new Set([...fromSuppliers, ...fromProducts])].sort()
-  }, [products, suppliers])
 
   const [search, setSearch] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
@@ -164,7 +154,6 @@ export default function ProductsPage() {
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(new Set(['basic']))
 
   const refreshPage = useCallback(() => setRefreshKey(k => k + 1), [])
-  useBranchRefresh(refreshPage)
 
   useEffect(() => {
     let isSubscribed = true
@@ -192,12 +181,21 @@ export default function ProductsPage() {
     return () => { isSubscribed = false }
   }, [search, selectedCategoryId, selectedSchedule, selectedStatus, currentPage, refreshKey])
 
-  const summaryStats = useMemo(() => {
-    const total = totalCount
-    const lowStock = products.filter(p => p.totalStock > 0 && p.totalStock < p.minStock).length
-    const outOfStock = products.filter(p => p.totalStock === 0).length
-    return { total, lowStock, outOfStock, categories: categories.length }
-  }, [totalCount, products, categories])
+  // Manufacturer datalist: suppliers + whatever manufacturers appear on the
+  // current page of products. Good-enough autocomplete without needing a
+  // full-catalogue load.
+  const manufacturers = useMemo(() => {
+    const fromSuppliers = suppliers.map(s => s.name)
+    const fromProducts = paginatedProducts.map(p => p.manufacturer)
+    return [...new Set([...fromSuppliers, ...fromProducts])].sort()
+  }, [suppliers, paginatedProducts])
+
+  const summaryStats = useMemo(() => ({
+    total: totalCount,
+    lowStock: stockSummary?.lowStock ?? 0,
+    outOfStock: stockSummary?.outOfStock ?? 0,
+    categories: categories.length,
+  }), [totalCount, stockSummary, categories])
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
 
@@ -293,7 +291,6 @@ export default function ProductsPage() {
       setDialogOpen(false)
       setCurrentPage(1)
       refreshPage()
-      fetchProducts()
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Operation failed')
     }
@@ -386,106 +383,65 @@ export default function ProductsPage() {
 
   return (
     <motion.div
-      className="space-y-6"
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="space-y-5"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Products</h1>
-          <p className="text-sm text-muted-foreground">Product & drug master list</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}>
-            <Upload className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="mr-1.5 h-4 w-4" /> Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => {
-                const rows = paginatedProducts.map(p => ({
-                  Name: p.name, Generic: p.genericName,
-                  Category: getProductCategory(p)?.name ?? '',
-                  MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
-                  HSN: p.hsnCode, GST: p.gstRate,
-                }))
-                exportToCsv(rows, 'products')
-              }}>
-                <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                const rows = paginatedProducts.map(p => ({
-                  Name: p.name, Generic: p.genericName,
-                  Category: getProductCategory(p)?.name ?? '',
-                  MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
-                }))
-                exportToPdf(rows, 'Products List', 'products')
-              }}>
-                <FileDown className="mr-2 h-4 w-4" /> Export as PDF
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button onClick={openAddDialog}>
-            <Plus className="mr-1.5 h-4 w-4" /> Add Product
-          </Button>
-        </div>
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          {
+            label: 'Total Products',
+            value: String(summaryStats.total),
+            subtitle: 'in catalog',
+            icon: Package,
+            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+            borderAccent: 'border-l-blue-500',
+          },
+          {
+            label: 'Low Stock',
+            value: String(summaryStats.lowStock),
+            subtitle: 'below min level',
+            icon: AlertTriangle,
+            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            borderAccent: 'border-l-amber-500',
+          },
+          {
+            label: 'Out of Stock',
+            value: String(summaryStats.outOfStock),
+            subtitle: 'zero stock',
+            icon: Package,
+            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+            borderAccent: 'border-l-rose-500',
+          },
+          {
+            label: 'Categories',
+            value: String(summaryStats.categories),
+            subtitle: 'product groups',
+            icon: Layers,
+            iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+            borderAccent: 'border-l-purple-500',
+          },
+        ].map((stat) => (
+          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </p>
+                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <Package className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Products</p>
-              <p className="text-2xl font-bold">{summaryStats.total}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 dark:bg-amber-500/15">
-              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Low Stock</p>
-              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summaryStats.lowStock}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 dark:bg-rose-500/15">
-              <Package className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Out of Stock</p>
-              <p className="text-2xl font-bold text-rose-600 dark:text-rose-400">{summaryStats.outOfStock}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
-              <Layers className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Categories</p>
-              <p className="text-2xl font-bold">{summaryStats.categories}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filter bar */}
+      {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
         searchQuery={search}
         onSearchChange={val => { setSearch(val); setCurrentPage(1) }}
@@ -493,6 +449,63 @@ export default function ProductsPage() {
         resultsCount={totalCount}
         activeFilterCount={(selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)}
         onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}
+            >
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Import</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => {
+                  const rows = paginatedProducts.map(p => ({
+                    Name: p.name, Generic: p.genericName,
+                    Category: getProductCategory(p)?.name ?? '',
+                    MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
+                    HSN: p.hsnCode, GST: p.gstRate,
+                  }))
+                  exportToCsv(rows, 'products')
+                }}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  const rows = paginatedProducts.map(p => ({
+                    Name: p.name, Generic: p.genericName,
+                    Category: getProductCategory(p)?.name ?? '',
+                    MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
+                  }))
+                  exportToPdf(rows, 'Products List', 'products')
+                }}>
+                  <FileDown className="mr-2 h-4 w-4" /> Export as PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={openAddDialog}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Add Product</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
+          </div>
+        }
       >
         <EnumSelect
           label="Category"
@@ -527,8 +540,8 @@ export default function ProductsPage() {
         />
       </DataTableFilterBar>
 
-      {/* Table */}
-      <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
+      {/* ── Mobile Cards / Desktop Table ── */}
+      <Card>
         {/* Mobile */}
         <div className="md:hidden">
           {isLoading ? (
@@ -570,10 +583,7 @@ export default function ProductsPage() {
                       </p>
                       <div className="flex flex-wrap items-center gap-1 pt-0.5">
                         {cat && (
-                          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{ backgroundColor: `${cat.color ?? '#6366F1'}20`, color: cat.color ?? '#6366F1' }}>
-                            {cat.name}
-                          </span>
+                          <Badge variant="secondary" size="sm">{cat.name}</Badge>
                         )}
                         {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
                       </div>
@@ -639,13 +649,7 @@ export default function ProductsPage() {
                     <TableCell className="text-muted-foreground">{product.genericName}</TableCell>
                     <TableCell className="text-muted-foreground">{product.manufacturer}</TableCell>
                     <TableCell>
-                      {cat && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
-                          style={{ backgroundColor: `${cat.color ?? '#6366F1'}20`, color: cat.color ?? '#6366F1' }}>
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cat.color ?? '#6366F1' }} />
-                          {cat.name}
-                        </span>
-                      )}
+                      {cat && <Badge variant="secondary" size="sm">{cat.name}</Badge>}
                     </TableCell>
                     <TableCell>
                       {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
@@ -689,15 +693,15 @@ export default function ProductsPage() {
             </TableBody>
           </Table>
         </div>
-      </div>
-      <DataTablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={totalCount}
-        itemsPerPage={PAGE_SIZE}
-        className="mt-4 px-2"
-      />
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={totalCount}
+          itemsPerPage={PAGE_SIZE}
+          className="border-t border-border/40 px-4"
+        />
+      </Card>
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

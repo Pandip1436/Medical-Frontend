@@ -125,7 +125,7 @@ const baseSchema = z.object({
     .regex(/^\d{10}$/, 'Phone must be exactly 10 digits'),
   branchId: z.string().min(1, 'Branch is required'),
   commissionRate: z
-    .number({ invalid_type_error: 'Commission must be a number' })
+    .number({ error: 'Commission must be a number' })
     .min(0, 'Commission cannot be negative')
     .max(100, 'Commission cannot exceed 100%'),
   password: z.string().optional(),

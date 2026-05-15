@@ -26,6 +26,16 @@ interface MasterDataState {
   importProductsHsn: (items: any[]) => Promise<any>
 }
 
+// Module-scoped in-flight Promise cache. If a fetch is already running for a
+// given resource, subsequent callers receive the same Promise instead of
+// firing a fresh request. Cleared in the `finally` block of each fetcher.
+const inFlight: Record<'products' | 'customers' | 'suppliers' | 'categories', Promise<void> | null> = {
+  products: null,
+  customers: null,
+  suppliers: null,
+  categories: null,
+}
+
 export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   products: [],
   batches: [],
@@ -78,55 +88,76 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   },
 
   fetchProducts: async () => {
-    set({ isLoading: true })
-    try {
-      const res = await api.get('/products')
-      const products: Product[] = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
-      const batches: Batch[] = products.flatMap((p: any) =>
-        (p.batches || []).map((b: any) => ({ ...b, productName: p.name }))
-      )
-      set({ products, batches, hasLoaded: true })
-    } catch (error) {
-      console.error('Failed to fetch products', error)
-    } finally {
-      set({ isLoading: false })
-    }
+    if (inFlight.products) return inFlight.products
+    inFlight.products = (async () => {
+      set({ isLoading: true })
+      try {
+        const res = await api.get('/products')
+        const products: Product[] = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+        const batches: Batch[] = products.flatMap((p: any) =>
+          (p.batches || []).map((b: any) => ({ ...b, productName: p.name }))
+        )
+        set({ products, batches, hasLoaded: true })
+      } catch (error) {
+        console.error('Failed to fetch products', error)
+      } finally {
+        set({ isLoading: false })
+        inFlight.products = null
+      }
+    })()
+    return inFlight.products
   },
 
   fetchCustomers: async () => {
-    set({ isLoading: true })
-    try {
-      const res = await api.get('/customers')
-      const customers: Customer[] = Array.isArray(res.data) ? res.data : []
-      set({ customers })
-    } catch (error) {
-      console.error('Failed to fetch customers', error)
-    } finally {
-      set({ isLoading: false })
-    }
+    if (inFlight.customers) return inFlight.customers
+    inFlight.customers = (async () => {
+      set({ isLoading: true })
+      try {
+        const res = await api.get('/customers')
+        const customers: Customer[] = Array.isArray(res.data) ? res.data : []
+        set({ customers })
+      } catch (error) {
+        console.error('Failed to fetch customers', error)
+      } finally {
+        set({ isLoading: false })
+        inFlight.customers = null
+      }
+    })()
+    return inFlight.customers
   },
 
   fetchSuppliers: async () => {
-    set({ isLoading: true })
-    try {
-      const res = await api.get('/suppliers')
-      const suppliers: Supplier[] = Array.isArray(res.data) ? res.data : []
-      set({ suppliers })
-    } catch (error) {
-      console.error('Failed to fetch suppliers', error)
-    } finally {
-      set({ isLoading: false })
-    }
+    if (inFlight.suppliers) return inFlight.suppliers
+    inFlight.suppliers = (async () => {
+      set({ isLoading: true })
+      try {
+        const res = await api.get('/suppliers')
+        const suppliers: Supplier[] = Array.isArray(res.data) ? res.data : []
+        set({ suppliers })
+      } catch (error) {
+        console.error('Failed to fetch suppliers', error)
+      } finally {
+        set({ isLoading: false })
+        inFlight.suppliers = null
+      }
+    })()
+    return inFlight.suppliers
   },
 
   fetchCategories: async () => {
-    try {
-      const res = await api.get('/categories')
-      const categories: Category[] = Array.isArray(res.data) ? res.data : []
-      set({ categories })
-    } catch {
-      // silently fail — categories are non-critical
-    }
+    if (inFlight.categories) return inFlight.categories
+    inFlight.categories = (async () => {
+      try {
+        const res = await api.get('/categories')
+        const categories: Category[] = Array.isArray(res.data) ? res.data : []
+        set({ categories })
+      } catch {
+        // silently fail — categories are non-critical
+      } finally {
+        inFlight.categories = null
+      }
+    })()
+    return inFlight.categories
   },
 
   addCustomer: async (data: any) => {

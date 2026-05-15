@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/dialog'
 import { navigate, useRoute } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 
@@ -32,26 +31,32 @@ export default function BatchDetailPage() {
   const params = new URLSearchParams(search)
   const id = params.get('id') ?? params.get('batchId')
 
-  const batches = useMasterDataStore((s) => s.batches)
-  const products = useMasterDataStore((s) => s.products)
-  const suppliers = useMasterDataStore((s) => s.suppliers)
-  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
-  const fetchSuppliers = useMasterDataStore((s) => s.fetchSuppliers)
+  const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchProducts(); fetchSuppliers() }, [])
-  useBranchRefresh(fetchProducts)
-
+  const [batch, setBatch] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // Find batch in the master data store. If the store hasn't fetched yet,
-  // the page shows a loading state until it populates.
-  const batch = useMemo(() => batches.find((b) => b.id === id), [batches, id])
-  const product = useMemo(() => batch ? products.find((p) => p.id === batch.productId) : null, [batch, products])
-  const supplier = useMemo(() => batch ? suppliers.find((s) => s.id === batch.supplierId) : null, [batch, suppliers])
+  // Single-batch fetch — replaces the old "load the entire catalogue and find
+  // one batch" pattern. /batches/:id returns the batch with joined product +
+  // supplier in one round-trip.
+  useEffect(() => {
+    if (!id) { setIsLoading(false); return }
+    let cancelled = false
+    setIsLoading(true)
+    api.get(`/batches/${id}`)
+      .then((res) => { if (!cancelled) setBatch(res.data) })
+      .catch(() => { if (!cancelled) setBatch(null) })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+  }, [id])
 
-  const isLoading = batches.length === 0
+  // Flattened response — product and supplier info live directly on the batch.
+  const product = batch
+    ? { id: batch.productId, name: batch.productName, genericName: batch.genericName, manufacturer: batch.manufacturer, packSize: batch.packSize, totalStock: batch.productTotalStock, minStock: batch.minStock }
+    : null
+  const supplier = batch ? { id: batch.supplierId, name: batch.supplierName } : null
+
   const daysToExpiry = batch ? differenceInDays(new Date(batch.expiryDate), new Date()) : 0
   const stockValue = batch ? batch.quantity * Number(batch.mrp) : 0
   const isExpired = daysToExpiry < 0
@@ -61,20 +66,34 @@ export default function BatchDetailPage() {
     if (!batch) return
     setSubmitting(true)
     try {
-      await api.patch(`/products/${batch.productId}/batches/${batch.id}/adjust`, {
+      const res = await api.patch<{
+        approvalRequested?: boolean
+        approvalRequestId?: string
+        totalValue?: number
+        threshold?: number
+      }>(`/products/${batch.productId}/batches/${batch.id}/adjust`, {
         adjustedQty: 0,
         reason: kind === 'writeoff' ? 'Expired Removal' : 'Damaged',
         notes: kind === 'writeoff'
           ? `Written off — expired batch ${batch.batchNumber}`
           : `Disposed — batch ${batch.batchNumber}`,
       })
-      toast.success(
-        kind === 'writeoff'
-          ? `Batch ${batch.batchNumber} written off`
-          : `Batch ${batch.batchNumber} marked disposed`,
-      )
+      if (res.data?.approvalRequested) {
+        toast.info(
+          `Approval request sent to admin (₹${(res.data.totalValue ?? 0).toLocaleString('en-IN')} > threshold ₹${(res.data.threshold ?? 0).toLocaleString('en-IN')}). Stock unchanged until approved.`,
+          { duration: 5500 },
+        )
+      } else {
+        // Server already applied the change — patch the store so the next page
+        // (Expiry Management) sees the new qty without a full /products refetch.
+        updateBatchLocally(batch.id, -batch.quantity)
+        toast.success(
+          kind === 'writeoff'
+            ? `Batch ${batch.batchNumber} written off`
+            : `Batch ${batch.batchNumber} marked disposed`,
+        )
+      }
       setConfirmKind(null)
-      await fetchProducts()
       navigate('/inventory/expiry')
     } catch (err: any) {
       toast.error(err.response?.data?.message ?? 'Action failed')

@@ -16,6 +16,7 @@ import {
   Clock,
   Wallet,
   Package,
+  Pencil,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -148,6 +149,61 @@ export default function SalesListPage() {
       setIsLoading(false)
     }
   }, [])
+
+  // Look up the customer's phone from the master-data store so the WhatsApp
+  // share can target the correct contact. Walk-in/cash sales without a
+  // customerId fall through to a generic share (user picks the recipient).
+  const phoneFor = useCallback(
+    (inv: Invoice): string | undefined =>
+      inv.customerId ? customers.find(c => c.id === inv.customerId)?.phone : undefined,
+    [customers],
+  )
+
+  // Draft invoices have no finalized PDF, no real number to deliver, and no
+  // collected payment to return against — so Share/Duplicate/Return don't
+  // apply. They get a single "Resume" action that re-opens NewSalePage.
+  // Non-DRAFT rows keep the full action set.
+  const actionsForInvoice = useCallback((inv: Invoice) => {
+    if (inv.status === 'DRAFT') {
+      return [
+        { label: 'Resume editing', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?draftId=${inv.id}`) },
+      ]
+    }
+    return [
+      { label: 'Share', icon: <Share2 className="h-4 w-4" />, onClick: () => shareInvoiceViaWhatsApp(inv, phoneFor(inv)) },
+      { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`) },
+      { label: 'Return', icon: <RotateCcw className="h-4 w-4" />, onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`) },
+    ]
+  }, [phoneFor])
+
+  // DRAFT rows get a hard-delete (they have no financial impact); finalized
+  // rows get a soft "Cancel" (status flip). Both go through the same
+  // DataTableRowActions onDelete hook, but the API call differs.
+  const removeOrCancel = useCallback(async (inv: Invoice) => {
+    if (inv.status === 'DRAFT') {
+      const ok = window.confirm(`Discard draft for ${inv.customerName}? This cannot be undone.`)
+      if (!ok) return
+      try {
+        await api.delete(`/billing/${inv.id}`)
+        toast.success('Draft discarded')
+        fetchInvoices()
+      } catch {
+        toast.error('Failed to discard draft')
+      }
+      return
+    }
+    const ok = window.confirm(
+      `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
+    )
+    if (!ok) return
+    try {
+      await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
+      toast.success('Invoice cancelled')
+      fetchInvoices()
+    } catch {
+      toast.error('Failed to cancel invoice')
+    }
+  }, [fetchInvoices])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices() }, [])
@@ -705,26 +761,10 @@ export default function SalesListPage() {
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
                           onView={() => setDetailInvoice(inv)}
-                          onPrint={() => printInvoicePdf(inv)}
-                          onDelete={async () => {
-                            const ok = window.confirm(
-                              `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
-                            )
-                            if (!ok) return
-                            try {
-                              await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
-                              toast.success('Invoice cancelled')
-                              fetchInvoices()
-                            } catch {
-                              toast.error('Failed to cancel invoice')
-                            }
-                          }}
-                          deleteLabel="Cancel"
-                          customActions={[
-                            { label: 'Share', icon: <Share2 className="h-4 w-4" />, onClick: () => shareInvoiceViaWhatsApp(inv) },
-                            { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`) },
-                            { label: 'Return', icon: <RotateCcw className="h-4 w-4" />, onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`) },
-                          ]}
+                          onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
+                          onDelete={() => removeOrCancel(inv)}
+                          deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
+                          customActions={actionsForInvoice(inv)}
                         />
                       </div>
                     </div>
@@ -847,38 +887,10 @@ export default function SalesListPage() {
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => setDetailInvoice(inv)}
-                        onPrint={() => printInvoicePdf(inv)}
-                        onDelete={async () => {
-                          const ok = window.confirm(
-                            `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
-                          )
-                          if (!ok) return
-                          try {
-                            await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
-                            toast.success('Invoice cancelled')
-                            fetchInvoices()
-                          } catch {
-                            toast.error('Failed to cancel invoice')
-                          }
-                        }}
-                        deleteLabel="Cancel"
-                        customActions={[
-                          {
-                            label: 'Share',
-                            icon: <Share2 className="h-4 w-4" />,
-                            onClick: () => shareInvoiceViaWhatsApp(inv)
-                          },
-                          {
-                            label: 'Duplicate',
-                            icon: <Copy className="h-4 w-4" />,
-                            onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`)
-                          },
-                          {
-                            label: 'Return',
-                            icon: <RotateCcw className="h-4 w-4" />,
-                            onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`)
-                          }
-                        ]}
+                        onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
+                        onDelete={() => removeOrCancel(inv)}
+                        deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
+                        customActions={actionsForInvoice(inv)}
                       />
                     </TableCell>
                   </motion.tr>
@@ -903,7 +915,7 @@ export default function SalesListPage() {
       <Sheet open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
         >
           {detailInvoice && (() => {
             const balanceDue = detailInvoice.grandTotal - detailInvoice.amountPaid
@@ -933,6 +945,35 @@ export default function SalesListPage() {
 
                 {/* ── Scrollable Body ── */}
                 <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* DRAFT banner — drafts aren't real invoices yet. Skip the
+                      usual Print/Share/Collect actions; the only meaningful
+                      next step is to reopen the form and finish the bill. */}
+                  {detailInvoice.status === 'DRAFT' && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
+                      <div className="flex items-start gap-2.5">
+                        <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                            This is a draft
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                            Stock isn&apos;t reserved yet. Resume editing to finalize.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-amber-600 text-white hover:bg-amber-700"
+                        onClick={() => {
+                          setDetailInvoice(null)
+                          navigate(`/billing/new?draftId=${detailInvoice.id}`)
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Resume editing
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Meta block — single horizontal row */}
                   <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
                     {([
@@ -1041,7 +1082,7 @@ export default function SalesListPage() {
                       <div
                         key={row.label}
                         className={cn(
-                          'flex flex-1 min-w-[72px] flex-col justify-center whitespace-nowrap px-3 py-2',
+                          'flex flex-1 min-w-18 flex-col justify-center whitespace-nowrap px-3 py-2',
                           i > 0 && 'border-l border-border/40',
                           row.highlight && 'bg-primary/5'
                         )}
@@ -1077,7 +1118,7 @@ export default function SalesListPage() {
                       variant="outline"
                       size="icon"
                       className="shrink-0"
-                      onClick={() => shareInvoiceViaWhatsApp(detailInvoice)}
+                      onClick={() => shareInvoiceViaWhatsApp(detailInvoice, phoneFor(detailInvoice))}
                       title="Share via WhatsApp"
                     >
                       <Share2 className="h-4 w-4" />

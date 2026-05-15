@@ -68,7 +68,6 @@ const navigationGroups: NavGroup[] = [
     title: 'MAIN',
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-      { label: 'Quick Sale', icon: Zap, href: '/billing/new' },
       { label: 'Notifications', icon: Bell, href: '/notifications' },
       { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
       { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals', adminOnly: true },

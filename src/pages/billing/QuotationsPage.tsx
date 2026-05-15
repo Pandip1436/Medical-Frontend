@@ -59,6 +59,7 @@ import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 
 type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
@@ -73,6 +74,7 @@ interface Quotation {
   id: string
   quotationNumber: string
   date: string
+  customerId?: string
   customerName: string
   items: QuotationItem[]
   total: number
@@ -148,10 +150,16 @@ export default function QuotationsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [detailQt, setDetailQt] = useState<Quotation | null>(null)
 
-  // Master data — for filters that should list ALL options (not just what's on this page)
+  // Master data — needed for filter dropdowns AND to resolve customerId →
+  // phone for WhatsApp share.
   const { customers, fetchMasterData } = useMasterDataStore()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchMasterData() }, [])
+  useEffect(() => { fetchMasterData() }, [fetchMasterData])
+
+  const phoneFor = useCallback(
+    (qt: Quotation): string | undefined =>
+      qt.customerId ? customers.find(c => c.id === qt.customerId)?.phone : undefined,
+    [customers],
+  )
 
   const fetchQuotations = useCallback(async () => {
     setIsLoading(true)
@@ -162,6 +170,7 @@ export default function QuotationsPage() {
         id: qt.id,
         quotationNumber: qt.quotationNumber ?? '',
         date: qt.date ?? qt.createdAt ?? new Date().toISOString(),
+        customerId: qt.customerId ?? undefined,
         customerName: qt.customerName ?? '',
         items: (qt.items ?? []).map((it: any) => ({
           name: it.productName ?? '',
@@ -778,10 +787,7 @@ export default function QuotationsPage() {
                           {
                             label: 'Send via WhatsApp',
                             icon: <Send className="h-4 w-4" />,
-                            onClick: () => {
-                              const text = `Quotation ${qt.quotationNumber} — Total: ₹${qt.total.toLocaleString('en-IN')}`
-                              window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
-                            },
+                            onClick: () => shareQuotationViaWhatsApp(qt, phoneFor(qt)),
                             disabled: qt.status === 'REJECTED'
                           },
                         ]}
@@ -810,7 +816,7 @@ export default function QuotationsPage() {
     <Sheet open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+        className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
       >
         {detailQt && (() => {
           const canMarkSent = detailQt.status === 'DRAFT'
@@ -922,10 +928,7 @@ export default function QuotationsPage() {
                   <Button
                     variant="outline"
                     className="shrink-0 gap-2"
-                    onClick={() => {
-                      const text = `Quotation ${detailQt.quotationNumber} — Total: ₹${detailQt.total.toLocaleString('en-IN')}`
-                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
-                    }}
+                    onClick={() => shareQuotationViaWhatsApp(detailQt, phoneFor(detailQt))}
                   >
                     <Share2 className="h-4 w-4" />
                     Share

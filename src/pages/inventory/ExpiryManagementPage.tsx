@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect } from 'react'
-import { motion, type Variants } from 'framer-motion'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
-import { AlertOctagon, CalendarClock, Search, Undo2, Trash2 } from 'lucide-react'
-import { differenceInDays } from 'date-fns'
+import { AlertOctagon, CalendarClock, Search, Undo2, Trash2, Pencil } from 'lucide-react'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -11,28 +10,16 @@ import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
+import { useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { assignExpiryBucket, daysToExpiry as computeDaysToExpiry, type ExpiryBucket } from '@/lib/inventory'
 import api from '@/lib/api'
 
 // ─────────────────────────────────────────────────────────────
-
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
-}
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
-}
-
-type ExpiryBucket = 'expired' | '30d' | '60d' | '90d' | '180d'
 
 interface EnrichedBatch {
   batchId: string
@@ -49,21 +36,12 @@ interface EnrichedBatch {
   bucket: ExpiryBucket | null
 }
 
-function assignBucket(daysToExpiry: number): ExpiryBucket | null {
-  if (daysToExpiry < 0) return 'expired'
-  if (daysToExpiry <= 30) return '30d'
-  if (daysToExpiry <= 60) return '60d'
-  if (daysToExpiry <= 90) return '90d'
-  if (daysToExpiry <= 180) return '180d'
-  return null
-}
-
 interface BucketSummary {
   key: ExpiryBucket
   label: string
   icon: typeof AlertOctagon
   iconBg: string
-  iconColor: string
+  borderAccent: string
   count: number
   value: number
 }
@@ -73,101 +51,126 @@ type ConfirmAction = { type: 'writeoff' | 'dispose'; batch: EnrichedBatch }
 // ─────────────────────────────────────────────────────────────
 
 export default function ExpiryManagementPage() {
-  const batches = useMasterDataStore((s) => s.batches)
   const suppliers = useMasterDataStore((s) => s.suppliers)
-  const fetchProducts = useMasterDataStore((s) => s.fetchProducts)
   const fetchSuppliers = useMasterDataStore((s) => s.fetchSuppliers)
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchProducts(); fetchSuppliers() }, [])
-  useBranchRefresh(fetchProducts)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState('all')
+  const [selectedBucket, setSelectedBucket] = useState<'all' | ExpiryBucket>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
-  const [activeTab, setActiveTab] = useState<'all' | ExpiryBucket>('all')
   const PAGE_SIZE = 10
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Deep-link from notifications: /inventory/expiry?batchId=xxx
-  const { targetId: deepLinkBatchId, clearParam: clearDeepLink } =
-    useDeepLinkParam('batchId', '/inventory/expiry')
-  const { highlightId: highlightBatchId, highlight } = useDeepLinkHighlightState()
+  // Server-paginated batch rows, plus the lightweight stats bundle used for
+  // both the summary cards and the bucket-count labels in the filter dropdown.
+  const [rows, setRows] = useState<any[]>([])
+  const [totalRows, setTotalRows] = useState(0)
+  const [, setLoading] = useState(false)
+  const [stats, setStats] = useState<any>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  const today = new Date()
+  const { highlightId: highlightBatchId } = useDeepLinkHighlightState()
 
+  // Suppliers needed only for the filter dropdown.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchSuppliers() }, [])
+
+  // Map UI bucket → API filter params.
+  const bucketParams = useMemo((): Record<string, string | number | boolean | undefined> => {
+    if (selectedBucket === 'all') return {}
+    if (selectedBucket === 'expired') return { expired: true }
+    const days: Record<ExpiryBucket, number> = { expired: 0, '30d': 30, '60d': 60, '90d': 90, '180d': 180 }
+    return { expiringWithin: days[selectedBucket] }
+  }, [selectedBucket])
+
+  // Resolve the selected supplier NAME to its ID (server filters by ID).
+  const supplierIdForFilter = useMemo(() => {
+    if (selectedSupplier === 'all') return undefined
+    const match = suppliers.find((s) => s.name === selectedSupplier)
+    return match?.id
+  }, [selectedSupplier, suppliers])
+
+  // Fetch the current page of batches whenever a filter changes.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api
+      .get('/batches', {
+        params: {
+          q: searchQuery.trim() || undefined,
+          supplierId: supplierIdForFilter,
+          ...bucketParams,
+          status: selectedBucket === 'expired' ? undefined : (selectedBucket === 'all' ? undefined : 'active'),
+          skip: (currentPage - 1) * PAGE_SIZE,
+          take: PAGE_SIZE,
+        },
+      })
+      .then((res) => {
+        if (cancelled) return
+        setRows(res.data?.data ?? [])
+        setTotalRows(res.data?.total ?? 0)
+      })
+      .catch(() => {
+        if (!cancelled) { setRows([]); setTotalRows(0) }
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [searchQuery, supplierIdForFilter, bucketParams, selectedBucket, currentPage, refreshKey])
+
+  // Reset to page 1 whenever a filter changes.
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, selectedSupplier, selectedBucket])
+
+  // Stats — drives the 5 summary cards and the bucket-count labels.
+  const refreshStats = useCallback(async () => {
+    try {
+      const res = await api.get('/reports/inventory/stats')
+      setStats(res.data)
+    } catch {
+      // non-critical; counters just stay at 0
+    }
+  }, [])
+  useEffect(() => { refreshStats() }, [refreshStats])
+
+  // Convert API rows to the shape the renderer already expects.
   const enrichedBatches: EnrichedBatch[] = useMemo(() => {
-    return batches.filter((b) => b.quantity > 0).map((batch) => {
-      const supplier = suppliers.find((s) => s.id === batch.supplierId)
-      const daysToExpiry = differenceInDays(new Date(batch.expiryDate), today)
+    return rows.map((r) => {
+      const days = computeDaysToExpiry(r.expiryDate) ?? Number.NaN
       return {
-        batchId: batch.id,
-        batchNumber: batch.batchNumber,
-        productId: batch.productId,
-        productName: batch.productName ?? 'Unknown',
-        expiryDate: batch.expiryDate,
-        mfgDate: batch.mfgDate,
-        quantity: batch.quantity,
-        mrp: Number(batch.mrp),
-        stockValue: batch.quantity * Number(batch.mrp),
-        supplierName: supplier?.name ?? 'Unknown',
-        daysToExpiry,
-        bucket: assignBucket(daysToExpiry),
+        batchId: r.id,
+        batchNumber: r.batchNumber,
+        productId: r.productId,
+        productName: r.productName ?? 'Unknown',
+        expiryDate: r.expiryDate,
+        mfgDate: r.mfgDate,
+        quantity: r.quantity,
+        mrp: Number(r.mrp),
+        stockValue: r.quantity * Number(r.mrp),
+        supplierName: r.supplierName ?? 'Unknown',
+        daysToExpiry: days,
+        bucket: assignExpiryBucket(r.expiryDate),
       }
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batches, suppliers])
+  }, [rows])
 
-  // When a deep-link target is present and data is loaded, switch to All tab,
-  // jump to the page containing the batch, and pulse a highlight on the row.
-  useEffect(() => {
-    if (!deepLinkBatchId || enrichedBatches.length === 0) return
-    const sortedAll = [...enrichedBatches].sort((a, b) => a.daysToExpiry - b.daysToExpiry)
-    const idx = sortedAll.findIndex((b) => b.batchId === deepLinkBatchId)
-    if (idx < 0) return
-    setActiveTab('all')
-    setCurrentPage(Math.floor(idx / PAGE_SIZE) + 1)
-    highlight(deepLinkBatchId)
-    setTimeout(() => {
-      document.getElementById(`batchId-${deepLinkBatchId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 100)
-    clearDeepLink()
-  }, [deepLinkBatchId, enrichedBatches, highlight, clearDeepLink])
-
-  const filteredBatches = useMemo(() => {
-    let result = enrichedBatches
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (b) => b.productName.toLowerCase().includes(q) || b.batchNumber.toLowerCase().includes(q)
-      )
-    }
-    if (selectedSupplier !== 'all') result = result.filter((b) => b.supplierName === selectedSupplier)
-    return result
-  }, [enrichedBatches, searchQuery, selectedSupplier])
-
-  const bucketBatches = useMemo(() => {
-    const map: Record<ExpiryBucket, EnrichedBatch[]> = { expired: [], '30d': [], '60d': [], '90d': [], '180d': [] }
-    filteredBatches.forEach((b) => { if (b.bucket) map[b.bucket].push(b) })
-    return map
-  }, [filteredBatches])
-
+  // Build the 5 summary cards from the stats bundle (one round-trip, no full
+  // batch load). Falls back to zeros while stats are loading.
   const summaries: BucketSummary[] = useMemo(() => {
-    const configs: Record<ExpiryBucket, { label: string; icon: typeof AlertOctagon; iconBg: string; iconColor: string }> = {
-      expired: { label: 'Expired', icon: AlertOctagon, iconBg: 'bg-red-500/15', iconColor: 'text-red-600 dark:text-red-400' },
-      '30d': { label: 'Expiring 30d', icon: CalendarClock, iconBg: 'bg-orange-500/15', iconColor: 'text-orange-600 dark:text-orange-400' },
-      '60d': { label: 'Expiring 60d', icon: CalendarClock, iconBg: 'bg-amber-500/15', iconColor: 'text-amber-600 dark:text-amber-400' },
-      '90d': { label: 'Expiring 90d', icon: CalendarClock, iconBg: 'bg-yellow-500/15', iconColor: 'text-yellow-600 dark:text-yellow-400' },
-      '180d': { label: 'Expiring 180d', icon: CalendarClock, iconBg: 'bg-blue-500/15', iconColor: 'text-blue-600 dark:text-blue-400' },
+    const configs: Record<ExpiryBucket, { label: string; icon: typeof AlertOctagon; iconBg: string; borderAccent: string }> = {
+      expired: { label: 'Expired', icon: AlertOctagon, iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400', borderAccent: 'border-l-red-500' },
+      '30d': { label: 'Expiring 30d', icon: CalendarClock, iconBg: 'bg-orange-500/10 text-orange-600 dark:text-orange-400', borderAccent: 'border-l-orange-500' },
+      '60d': { label: 'Expiring 60d', icon: CalendarClock, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
+      '90d': { label: 'Expiring 90d', icon: CalendarClock, iconBg: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400', borderAccent: 'border-l-yellow-500' },
+      '180d': { label: 'Expiring 180d', icon: CalendarClock, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
     }
+    const eb = stats?.expiryBuckets ?? {}
     return (['expired', '30d', '60d', '90d', '180d'] as ExpiryBucket[]).map((key) => ({
       key,
       ...configs[key],
-      count: bucketBatches[key].length,
-      value: bucketBatches[key].reduce((sum, b) => sum + b.stockValue, 0),
+      count: eb[key]?.count ?? 0,
+      value: eb[key]?.value ?? 0,
     }))
-  }, [bucketBatches])
+  }, [stats])
 
   // ── Actions ──────────────────────────────────────────────────
 
@@ -180,20 +183,36 @@ export default function ExpiryManagementPage() {
     const { type, batch } = confirmAction
     setIsSubmitting(true)
     try {
-      await api.patch(`/products/${batch.productId}/batches/${batch.batchId}/adjust`, {
+      const res = await api.patch<{
+        approvalRequested?: boolean
+        approvalRequestId?: string
+        totalValue?: number
+        threshold?: number
+      }>(`/products/${batch.productId}/batches/${batch.batchId}/adjust`, {
         adjustedQty: 0,
         reason: type === 'writeoff' ? 'Expired Removal' : 'Damaged',
         notes: type === 'writeoff'
           ? `Written off — expired batch ${batch.batchNumber}`
           : `Disposed — batch ${batch.batchNumber}`,
       })
-      toast.success(
-        type === 'writeoff'
-          ? `Batch ${batch.batchNumber} written off successfully`
-          : `Batch ${batch.batchNumber} marked as disposed`
-      )
+      if (res.data?.approvalRequested) {
+        // Server queued the action — stock unchanged until admin approves.
+        toast.info(
+          `Approval request sent to admin (₹${(res.data.totalValue ?? 0).toLocaleString('en-IN')} > threshold ₹${(res.data.threshold ?? 0).toLocaleString('en-IN')}). Stock unchanged until approved.`,
+          { duration: 5500 },
+        )
+      } else {
+        toast.success(
+          type === 'writeoff'
+            ? `Batch ${batch.batchNumber} written off successfully`
+            : `Batch ${batch.batchNumber} marked as disposed`
+        )
+        // Refresh the current page from the server and update the KPI bundle.
+        // Cheaper than the old "refetch every product nested with batches" call.
+        setRefreshKey((k) => k + 1)
+        refreshStats()
+      }
       setConfirmAction(null)
-      fetchProducts()
     } catch (err: any) {
       toast.error(err.response?.data?.message ?? 'Action failed')
     } finally {
@@ -204,18 +223,21 @@ export default function ExpiryManagementPage() {
   // ── Table renderer ────────────────────────────────────────────
 
   const renderBatchTable = (batchesToRender: EnrichedBatch[]) => {
-    const totalPages = Math.max(1, Math.ceil(batchesToRender.length / PAGE_SIZE))
-    const paginated = batchesToRender.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+    // Pagination is now server-side. `batchesToRender` is already the current
+    // page; `totalRows` is the full match count from the API.
+    const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE))
+    const paginated = batchesToRender
 
     return (
-    <>
-      <div className="rounded-2xl border border-border/60 bg-card shadow overflow-x-auto">
+      <Card>
       {/* Mobile */}
       <div className="md:hidden">
         {paginated.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-            <Search className="mb-3 h-8 w-8 opacity-20" />
-            <p>No batches in this category</p>
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
+              <Search className="h-6 w-6 text-muted-foreground/60" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground">No batches in this category</p>
           </div>
         ) : (
           <div className="divide-y divide-border/40">
@@ -260,7 +282,7 @@ export default function ExpiryManagementPage() {
       <div className="hidden md:block">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <TableRow>
               <TableHead>Product</TableHead>
               <TableHead>Batch</TableHead>
               <TableHead>Expiry Date</TableHead>
@@ -272,120 +294,156 @@ export default function ExpiryManagementPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginated.map((batch) => (
-              <TableRow
-                key={batch.batchId}
-                id={`batchId-${batch.batchId}`}
-                onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
-                className={cn(
-                  'cursor-pointer border-b border-border/40 hover:bg-muted/10 transition-colors',
-                  highlightBatchId === batch.batchId && 'bg-amber-500/15 hover:bg-amber-500/20'
-                )}
-              >
-                <TableCell className="font-medium">{batch.productName}</TableCell>
-                <TableCell className="font-mono text-xs">{batch.batchNumber}</TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className={cn(
-                      batch.daysToExpiry < 0 ? 'text-red-600 dark:text-red-400 font-semibold'
-                        : batch.daysToExpiry <= 30 ? 'text-orange-600 dark:text-orange-400'
-                        : 'text-muted-foreground'
-                    )}>
-                      {formatDate(batch.expiryDate)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {batch.daysToExpiry < 0 ? `${Math.abs(batch.daysToExpiry)} days ago` : `in ${batch.daysToExpiry} days`}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm">{batch.quantity}</TableCell>
-                <TableCell className="text-right font-mono text-sm">{formatCurrency(batch.mrp)}</TableCell>
-                <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(batch.stockValue)}</TableCell>
-                <TableCell className="text-sm">{batch.supplierName}</TableCell>
-                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <DataTableRowActions
-                    onView={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
-                    customActions={[
-                      {
-                        label: 'Create Return',
-                        icon: <Undo2 className="h-4 w-4" />,
-                        onClick: () => handleCreateReturn(batch),
-                      },
-                      {
-                        label: 'Write Off',
-                        icon: <Trash2 className="h-4 w-4" />,
-                        onClick: () => setConfirmAction({ type: 'writeoff', batch }),
-                      },
-                      {
-                        label: 'Mark Disposed',
-                        icon: <Trash2 className="h-4 w-4" />,
-                        onClick: () => setConfirmAction({ type: 'dispose', batch }),
-                      },
-                    ]}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
+            <AnimatePresence mode="popLayout">
+              {paginated.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-40">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
+                        <Search className="h-6 w-6 text-muted-foreground/60" />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">No batches match your filters in this category</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginated.map((batch, idx) => (
+                  <motion.tr
+                    key={batch.batchId}
+                    id={`batchId-${batch.batchId}`}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15, delay: idx * 0.02 }}
+                    onClick={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                    className={cn(
+                      'cursor-pointer border-b border-border/40 transition-colors hover:bg-muted/30',
+                      highlightBatchId === batch.batchId && 'bg-amber-500/15 hover:bg-amber-500/20'
+                    )}
+                  >
+                    <TableCell className="font-medium">{batch.productName}</TableCell>
+                    <TableCell className="font-mono text-xs">{batch.batchNumber}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className={cn(
+                          batch.daysToExpiry < 0 ? 'text-red-600 dark:text-red-400 font-semibold'
+                            : batch.daysToExpiry <= 30 ? 'text-orange-600 dark:text-orange-400'
+                            : 'text-muted-foreground'
+                        )}>
+                          {formatDate(batch.expiryDate)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {batch.daysToExpiry < 0 ? `${Math.abs(batch.daysToExpiry)} days ago` : `in ${batch.daysToExpiry} days`}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">{batch.quantity}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{formatCurrency(batch.mrp)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(batch.stockValue)}</TableCell>
+                    <TableCell className="text-sm">{batch.supplierName}</TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <DataTableRowActions
+                        onView={() => navigate(`/inventory/batches/detail?id=${batch.batchId}`)}
+                        customActions={[
+                          {
+                            label: 'Adjust Stock',
+                            icon: <Pencil className="h-4 w-4" />,
+                            onClick: () => navigate(`/inventory/adjustment?batchId=${batch.batchId}`),
+                          },
+                          {
+                            label: 'Create Return',
+                            icon: <Undo2 className="h-4 w-4" />,
+                            onClick: () => handleCreateReturn(batch),
+                          },
+                          {
+                            label: 'Write Off',
+                            icon: <Trash2 className="h-4 w-4" />,
+                            onClick: () => setConfirmAction({ type: 'writeoff', batch }),
+                          },
+                          {
+                            label: 'Mark Disposed',
+                            icon: <Trash2 className="h-4 w-4" />,
+                            onClick: () => setConfirmAction({ type: 'dispose', batch }),
+                          },
+                        ]}
+                      />
+                    </TableCell>
+                  </motion.tr>
+                ))
+              )}
+            </AnimatePresence>
           </TableBody>
         </Table>
-        {paginated.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-            <Search className="mb-3 h-8 w-8 opacity-20" />
-            <p>No batches match your filters in this category</p>
-          </div>
-        )}
       </div>
-    </div>
-    <DataTablePagination
-      currentPage={currentPage}
-      totalPages={totalPages}
-      onPageChange={setCurrentPage}
-      totalItems={batchesToRender.length}
-      itemsPerPage={PAGE_SIZE}
-      className="mt-4 px-2"
-    />
-  </>
-)
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        totalItems={totalRows}
+        itemsPerPage={PAGE_SIZE}
+        className="border-t border-border/40 px-4"
+      />
+    </Card>
+  )
 }
 
-  return (
-    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
+  // Visible rows = whatever the API returned for the current filter combination.
+  const visibleBatches = enrichedBatches
 
-      {/* Stats cards */}
-      <motion.div
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5"
-        variants={containerVariants} initial="hidden" animate="visible"
-      >
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="space-y-5"
+    >
+
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {summaries.map((s) => {
           const Icon = s.icon
           return (
-            <motion.div key={s.key} variants={itemVariants}>
-              <div className="glass rounded-2xl border border-border/60 p-5 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                    <p className="font-mono mt-1 text-2xl font-bold">{s.count}</p>
-                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">{formatCurrency(s.value)}</p>
-                  </div>
-                  <div className={cn('rounded-full p-2.5', s.iconBg)}>
-                    <Icon className={cn('h-5 w-5', s.iconColor)} />
-                  </div>
+            <Card key={s.key} hover className={cn('border-l-[3px]', s.borderAccent)}>
+              <CardContent className="flex items-center gap-4 p-4">
+                <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', s.iconBg)}>
+                  <Icon className="h-5 w-5" />
                 </div>
-              </div>
-            </motion.div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {s.label}
+                  </p>
+                  <p className="text-lg font-bold font-mono leading-tight">{s.count}</p>
+                  <p className="text-[11px] text-muted-foreground">{formatCurrency(s.value)}</p>
+                </div>
+              </CardContent>
+            </Card>
           )
         })}
-      </motion.div>
+      </div>
 
       {/* Filters */}
       <DataTableFilterBar
         searchQuery={searchQuery}
         onSearchChange={(v) => { setSearchQuery(v); setCurrentPage(1) }}
         searchPlaceholder="Search by product name or batch number..."
-        resultsCount={filteredBatches.filter((b) => b.bucket !== null).length}
-        activeFilterCount={selectedSupplier !== 'all' ? 1 : 0}
-        onClearFilters={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
+        resultsCount={totalRows}
+        activeFilterCount={(selectedSupplier !== 'all' ? 1 : 0) + (selectedBucket !== 'all' ? 1 : 0)}
+        onClearFilters={() => { setSelectedSupplier('all'); setSelectedBucket('all'); setCurrentPage(1) }}
       >
+        <EnumSelect
+          label="Expiry Window"
+          value={selectedBucket}
+          onValueChange={(v) => { setSelectedBucket(v as 'all' | ExpiryBucket); setCurrentPage(1) }}
+          onClear={() => { setSelectedBucket('all'); setCurrentPage(1) }}
+          options={[
+            { value: 'all', label: 'All Batches' },
+            { value: 'expired', label: `Expired (${stats?.expiryBuckets?.expired?.count ?? 0})` },
+            { value: '30d', label: `30 Days (${stats?.expiryBuckets?.['30d']?.count ?? 0})` },
+            { value: '60d', label: `60 Days (${stats?.expiryBuckets?.['60d']?.count ?? 0})` },
+            { value: '90d', label: `90 Days (${stats?.expiryBuckets?.['90d']?.count ?? 0})` },
+            { value: '180d', label: `180 Days (${stats?.expiryBuckets?.['180d']?.count ?? 0})` },
+          ]}
+        />
         <EnumSelect
           label="Supplier"
           value={selectedSupplier}
@@ -393,50 +451,18 @@ export default function ExpiryManagementPage() {
           onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
           options={[
             { value: 'all', label: 'All Suppliers' },
-            ...suppliers.map((s) => ({ value: s.name, label: s.name })),
+            // Dedupe by name — master list can contain duplicate supplier records
+            // with the same display name, which would collide on React keys.
+            // Drop empty names: Radix Select reserves "" for the placeholder.
+            ...Array.from(new Set(suppliers.map((s) => s.name).filter((n): n is string => !!n && n.trim() !== '')))
+              .sort()
+              .map((name) => ({ value: name, label: name })),
           ]}
         />
       </DataTableFilterBar>
 
-      {/* Tabs */}
-      <motion.div variants={containerVariants} initial="hidden" animate="visible">
-        <motion.div variants={itemVariants}>
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | ExpiryBucket)}>
-            <TabsList>
-              <TabsTrigger value="all" onClick={() => setCurrentPage(1)}>
-                All Batches
-                <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{filteredBatches.length}</Badge>
-              </TabsTrigger>
-              <TabsTrigger value="expired" onClick={() => setCurrentPage(1)}>
-                Expired
-                {bucketBatches.expired.length > 0 && <Badge variant="destructive" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches.expired.length}</Badge>}
-              </TabsTrigger>
-              <TabsTrigger value="30d" onClick={() => setCurrentPage(1)}>
-                30 Days
-                {bucketBatches['30d'].length > 0 && <Badge variant="warning" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['30d'].length}</Badge>}
-              </TabsTrigger>
-              <TabsTrigger value="60d" onClick={() => setCurrentPage(1)}>
-                60 Days
-                {bucketBatches['60d'].length > 0 && <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['60d'].length}</Badge>}
-              </TabsTrigger>
-              <TabsTrigger value="90d" onClick={() => setCurrentPage(1)}>
-                90 Days
-                {bucketBatches['90d'].length > 0 && <Badge variant="secondary" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['90d'].length}</Badge>}
-              </TabsTrigger>
-              <TabsTrigger value="180d" onClick={() => setCurrentPage(1)}>
-                180 Days
-                {bucketBatches['180d'].length > 0 && <Badge variant="info" size="sm" className="ml-2 h-5 min-w-5 px-1.5">{bucketBatches['180d'].length}</Badge>}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="all" className="mt-4">{renderBatchTable([...filteredBatches].sort((a, b) => a.daysToExpiry - b.daysToExpiry))}</TabsContent>
-            <TabsContent value="expired" className="mt-4">{renderBatchTable(bucketBatches.expired)}</TabsContent>
-            <TabsContent value="30d" className="mt-4">{renderBatchTable(bucketBatches['30d'])}</TabsContent>
-            <TabsContent value="60d" className="mt-4">{renderBatchTable(bucketBatches['60d'])}</TabsContent>
-            <TabsContent value="90d" className="mt-4">{renderBatchTable(bucketBatches['90d'])}</TabsContent>
-            <TabsContent value="180d" className="mt-4">{renderBatchTable(bucketBatches['180d'])}</TabsContent>
-          </Tabs>
-        </motion.div>
-      </motion.div>
+      {/* Batches table */}
+      {renderBatchTable(visibleBatches)}
 
       {/* Confirm Write-Off / Dispose Dialog */}
       <Dialog open={!!confirmAction} onOpenChange={(open) => { if (!open) setConfirmAction(null) }}>

@@ -116,6 +116,10 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Products',
     breadcrumbs: [{ label: 'Inventory' }, { label: 'Products' }],
   },
+  '/inventory/categories': {
+    label: 'Categories',
+    breadcrumbs: [{ label: 'Inventory' }, { label: 'Categories' }],
+  },
   '/inventory/product-history': {
     label: 'Product History',
     breadcrumbs: [{ label: 'Inventory' }, { label: 'Products', href: '/inventory/products' }, { label: 'History' }],

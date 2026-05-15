@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 
-export type DateRangePreset = 'week' | 'month' | 'year'
+export type DateRangePreset = 'month' | '6m' | 'year'
 
 export interface OverdueCustomer {
   customerId: string
@@ -28,8 +28,9 @@ export interface ExpiringBatch {
 
 export interface DateRange {
   preset: DateRangePreset
-  from?: string
-  to?: string
+  /** YYYY-MM-DD — selected month/year anchor. For 'month' it's the month shown;
+   *  for '6m' it's the end month of the 6-month window; for 'year' only the year matters. */
+  anchor: string
 }
 
 export interface KpiDelta {

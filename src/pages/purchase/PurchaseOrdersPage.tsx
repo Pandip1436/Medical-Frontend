@@ -347,6 +347,7 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
 
 export default function PurchaseOrdersPage() {
   const { suppliers, products, fetchMasterData } = useMasterDataStore()
+  const { search } = useRoute()
 
   // Real data
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
@@ -412,8 +413,8 @@ export default function PurchaseOrdersPage() {
   // Deep-link support: when arrived from a `?poId=<id>` URL (e.g. clicked
   // from the Supplier Detail page's POs tab), auto-open that PO's drawer once
   // the list has loaded. Runs only once per id so the user can manually close
-  // it without it reopening on the next render.
-  const { search } = useRoute()
+  // it without it reopening on the next render. Uses the `search` already
+  // pulled from useRoute() above.
   useEffect(() => {
     const params = new URLSearchParams(search)
     const target = params.get('poId')
@@ -632,6 +633,33 @@ export default function PurchaseOrdersPage() {
       (sum, item) => sum + (parseFloat(String(item?.requiredQty)) || 0) * (parseFloat(String(item?.expectedRate)) || 0), 0
     )
   }, [watchedItems])
+
+  // Auto-open the Create PO dialog with a product pre-populated when arriving
+  // from the Product History page (e.g. via a Low Stock alert).
+  useEffect(() => {
+    if (!products.length) return
+    const productId = new URLSearchParams(search).get('productId')
+    if (!productId) return
+    const product = products.find((p) => p.id === productId)
+    if (!product) return
+
+    const shortfall = Math.max(1, (product.minStock ?? 0) - (product.totalStock ?? 0))
+    reset({
+      supplierId: '',
+      expectedDelivery: '',
+      items: [{
+        productId: product.id,
+        productName: product.name,
+        requiredQty: product.reorderQty ?? shortfall,
+        lastPurchaseRate: product.purchaseRate ?? 0,
+        expectedRate: product.purchaseRate ?? 0,
+        remarks: `Stock: ${product.totalStock ?? 0}/${product.minStock ?? 0}`,
+      }],
+    })
+    setCreateDialogOpen(true)
+    // Strip the param so refresh/back doesn't re-trigger the auto-open.
+    window.history.replaceState(null, '', '/purchase/orders')
+  }, [products, search, reset])
 
   function handleAutoGenerate() {
     const lowStockProducts = products.filter((p) => (p.totalStock ?? 0) <= (p.minStock ?? 0)).slice(0, 18)
@@ -1205,7 +1233,7 @@ export default function PurchaseOrdersPage() {
       <Sheet open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[760px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
         >
           {detailPO && (() => {
             const canReceive = detailPO.status === 'SENT' || detailPO.status === 'ACKNOWLEDGED' || detailPO.status === 'PARTIALLY_RECEIVED'

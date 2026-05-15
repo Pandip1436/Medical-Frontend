@@ -1,9 +1,11 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { printPdfInPage } from '@/lib/printUtils'
+import api from '@/lib/api'
 
-const COMPANY = {
+export const COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
   city: 'Madurai',
   address: 'Hospital Suppliers, Madurai, Tamil Nadu',
@@ -13,8 +15,10 @@ const COMPANY = {
   dlNo: 'TN-MDU-20B-01234 / TN-MDU-21B-01234',
 }
 
-const fmt = (n: number) =>
+export const fmtINR = (n: number) =>
   n.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })
+
+const fmt = fmtINR
 
 export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -162,14 +166,57 @@ export function invoicePdfBlob(invoice: Invoice): Blob {
   return doc.output('blob')
 }
 
-export function shareInvoiceViaWhatsApp(invoice: Invoice, phone?: string) {
-  const message = encodeURIComponent(
-    `Dear ${invoice.customerName},\n\nYour invoice ${invoice.invoiceNumber} for ${fmt(
-      Number(invoice.grandTotal),
-    )} has been generated.\n\nThank you for your business with ${COMPANY.name}.`,
-  )
-  const base = phone
-    ? `https://wa.me/${phone.replace(/\D/g, '')}?text=${message}`
-    : `https://wa.me/?text=${message}`
-  window.open(base, '_blank', 'noopener,noreferrer')
+// Build a wa.me link. India default: a bare 10-digit number gets the `91` prefix;
+// a longer string is assumed to already include the country code.
+export function buildWaUrl(phone: string | undefined, text: string): string {
+  const message = encodeURIComponent(text)
+  if (!phone) return `https://wa.me/?text=${message}`
+  const digits = phone.replace(/\D/g, '')
+  const withCountry = digits.length === 10 ? `91${digits}` : digits
+  return `https://wa.me/${withCountry}?text=${message}`
+}
+
+// Share an invoice/quotation PDF on WhatsApp. The flow:
+//   1. Upload the PDF to the backend (POST /shared-files) → get a public link
+//   2. Open wa.me/{customerPhone} pre-filled with a message containing the link
+// WhatsApp opens to the right customer's chat, the user taps Send, the customer
+// taps the link to download the PDF.
+export async function shareInvoiceViaWhatsApp(invoice: Invoice, phone?: string): Promise<void> {
+  const docKind = invoice.type === 'QUOTATION' ? 'quotation' : 'invoice'
+  const prefix = invoice.type === 'QUOTATION' ? 'Quotation' : 'Invoice'
+  const headline =
+    `Dear ${invoice.customerName}, your ${docKind} ${invoice.invoiceNumber} ` +
+    `for ${fmt(Number(invoice.grandTotal))} is ready.`
+  const blob = invoicePdfBlob(invoice)
+  // Sanitize the number — invoice numbers contain `/` which would split the
+  // R2 key into folders. Replace with `-` so the filename stays one segment.
+  const safeNumber = invoice.invoiceNumber.replace(/\//g, '-')
+  const file = new File([blob], `${prefix}-${safeNumber}.pdf`, { type: 'application/pdf' })
+  await uploadAndShareUrl(file, phone, headline, invoice.invoiceNumber)
+}
+
+// Shared by invoicePdf + quotationPdf. Uploads the PDF blob, then opens
+// WhatsApp pre-filled with the download link. Throws on upload failure so
+// callers can decide whether to surface a retry path.
+export async function uploadAndShareUrl(
+  file: File,
+  phone: string | undefined,
+  headline: string,
+  label: string,
+): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('label', label)
+  let url: string
+  try {
+    const res = await api.post('/shared-files', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    url = res.data.url
+  } catch (err) {
+    toast.error('Could not prepare share link — please try again')
+    throw err
+  }
+  const message = `${headline}\n\nDownload: ${url}\n\nRegards,\n${COMPANY.name}`
+  window.open(buildWaUrl(phone, message), '_blank', 'noopener,noreferrer')
 }

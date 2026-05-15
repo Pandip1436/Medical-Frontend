@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
-  Plus, Download, Upload, Pencil, Trash2, Tag,
-  FileDown, FileSpreadsheet, Search, RefreshCw,
+  Plus, Download, Upload, Tag, Package, CheckCircle2,
+  FileDown, FileSpreadsheet, FolderOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,26 +23,25 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import api from '@/lib/api'
+import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { EnumSelect } from '@/components/shared/EnumSelect'
+import { cn } from '@/lib/utils'
 import type { Category } from '@/types'
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Name is required').transform(v => v.toUpperCase()),
   description: z.string().optional().default(''),
-  color: z.string().optional().default('#6366F1'),
   isActive: z.boolean().default(true),
 })
 type CategoryFormValues = z.input<typeof categorySchema>
-
-const DEFAULT_COLORS = [
-  '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444',
-  '#06B6D4', '#F97316', '#84CC16', '#EC4899', '#6366F1',
-]
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [selectedStatus, setSelectedStatus] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -68,18 +67,18 @@ export default function CategoriesPage() {
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: '', description: '', color: '#6366F1', isActive: true },
+    defaultValues: { name: '', description: '', isActive: true },
   })
 
   const openAdd = () => {
     setEditing(null)
-    form.reset({ name: '', description: '', color: '#6366F1', isActive: true })
+    form.reset({ name: '', description: '', isActive: true })
     setDialogOpen(true)
   }
 
   const openEdit = (cat: Category) => {
     setEditing(cat)
-    form.reset({ name: cat.name, description: cat.description ?? '', color: cat.color ?? '#6366F1', isActive: cat.isActive })
+    form.reset({ name: cat.name, description: cat.description ?? '', isActive: cat.isActive })
     setDialogOpen(true)
   }
 
@@ -137,183 +136,287 @@ export default function CategoriesPage() {
     }
   }
 
-  const filtered = categories.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.description ?? '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = useMemo(() => {
+    let result = [...categories]
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        (c.description ?? '').toLowerCase().includes(q)
+      )
+    }
+    if (selectedStatus === 'active') result = result.filter(c => c.isActive)
+    else if (selectedStatus === 'inactive') result = result.filter(c => !c.isActive)
+    return result
+  }, [categories, search, selectedStatus])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search])
+  }, [search, selectedStatus])
+
+  const stats = useMemo(() => {
+    const total = categories.length
+    const active = categories.filter(c => c.isActive).length
+    const withProducts = categories.filter(c => (c._count?.products ?? 0) > 0).length
+    const totalProducts = categories.reduce((s, c) => s + (c._count?.products ?? 0), 0)
+    return { total, active, withProducts, totalProducts }
+  }, [categories])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
+  const activeFilterCount = (selectedStatus !== 'all' ? 1 : 0)
+
   return (
     <motion.div
-      className="space-y-6"
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="space-y-5"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Categories</h1>
-          <p className="text-sm text-muted-foreground">Manage product categories</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}>
-            <Upload className="mr-1.5 h-4 w-4" /> Import
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="mr-1.5 h-4 w-4" /> Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleExportCsv}>
-                <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button onClick={openAdd}>
-            <Plus className="mr-1.5 h-4 w-4" /> Add Category
-          </Button>
-        </div>
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          {
+            label: 'Total Categories',
+            value: String(stats.total),
+            subtitle: 'in catalog',
+            icon: Tag,
+            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+            borderAccent: 'border-l-blue-500',
+          },
+          {
+            label: 'Active',
+            value: String(stats.active),
+            subtitle: 'enabled',
+            icon: CheckCircle2,
+            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            borderAccent: 'border-l-emerald-500',
+          },
+          {
+            label: 'With Products',
+            value: String(stats.withProducts),
+            subtitle: 'in use',
+            icon: FolderOpen,
+            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            borderAccent: 'border-l-amber-500',
+          },
+          {
+            label: 'Total Products',
+            value: String(stats.totalProducts),
+            subtitle: 'across categories',
+            icon: Package,
+            iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+            borderAccent: 'border-l-purple-500',
+          },
+        ].map((stat) => (
+          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </p>
+                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <Tag className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-              <p className="text-2xl font-bold">{categories.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
-              <Tag className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Active</p>
-              <p className="text-2xl font-bold">{categories.filter(c => c.isActive).length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10">
-              <Tag className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">With Products</p>
-              <p className="text-2xl font-bold">{categories.filter(c => (c._count?.products ?? 0) > 0).length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
-              <Tag className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Products</p>
-              <p className="text-2xl font-bold">{categories.reduce((s, c) => s + (c._count?.products ?? 0), 0)}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search + Table */}
-      <div className="rounded-2xl border border-border/60 bg-card shadow-sm">
-        <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search categories..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9"
-            />
+      {/* ── Search + Filter Row ── */}
+      <DataTableFilterBar
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search categories by name or description..."
+        resultsCount={filtered.length}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={() => setSelectedStatus('all')}
+        actionNode={
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}
+            >
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Import</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportCsv}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="sm"
+              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={openAdd}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Add Category</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={fetchCategories} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+        }
+      >
+        <EnumSelect
+          label="Status"
+          value={selectedStatus}
+          onValueChange={setSelectedStatus}
+          onClear={() => setSelectedStatus('all')}
+          options={[
+            { value: 'all', label: 'All Statuses' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+          ]}
+        />
+      </DataTableFilterBar>
+
+      {/* ── Mobile Cards / Desktop Table ── */}
+      <Card>
+        {/* Mobile */}
+        <div className="md:hidden">
+          {loading ? (
+            <div className="divide-y divide-border/40">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-start justify-between gap-2 px-4 py-3 animate-pulse">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-4 w-32 rounded bg-muted" />
+                    <div className="h-3 w-40 rounded bg-muted" />
+                  </div>
+                  <div className="h-5 w-12 rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : paginated.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
+                <Tag className="h-6 w-6 text-muted-foreground/60" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">No categories found</p>
+              <p className="text-[11px] text-muted-foreground/60">Try adjusting your search or filters</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {paginated.map(cat => (
+                <div key={cat.id} className="flex items-start justify-between gap-2 px-4 py-3">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="truncate font-medium text-sm">{cat.name}</p>
+                    {cat.description && (
+                      <p className="truncate text-xs text-muted-foreground">{cat.description}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <Badge variant={cat.isActive ? 'success' : 'secondary'} size="sm">
+                        {cat.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <Badge variant="outline" size="sm">
+                        {cat._count?.products ?? 0} products
+                      </Badge>
+                    </div>
+                  </div>
+                  <DataTableRowActions
+                    onEdit={() => openEdit(cat)}
+                    onDelete={() => handleDelete(cat)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Color</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead className="text-right">Products</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  {Array.from({ length: 6 }).map((__, j) => (
-                    <TableCell key={j}><div className="h-4 w-24 animate-pulse rounded bg-muted" /></TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : paginated.length === 0 ? (
+        {/* Desktop */}
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                  No categories found
-                </TableCell>
+                <TableHead>Name</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead className="text-right">Products</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              paginated.map(cat => (
-                <TableRow key={cat.id}>
-                  <TableCell>
-                    <div className="h-6 w-6 rounded-full border border-border/40" style={{ backgroundColor: cat.color ?? '#6366F1' }} />
-                  </TableCell>
-                  <TableCell className="font-medium">{cat.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{cat.description ?? '—'}</TableCell>
-                  <TableCell className="text-right font-mono">{cat._count?.products ?? 0}</TableCell>
-                  <TableCell>
-                    <Badge variant={cat.isActive ? 'success' : 'secondary'} size="sm">
-                      {cat.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(cat)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(cat)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )
-          }
-        </TableBody>
-      </Table>
-    </div>
-    <DataTablePagination
-      currentPage={currentPage}
-      totalPages={totalPages}
-      onPageChange={setCurrentPage}
-      totalItems={filtered.length}
-      itemsPerPage={PAGE_SIZE}
-      className="mt-4 px-2"
-    />
+            </TableHeader>
+            <TableBody>
+              <AnimatePresence mode="popLayout">
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-40">
+                      <div className="flex flex-col items-center justify-center gap-3 text-center">
+                        <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
+                        <p className="text-sm text-muted-foreground animate-pulse">Fetching categories...</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : paginated.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-40">
+                      <div className="flex flex-col items-center justify-center gap-3 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
+                          <Tag className="h-6 w-6 text-muted-foreground/60" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">No categories found</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground/60">Try adjusting your search or filters</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginated.map((cat, idx) => (
+                    <motion.tr
+                      key={cat.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.15, delay: idx * 0.02 }}
+                      className="border-b border-border/40 transition-colors hover:bg-muted/30"
+                    >
+                      <TableCell className="font-medium">{cat.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{cat.description || '—'}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{cat._count?.products ?? 0}</TableCell>
+                      <TableCell>
+                        <Badge variant={cat.isActive ? 'success' : 'secondary'} size="sm" dot>
+                          {cat.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DataTableRowActions
+                          onEdit={() => openEdit(cat)}
+                          onDelete={() => handleDelete(cat)}
+                        />
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </AnimatePresence>
+            </TableBody>
+          </Table>
+        </div>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={filtered.length}
+          itemsPerPage={PAGE_SIZE}
+          className="border-t border-border/40 px-4"
+        />
+      </Card>
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -335,27 +438,6 @@ export default function CategoriesPage() {
             <div className="grid gap-2">
               <Label htmlFor="cat-desc">Description</Label>
               <Input id="cat-desc" placeholder="Short description..." {...form.register('description')} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Color</Label>
-              <div className="flex flex-wrap gap-2">
-                {DEFAULT_COLORS.map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${form.watch('color') === c ? 'border-foreground scale-110' : 'border-transparent'}`}
-                    style={{ backgroundColor: c }}
-                    onClick={() => form.setValue('color', c)}
-                  />
-                ))}
-                <input
-                  type="color"
-                  value={form.watch('color') ?? '#6366F1'}
-                  onChange={e => form.setValue('color', e.target.value)}
-                  className="h-7 w-7 cursor-pointer rounded-full border border-border bg-transparent p-0"
-                  title="Custom color"
-                />
-              </div>
             </div>
             <div className="flex items-center gap-3">
               <input
@@ -380,11 +462,11 @@ export default function CategoriesPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Import Categories from CSV</DialogTitle>
-            <DialogDescription>CSV must have columns: name, description, color, isActive</DialogDescription>
+            <DialogDescription>CSV must have columns: name, description, isActive</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Button variant="outline" size="sm" className="w-full" onClick={() => {
-              const csv = 'name,description,color,isActive\nCARDIOLOGY,Heart medicines,#EF4444,true'
+              const csv = 'name,description,isActive\nCARDIOLOGY,Heart medicines,true'
               const blob = new Blob([csv], { type: 'text/csv' })
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a'); a.href = url; a.download = 'categories-template.csv'; a.click()

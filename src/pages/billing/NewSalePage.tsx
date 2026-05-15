@@ -963,7 +963,7 @@ function BillingRow({
     {productHistory.length > 0 && historyOpen && (
       <>
         {/* Title strip */}
-        <TableRow className="bg-violet-500/[0.04] dark:bg-violet-500/[0.06] hover:bg-violet-500/[0.04] dark:hover:bg-violet-500/[0.06]">
+        <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6">
           <TableCell className="w-10 px-2 py-1.5 text-center align-middle text-violet-500/70">↳</TableCell>
           <TableCell colSpan={8} className="px-3 py-1.5 align-middle">
             <div className="flex items-center gap-1.5">
@@ -975,7 +975,7 @@ function BillingRow({
           </TableCell>
         </TableRow>
         {/* Column labels for the sub-rows */}
-        <TableRow className="bg-violet-500/[0.04] dark:bg-violet-500/[0.06] hover:bg-violet-500/[0.04] dark:hover:bg-violet-500/[0.06] border-b border-violet-200/30 dark:border-violet-800/20">
+        <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6 border-b border-violet-200/30 dark:border-violet-800/20">
           <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
           <TableCell className="min-w-55 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
           <TableCell className="w-37.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
@@ -991,7 +991,7 @@ function BillingRow({
           <TableRow
             key={i}
             className={cn(
-              'bg-violet-500/[0.03] dark:bg-violet-500/[0.05] hover:bg-violet-500/[0.06]',
+              'bg-violet-500/3 dark:bg-violet-500/5 hover:bg-violet-500/6',
               i === productHistory.length - 1 ? 'border-b border-border/40' : 'border-b border-violet-100/30 dark:border-violet-900/20'
             )}
           >
@@ -1578,10 +1578,14 @@ export default function NewSalePage() {
       setInvoiceType('quotation')
     }
     const dupId = params.get('duplicateId')
-    if (dupId) {
-      api.get(`/billing/${dupId}`).then((res) => {
+    const draftId = params.get('draftId')
+    // `?draftId=…` resumes a server-side draft: prefill the same way `duplicateId`
+    // does, but also remember the id so subsequent saves PATCH instead of POST.
+    const prefillId = draftId ?? dupId
+    if (prefillId) {
+      api.get(`/billing/${prefillId}`).then((res) => {
         const inv = res.data
-        // Pre-fill items from the original invoice
+        // Pre-fill items from the original/draft invoice
         if (Array.isArray(inv.items) && inv.items.length > 0) {
           setItems(inv.items.map((it: Record<string, unknown>) => ({
             id: crypto.randomUUID(),
@@ -1598,6 +1602,23 @@ export default function NewSalePage() {
             amount: Number(it.amount ?? it.total ?? 0),
             schedule: it.schedule ?? '',
           })))
+        }
+        // Drafts also restore the customer + payment intent so the user
+        // returns to exactly where they left off.
+        if (draftId) {
+          setEditingDraftId(draftId)
+          if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
+          if (inv.paymentMode) setPaymentMode(inv.paymentMode as PaymentMode)
+          if (inv.customerId) {
+            // Defer to next tick so customers list from fetchMasterData has settled
+            setTimeout(() => {
+              const c = useMasterDataStore.getState().customers.find((x) => x.id === inv.customerId)
+              if (c) {
+                setSelectedCustomer(c)
+                setCustomerSearch(c.name)
+              }
+            }, 0)
+          }
         }
       }).catch(() => {/* ignore if not found */ })
     }
@@ -2244,6 +2265,10 @@ export default function NewSalePage() {
   // ── Submit Invoice ──────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null)
+  // When resuming a server-side draft (?draftId=…), this holds the id so
+  // saves re-route to PATCH instead of POST and "Save & Print" finalizes.
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null)
+  const [isSavingDraft, setIsSavingDraft] = useState(false)
 
   // ── Invoice Preview ────────────────────────────────────────
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -2322,6 +2347,79 @@ export default function NewSalePage() {
       setReminderSaving(false)
     }
   }
+  // Save the current bill as a server-side draft (no stock movement, no
+  // payment, no loyalty). New draft → POST; resuming an existing one → PATCH.
+  // User can come back later (different device, different session) and finish.
+  const saveAsDraft = async () => {
+    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    if (activeItems.length === 0) {
+      toast.info('Add at least one item before saving as draft')
+      return
+    }
+    if (!selectedCustomer) {
+      toast.error('Please select a customer before saving as draft')
+      setShowCustomerDropdown(true)
+      return
+    }
+    if (invoiceType === 'quotation') {
+      // Quotations already live in their own flow with status DRAFT — fall
+      // back to the regular submit so we don't accidentally split the path.
+      submitInvoice()
+      return
+    }
+
+    setIsSavingDraft(true)
+    try {
+      const payload: Record<string, unknown> = {
+        type: 'INVOICE',
+        billingType: billingType.toUpperCase(),
+        customerName: selectedCustomer.name,
+        customerId: selectedCustomer.id,
+        paymentMode: paymentMode.toUpperCase(),
+        subtotal: Number(totals.subtotal) || 0,
+        productDiscount: Number(totals.productDiscount) || 0,
+        taxableAmount: Number(totals.taxableAmount) || 0,
+        cgst: Number(totals.cgst) || 0,
+        sgst: Number(totals.sgst) || 0,
+        igst: 0,
+        roundOff: Number(totals.roundOff) || 0,
+        grandTotal: Number(totals.grandTotal) || 0,
+        amountPaid: 0,
+        changeReturned: 0,
+        status: 'DRAFT',
+        ...(activeBranchId && { branchId: activeBranchId }),
+        ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
+        items: activeItems.map((item) => ({
+          productId: item.productId,
+          productName: item.productName,
+          batchId: item.batchId,
+          batchNumber: item.batchNumber,
+          expiryDate: new Date(item.expiryDate).toISOString(),
+          quantity: Number(item.quantity) || 1,
+          mrp: Number(item.mrp) || 0,
+          rate: Number(item.rate) || 0,
+          discountPercent: Number(item.discountPercent) || 0,
+          gstPercent: Number(item.gstPercent) || 0,
+          amount: Number(item.amount) || 0,
+        })),
+      }
+
+      if (editingDraftId) {
+        await api.patch(`/billing/${editingDraftId}/save-draft`, payload)
+      } else {
+        await api.post('/billing', payload)
+      }
+      toast.success('Saved as draft — find it in Sales under Drafts')
+      navigate('/billing/sales?status=DRAFT')
+    } catch (error: unknown) {
+      const errorMsg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to save draft'
+      console.error(error)
+      toast.error(errorMsg)
+    } finally {
+      setIsSavingDraft(false)
+    }
+  }
+
   const submitInvoice = async (forcePaymentMode?: string) => {
     const activeItems = items.filter((i) => i.productId && i.quantity > 0)
     const effectivePaymentMode = forcePaymentMode ?? paymentMode
@@ -2396,6 +2494,10 @@ export default function NewSalePage() {
 
       let endpoint: string
       let finalPayload: Record<string, unknown>
+      // Route: brand-new quotation → /quotations. Finalizing a server-side
+      // draft → PATCH /billing/:id/finalize (runs the stock+ledger+loyalty
+      // side effects that POST skipped). Everything else → POST /billing.
+      let method: 'post' | 'patch' = 'post'
 
       if (invoiceType === 'quotation') {
         endpoint = '/quotations'
@@ -2420,12 +2522,18 @@ export default function NewSalePage() {
             amount: Number(item.amount) || 0,
           })),
         }
+      } else if (editingDraftId) {
+        endpoint = `/billing/${editingDraftId}/finalize`
+        method = 'patch'
+        finalPayload = payload
       } else {
         endpoint = '/billing'
         finalPayload = payload
       }
 
-      const res = await api.post(endpoint, finalPayload)
+      const res = method === 'patch'
+        ? await api.patch(endpoint, finalPayload)
+        : await api.post(endpoint, finalPayload)
       const savedInvoice = res.data
       setLastSavedInvoice(savedInvoice)
 
@@ -2568,7 +2676,7 @@ export default function NewSalePage() {
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen px-3 pt-3 md:px-4 md:pt-4 overflow-hidden bg-gradient-to-b from-background to-muted/20">
+      <div className="flex flex-col h-screen px-3 pt-3 md:px-4 md:pt-4 overflow-hidden bg-linear-to-b from-background to-muted/20">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
@@ -3441,7 +3549,7 @@ export default function NewSalePage() {
                             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 shrink-0">
                               <FileText className="h-3.5 w-3.5 text-primary" />
                             </div>
-                            <h2 className="text-sm font-bold font-mono text-primary truncate max-w-[14rem]">{selectedHistoryInvoice.invoiceNumber}</h2>
+                            <h2 className="text-sm font-bold font-mono text-primary truncate max-w-56">{selectedHistoryInvoice.invoiceNumber}</h2>
                           </div>
 
                           {/* Meta — date · billingType · salesperson */}
@@ -3617,7 +3725,7 @@ export default function NewSalePage() {
                             )}
 
                             {/* Grand Total — highlighted hero cell */}
-                            <div className="flex-[1.4] relative flex flex-col items-center justify-center gap-0.5 bg-gradient-to-br from-primary to-primary/85 px-3 py-2 text-primary-foreground shadow-inner overflow-hidden">
+                            <div className="flex-[1.4] relative flex flex-col items-center justify-center gap-0.5 bg-linear-to-br from-primary to-primary/85 px-3 py-2 text-primary-foreground shadow-inner overflow-hidden">
                               <span className="text-[9px] font-black uppercase tracking-widest opacity-90 relative z-10">Grand Total</span>
                               <span className="font-mono text-base font-black tabular-nums tracking-tight relative z-10">{formatCurrency(Number(selectedHistoryInvoice.grandTotal))}</span>
                             </div>
@@ -3804,7 +3912,7 @@ export default function NewSalePage() {
                   </div>
 
                   {/* Net Payable — large highlighted block */}
-                  <div className="relative mt-4 overflow-hidden rounded-xl bg-gradient-to-br from-primary/15 via-primary/8 to-transparent border-2 border-primary/25 p-4 shadow-sm">
+                  <div className="relative mt-4 overflow-hidden rounded-xl bg-linear-to-br from-primary/15 via-primary/8 to-transparent border-2 border-primary/25 p-4 shadow-sm">
                     <div className="relative z-10 flex items-center justify-between">
                       <span className="text-xs font-black uppercase tracking-widest text-primary/90">Net Payable</span>
                       <span className="font-mono text-3xl font-black tabular-nums tracking-tight text-primary">
@@ -3846,7 +3954,7 @@ export default function NewSalePage() {
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] as const }}
           className="hidden md:block shrink-0 -mx-3 md:-mx-4 mt-3"
         >
-          <div className="relative border-t border-border/50 bg-gradient-to-r from-background/80 via-background/95 to-background/80 backdrop-blur-xl shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.5)]">
+          <div className="relative border-t border-border/50 bg-linear-to-r from-background/80 via-background/95 to-background/80 backdrop-blur-xl shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.5)]">
             <div className="grid grid-cols-7 gap-px bg-border/30">
               {/* Held — with count badge */}
               <Tooltip>
@@ -3886,19 +3994,24 @@ export default function NewSalePage() {
                 <TooltipContent>Hold bill for later (F10)</TooltipContent>
               </Tooltip>
 
-              {/* Draft */}
+              {/* Save as Draft — persists to server, resumable across devices */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={holdCurrentBill}
-                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                    onClick={saveAsDraft}
+                    disabled={isSavingDraft || isSubmitting}
+                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Draft</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">
+                      {isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}
+                    </span>
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Save as draft</TooltipContent>
+                <TooltipContent>
+                  {editingDraftId ? 'Re-save this draft' : 'Save as draft — finish later from Sales list'}
+                </TooltipContent>
               </Tooltip>
 
               {/* Share (F9) */}
@@ -3948,8 +4061,8 @@ export default function NewSalePage() {
                     className={cn(
                       'group col-span-2 relative flex items-center justify-center gap-2.5 px-3 py-2.5 text-primary-foreground shadow-inner overflow-hidden transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
                       isCreditBlocked && isPharmacist
-                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
-                        : 'bg-gradient-to-br from-primary to-primary/85 hover:from-primary hover:to-primary'
+                        ? 'bg-linear-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
+                        : 'bg-linear-to-br from-primary to-primary/85 hover:from-primary hover:to-primary'
                     )}
                   >
                     {isCreditBlocked && isPharmacist
@@ -3958,7 +4071,11 @@ export default function NewSalePage() {
                     }
                     <div className="flex flex-col items-start relative z-10">
                       <span className="text-[9px] font-black uppercase tracking-widest opacity-90">
-                        {isCreditBlocked && isPharmacist ? 'Approval' : 'Save & Print'}
+                        {isCreditBlocked && isPharmacist
+                          ? 'Approval'
+                          : editingDraftId
+                            ? 'Finalize & Print'
+                            : 'Save & Print'}
                       </span>
                       <span className="text-sm font-black tracking-tight leading-tight">
                         {isSubmitting
@@ -4064,7 +4181,7 @@ export default function NewSalePage() {
 
                   {/* ── Items Table ── */}
                   <div className="flex-1 overflow-x-auto">
-                    <table className="w-full min-w-[700px]">
+                    <table className="w-full min-w-175">
                       <thead>
                         <tr className="bg-zinc-800 dark:bg-zinc-950 text-white">
                           <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider w-10">#</th>
@@ -4125,7 +4242,7 @@ export default function NewSalePage() {
                       </div>
 
                       {/* Right — totals summary */}
-                      <div className="px-6 py-4 sm:min-w-[300px] space-y-1.5">
+                      <div className="px-6 py-4 sm:min-w-75 space-y-1.5">
                         {[
                           { label: 'Subtotal', value: formatCurrency(prev.subtotal) },
                           ...(prev.productDiscount > 0 ? [{ label: 'Discount', value: `− ${formatCurrency(prev.productDiscount)}`, rose: true }] : []),
@@ -4147,7 +4264,7 @@ export default function NewSalePage() {
                       </div>
 
                       {/* Far right — signature */}
-                      <div className="hidden sm:flex flex-col items-center justify-end px-8 py-4 text-center min-w-[140px]">
+                      <div className="hidden sm:flex flex-col items-center justify-end px-8 py-4 text-center min-w-35">
                         <div className="border-t border-zinc-400 w-24 mb-1.5" />
                         <p className="text-xs font-semibold text-zinc-500">Authorised Signatory</p>
                       </div>

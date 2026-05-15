@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, Download, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX,
+  RotateCcw, PackageX, PackagePlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -22,8 +22,6 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import api from '@/lib/api'
 import { useRoute, navigate } from '@/lib/router'
-import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { exportToCsv } from '@/lib/exportUtils'
 
@@ -93,8 +91,6 @@ function TabButton({
 
 export default function ProductHistoryPage() {
   const { search } = useRoute()
-  const products = useMasterDataStore(s => s.products)
-  const fetchProducts = useMasterDataStore(s => s.fetchProducts)
 
   const [selectedProductId, setSelectedProductId] = useState<string>(() => {
     const params = new URLSearchParams(search)
@@ -117,9 +113,6 @@ export default function ProductHistoryPage() {
   const [timelinePage, setTimelinePage] = useState(1)
   const PAGE_SIZE = 50
 
-  useEffect(() => { fetchProducts() }, [])
-  useBranchRefresh(fetchProducts)
-
   const loadHistory = useCallback(async (productId: string) => {
     if (!productId) return
     setLoading(true)
@@ -141,7 +134,8 @@ export default function ProductHistoryPage() {
     if (selectedProductId) loadHistory(selectedProductId)
   }, [selectedProductId, loadHistory])
 
-  const selectedProduct = products.find(p => p.id === selectedProductId)
+  // History endpoint already returns the product — no need for a master list lookup.
+  const selectedProduct = history?.product ?? null
 
   // ── Sales rows (outgoing — stock OUT) ───────────────────────
   const salesRows = useMemo(() => {
@@ -375,6 +369,14 @@ export default function ProductHistoryPage() {
         {history && (
           <div className="flex items-center gap-2 self-start">
             <Button
+              size="sm"
+              className="gap-1.5 bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              onClick={() => navigate(`/purchase/orders?productId=${selectedProductId}`)}
+            >
+              <PackagePlus className="h-3.5 w-3.5" />
+              Create PO
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
@@ -466,7 +468,6 @@ export default function ProductHistoryPage() {
         midNode={
           <div className="w-60 shrink-0">
             <ProductSearchInput
-              products={products}
               selectedId={selectedProductId}
               onSelect={id => { setSelectedProductId(id); setHistory(null) }}
               onClear={() => { setSelectedProductId(''); setHistory(null) }}
@@ -833,10 +834,13 @@ export default function ProductHistoryPage() {
 }
 
 // ─── Product search input ──────────────────────────────────────
+// Debounced server-side search via GET /products?q=&take=20. Previously this
+// component filtered a master-loaded array client-side — that required the
+// page to pre-load every product on mount (slow). Now it only fetches the
+// page of results the user is actually looking at.
 function ProductSearchInput({
-  products, selectedId, onSelect, onClear, selectedLabel,
+  selectedId, onSelect, onClear, selectedLabel,
 }: {
-  products: any[]
   selectedId: string
   onSelect: (id: string) => void
   onClear: () => void
@@ -844,6 +848,8 @@ function ProductSearchInput({
 }) {
   const [q, setQ] = useState(selectedLabel)
   const [open, setOpen] = useState(false)
+  const [results, setResults] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -862,14 +868,28 @@ function ProductSearchInput({
     return () => el?.removeEventListener('focusout', handleFocusOut)
   }, [])
 
-  const filtered = useMemo(() => {
-    if (!q.trim()) return products.slice(0, 30)
-    const lower = q.toLowerCase()
-    return products.filter(p =>
-      p.name.toLowerCase().includes(lower) ||
-      (p.genericName ?? '').toLowerCase().includes(lower)
-    ).slice(0, 30)
-  }, [q, products])
+  // Debounced API fetch — fires ~200ms after the user stops typing (or
+  // immediately on focus with an empty query, to show a starter list).
+  useEffect(() => {
+    if (selectedId) return // No need to search while a selection is active.
+    let cancelled = false
+    const handle = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const res = await api.get('/products', {
+          params: { q: q.trim() || undefined, take: 20 },
+        })
+        if (cancelled) return
+        const list = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+        setResults(list)
+      } catch {
+        if (!cancelled) setResults([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 200)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [q, selectedId])
 
   return (
     <div ref={containerRef} className="relative">
@@ -885,9 +905,11 @@ function ProductSearchInput({
       />
       {open && !selectedId && (
         <div className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover shadow-xl overflow-hidden max-h-64 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <p className="px-4 py-3 text-sm text-muted-foreground">Searching…</p>
+          ) : results.length === 0 ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
-          ) : filtered.map(p => (
+          ) : results.map(p => (
             <button
               key={p.id}
               type="button"
