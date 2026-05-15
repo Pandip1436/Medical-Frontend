@@ -62,6 +62,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
+import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import {
   Tooltip,
   TooltipContent,
@@ -85,7 +87,7 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { cn, formatCurrency, generateInvoiceNumber } from '@/lib/utils'
-import type { Product, Customer, Invoice } from '@/types'
+import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 
 // ─────────────────────────────────────────────────────────────
@@ -129,36 +131,45 @@ interface PaymentDetails {
 // CUSTOMER SCHEMA
 // ─────────────────────────────────────────────────────────────
 
-const customerSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  phone: z
-    .string()
-    .min(10, 'Phone must be 10 digits')
-    .max(10, 'Phone must be 10 digits')
-    .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
-  type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
-  email: z.string().email('Invalid email').or(z.literal('')).optional(),
-  address: z.string().min(1, 'Address is required'),
-  gstin: z.string().optional(),
-  dlNumber: z.string().optional(),
-  registrationNumber: z.string().optional(),
-  referredBy: z.string().min(1, 'Please select a salesperson'),
-  notes: z.string().optional(),
-}).superRefine((data, ctx) => {
-  if (data.type === 'WHOLESALE') {
-    if (!data.gstin || data.gstin.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
+// Quotation mode requires only name + phone. Invoice mode keeps the full
+// strict ruleset (address, referredBy, type-conditional GSTIN/DL/registration).
+// The resolver is rebuilt when invoiceType flips so the form revalidates.
+function buildCustomerSchema(mode: 'invoice' | 'quotation') {
+  const base = z.object({
+    name: z.string().min(1, 'Name is required'),
+    phone: z
+      .string()
+      .min(10, 'Phone must be 10 digits')
+      .max(10, 'Phone must be 10 digits')
+      .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
+    type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
+    email: z.string().email('Invalid email').or(z.literal('')).optional(),
+    address: mode === 'invoice' ? z.string().min(1, 'Address is required') : z.string().optional(),
+    gstin: z.string().optional(),
+    dlNumber: z.string().optional(),
+    registrationNumber: z.string().optional(),
+    referredBy: mode === 'invoice' ? z.string().min(1, 'Please select a salesperson') : z.string().optional(),
+    notes: z.string().optional(),
+  })
+  if (mode === 'quotation') return base
+  return base.superRefine((data, ctx) => {
+    if (data.type === 'WHOLESALE') {
+      if (!data.gstin || data.gstin.trim() === '') {
+        ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
+      }
+      if (!data.dlNumber || data.dlNumber.trim() === '') {
+        ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale' })
+      }
     }
-    if (!data.dlNumber || data.dlNumber.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['dlNumber'], message: 'DL Number is required for Wholesale' })
+    if (data.type === 'DOCTOR') {
+      if (!data.registrationNumber || data.registrationNumber.trim() === '') {
+        ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message: 'Registration Number is required for Doctor' })
+      }
     }
-  }
-  if (data.type === 'DOCTOR') {
-    if (!data.registrationNumber || data.registrationNumber.trim() === '') {
-      ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message: 'Registration Number is required for Doctor' })
-    }
-  }
-})
+  })
+}
+
+const customerSchema = buildCustomerSchema('invoice')
 
 type CustomerFormValues = z.input<typeof customerSchema>
 
@@ -217,6 +228,26 @@ function calculateItemAmount(item: BillingItem): number {
   return taxable + gst
 }
 
+// When a product is selected (from hero search or row picker), the response
+// from /products already includes its `batches`. Merge them into the master
+// store so the rest of the page (FEFO sorting, batch dropdown, stock checks,
+// batch lookups by id) keeps working when we no longer preload everything.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function syncProductBatchesIntoStore(product: any) {
+  if (!product?.id) return
+  const incoming = Array.isArray(product.batches) ? product.batches : []
+  useMasterDataStore.setState((prev) => {
+    const others = prev.batches.filter((b) => b.productId !== product.id)
+    return { batches: [...others, ...incoming] }
+  })
+  // Also make sure the product itself is reachable by id (FEFO/MRP lookups
+  // in BillingRow use `products.find(p => p.id === ...)`).
+  useMasterDataStore.setState((prev) => {
+    const others = prev.products.filter((p) => p.id !== product.id)
+    return { products: [...others, product] }
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
 // SUB-COMPONENT: PillToggle
 // ─────────────────────────────────────────────────────────────
@@ -231,16 +262,16 @@ function PillToggle<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="inline-flex rounded-xl bg-muted/60 p-1 backdrop-blur-sm">
+    <div className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
           className={cn(
-            'rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all duration-200',
+            'rounded-md px-3 py-1 text-xs font-semibold transition-colors duration-150',
             value === opt.value
-              ? 'bg-background text-foreground shadow-sm'
+              ? 'bg-background text-foreground shadow-sm ring-1 ring-border/40'
               : 'text-muted-foreground hover:text-foreground'
           )}
         >
@@ -259,18 +290,22 @@ function BillingRow({
   item,
   index,
   billingType,
+  invoiceType,
   onUpdate,
   onRemove,
   customerLastRates,
   customerInvoices,
+  showInlineHistory = true,
 }: {
   item: BillingItem
   index: number
   billingType: 'retail' | 'wholesale'
+  invoiceType: 'invoice' | 'quotation'
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
   customerLastRates: Record<string, number>
   customerInvoices: Invoice[]
+  showInlineHistory?: boolean
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
@@ -287,19 +322,19 @@ function BillingRow({
   const batchRef = useRef<HTMLButtonElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
 
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) return products.slice(0, 8)
-    const q = productSearch.toLowerCase()
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.genericName.toLowerCase().includes(q) ||
-        p.manufacturer.toLowerCase().includes(q) ||
-        p.hsnCode.includes(q) ||
-        (p.barcode && p.barcode.toLowerCase().includes(q))
-    )
+  // Server-paginated product search for this row's picker (20 + scroll).
+  const rowProductSearch = usePaginatedSearch<Product>({
+    endpoint: '/products',
+    pageSize: 20,
+    enabled: showProductDropdown,
+  })
+
+  useEffect(() => {
+    rowProductSearch.setQuery(productSearch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productSearch])
+
+  const filteredProducts = rowProductSearch.items
 
   // Alternative suggestions: same salt composition, different product, has stock
   const alternatives = useMemo(() => {
@@ -356,7 +391,10 @@ function BillingRow({
 
   const handleProductSelect = useCallback(
     (product: Product) => {
-      const productBatches = batches
+      // Ensure the selected product's batches and full record are in the
+      // store before we read FEFO/MRP from them.
+      syncProductBatchesIntoStore(product)
+      const productBatches = useMasterDataStore.getState().batches
         .filter((b) => b.productId === product.id && b.quantity > 0)
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
@@ -433,15 +471,22 @@ function BillingRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleQtyChange = useCallback(
     (qty: number) => {
-      const selectedBatch = batches.find((b) => b.id === item.batchId)
-      const maxQty = selectedBatch?.quantity ?? 9999
-      const clampedQty = Math.min(Math.max(0, qty), maxQty)
-      const updates: Partial<BillingItem> = { quantity: clampedQty }
+      // Quotation mode: no stock clamp — the product may not even be in
+      // inventory yet (the whole point of quoting before procuring).
+      let nextQty: number
+      if (invoiceType === 'quotation') {
+        nextQty = Math.max(0, qty)
+      } else {
+        const selectedBatch = batches.find((b) => b.id === item.batchId)
+        const maxQty = selectedBatch?.quantity ?? 9999
+        nextQty = Math.min(Math.max(0, qty), maxQty)
+      }
+      const updates: Partial<BillingItem> = { quantity: nextQty }
       const tempItem = { ...item, ...updates }
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
     },
-    [item, onUpdate]
+    [item, onUpdate, invoiceType]
   )
 
   const handleDiscountChange = useCallback(
@@ -482,19 +527,32 @@ function BillingRow({
       setSelectedIndex((prev) => Math.max(prev - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
+      // Quotation mode: Enter commits the typed text as the product name
+      // (no inventory pick required). The user can still click a row in the
+      // dropdown to auto-fill if they want.
+      if (invoiceType === 'quotation') {
+        onUpdate(item.id, { productName: productSearch })
+        setShowProductDropdown(false)
+        qtyRef.current?.focus()
+        return
+      }
       if (filteredProducts[selectedIndex]) {
         handleProductSelect(filteredProducts[selectedIndex])
       }
     } else if (e.key === 'Tab' && showProductDropdown && filteredProducts.length > 0) {
-      // Auto-select highlighted on Tab if dropdown is open
-      handleProductSelect(filteredProducts[selectedIndex])
+      // Invoice mode only: Tab auto-picks the highlighted suggestion.
+      // Quotation mode leaves Tab alone so the typed text stays as-is.
+      if (invoiceType !== 'quotation') {
+        handleProductSelect(filteredProducts[selectedIndex])
+      }
     } else if (e.key === 'Escape') {
       setShowProductDropdown(false)
     }
   }
 
   const selectedBatch = batches.find((b) => b.id === item.batchId)
-  const qtyExceeds = selectedBatch ? item.quantity > selectedBatch.quantity : false
+  // Quotation mode: no batch tie, so we never flag qty as exceeding stock.
+  const qtyExceeds = invoiceType === 'invoice' && selectedBatch ? item.quantity > selectedBatch.quantity : false
 
   return (
     <>
@@ -530,9 +588,9 @@ function BillingRow({
           {/* Helper row (top) — manufacturer · generic */}
           <div className="h-3.5 flex items-center">
             {selectedProduct && (selectedProduct.manufacturer || selectedProduct.genericName) && (
-              <div className="px-2 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 truncate">
+              <div className="px-2 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground truncate">
                 {selectedProduct.manufacturer && <span className="truncate">{selectedProduct.manufacturer}</span>}
-                {selectedProduct.manufacturer && selectedProduct.genericName && <span className="opacity-30">·</span>}
+                {selectedProduct.manufacturer && selectedProduct.genericName && <span className="opacity-40">·</span>}
                 {selectedProduct.genericName && <span className="truncate">{selectedProduct.genericName}</span>}
               </div>
             )}
@@ -545,6 +603,11 @@ function BillingRow({
               onChange={(e) => {
                 setProductSearch(e.target.value)
                 setSelectedIndex(0)
+                // Quotation mode: free-text product name. Persist every keystroke
+                // to the item so the payload carries it without requiring a pick.
+                if (invoiceType === 'quotation') {
+                  onUpdate(item.id, { productName: e.target.value })
+                }
                 if (inputRef.current) {
                   const rect = inputRef.current.getBoundingClientRect()
                   setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
@@ -600,59 +663,75 @@ function BillingRow({
               className="rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
             >
               <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30">
-                {isLoading ? (
+                {rowProductSearch.loading && filteredProducts.length === 0 ? (
                   <span className="flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    Syncing database...
+                    Searching…
                   </span>
                 ) : (
-                  <>{filteredProducts.length} Product{filteredProducts.length !== 1 ? 's' : ''} Found</>
+                  <>
+                    {rowProductSearch.total || filteredProducts.length} Product{(rowProductSearch.total || filteredProducts.length) !== 1 ? 's' : ''}
+                    {rowProductSearch.total > filteredProducts.length && ` · showing ${filteredProducts.length}`}
+                  </>
                 )}
               </div>
-              <div className="max-h-70 overflow-y-auto">
-                {filteredProducts.length === 0 ? (
+              <div
+                className="max-h-70 overflow-y-auto"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+                    rowProductSearch.loadMore()
+                  }
+                }}
+              >
+                {filteredProducts.length === 0 && !rowProductSearch.loading ? (
                   <div className="p-4 text-center text-xs text-muted-foreground italic">
-                    No products found
+                    {productSearch ? `No products match "${productSearch}"` : 'Start typing to search products'}
                   </div>
                 ) : (
-                  filteredProducts.map((p, idx) => (
-                    <div
-                      key={p.id}
-                      className={cn(
-                        "cursor-pointer px-3 py-2.5 transition-all border-b border-border/5 last:border-0 group/item",
-                        idx === selectedIndex ? "bg-primary/5 text-primary" : "hover:bg-primary/5"
-                      )}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        handleProductSelect(p)
-                      }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold truncate group-hover/item:text-primary transition-colors">
-                              {p.name}
-                            </span>
-                            {(p.schedule === 'H' || p.schedule === 'H1') && (
-                              <Badge variant="destructive" size="sm" className="h-4 px-1 text-[8px] font-black">{p.schedule}</Badge>
-                            )}
+                  <>
+                    {filteredProducts.map((p, idx) => (
+                      <div
+                        key={p.id}
+                        className={cn(
+                          "cursor-pointer px-3 py-2.5 transition-all border-b border-border/5 last:border-0 group/item",
+                          idx === selectedIndex ? "bg-primary/5 text-primary" : "hover:bg-primary/5"
+                        )}
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          handleProductSelect(p)
+                        }}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold truncate group-hover/item:text-primary transition-colors">
+                                {p.name}
+                              </span>
+                              {(p.schedule === 'H' || p.schedule === 'H1') && (
+                                <Badge variant="destructive" size="sm" className="h-4 px-1 text-[8px] font-black">{p.schedule}</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/60">
+                              <span className="truncate">{p.manufacturer}</span>
+                              <span className="opacity-20">|</span>
+                              <span className="truncate">{p.genericName}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/60">
-                            <span className="truncate">{p.manufacturer}</span>
-                            <span className="opacity-20">|</span>
-                            <span className="truncate">{p.genericName}</span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
+                            <Badge variant={p.totalStock <= p.minStock ? 'destructive' : p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
+                              {p.totalStock === 0 ? 'OUT' : `Stk: ${p.totalStock}`}
+                            </Badge>
                           </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
-                          <Badge variant={p.totalStock <= p.minStock ? 'destructive' : p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
-                            {p.totalStock === 0 ? 'OUT' : `Stk: ${p.totalStock}`}
-                          </Badge>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                    {filteredProducts.length > 0 && rowProductSearch.loading && (
+                      <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
+                    )}
+                  </>
                 )}
               </div>
               {/* Alternative drug suggestions */}
@@ -701,7 +780,7 @@ function BillingRow({
             {item.batchId && item.expiryDate ? (
               <span
                 className={cn(
-                  'inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-widest tabular-nums',
+                  'inline-flex items-center gap-0.5 text-[11px] font-semibold tabular-nums',
                   isExpired(item.expiryDate)
                     ? 'text-rose-600 dark:text-rose-400'
                     : isNearExpiry(item.expiryDate)
@@ -746,6 +825,34 @@ function BillingRow({
         </div>
       </TableCell>
 
+      {/* MRP — editable in quotation mode (product may not exist in inventory),
+          read-only reference in invoice mode (auto-filled from batch). */}
+      <TableCell className="w-20 px-2 py-2.5 align-middle">
+        <div className="flex flex-col gap-0.5 items-end">
+          <div className="h-3.5" aria-hidden />
+          {invoiceType === 'quotation' ? (
+            <input
+              type="number"
+              step={0.01}
+              min={0}
+              value={item.mrp || ''}
+              onChange={(e) => {
+                const mrp = Math.max(0, parseFloat(e.target.value) || 0)
+                onUpdate(item.id, { mrp })
+              }}
+              placeholder="0"
+              className="h-8 w-full rounded-md border border-border/40 bg-muted/30 px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-background"
+            />
+          ) : item.productId && item.mrp > 0 ? (
+            <span className="font-mono text-sm font-semibold tabular-nums text-muted-foreground h-8 inline-flex items-center">
+              {formatCurrency(item.mrp)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/30 text-xs h-8 inline-flex items-center">—</span>
+          )}
+        </div>
+      </TableCell>
+
       {/* Qty — helper on top, stepper below */}
       <TableCell className="w-27.5 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
@@ -753,8 +860,8 @@ function BillingRow({
           <div className="h-3.5 flex items-center justify-center">
             {selectedBatch && item.quantity > 0 ? (
               <span className={cn(
-                'text-[9px] font-bold uppercase tracking-widest tabular-nums',
-                qtyExceeds ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/50'
+                'text-[11px] font-semibold tabular-nums',
+                qtyExceeds ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'
               )}>
                 {qtyExceeds ? `Max ${selectedBatch.quantity}` : `of ${selectedBatch.quantity}`}
               </span>
@@ -768,7 +875,7 @@ function BillingRow({
             <button
               type="button"
               onClick={() => handleQtyChange(item.quantity - 1)}
-              disabled={!item.productId || item.quantity <= 0}
+              disabled={(invoiceType === 'invoice' && !item.productId) || item.quantity <= 0}
               className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
             >
               <Minus className="h-3 w-3" />
@@ -777,7 +884,7 @@ function BillingRow({
               ref={qtyRef}
               type="number"
               min={0}
-              max={selectedBatch?.quantity ?? 9999}
+              max={invoiceType === 'quotation' ? undefined : (selectedBatch?.quantity ?? 9999)}
               value={item.quantity || ''}
               onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
               className={cn(
@@ -786,12 +893,12 @@ function BillingRow({
                 'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
                 qtyExceeds && 'text-rose-600'
               )}
-              disabled={!item.productId}
+              disabled={invoiceType === 'invoice' && !item.productId}
             />
             <button
               type="button"
               onClick={() => handleQtyChange(item.quantity + 1)}
-              disabled={!item.productId}
+              disabled={invoiceType === 'invoice' && !item.productId}
               className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
             >
               <Plus className="h-3 w-3" />
@@ -800,8 +907,8 @@ function BillingRow({
         </div>
       </TableCell>
 
-      {/* Rate — MRP/original on top, editable stepper below */}
-      <TableCell className="w-50 px-2 py-2.5 align-middle">
+      {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
+      <TableCell className="w-40 px-2 py-2.5 align-middle">
         {(() => {
           const originalRate = selectedProduct
             ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
@@ -810,26 +917,17 @@ function BillingRow({
           const overMrp = item.mrp > 0 && Number(item.rate) > item.mrp
           return (
             <div className="flex flex-col gap-0.5">
-              {/* Helper row (top) — MRP + original rate */}
-              <div className="h-3.5 flex items-center justify-center gap-2 text-[9px] font-mono px-1">
-                {item.productId && item.mrp > 0 && (
-                  <span className={cn(
-                    'inline-flex items-center gap-0.5 font-bold uppercase tracking-widest',
-                    overMrp ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/60'
-                  )}>
-                    <span className="opacity-70">MRP</span>
-                    {formatCurrency(item.mrp)}
-                  </span>
-                )}
+              {/* Helper row (top) — original rate diff only */}
+              <div className="h-3.5 flex items-center justify-center gap-2 text-[11px] font-mono px-1">
                 {item.productId && originalRate > 0 && (
                   <span className={cn(
-                    'inline-flex items-center gap-0.5 font-bold uppercase tracking-widest',
-                    isModified ? 'text-amber-600/80 dark:text-amber-400/80' : 'text-muted-foreground/40'
+                    'inline-flex items-center gap-0.5 font-semibold tabular-nums',
+                    isModified ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
                   )}>
                     {isModified ? (
-                      <span className="line-through opacity-60">{formatCurrency(originalRate)}</span>
+                      <span className="line-through">{formatCurrency(originalRate)}</span>
                     ) : (
-                      <span className="opacity-60">orig {formatCurrency(originalRate)}</span>
+                      <span>orig {formatCurrency(originalRate)}</span>
                     )}
                   </span>
                 )}
@@ -844,7 +942,7 @@ function BillingRow({
                 <button
                   type="button"
                   onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
-                  disabled={!item.productId}
+                  disabled={invoiceType === 'invoice' && !item.productId}
                   className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
                 >
                   <Minus className="h-3 w-3" />
@@ -865,12 +963,12 @@ function BillingRow({
                       : isModified ? 'text-amber-600 dark:text-amber-400'
                       : 'text-foreground'
                   )}
-                  disabled={!item.productId}
+                  disabled={invoiceType === 'invoice' && !item.productId}
                 />
                 <button
                   type="button"
                   onClick={() => handleRateChange(Number(item.rate) + 1)}
-                  disabled={!item.productId}
+                  disabled={invoiceType === 'invoice' && !item.productId}
                   className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
                 >
                   <Plus className="h-3 w-3" />
@@ -904,7 +1002,7 @@ function BillingRow({
                 'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
                 item.discountPercent > 0 ? 'text-rose-600 dark:text-rose-400 pr-4' : 'text-foreground pr-4'
               )}
-              disabled={!item.productId}
+              disabled={invoiceType === 'invoice' && !item.productId}
             />
             <span className={cn(
               'absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold pointer-events-none',
@@ -914,11 +1012,28 @@ function BillingRow({
         </div>
       </TableCell>
 
-      {/* GST */}
+      {/* GST — editable in quotation mode (no fixed product GST rate), badge in invoice mode */}
       <TableCell className="w-14 px-1 py-2.5 text-center align-middle">
         <div className="flex flex-col gap-0.5 items-center">
           <div className="h-3.5" aria-hidden />
-          {item.gstPercent ? (
+          {invoiceType === 'quotation' ? (
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={item.gstPercent || ''}
+              onChange={(e) => {
+                const gst = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))
+                const updates: Partial<BillingItem> = { gstPercent: gst }
+                const tempItem = { ...item, ...updates }
+                updates.amount = calculateItemAmount(tempItem)
+                onUpdate(item.id, updates)
+              }}
+              placeholder="0"
+              className="h-8 w-full rounded-md border border-border/40 bg-muted/30 px-1 text-center font-mono text-[11px] font-bold tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-background"
+            />
+          ) : item.gstPercent ? (
             <span className="inline-flex items-center rounded-md bg-muted/40 px-1.5 py-1.5 text-[10px] font-black font-mono text-muted-foreground/80 tabular-nums">
               {item.gstPercent}%
             </span>
@@ -951,7 +1066,7 @@ function BillingRow({
             type="button"
             onClick={() => onRemove(item.id)}
             title="Remove row"
-            className="rounded-md p-1.5 h-8 w-8 flex items-center justify-center text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 transition-all"
+            className="rounded-md p-1.5 h-8 w-8 flex items-center justify-center text-muted-foreground/60 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -960,12 +1075,12 @@ function BillingRow({
     </MotionTableRow>
 
     {/* ── Per-product purchase history sub-rows — aligned with parent columns ── */}
-    {productHistory.length > 0 && historyOpen && (
+    {showInlineHistory && productHistory.length > 0 && historyOpen && (
       <>
         {/* Title strip */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6">
           <TableCell className="w-10 px-2 py-1.5 text-center align-middle text-violet-500/70">↳</TableCell>
-          <TableCell colSpan={8} className="px-3 py-1.5 align-middle">
+          <TableCell colSpan={9} className="px-3 py-1.5 align-middle">
             <div className="flex items-center gap-1.5">
               <History className="h-3 w-3 text-violet-500/70" />
               <span className="text-[9px] font-bold uppercase tracking-widest text-violet-500/80">
@@ -979,8 +1094,9 @@ function BillingRow({
           <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
           <TableCell className="min-w-55 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
           <TableCell className="w-37.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
+          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-27.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
-          <TableCell className="w-50 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-40 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-14 px-1 py-1 align-middle"></TableCell>
           <TableCell className="w-27.5 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
@@ -1005,8 +1121,9 @@ function BillingRow({
               </div>
             </TableCell>
             <TableCell className="w-37.5 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
+            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
-            <TableCell className="w-50 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-40 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
@@ -1061,18 +1178,23 @@ function MobileBillingCard({
     return products.find((p) => p.id === item.productId)
   }, [item.productId, products])
 
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) return products.slice(0, 8)
-    const q = productSearch.toLowerCase()
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.genericName.toLowerCase().includes(q)
-    )
-  }, [productSearch, products])
+  // Server-paginated product search (20 + scroll) — mirrors BillingRow on desktop.
+  const mobileProductSearch = usePaginatedSearch<Product>({
+    endpoint: '/products',
+    pageSize: 20,
+    enabled: showProductDropdown,
+  })
+
+  useEffect(() => {
+    mobileProductSearch.setQuery(productSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productSearch])
+
+  const filteredProducts = mobileProductSearch.items
 
   const handleProductSelect = (product: Product) => {
-    const pBatches = batches
+    syncProductBatchesIntoStore(product)
+    const pBatches = useMasterDataStore.getState().batches
       .filter((b) => b.productId === product.id && b.quantity > 0)
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
@@ -1121,7 +1243,7 @@ function MobileBillingCard({
   }
 
   return (
-    <Card className="mb-3 border-border/60 shadow-sm overflow-hidden bg-card/50">
+    <Card className="mb-3 border border-border shadow-sm overflow-hidden">
       <CardContent className="p-3">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex-1 min-w-0">
@@ -1135,28 +1257,45 @@ function MobileBillingCard({
                 onFocus={() => setShowProductDropdown(true)}
                 onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
                 placeholder="Product name..."
-                className="w-full h-9 bg-muted/40 rounded-lg px-2 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full h-10 bg-muted/40 rounded-md px-2.5 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              {showProductDropdown && filteredProducts.length > 0 && (
-                <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-popover border border-border/60 rounded-lg shadow-xl">
+              {showProductDropdown && (filteredProducts.length > 0 || mobileProductSearch.loading || productSearch) && (
+                <div
+                  className="absolute z-50 left-0 right-0 mt-1.5 max-h-60 overflow-y-auto bg-popover border border-border rounded-md shadow-lg divide-y divide-border/40"
+                  onScroll={(e) => {
+                    const el = e.currentTarget
+                    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+                      mobileProductSearch.loadMore()
+                    }
+                  }}
+                >
+                  {filteredProducts.length === 0 && mobileProductSearch.loading && (
+                    <div className="px-3 py-3 text-center text-xs text-muted-foreground">Searching…</div>
+                  )}
+                  {filteredProducts.length === 0 && !mobileProductSearch.loading && productSearch && (
+                    <div className="px-3 py-3 text-center text-xs text-muted-foreground">No products match "{productSearch}"</div>
+                  )}
                   {filteredProducts.map((p) => (
                     <div
                       key={p.id}
-                      className="px-3 py-2 border-b border-border/5 hover:bg-accent/50 cursor-pointer"
+                      className="px-3 py-2 hover:bg-accent cursor-pointer"
                       onClick={() => handleProductSelect(p)}
                     >
-                      <p className="text-xs font-bold">{p.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{p.manufacturer}</p>
+                      <p className="text-xs font-semibold">{p.name}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{p.manufacturer}</p>
                     </div>
                   ))}
+                  {filteredProducts.length > 0 && mobileProductSearch.loading && (
+                    <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
+                  )}
                 </div>
               )}
             </div>
             {selectedProduct && (
-              <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-1">
-                <Badge variant="outline" className="text-[9px] px-1 h-3.5 whitespace-nowrap">MRP: ₹{item.mrp}</Badge>
+              <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto pb-1">
+                <Badge variant="outline" className="text-[9px] px-1.5 h-4 whitespace-nowrap tabular-nums">MRP: ₹{item.mrp}</Badge>
                 {selectedProduct.schedule !== 'NONE' && (
-                  <Badge variant="destructive" className="text-[9px] px-1 h-3.5 whitespace-nowrap">Sch {selectedProduct.schedule}</Badge>
+                  <Badge variant="destructive" className="text-[9px] px-1.5 h-4 whitespace-nowrap">Sch {selectedProduct.schedule}</Badge>
                 )}
               </div>
             )}
@@ -1165,15 +1304,15 @@ function MobileBillingCard({
             variant="ghost"
             size="icon-sm"
             onClick={() => onRemove(item.id)}
-            className="text-muted-foreground/30 hover:text-rose-600 hover:bg-rose-500/10 shrink-0"
+            className="text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 shrink-0"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase text-muted-foreground">Batch & Expiry</Label>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch & Expiry</Label>
             <Select value={item.batchId} onValueChange={(vid) => {
               const b = batches.find(x => x.id === vid)
               if (!b) return
@@ -1186,13 +1325,13 @@ function MobileBillingCard({
               }
               onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: Number(b.mrp || selectedProduct?.mrp) || 0 })
             }}>
-              <SelectTrigger className="h-8 text-xs font-mono">
+              <SelectTrigger className="h-9 text-xs font-mono">
                 <SelectValue placeholder="Batch" />
               </SelectTrigger>
               <SelectContent>
                 {productBatches.map((b, idx) => (
                   <SelectItem key={b.id} value={b.id} className="text-xs">
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 tabular-nums">
                       {b.batchNumber} ({b.quantity})
                       {idx === 0 && <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>}
                     </span>
@@ -1202,12 +1341,12 @@ function MobileBillingCard({
             </Select>
             {item.expiryDate && (
               <div className={cn(
-                "text-[10px] font-bold uppercase tracking-tight",
+                "text-[10px] font-semibold uppercase tracking-wider tabular-nums",
                 isExpired(item.expiryDate)
                   ? "text-rose-600 dark:text-rose-400"
                   : isNearExpiry(item.expiryDate)
                     ? "text-amber-600 dark:text-amber-400"
-                    : "text-slate-600 dark:text-slate-400"
+                    : "text-muted-foreground"
               )}>
                 {isExpired(item.expiryDate) ? 'Expired: ' : 'Exp: '}
                 {formatExpiryShort(item.expiryDate)}
@@ -1215,35 +1354,35 @@ function MobileBillingCard({
             )}
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase text-muted-foreground">Quantity</Label>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quantity</Label>
             <div className="flex items-center gap-1">
-              <Button size="icon-sm" variant="outline" className="h-8 w-8" onClick={() => handleQtyChange(item.quantity - 1)}>-</Button>
-              <input 
-                type="number" 
-                value={item.quantity} 
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
+              <input
+                type="number"
+                value={item.quantity}
                 onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
-                className="w-full h-8 text-center bg-muted/20 border-0 text-sm font-bold font-mono focus:ring-0 rounded"
+                className="w-full h-9 text-center bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
               />
-              <Button size="icon-sm" variant="outline" className="h-8 w-8" onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase text-muted-foreground">Rate (₹)</Label>
-            <input 
-              type="number" 
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate (₹)</Label>
+            <input
+              type="number"
               step={0.01}
-              value={item.rate} 
+              value={item.rate}
               onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
-              className="w-full h-8 px-2 bg-muted/20 border-0 text-sm font-bold font-mono focus:ring-0 rounded"
+              className="w-full h-9 px-2.5 bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
             />
           </div>
-          <div className="space-y-1 text-right">
-            <Label className="text-[10px] uppercase text-muted-foreground">Total Amount</Label>
-            <div className="h-8 flex items-center justify-end text-sm font-black font-mono text-primary">
+          <div className="space-y-1.5 text-right">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</Label>
+            <div className="h-9 flex items-center justify-end text-base font-semibold font-mono tabular-nums">
               {formatCurrency(item.amount)}
             </div>
           </div>
@@ -1290,18 +1429,18 @@ function PaymentPanel({
 
   return (
     <div className="space-y-3">
-      {/* Mode buttons */}
-      <div className="flex flex-wrap gap-1">
+      {/* Mode segmented control */}
+      <div className="grid grid-cols-4 gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
         {paymentModes.map((pm) => (
           <button
             key={pm.value}
             type="button"
             onClick={() => onModeChange(pm.value)}
             className={cn(
-              'inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all border',
+              'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors',
               mode === pm.value
-                ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20'
-                : 'bg-background text-muted-foreground border-border/60 hover:border-primary/40 hover:text-foreground'
+                ? 'bg-background text-foreground shadow-sm ring-1 ring-border/40'
+                : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {pm.icon}
@@ -1312,8 +1451,8 @@ function PaymentPanel({
 
       {/* Cash */}
       {mode === 'CASH' && (
-        <div className="space-y-2">
-          <div>
+        <div className="space-y-2.5">
+          <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Amount Received
             </label>
@@ -1323,7 +1462,7 @@ function PaymentPanel({
               onChange={(e) =>
                 onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })
               }
-              className="mt-1 h-9 font-mono text-sm"
+              className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
             />
           </div>
@@ -1335,10 +1474,10 @@ function PaymentPanel({
               onClick={() => onDetailsChange({ amountReceived: grandTotal })}
               disabled={grandTotal <= 0}
               className={cn(
-                'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+                'inline-flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                 isExact
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                  : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10'
+                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'border-border bg-background text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-700 dark:hover:text-emerald-400'
               )}
             >
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -1349,10 +1488,10 @@ function PaymentPanel({
               onClick={() => onDetailsChange({ amountReceived: Math.round((grandTotal / 2) * 100) / 100 })}
               disabled={grandTotal <= 0}
               className={cn(
-                'flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+                'inline-flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                 isPartial
-                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400 shadow-sm'
-                  : 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10'
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                  : 'border-border bg-background text-muted-foreground hover:border-amber-500/40 hover:text-amber-700 dark:hover:text-amber-400'
               )}
             >
               <SplitSquareHorizontal className="h-3.5 w-3.5" />
@@ -1365,8 +1504,8 @@ function PaymentPanel({
 
       {/* Card */}
       {mode === 'CARD' && (
-        <div className="space-y-2">
-          <div>
+        <div className="space-y-2.5">
+          <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Amount Paid
             </label>
@@ -1374,12 +1513,12 @@ function PaymentPanel({
               type="number"
               value={details.amountReceived || ''}
               onChange={(e) => onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })}
-              className="mt-1 h-9 font-mono text-sm"
+              className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            <div className="space-y-1.5">
               <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Last 4 Digits
               </label>
@@ -1387,18 +1526,18 @@ function PaymentPanel({
                 maxLength={4}
                 value={details.cardLast4}
                 onChange={(e) => onDetailsChange({ cardLast4: e.target.value.replace(/\D/g, '') })}
-                className="mt-1 h-8 font-mono text-xs"
+                className="h-9 font-mono text-sm tabular-nums"
                 placeholder="1234"
               />
             </div>
-            <div>
+            <div className="space-y-1.5">
               <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Reference #
               </label>
               <Input
                 value={details.cardRef}
                 onChange={(e) => onDetailsChange({ cardRef: e.target.value })}
-                className="mt-1 h-8 text-xs"
+                className="h-9 text-xs"
                 placeholder="Txn ref"
               />
             </div>
@@ -1408,8 +1547,8 @@ function PaymentPanel({
 
       {/* UPI */}
       {mode === 'UPI' && (
-        <div className="space-y-2">
-          <div>
+        <div className="space-y-2.5">
+          <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Amount Paid
             </label>
@@ -1417,18 +1556,18 @@ function PaymentPanel({
               type="number"
               value={details.amountReceived || ''}
               onChange={(e) => onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })}
-              className="mt-1 h-9 font-mono text-sm"
+              className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
             />
           </div>
-          <div>
+          <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               UPI Reference #
             </label>
             <Input
               value={details.upiRef}
               onChange={(e) => onDetailsChange({ upiRef: e.target.value })}
-              className="mt-1 h-8 text-xs"
+              className="h-9 text-xs"
               placeholder="UPI transaction ID"
             />
           </div>
@@ -1437,36 +1576,40 @@ function PaymentPanel({
 
       {/* Credit */}
       {mode === 'CREDIT' && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {customer && (
-            <div className="rounded-lg border border-amber-200/60 bg-amber-50/30 dark:border-amber-800/30 dark:bg-amber-900/10 p-2.5 text-[11px] space-y-1">
-              <div className="flex justify-between">
-                <span className="text-amber-800 dark:text-amber-300">Outstanding</span>
-                <span className="font-semibold font-mono text-amber-900 dark:text-amber-200">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5 text-[11px] space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Outstanding</span>
+                <span className="font-semibold font-mono tabular-nums text-foreground">
                   {formatCurrency(Number(customer.currentOutstanding) || 0)}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-amber-800 dark:text-amber-300">Pending Invoices</span>
-                <span className={`font-bold font-mono ${(customer.pendingCreditCount ?? 0) >= 3 ? 'text-red-600 dark:text-red-400' : 'text-amber-900 dark:text-amber-200'}`}>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Pending Invoices</span>
+                <span className={cn(
+                  'font-semibold font-mono tabular-nums',
+                  (customer.pendingCreditCount ?? 0) >= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'
+                )}>
                   {customer.pendingCreditCount ?? 0} / 3
                 </span>
               </div>
               {(customer.pendingCreditCount ?? 0) >= 3 && (
-                <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold border-t border-amber-200/40 pt-1">
-                  ⚠ Credit blocked — clear pending invoices first
+                <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center gap-1.5">
+                  <ShieldAlert className="h-3 w-3" />
+                  Credit blocked — clear pending invoices first
                 </p>
               )}
             </div>
           )}
-          <div>
+          <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date
             </label>
             <DatePicker
               value={details.creditDueDate}
               onChange={(v) => onDetailsChange({ creditDueDate: v })}
-              className="mt-1 h-8 text-xs"
+              className="h-9 text-xs"
             />
           </div>
         </div>
@@ -1484,7 +1627,7 @@ function PaymentPanel({
                   newSplits[idx] = { ...split, mode: e.target.value as 'CASH' | 'CARD' | 'UPI' }
                   onDetailsChange({ splits: newSplits })
                 }}
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                className="h-9 rounded-md border border-input bg-background px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="CASH">Cash</option>
                 <option value="CARD">Card</option>
@@ -1499,14 +1642,14 @@ function PaymentPanel({
                   onDetailsChange({ splits: newSplits })
                 }}
                 placeholder="Amount"
-                className="flex-1 h-8 text-xs font-mono"
+                className="flex-1 h-9 text-sm font-mono tabular-nums"
               />
               <button
                 type="button"
                 onClick={() => {
                   onDetailsChange({ splits: details.splits.filter((s) => s.id !== split.id) })
                 }}
-                className="rounded-md p-1.5 text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
+                className="rounded-md p-1.5 h-9 w-9 inline-flex items-center justify-center text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1516,7 +1659,7 @@ function PaymentPanel({
             type="button"
             variant="outline"
             size="sm"
-            className="w-full h-7 text-xs"
+            className="w-full h-8 text-xs"
             onClick={() => {
               onDetailsChange({
                 splits: [
@@ -1526,19 +1669,21 @@ function PaymentPanel({
               })
             }}
           >
-            <Plus className="h-3 w-3 mr-1" />
+            <Plus className="h-3.5 w-3.5 mr-1" />
             Add Split
           </Button>
           {details.splits.length > 0 && (
             <div
               className={cn(
-                'text-[11px] font-medium text-center',
-                Math.abs(splitRemaining) < 0.01 ? 'text-emerald-600' : 'text-rose-600'
+                'flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold',
+                Math.abs(splitRemaining) < 0.01
+                  ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-700 dark:text-emerald-400'
+                  : 'border-amber-500/25 bg-amber-500/[0.06] text-amber-700 dark:text-amber-400'
               )}
             >
               {Math.abs(splitRemaining) < 0.01
-                ? 'Amounts match total'
-                : `Remaining: ${formatCurrency(splitRemaining)}`}
+                ? <><ShieldCheck className="h-3.5 w-3.5" /> Amounts match total</>
+                : <span className="tabular-nums">Remaining: {formatCurrency(splitRemaining)}</span>}
             </div>
           )}
         </div>
@@ -1571,7 +1716,12 @@ export default function NewSalePage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    fetchMasterData()
+    // NOTE: We deliberately do NOT call fetchMasterData() here anymore.
+    // The customer + product dropdowns now use server-side pagination
+    // (usePaginatedSearch), and batches are merged into the store on demand
+    // when a product is selected (syncProductBatchesIntoStore).
+    // The 22 other pages that depend on the full master data still call
+    // fetchMasterData() themselves when they mount.
     // Read URL params
     const params = new URLSearchParams(window.location.search)
     if (params.get('type') === 'quotation') {
@@ -1609,15 +1759,25 @@ export default function NewSalePage() {
           setEditingDraftId(draftId)
           if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
           if (inv.paymentMode) setPaymentMode(inv.paymentMode as PaymentMode)
+          if (inv.deliveryCharge !== undefined) setDeliveryCharge(Number(inv.deliveryCharge) || 0)
           if (inv.customerId) {
-            // Defer to next tick so customers list from fetchMasterData has settled
-            setTimeout(() => {
-              const c = useMasterDataStore.getState().customers.find((x) => x.id === inv.customerId)
-              if (c) {
-                setSelectedCustomer(c)
-                setCustomerSearch(c.name)
-              }
-            }, 0)
+            // Try local cache first (works whether or not master data has loaded);
+            // fall back to a direct /customers/:id fetch so this works when the
+            // page no longer eagerly preloads the customer list.
+            const cached = useMasterDataStore.getState().customers.find((x) => x.id === inv.customerId)
+            if (cached) {
+              setSelectedCustomer(cached)
+              setCustomerSearch(cached.name)
+            } else {
+              api.get(`/customers/${inv.customerId}`)
+                .then((r) => {
+                  if (r.data) {
+                    setSelectedCustomer(r.data)
+                    setCustomerSearch(r.data.name)
+                  }
+                })
+                .catch(() => { /* customer may have been deleted — leave unset */ })
+            }
           }
         }
       }).catch(() => {/* ignore if not found */ })
@@ -1639,6 +1799,7 @@ export default function NewSalePage() {
       items: BillingItem[]
       paymentMode: PaymentMode
       paymentDetails: PaymentDetails
+      deliveryCharge?: number
     }
   }
   const [heldBills, setHeldBills] = useState<HeldBill[]>(() => {
@@ -1652,7 +1813,7 @@ export default function NewSalePage() {
   }
 
   const holdCurrentBill = () => {
-    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
     if (activeItems.length === 0) { toast.info('Nothing to hold'); return }
     const bill: HeldBill = {
       id: crypto.randomUUID(),
@@ -1660,7 +1821,7 @@ export default function NewSalePage() {
       customerName: selectedCustomer?.name ?? '',
       itemCount: activeItems.length,
       total: totals.grandTotal,
-      snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails },
+      snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails, deliveryCharge },
     }
     saveHeldBills([...heldBills, bill])
     // Clear current bill
@@ -1669,6 +1830,7 @@ export default function NewSalePage() {
     setCustomerSearch('')
     setPaymentMode('CASH')
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
+    setDeliveryCharge(0)
     toast.success('Bill held — you can resume it anytime')
   }
 
@@ -1681,6 +1843,7 @@ export default function NewSalePage() {
     setItems(s.items)
     setPaymentMode(s.paymentMode)
     setPaymentDetails(s.paymentDetails)
+    setDeliveryCharge(Number(s.deliveryCharge) || 0)
     saveHeldBills(heldBills.filter((b) => b.id !== bill.id))
     setHeldBillsOpen(false)
     toast.success(`Resumed bill for ${bill.customerName}`)
@@ -1786,6 +1949,49 @@ export default function NewSalePage() {
       try {
         const qt = JSON.parse(qtStored)
         setQuotationSource({ id: qt.quotationId, number: qt.quotationNumber, customerName: qt.customerName })
+        if (qt.deliveryCharge !== undefined) setDeliveryCharge(Number(qt.deliveryCharge) || 0)
+        // Conversion → invoice. Two paths:
+        //   A) Quotation has a real customerId — look it up from master and
+        //      select it directly. Do NOT open Add Customer panel.
+        //   B) Quotation has only name+phone (stub) — open Add Customer panel
+        //      prefilled. User fills the strict-invoice fields and Save
+        //      creates the real customer master record.
+        if (qt.customerId) {
+          // Resolve from master. fetchMasterData runs separately, so we may
+          // need to defer until customers list is populated.
+          const tryResolve = () => {
+            const c = useMasterDataStore.getState().customers.find((x) => x.id === qt.customerId)
+            if (c) {
+              setSelectedCustomer(c)
+              setCustomerSearch(c.name)
+              return true
+            }
+            return false
+          }
+          if (!tryResolve()) {
+            // Customers not loaded yet — retry once next tick after fetchMasterData
+            setTimeout(tryResolve, 250)
+          }
+        } else if (qt.customerName || qt.customerPhone) {
+          customerForm.reset({
+            name: qt.customerName ?? '',
+            phone: qt.customerPhone ?? '',
+            type: 'RETAIL',
+            email: '',
+            address: '',
+            gstin: '',
+            dlNumber: '',
+            registrationNumber: '',
+            referredBy: '',
+            notes: '',
+          })
+          // Clear any stale document selections so a previous session's file
+          // doesn't auto-attach to the converted customer.
+          setDocFiles([])
+          setDocPreviews([])
+          setNsPhoneCheckError('')
+          setAddCustomerDialogOpen(true)
+        }
         toast.info(`Items pre-loaded from quotation ${qt.quotationNumber}`)
       } catch { /* ignore */ }
       sessionStorage.removeItem('quotation_prefill')
@@ -1796,58 +2002,70 @@ export default function NewSalePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-populate customer + resolve product/batch when master data loads after quotation prefill
+  // Auto-populate customer + resolve product/batch after quotation prefill.
+  // We no longer wait for a full master-data load; we issue targeted server
+  // queries by name (/customers?q=, /products?q=) and pick the closest match.
   useEffect(() => {
-    if (!quotationSource || customers.length === 0 || products.length === 0 || batches.length === 0) return
+    if (!quotationSource) return
+    let cancelled = false
 
-    // Match customer by name
-    const matchedCustomer = customers.find(
-      (c) => c.name.toLowerCase() === quotationSource.customerName.toLowerCase()
-    )
-    if (matchedCustomer) {
-      setSelectedCustomer(matchedCustomer)
-    }
+    ;(async () => {
+      // 1) Resolve the customer by name (one focused query, not full catalog)
+      try {
+        const cRes = await api.get('/customers', { params: { q: quotationSource.customerName, take: 5 } })
+        const cData = Array.isArray(cRes.data) ? cRes.data : (cRes.data?.data ?? [])
+        const matched = cData.find((c: Customer) => c.name.toLowerCase() === quotationSource.customerName.toLowerCase())
+          ?? cData[0]
+        if (matched && !cancelled) setSelectedCustomer(matched)
+      } catch { /* non-blocking */ }
 
-    // Resolve each item: find product by name → find first available batch
-    setItems((prev) =>
-      prev.map((item) => {
-        if (!item.productName) return item
-        const product = products.find(
-          (p) => p.name.toLowerCase() === item.productName.toLowerCase()
-        )
-        if (!product) return item
-
-        const availableBatches = batches.filter(
-          (b) => b.productId === product.id && b.quantity > 0
-        )
-        const batch = availableBatches[0]
-
-        const rate = item.rate || product.sellingRate || 0
-        const qty = item.quantity || 1
-        const gstPercent = product.gstRate || 0
-        const discountPercent = item.discountPercent || 0
-        const baseAmount = rate * qty * (1 - discountPercent / 100)
-        const gstAmount = baseAmount * (gstPercent / 100)
-        const amount = baseAmount + gstAmount
-
-        return {
-          ...item,
-          productId: product.id,
-          mrp: batch?.mrp || product.mrp || rate,
-          rate,
-          gstPercent,
-          amount,
-          ...(batch && {
-            batchId: batch.id,
-            batchNumber: batch.batchNumber,
-            expiryDate: batch.expiryDate,
-          }),
-          schedule: product.schedule ?? 'NONE',
+      // 2) Resolve each item's product by name and merge its batches into the store
+      const currentItems = items
+      const resolved = await Promise.all(currentItems.map(async (it) => {
+        if (!it.productName || it.productId) return it
+        try {
+          const pRes = await api.get('/products', { params: { q: it.productName, take: 5 } })
+          const pData = Array.isArray(pRes.data) ? pRes.data : (pRes.data?.data ?? [])
+          const product = pData.find((p: Product) => p.name.toLowerCase() === it.productName.toLowerCase())
+            ?? pData[0]
+          if (!product) return it
+          syncProductBatchesIntoStore(product)
+          const productBatches = useMasterDataStore.getState().batches
+            .filter((b) => b.productId === product.id && b.quantity > 0)
+            .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+          const batch = productBatches[0]
+          const rate = it.rate || product.sellingRate || 0
+          const qty = it.quantity || 1
+          const gstPercent = product.gstRate || 0
+          const discountPercent = it.discountPercent || 0
+          const baseAmount = rate * qty * (1 - discountPercent / 100)
+          const gstAmount = baseAmount * (gstPercent / 100)
+          const amount = baseAmount + gstAmount
+          return {
+            ...it,
+            productId: product.id,
+            mrp: batch?.mrp || product.mrp || rate,
+            rate,
+            gstPercent,
+            amount,
+            ...(batch && {
+              batchId: batch.id,
+              batchNumber: batch.batchNumber,
+              expiryDate: batch.expiryDate,
+            }),
+            schedule: product.schedule ?? 'NONE',
+          }
+        } catch {
+          return it
         }
-      })
-    )
+      }))
+
+      if (!cancelled) setItems(resolved)
+    })()
+
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quotationSource, customers, products, batches, salespersons])
+  }, [quotationSource])
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
@@ -1859,13 +2077,20 @@ export default function NewSalePage() {
     splits: [],
   })
 
+  // Editable Delivery / Packaging fee. Non-taxable add-on folded into the
+  // pre-rounding total so Net Payable rounds to a whole rupee.
+  const [deliveryCharge, setDeliveryCharge] = useState<number>(0)
+
   // ── Customer last-sale price cache: productId → rate ─────
   const [customerLastRates, setCustomerLastRates] = useState<Record<string, number>>({})
 
   // ── Table view tabs ───────────────────────────────────────
-  type TableView = 'products' | 'customer-history' | 'customer-reminders'
+  type TableView = 'products' | 'customer-history' | 'customer-reminders' | 'product-history' | 'quotations'
   const [tableView, setTableView] = useState<TableView>('customer-history')
   const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
+  // Toggle: show inline purchase-history sub-rows under each product row in the
+  // Products tab. Off by default — Product History tab provides the same view.
+  const [showInlineHistory, setShowInlineHistory] = useState(false)
 
   // ── Customer invoice history ──────────────────────────────
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([])
@@ -1873,12 +2098,42 @@ export default function NewSalePage() {
   const [selectedHistoryInvoice, setSelectedHistoryInvoice] = useState<Invoice | null>(null)
   const [historyInvoiceOpen, setHistoryInvoiceOpen] = useState(false)
 
+  // ── Quotations tab ─────────────────────────────────────────
+  // Lazy-loaded: only fires when the user opens the Quotations tab, and refetches
+  // when the selected customer changes (id or phone) so the filter is live.
+  const [quotationsList, setQuotationsList] = useState<Quotation[]>([])
+  const [quotationsLoading, setQuotationsLoading] = useState(false)
+
+  useEffect(() => {
+    if (tableView !== 'quotations') return
+    setQuotationsLoading(true)
+    const params: Record<string, string> = {}
+    if (activeBranchId) params.branchId = activeBranchId
+    // Real customer → filter by id. Stub customer (id='') → filter by phone.
+    // No customer → no filter, fetch all.
+    if (selectedCustomer?.id) params.customerId = selectedCustomer.id
+    else if (selectedCustomer?.phone) params.customerPhone = selectedCustomer.phone
+    api.get('/quotations', { params })
+      .then((res) => {
+        const list: Quotation[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+        // Sort newest first
+        list.sort((a, b) => new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime())
+        setQuotationsList(list)
+      })
+      .catch(() => setQuotationsList([]))
+      .finally(() => setQuotationsLoading(false))
+  }, [tableView, selectedCustomer, activeBranchId])
+
   // ── Customer reminders tab ────────────────────────────────
   const [customerReminders, setCustomerReminders] = useState<any[]>([])
   const [customerRemindersLoading, setCustomerRemindersLoading] = useState(false)
 
   useEffect(() => {
-    if (tableView !== 'customer-reminders' || !selectedCustomer) return
+    // Stub quotation customer (id='') has no reminders in DB. Skip fetch.
+    if (tableView !== 'customer-reminders' || !selectedCustomer || !selectedCustomer.id) {
+      setCustomerReminders([])
+      return
+    }
     setCustomerRemindersLoading(true)
     api.get('/reminders', { params: { branchId: activeBranchId || undefined } })
       .then(res => {
@@ -1892,7 +2147,10 @@ export default function NewSalePage() {
 
   // Fetch customer invoices whenever customer changes — used for both history panel and last-rate cache
   useEffect(() => {
-    if (!selectedCustomer) {
+    // Stub quotation customer (id='') has no master record — there is no
+    // history to fetch and an empty customerId would otherwise return ALL
+    // invoices from the backend.
+    if (!selectedCustomer || !selectedCustomer.id) {
       setCustomerInvoices([])
       setCustomerLastRates({})
       return
@@ -1920,7 +2178,7 @@ export default function NewSalePage() {
 
   // Keep history tab fetch in sync for tab-switch (no-op now since customer effect covers it)
   useEffect(() => {
-    if (tableView === 'customer-history' && selectedCustomer && customerInvoices.length === 0 && !customerInvoicesLoading) {
+    if (tableView === 'customer-history' && selectedCustomer && selectedCustomer.id && customerInvoices.length === 0 && !customerInvoicesLoading) {
       setCustomerInvoicesLoading(true)
       api.get(`/billing?customerId=${selectedCustomer.id}`)
         .then((res) => setCustomerInvoices(Array.isArray(res.data) ? res.data : res.data?.data ?? []))
@@ -1961,33 +2219,37 @@ export default function NewSalePage() {
     [invoiceType]
   )
 
-  // ── Hero search results ──────────────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const heroResults = useMemo(() => {
-    if (!heroSearch) return []
-    const q = heroSearch.toLowerCase()
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.genericName.toLowerCase().includes(q) ||
-        p.manufacturer.toLowerCase().includes(q) ||
-        p.hsnCode.includes(q) ||
-        (p.barcode && p.barcode.toLowerCase().includes(q))
-    ).slice(0, 8)
+  // ── Hero product search — server-paginated (20 + infinite scroll) ──
+  // Only fetches while results popover is open. Server searches name/generic/
+  // manufacturer/hsnCode/barcode (Phase A backend fix expanded the q clause).
+  const heroSearchResults = usePaginatedSearch<Product>({
+    endpoint: '/products',
+    pageSize: 20,
+    enabled: showHeroResults,
+  })
+
+  useEffect(() => {
+    heroSearchResults.setQuery(heroSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heroSearch])
 
-  // ── Filtered lists ──────────────────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return customers
-    const q = customerSearch.toLowerCase()
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        c.type.toLowerCase().includes(q)
-    )
-  }, [customerSearch, customers])
+  const heroResults = heroSearchResults.items
+
+  // ── Customer dropdown — server-paginated search (20 + infinite scroll) ──
+  // Only fetches while the dropdown is open. Resets on every debounced query change.
+  const customerSearchResults = usePaginatedSearch<Customer>({
+    endpoint: '/customers',
+    pageSize: 20,
+    enabled: showCustomerDropdown,
+  })
+
+  // Wire the dropdown's text input to the hook's debounced query
+  useEffect(() => {
+    customerSearchResults.setQuery(customerSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerSearch])
+
+  const filteredCustomers = customerSearchResults.items
 
   // ── Hero product add ──────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2002,6 +2264,11 @@ export default function NewSalePage() {
         return
       }
 
+      // Merge this product's batches + full record into the store so FEFO
+      // and downstream batch operations resolve correctly even when the page
+      // didn't preload the master catalog.
+      syncProductBatchesIntoStore(product)
+
       const existingIdx = items.findIndex((i) => i.productId === product.id)
       if (existingIdx !== -1) {
         // Increment quantity of existing item
@@ -2015,7 +2282,7 @@ export default function NewSalePage() {
         )
       } else {
         // Create new pre-filled item
-        const productBatches = batches
+        const productBatches = useMasterDataStore.getState().batches
           .filter((b) => b.productId === product.id && b.quantity > 0)
           .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
@@ -2083,25 +2350,28 @@ export default function NewSalePage() {
         barcodeCharCountRef.current = 0
 
         if (isBarcodeScanner) {
-          // Exact barcode match first
+          // Server-side exact barcode lookup (we no longer hold every product
+          // in memory). The debounce hasn't fired yet at Enter time, so issue
+          // a direct take=1 query for the exact match.
           const barcode = heroSearchRef.current?.value ?? ''
-          const exact = products.find((p) => p.barcode && p.barcode.toLowerCase() === barcode.toLowerCase())
-          if (exact) {
-            addProductFromSearch(exact)
-            toast.success(`Scanned: ${exact.name}`)
-            return
-          }
-          // Fallback: if only one result, add it
-          if (heroResults.length === 1) {
-            addProductFromSearch(heroResults[0])
-            toast.success(`Scanned: ${heroResults[0].name}`)
-            return
-          }
-          if (heroResults.length === 0) {
-            toast.error(`Barcode not found: ${barcode}`)
-            setHeroSearch('')
-            return
-          }
+          if (!barcode) return
+          api.get('/products', { params: { q: barcode, take: 1 } })
+            .then((res) => {
+              const data = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+              const exact = data.find((p: Product) => p.barcode && p.barcode.toLowerCase() === barcode.toLowerCase())
+                ?? data[0]
+              if (exact) {
+                addProductFromSearch(exact)
+                toast.success(`Scanned: ${exact.name}`)
+              } else {
+                toast.error(`Barcode not found: ${barcode}`)
+                setHeroSearch('')
+              }
+            })
+            .catch(() => {
+              toast.error(`Barcode lookup failed: ${barcode}`)
+            })
+          return
         }
 
         if (heroResults.length > 0) {
@@ -2113,7 +2383,7 @@ export default function NewSalePage() {
         barcodeCharCountRef.current = 0
       }
     },
-    [heroResults, heroSelectedIdx, addProductFromSearch, products]
+    [heroResults, heroSelectedIdx, addProductFromSearch]
   )
 
   // ── Item management ─────────────────────────────────────
@@ -2141,7 +2411,7 @@ export default function NewSalePage() {
 
   // ── Calculations ──────────────────────────────────────
   const totals = useMemo(() => {
-    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
 
     let subtotal = 0
     let productDiscount = 0
@@ -2164,7 +2434,8 @@ export default function NewSalePage() {
       totalSgst += sgstVal
     })
 
-    const rawTotal = taxableAmount + totalCgst + totalSgst
+    const delivery = Math.max(0, Number(deliveryCharge) || 0)
+    const rawTotal = taxableAmount + totalCgst + totalSgst + delivery
     const rounded = Math.round(rawTotal)
     const roundOff = rounded - rawTotal
 
@@ -2175,10 +2446,11 @@ export default function NewSalePage() {
       cgst: totalCgst,
       sgst: totalSgst,
       igst: 0,
+      deliveryCharge: delivery,
       roundOff,
       grandTotal: rounded,
     }
-  }, [items])
+  }, [items, deliveryCharge, invoiceType])
 
   // ── Pending credit check (max 3 open UNPAID/PARTIAL invoices) ──
   const pendingCreditCount = selectedCustomer?.pendingCreditCount ?? 0
@@ -2283,7 +2555,7 @@ export default function NewSalePage() {
     customerId: selectedCustomer?.id,
     customerName: selectedCustomer?.name ?? '—',
     items: items
-      .filter((i) => i.productId && i.quantity > 0)
+      .filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
       .map((i) => ({
         id: i.id,
         productId: i.productId,
@@ -2351,7 +2623,7 @@ export default function NewSalePage() {
   // payment, no loyalty). New draft → POST; resuming an existing one → PATCH.
   // User can come back later (different device, different session) and finish.
   const saveAsDraft = async () => {
-    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
     if (activeItems.length === 0) {
       toast.info('Add at least one item before saving as draft')
       return
@@ -2365,6 +2637,26 @@ export default function NewSalePage() {
       // Quotations already live in their own flow with status DRAFT — fall
       // back to the regular submit so we don't accidentally split the path.
       submitInvoice()
+      return
+    }
+
+    // Invoice-draft path requires a real customer record; reject lightweight
+    // stubs (id='') by re-opening the Add Customer panel with prefilled data.
+    if (!selectedCustomer.id) {
+      toast.error('Complete the customer details before saving as draft')
+      customerForm.reset({
+        name: selectedCustomer.name ?? '',
+        phone: selectedCustomer.phone ?? '',
+        type: selectedCustomer.type ?? 'RETAIL',
+        email: selectedCustomer.email ?? '',
+        address: selectedCustomer.address ?? '',
+        gstin: selectedCustomer.gstin ?? '',
+        dlNumber: selectedCustomer.dlNumber ?? '',
+        registrationNumber: '',
+        referredBy: selectedCustomer.referredBy ?? '',
+        notes: selectedCustomer.notes ?? '',
+      })
+      setAddCustomerDialogOpen(true)
       return
     }
 
@@ -2382,6 +2674,7 @@ export default function NewSalePage() {
         cgst: Number(totals.cgst) || 0,
         sgst: Number(totals.sgst) || 0,
         igst: 0,
+        deliveryCharge: Number(totals.deliveryCharge) || 0,
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: 0,
@@ -2389,19 +2682,23 @@ export default function NewSalePage() {
         status: 'DRAFT',
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
-        items: activeItems.map((item) => ({
-          productId: item.productId,
-          productName: item.productName,
-          batchId: item.batchId,
-          batchNumber: item.batchNumber,
-          expiryDate: new Date(item.expiryDate).toISOString(),
-          quantity: Number(item.quantity) || 1,
-          mrp: Number(item.mrp) || 0,
-          rate: Number(item.rate) || 0,
-          discountPercent: Number(item.discountPercent) || 0,
-          gstPercent: Number(item.gstPercent) || 0,
-          amount: Number(item.amount) || 0,
-        })),
+        items: activeItems.map((item) => {
+          const d = item.expiryDate ? new Date(item.expiryDate) : null
+          const safeIso = d && !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString()
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            batchId: item.batchId,
+            batchNumber: item.batchNumber,
+            expiryDate: safeIso,
+            quantity: Number(item.quantity) || 1,
+            mrp: Number(item.mrp) || 0,
+            rate: Number(item.rate) || 0,
+            discountPercent: Number(item.discountPercent) || 0,
+            gstPercent: Number(item.gstPercent) || 0,
+            amount: Number(item.amount) || 0,
+          }
+        }),
       }
 
       if (editingDraftId) {
@@ -2421,7 +2718,7 @@ export default function NewSalePage() {
   }
 
   const submitInvoice = async (forcePaymentMode?: string) => {
-    const activeItems = items.filter((i) => i.productId && i.quantity > 0)
+    const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
     const effectivePaymentMode = forcePaymentMode ?? paymentMode
     if (activeItems.length === 0) {
       toast.error('Please add items to the bill')
@@ -2434,17 +2731,52 @@ export default function NewSalePage() {
       return;
     }
 
+    // Guard: a stub (id='') was created in quotation mode. Don't let it through
+    // the invoice path — backend would reject the empty FK. Force the user to
+    // complete the full customer record via the existing inline panel.
+    if (invoiceType !== 'quotation' && !selectedCustomer.id) {
+      toast.error('Complete the customer details before saving the invoice')
+      customerForm.reset({
+        name: selectedCustomer.name ?? '',
+        phone: selectedCustomer.phone ?? '',
+        type: selectedCustomer.type ?? 'RETAIL',
+        email: selectedCustomer.email ?? '',
+        address: selectedCustomer.address ?? '',
+        gstin: selectedCustomer.gstin ?? '',
+        dlNumber: selectedCustomer.dlNumber ?? '',
+        registrationNumber: '',
+        referredBy: selectedCustomer.referredBy ?? '',
+        notes: selectedCustomer.notes ?? '',
+      })
+      setAddCustomerDialogOpen(true)
+      return
+    }
+
     if (effectivePaymentMode === 'CREDIT' && isCreditBlocked && !isPharmacist) {
       toast.error(`${selectedCustomer.name} has ${pendingCreditCount} unpaid credit invoices. Please clear pending credits first.`)
       openCreditPayDialog()
       return
     }
 
-    // Validate qty against batch stock
-    for (const item of activeItems) {
-      const batch = batches.find((b) => b.id === item.batchId)
-      if (batch && item.quantity > batch.quantity) {
-        toast.error(`"${item.productName}" qty (${item.quantity}) exceeds available stock (${batch.quantity})`)
+    // Validate qty against batch stock — skipped for quotations because the
+    // product may not be in inventory yet (the whole point of quoting first).
+    if (invoiceType !== 'quotation') {
+      for (const item of activeItems) {
+        const batch = batches.find((b) => b.id === item.batchId)
+        if (batch && item.quantity > batch.quantity) {
+          toast.error(`"${item.productName}" qty (${item.quantity}) exceeds available stock (${batch.quantity})`)
+          return
+        }
+      }
+    } else {
+      // Quotation-only validation: name + 10-digit phone on the customer stub.
+      if (!selectedCustomer.name?.trim() || !/^\d{10}$/.test(selectedCustomer.phone || '')) {
+        toast.error('Quotation customer needs a name and 10-digit phone')
+        return
+      }
+      // At least one item must have a product name typed.
+      if (!activeItems.some((it) => (it.productName || '').trim() !== '')) {
+        toast.error('Type at least one product name for the quotation')
         return
       }
     }
@@ -2464,6 +2796,7 @@ export default function NewSalePage() {
         cgst: Number(totals.cgst) || 0,
         sgst: Number(totals.sgst) || 0,
         igst: 0,
+        deliveryCharge: Number(totals.deliveryCharge) || 0,
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: invoiceType === 'quotation' ? 0
@@ -2477,19 +2810,27 @@ export default function NewSalePage() {
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
 
-        items: activeItems.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          batchId: item.batchId,
-          batchNumber: item.batchNumber,
-          expiryDate: new Date(item.expiryDate).toISOString(),
-          quantity: Number(item.quantity) || 1,
-          mrp: Number(item.mrp) || 0,
-          rate: Number(item.rate) || 0,
-          discountPercent: Number(item.discountPercent) || 0,
-          gstPercent: Number(item.gstPercent) || 0,
-          amount: Number(item.amount) || 0
-        }))
+        items: activeItems.map(item => {
+          // Free-text quotation rows have no expiryDate. `new Date('').toISOString()`
+          // throws RangeError, so coerce to a valid ISO string (the invoice
+          // branch below never uses this for quotations, but the object is
+          // built eagerly above the branch).
+          const d = item.expiryDate ? new Date(item.expiryDate) : null
+          const safeIso = d && !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString()
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            batchId: item.batchId,
+            batchNumber: item.batchNumber,
+            expiryDate: safeIso,
+            quantity: Number(item.quantity) || 1,
+            mrp: Number(item.mrp) || 0,
+            rate: Number(item.rate) || 0,
+            discountPercent: Number(item.discountPercent) || 0,
+            gstPercent: Number(item.gstPercent) || 0,
+            amount: Number(item.amount) || 0
+          }
+        })
       }
 
       let endpoint: string
@@ -2501,19 +2842,24 @@ export default function NewSalePage() {
 
       if (invoiceType === 'quotation') {
         endpoint = '/quotations'
+        // Lightweight customers carry an empty id — don't send that to the
+        // backend (FK validation would reject it). Send customerPhone always.
         finalPayload = {
-          customerId: selectedCustomer!.id,
+          ...(selectedCustomer!.id && { customerId: selectedCustomer!.id }),
           customerName: selectedCustomer!.name,
+          ...(selectedCustomer!.phone && { customerPhone: selectedCustomer!.phone }),
           subtotal: Number(totals.subtotal) || 0,
           cgst: Number(totals.cgst) || 0,
           sgst: Number(totals.sgst) || 0,
+          deliveryCharge: Number(totals.deliveryCharge) || 0,
           total: Number(totals.grandTotal) || 0,
           ...(activeBranchId && { branchId: activeBranchId }),
           items: activeItems.map(item => ({
-            productId: item.productId,
+            // Only send identifiers if the user actually picked a real product/batch;
+            // free-text quotation items leave these empty.
+            ...(item.productId && { productId: item.productId }),
             productName: item.productName,
-            batchId: item.batchId,
-            batchNumber: item.batchNumber,
+            ...(item.batchId && { batchId: item.batchId, batchNumber: item.batchNumber }),
             quantity: Number(item.quantity) || 1,
             mrp: Number(item.mrp) || 0,
             rate: Number(item.rate) || 0,
@@ -2560,8 +2906,14 @@ export default function NewSalePage() {
       }
 
     } catch (error: unknown) {
-      const errorMsg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to generate invoice. Please check stock limits.'
-      console.error(error)
+      const raw = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      // NestJS class-validator returns an array of messages on 400.
+      const errorMsg = Array.isArray(raw)
+        ? raw.join(' • ')
+        : raw || (invoiceType === 'quotation'
+          ? 'Failed to save quotation'
+          : 'Failed to generate invoice. Please check stock limits.')
+      console.error('submit error:', error)
       toast.error(errorMsg)
     } finally {
       setIsSubmitting(false)
@@ -2577,7 +2929,7 @@ export default function NewSalePage() {
         submitInvoice()
       } else if (e.key === 'F7') {
         e.preventDefault()
-        if (items.filter((i) => i.productId && i.quantity > 0).length > 0 && selectedCustomer) {
+        if (items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length > 0 && selectedCustomer) {
           setPreviewOpen(true)
         } else {
           toast.info('Add items and select a customer to preview invoice')
@@ -2607,7 +2959,39 @@ export default function NewSalePage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [addItem])
 
-  const activeItemCount = items.filter((i) => i.productId && i.quantity > 0).length
+  const activeItemCount = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length
+
+  // ── Per-cart-item purchase history — derived from customer invoices ──
+  // For each cart line that has a productId, gather up to 5 past purchase
+  // records of that product across the customer's invoices. Used by the
+  // "Product History" tab to show all histories at once.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cartItemHistories = useMemo(() => {
+    return items
+      .filter((it) => it.productId)
+      .map((it) => {
+        const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
+        for (const inv of customerInvoices) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          for (const line of ((inv as any).items ?? []) as any[]) {
+            if (line.productId === it.productId) {
+              hits.push({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                date: (inv as any).date ?? inv.createdAt,
+                invoiceNumber: inv.invoiceNumber,
+                batchNumber: line.batchNumber ?? '—',
+                qty: Number(line.quantity),
+                rate: Number(line.rate),
+                status: inv.status,
+              })
+            }
+          }
+        }
+        return { item: it, history: hits.slice(0, 5) }
+      })
+  }, [items, customerInvoices])
+
+  const productHistoryCount = cartItemHistories.filter((e) => e.history.length > 0).length
 
   function customerTypeBadge(type: Customer['type']): 'info' | 'purple' | 'success' | 'warning' | 'secondary' {
     const map: Record<Customer['type'], 'info' | 'purple' | 'success' | 'warning' | 'secondary'> = {
@@ -2619,8 +3003,16 @@ export default function NewSalePage() {
   }
 
   // ── Customer Form ──────────────────────────────────────
+  // Resolver switches by mode — quotation = lenient (name + phone only),
+  // invoice = strict. We read invoiceType through a ref so the same useForm
+  // instance can switch schemas without remounting.
+  const invoiceTypeRef = useRef(invoiceType)
+  useEffect(() => { invoiceTypeRef.current = invoiceType }, [invoiceType])
   const customerForm = useForm<CustomerFormValues>({
-    resolver: zodResolver(customerSchema),
+    resolver: (values, ctx, options) => {
+      const schema = buildCustomerSchema(invoiceTypeRef.current) as typeof customerSchema
+      return zodResolver(schema)(values, ctx, options)
+    },
     defaultValues: {
       name: '',
       phone: '',
@@ -2637,6 +3029,37 @@ export default function NewSalePage() {
 
   const handleAddCustomer = async (values: CustomerFormValues) => {
     if (nsPhoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
+
+    // Quotation mode: don't create a Customer master record. The name + phone
+    // get persisted on the Quotation row at Save Quotation time (B1 schema column).
+    // Customer master creation only happens later, on quotation → invoice conversion.
+    if (invoiceType === 'quotation') {
+      const stub: Customer = {
+        id: '',
+        name: values.name.trim(),
+        phone: values.phone,
+        type: values.type,
+        email: values.email || undefined,
+        address: values.address || undefined,
+        gstin: values.gstin || undefined,
+        dlNumber: values.dlNumber || undefined,
+        referredBy: values.referredBy || undefined,
+        notes: values.notes || undefined,
+        creditLimit: 0,
+        currentOutstanding: 0,
+        loyaltyPoints: 0,
+        createdAt: new Date().toISOString(),
+      }
+      setSelectedCustomer(stub)
+      customerForm.reset()
+      setDocFiles([])
+      setDocPreviews([])
+      setNsPhoneCheckError('')
+      setAddCustomerDialogOpen(false)
+      toast.success(`Customer "${values.name}" ready for quotation`)
+      return
+    }
+
     try {
       const res = await api.post('/customers', values)
       toast.success(`Customer "${values.name}" added successfully`)
@@ -2676,7 +3099,7 @@ export default function NewSalePage() {
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen px-3 pt-3 md:px-4 md:pt-4 overflow-hidden bg-linear-to-b from-background to-muted/20">
+      <div className="flex flex-col h-screen px-1.5 pt-2 md:px-2 md:pt-2.5 overflow-hidden bg-background">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
@@ -2686,14 +3109,16 @@ export default function NewSalePage() {
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }}
           className="flex items-center justify-between mb-3 shrink-0"
         >
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
               <Receipt className="h-4 w-4" />
             </div>
-            <h1 className="text-lg font-bold tracking-tight">New Sale</h1>
-            <Badge variant="outline" size="sm" className="hidden sm:inline-flex font-mono text-[10px]">
-              {invoiceNumber}
-            </Badge>
+            <div className="flex flex-col leading-tight">
+              <h1 className="text-base font-semibold tracking-tight">New Sale</h1>
+              <span className="hidden sm:inline-block font-mono text-[10px] text-muted-foreground tracking-wider">
+                {invoiceNumber}
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <PillToggle
@@ -2709,10 +3134,10 @@ export default function NewSalePage() {
 
         {/* Quotation source banner */}
         {quotationSource && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <FileText className="h-3.5 w-3.5 shrink-0" />
-            <span>Converting from quotation <span className="font-bold">{quotationSource.number}</span> — customer: <span className="font-semibold">{quotationSource.customerName}</span>. Select a customer and verify item batches before saving.</span>
-            <button onClick={() => setQuotationSource(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+            <span>Converting from quotation <span className="font-semibold">{quotationSource.number}</span> — customer: <span className="font-semibold">{quotationSource.customerName}</span>. Verify item batches before saving.</span>
+            <button onClick={() => setQuotationSource(null)} className="ml-auto shrink-0 rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-amber-500/10 transition-colors"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
 
@@ -2734,15 +3159,15 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={() => setShowCustomerDropdown(true)}
-                    className="flex w-full h-11 items-center gap-3 rounded-xl border border-dashed border-rose-400/50 bg-rose-50/40 dark:bg-rose-950/20 px-4 text-sm text-rose-500 dark:text-rose-400 font-medium shadow-sm transition-all hover:border-rose-400/80 hover:bg-rose-50/60 dark:hover:bg-rose-950/30"
+                    className="flex w-full h-11 items-center gap-2.5 rounded-lg border border-dashed border-border bg-muted/30 px-4 text-sm text-muted-foreground font-medium transition-colors hover:border-border/80 hover:bg-muted/50"
                   >
-                    <Search className="h-4 w-4 shrink-0 opacity-60" />
+                    <Search className="h-4 w-4 shrink-0 opacity-50" />
                     <span className="flex-1 text-left text-xs">Select a customer first to search products</span>
-                    <span className="text-base">🔒</span>
+                    <kbd className="rounded border border-border/60 bg-background px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/70">Alt+S</kbd>
                   </button>
                 ) : (
                   <>
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/60" />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
                     <input
                       ref={heroSearchRef}
                       value={heroSearch}
@@ -2753,22 +3178,24 @@ export default function NewSalePage() {
                       }}
                       onFocus={() => heroSearch && setShowHeroResults(true)}
                       onKeyDown={handleHeroKeyDown}
-                      placeholder="Scan barcode or search products...  (Alt+S)"
+                      placeholder="Scan barcode or search products..."
                       className={cn(
-                        'w-full h-11 rounded-xl border border-primary/30 bg-background pl-11 pr-4 text-sm shadow-sm',
+                        'w-full h-11 rounded-lg border border-border bg-background pl-10 pr-20 text-sm',
                         'placeholder:text-muted-foreground/50 font-medium',
-                        'focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary/60',
-                        'transition-all duration-300 hover:border-primary/50'
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:border-primary/40',
+                        'transition-colors duration-150 hover:border-border/80'
                       )}
                     />
-                    {heroSearch && (
+                    {heroSearch ? (
                       <button
                         type="button"
                         onClick={() => { setHeroSearch(''); setShowHeroResults(false); heroSearchRef.current?.focus() }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
+                    ) : (
+                      <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/70 pointer-events-none">Alt+S</kbd>
                     )}
                   </>
                 )}
@@ -2776,29 +3203,44 @@ export default function NewSalePage() {
 
               {/* Hero search results dropdown */}
               <AnimatePresence>
-                {showHeroResults && heroResults.length > 0 && (
+                {showHeroResults && (heroResults.length > 0 || heroSearchResults.loading || heroSearch) && (
                   <motion.div
                     initial={{ opacity: 0, y: -6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover/95 shadow-2xl backdrop-blur-xl overflow-hidden"
+                    className="absolute z-50 mt-1.5 w-full rounded-lg border border-border bg-popover shadow-lg overflow-hidden"
                     >
-                    <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {heroResults.length} product{heroResults.length > 1 ? 's' : ''} found
+                    <div className="px-3 py-2 border-b border-border/60 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {heroSearchResults.loading && heroResults.length === 0
+                        ? 'Searching…'
+                        : `${heroSearchResults.total || heroResults.length} product${(heroSearchResults.total || heroResults.length) !== 1 ? 's' : ''} ${heroSearchResults.total > heroResults.length ? `· showing ${heroResults.length}` : 'found'}`}
                     </div>
-                    <div className="max-h-64 overflow-y-auto">
+                    <div
+                      className="max-h-72 overflow-y-auto divide-y divide-border/40"
+                      onScroll={(e) => {
+                        const el = e.currentTarget
+                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+                          heroSearchResults.loadMore()
+                        }
+                      }}
+                    >
+                      {heroResults.length === 0 && !heroSearchResults.loading && heroSearch && (
+                        <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                          No products match "{heroSearch}"
+                        </div>
+                      )}
                       {heroResults.map((p, idx) => (
                         <div
                           key={p.id}
                           className={cn(
                             'cursor-pointer px-3 py-2.5 transition-colors flex items-center gap-3',
-                            idx === heroSelectedIdx ? 'bg-primary/8 dark:bg-primary/10' : 'hover:bg-accent/50'
+                            idx === heroSelectedIdx ? 'bg-accent' : 'hover:bg-accent/50'
                           )}
                           onClick={() => addProductFromSearch(p)}
                           onMouseEnter={() => setHeroSelectedIdx(idx)}
                         >
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/50">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/60">
                             <Package className="h-4 w-4 text-muted-foreground/60" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -2808,18 +3250,24 @@ export default function NewSalePage() {
                                 <Badge variant="destructive" size="sm">{p.schedule}</Badge>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                              <span>{p.manufacturer}</span>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
+                              <span className="truncate">{p.manufacturer}</span>
                               <span className="text-border">·</span>
-                              <span>{p.genericName}</span>
+                              <span className="truncate">{p.genericName}</span>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <div className="text-xs font-semibold font-mono">{formatCurrency(billingType === 'wholesale' ? p.wholesaleRate : p.sellingRate)}</div>
-                            <div className="text-[10px] text-muted-foreground">Stk: {p.totalStock}</div>
+                            <div className="text-sm font-semibold font-mono tabular-nums">{formatCurrency(billingType === 'wholesale' ? p.wholesaleRate : p.sellingRate)}</div>
+                            <div className={cn(
+                              "text-[10px] mt-0.5 tabular-nums",
+                              p.totalStock === 0 ? "text-rose-600 dark:text-rose-400" : p.totalStock <= (p.minStock ?? 0) ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                            )}>{p.totalStock === 0 ? 'Out of stock' : `Stk: ${p.totalStock}`}</div>
                           </div>
                         </div>
                       ))}
+                      {heroResults.length > 0 && heroSearchResults.loading && (
+                        <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -2832,7 +3280,7 @@ export default function NewSalePage() {
                 onClick={addItem}
                 disabled={!selectedCustomer}
                 title={!selectedCustomer ? 'Select a customer first' : undefined}
-                className="h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer md:hidden disabled:opacity-40 disabled:cursor-not-allowed"
+                className="h-11 px-4 shrink-0 gap-2 font-semibold cursor-pointer md:hidden disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -2844,54 +3292,72 @@ export default function NewSalePage() {
                 type="button"
                 onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
                 className={cn(
-                  'flex items-center gap-2.5 w-full h-11 rounded-xl border border-border/60 bg-background px-3 text-xs transition-all shadow-sm',
-                  'hover:border-primary/40'
+                  'flex items-center gap-2.5 w-full h-11 rounded-lg border bg-background px-3 text-xs transition-colors',
+                  selectedCustomer
+                    ? 'border-border hover:border-border/80'
+                    : 'border-dashed border-amber-500/40 bg-amber-500/[0.04] hover:border-amber-500/60'
                 )}
               >
                 <div className={cn(
-                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                  selectedCustomer ? "bg-primary/10 text-primary" : "bg-rose-500/10 text-rose-500"
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold",
+                  selectedCustomer ? "bg-primary/10 text-primary" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                 )}>
-                  {selectedCustomer ? selectedCustomer.name[0] : '!'}
+                  {selectedCustomer ? selectedCustomer.name[0].toUpperCase() : <UserPlus className="h-3.5 w-3.5" />}
                 </div>
-                <span className={cn("flex-1 text-left truncate font-semibold", !selectedCustomer && "text-rose-500")}>
-                  {selectedCustomer?.name ?? 'Select Customer *'}
+                <span className={cn("flex-1 text-left truncate font-semibold text-[13px]", !selectedCustomer && "text-amber-700 dark:text-amber-400")}>
+                  {selectedCustomer?.name ?? 'Select Customer'}
                 </span>
                 {selectedCustomer && (
                   <Badge variant={customerTypeBadge(selectedCustomer.type)} size="sm" className="text-[9px] px-1.5 shrink-0">
                     {selectedCustomer.type}
                   </Badge>
                 )}
+                {selectedCustomer && selectedCustomer.id === '' && (
+                  <Badge variant="purple" size="sm" className="text-[9px] px-1.5 shrink-0">
+                    Quotation only
+                  </Badge>
+                )}
                 {selectedCustomer && (selectedCustomer.loyaltyPoints ?? 0) > 0 && (
-                  <Badge variant="warning" size="sm" className="text-[9px] px-1.5 shrink-0 gap-0.5">
-                    ⭐ {selectedCustomer.loyaltyPoints} pts
+                  <Badge variant="warning" size="sm" className="text-[9px] px-1.5 shrink-0 gap-0.5 tabular-nums">
+                    {selectedCustomer.loyaltyPoints} pts
                   </Badge>
                 )}
                 {selectedCustomer && (
-                  <button
-                    type="button"
-                    className="ml-1 p-0.5 rounded hover:bg-accent text-muted-foreground/50 hover:text-foreground shrink-0"
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="ml-1 p-1 rounded hover:bg-accent text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors cursor-pointer"
                     onClick={(e) => { e.stopPropagation(); setTableView('customer-history') }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setTableView('customer-history') } }}
                     title="View purchase history"
                   >
-                    <History className="h-3 w-3" />
-                  </button>
+                    <History className="h-3.5 w-3.5" />
+                  </span>
                 )}
                 {selectedCustomer && (
-                  <button
-                    type="button"
-                    className="p-0.5 rounded hover:bg-violet-500/10 text-muted-foreground/50 hover:text-violet-500 shrink-0 transition-colors"
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="p-1 rounded hover:bg-accent text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation()
                       setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
                       setReminderOpen(true)
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
+                        setReminderOpen(true)
+                      }
+                    }}
                     title="Set monthly reminder for this customer"
                   >
-                    <CalendarClock className="h-3 w-3" />
-                  </button>
+                    <CalendarClock className="h-3.5 w-3.5" />
+                  </span>
                 )}
-                <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
               </button>
               <AnimatePresence>
                 {showCustomerDropdown && (
@@ -2900,71 +3366,106 @@ export default function NewSalePage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute z-50 left-0 right-0 mt-1 rounded-xl border border-border/60 bg-popover/95 shadow-xl backdrop-blur-xl overflow-hidden"
+                    className="absolute z-50 left-0 right-0 mt-1.5 rounded-lg border border-border bg-popover shadow-lg overflow-hidden"
                   >
-                    <div className="p-2 border-b border-border/40">
-                      <input
-                        value={customerSearch}
-                        onChange={(e) => setCustomerSearch(e.target.value)}
-                        placeholder="Search name or phone..."
-                        className="w-full h-8 rounded-md bg-muted/30 px-2.5 text-xs placeholder:text-muted-foreground/40 focus:outline-none"
-                        autoFocus
-                      />
+                    <div className="p-2 border-b border-border/60">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                        <input
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          placeholder="Search name or phone..."
+                          className="w-full h-9 rounded-md bg-muted/40 pl-8 pr-2.5 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          autoFocus
+                        />
+                      </div>
                     </div>
-                    <ScrollArea className="h-64">
-                      {filteredCustomers.map((cust) => (
-                        <div
-                          key={cust.id}
-                          className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors border-b border-border/5 last:border-0"
-                          onClick={() => {
-                            setSelectedCustomer(cust)
-                            setCustomerSearch('')
-                            setShowCustomerDropdown(false)
-                            setTableView('customer-history')
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold flex-1 min-w-0 truncate">{cust.name}</span>
-                            <div className="flex items-center gap-1 shrink-0 ml-auto">
-                              {(cust.pendingCreditCount ?? 0) >= 3 ? (
-                                <span
-                                  className="inline-flex items-center gap-0.5 rounded-full bg-red-100 dark:bg-red-950/40 px-1.5 py-0.5 text-[9px] font-bold text-red-600 dark:text-red-400 whitespace-nowrap"
-                                  title="Credit blocked — 3 pending invoices"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setSelectedCustomer(cust)
-                                    setShowCustomerDropdown(false)
-                                    openCreditPayDialog()
-                                  }}
-                                >
-                                  🔴 Pay Credits
-                                </span>
-                              ) : (cust.pendingCreditCount ?? 0) > 0 ? (
-                                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                  {cust.pendingCreditCount} pending
-                                </span>
-                              ) : null}
-                              <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px] whitespace-nowrap">
-                                {cust.type}
-                              </Badge>
+                    <div
+                      className="h-64 overflow-y-auto"
+                      onScroll={(e) => {
+                        const el = e.currentTarget
+                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+                          customerSearchResults.loadMore()
+                        }
+                      }}
+                    >
+                      <div className="divide-y divide-border/40">
+                        {customerSearchResults.loading && filteredCustomers.length === 0 && (
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</div>
+                        )}
+                        {!customerSearchResults.loading && filteredCustomers.length === 0 && (
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                            {customerSearch ? `No customers match "${customerSearch}"` : 'No customers found'}
+                          </div>
+                        )}
+                        {filteredCustomers.map((cust) => (
+                          <div
+                            key={cust.id}
+                            className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors"
+                            onClick={() => {
+                              setSelectedCustomer(cust)
+                              setCustomerSearch('')
+                              setShowCustomerDropdown(false)
+                              setTableView('customer-history')
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary text-[11px] font-bold">
+                                {cust.name[0].toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold truncate">{cust.name}</div>
+                                {cust.phone !== '0000000000' && (
+                                  <div className="text-[10px] text-muted-foreground tabular-nums">{cust.phone}</div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0 ml-auto">
+                                {(cust.pendingCreditCount ?? 0) >= 3 ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-semibold text-rose-600 dark:text-rose-400 whitespace-nowrap"
+                                    title="Credit blocked — 3 pending invoices"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedCustomer(cust)
+                                      setShowCustomerDropdown(false)
+                                      openCreditPayDialog()
+                                    }}
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                                    Pay Credits
+                                  </span>
+                                ) : (cust.pendingCreditCount ?? 0) > 0 ? (
+                                  <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-400 whitespace-nowrap tabular-nums">
+                                    {cust.pendingCreditCount} pending
+                                  </span>
+                                ) : null}
+                                <Badge variant={customerTypeBadge(cust.type)} size="sm" className="text-[9px] whitespace-nowrap">
+                                  {cust.type}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
-                          {cust.phone !== '0000000000' && (
-                            <div className="text-[10px] text-muted-foreground mt-0.5">{cust.phone}</div>
-                          )}
-                        </div>
-                      ))}
-                    </ScrollArea>
-                    <div className="border-t border-border/40 p-2 bg-muted/20">
+                        ))}
+                        {filteredCustomers.length > 0 && customerSearchResults.loading && (
+                          <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
+                        )}
+                        {filteredCustomers.length > 0 && !customerSearchResults.loading && !customerSearchResults.hasMore && (
+                          <div className="px-3 py-2 text-center text-[10px] text-muted-foreground/60">
+                            {customerSearchResults.total} customer{customerSearchResults.total !== 1 ? 's' : ''}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="border-t border-border/60 p-1.5 bg-muted/20">
                       <button
                         type="button"
                         onClick={() => {
                           setAddCustomerDialogOpen(true)
                           setShowCustomerDropdown(false)
                         }}
-                        className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-primary hover:bg-primary/5 transition-colors font-semibold"
+                        className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs text-primary hover:bg-primary/10 transition-colors font-semibold"
                       >
-                        <UserPlus className="h-4 w-4" />
+                        <UserPlus className="h-3.5 w-3.5" />
                         Add New Customer
                       </button>
                     </div>
@@ -2980,20 +3481,20 @@ export default function NewSalePage() {
           ═══════════════════════════════════════════════════ */}
           <div className="hidden md:flex w-44 lg:w-52 xl:w-56 shrink-0 items-stretch">
             <div className={cn(
-              'flex items-center gap-2 w-full h-11 rounded-xl border border-border/60 bg-muted/30 px-3 text-xs shadow-sm select-none overflow-hidden',
+              'flex items-center gap-2 w-full h-11 rounded-lg border border-border bg-muted/30 px-3 text-xs select-none overflow-hidden',
             )}>
               <div className={cn(
-                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                selectedSalesperson ? "bg-violet-500/10 text-violet-500" : "bg-muted text-muted-foreground"
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold",
+                selectedSalesperson ? "bg-purple-500/10 text-purple-600 dark:text-purple-400" : "bg-muted text-muted-foreground"
               )}>
-                {selectedSalesperson ? selectedSalesperson.name[0] : <Users className="h-3 w-3" />}
+                {selectedSalesperson ? selectedSalesperson.name[0].toUpperCase() : <Users className="h-3.5 w-3.5" />}
               </div>
-              <span className={cn("flex-1 truncate text-[11px] font-semibold", !selectedSalesperson && "text-muted-foreground/50 italic")}>
-                {selectedSalesperson?.name ?? 'Salesperson'}
-              </span>
-              {selectedSalesperson && (
-                <Badge variant="secondary" size="sm" className="shrink-0 text-[9px]">SP</Badge>
-              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Salesperson</div>
+                <div className={cn("truncate text-[11px] font-semibold leading-tight", !selectedSalesperson && "text-muted-foreground/50 italic")}>
+                  {selectedSalesperson?.name ?? '—'}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3009,7 +3510,7 @@ export default function NewSalePage() {
                   setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
                   setReminderOpen(true)
                 }}
-                className="h-11 md:h-11 px-3 shrink-0 gap-1.5 border-violet-300/60 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 dark:text-violet-400"
+                className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
                 title="Set monthly reminder for this customer"
               >
                 <CalendarClock className="h-4 w-4" />
@@ -3022,11 +3523,11 @@ export default function NewSalePage() {
               onClick={addItem}
               disabled={!selectedCustomer}
               title={!selectedCustomer ? 'Select a customer first to add products' : 'Add Item (Alt+N)'}
-              className="h-11 md:h-11 px-3 lg:px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/10 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="h-11 md:h-11 px-3 lg:px-4 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="h-4 w-4" />
               <span className="hidden lg:inline text-sm">Add Item</span>
-              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-white/20 bg-white/10 px-1 text-[9px] font-mono text-white/70">Alt+N</kbd>
+              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 text-[9px] font-mono text-primary-foreground/80">Alt+N</kbd>
             </Button>
           </div>
         </div>
@@ -3040,11 +3541,11 @@ export default function NewSalePage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden mb-3"
             >
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-red-300/60 bg-red-50/40 p-2.5 dark:border-red-800/40 dark:bg-red-900/10">
-                <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400">
-                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.05] px-3 py-2.5 dark:border-rose-800/40">
+                <div className="flex items-center gap-2.5 text-xs text-rose-700 dark:text-rose-400">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
                   <span>
-                    <strong>{selectedCustomer.name}</strong> has <strong>{pendingCreditCount} unpaid credit invoices</strong> — credit sales blocked until cleared.
+                    <span className="font-semibold">{selectedCustomer.name}</span> has <span className="font-semibold tabular-nums">{pendingCreditCount}</span> unpaid credit invoices — credit sales blocked until cleared.
                     {isPharmacist && <span className="ml-1 text-amber-700 dark:text-amber-400">You can request admin approval to proceed.</span>}
                   </span>
                 </div>
@@ -3053,11 +3554,11 @@ export default function NewSalePage() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-7 px-2.5 text-[11px] bg-amber-500 hover:bg-amber-600 text-white"
+                      className="h-8 px-3 text-[11px] bg-amber-500 hover:bg-amber-600 text-white shadow-none"
                       onClick={() => submitInvoice('CREDIT')}
-                      disabled={isSubmitting || items.filter(i => i.productId && i.quantity > 0).length === 0}
+                      disabled={isSubmitting || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
                     >
-                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                       {isSubmitting ? 'Sending…' : 'Request Approval'}
                     </Button>
                   )}
@@ -3065,10 +3566,10 @@ export default function NewSalePage() {
                     type="button"
                     size="sm"
                     variant="destructive"
-                    className="h-7 px-2.5 text-[11px]"
+                    className="h-8 px-3 text-[11px] shadow-none"
                     onClick={openCreditPayDialog}
                   >
-                    <CreditCard className="h-3 w-3 mr-1" />
+                    <CreditCard className="h-3.5 w-3.5 mr-1" />
                     Pay Credits
                   </Button>
                 </div>
@@ -3080,7 +3581,7 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             MAIN TWO-PANEL LAYOUT
         ═══════════════════════════════════════════════════ */}
-        <div className="flex flex-col gap-3 flex-1 md:flex-row overflow-hidden">
+        <div className="flex flex-col gap-1.5 flex-1 md:flex-row md:gap-2 overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
           <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
             {addCustomerDialogOpen ? (
@@ -3100,7 +3601,11 @@ export default function NewSalePage() {
                     </div>
                     <div className="min-w-0">
                       <h2 className="text-sm font-bold">Add New Customer</h2>
-                      <p className="text-[10px] text-muted-foreground truncate">Name, Phone, Type, Address and Referred By are required. Email is optional.</p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {invoiceType === 'quotation'
+                          ? 'Quotation only — only Name and Phone are required. Won’t be saved to customer master.'
+                          : 'Name, Phone, Type, Address and Referred By are required. Email is optional.'}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -3264,7 +3769,8 @@ export default function NewSalePage() {
             ) : (
               <>
             {/* Tab strip — order: Customer History | Products | Reminders */}
-            <div className="flex items-center gap-1 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2 border-b border-border/60">
+              <div className="flex items-center gap-0.5">
               {/* Tab 1: Customer History — always accessible, shown first */}
               <button
                 type="button"
@@ -3273,16 +3779,16 @@ export default function NewSalePage() {
                   if (!selectedCustomer) setShowCustomerDropdown(true)
                 }}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                  'inline-flex items-center gap-1.5 px-3.5 py-2 -mb-px border-b-2 text-[11px] font-semibold transition-colors',
                   tableView === 'customer-history'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
-                <History className="h-3 w-3" />
-                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Select Customer'}
+                <History className="h-3.5 w-3.5" />
+                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Customer History'}
                 {!selectedCustomer && (
-                  <span className="ml-0.5 text-[9px] text-rose-400 animate-pulse">●</span>
+                  <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                 )}
               </button>
 
@@ -3298,29 +3804,57 @@ export default function NewSalePage() {
                   setTableView('products')
                 }}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                  'inline-flex items-center gap-1.5 px-3.5 py-2 -mb-px border-b-2 text-[11px] font-semibold transition-colors',
                   tableView === 'products'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? 'border-primary text-foreground'
                     : !selectedCustomer
-                      ? 'text-muted-foreground/40 cursor-not-allowed'
-                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                      ? 'border-transparent text-muted-foreground/40 cursor-not-allowed'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
                 title={!selectedCustomer ? 'Select a customer first to add products' : undefined}
               >
-                <Package className="h-3 w-3" />
+                <Package className="h-3.5 w-3.5" />
                 Products
                 {activeItemCount > 0 && (
                   <span className={cn(
-                    'ml-0.5 rounded-full px-1 text-[9px] font-bold',
-                    tableView === 'products' ? 'bg-white/20' : 'bg-primary/10 text-primary'
+                    'ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold tabular-nums',
+                    tableView === 'products' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
                   )}>{activeItemCount}</span>
-                )}
-                {!selectedCustomer && (
-                  <span className="ml-0.5 text-[9px] text-amber-500">🔒</span>
                 )}
               </button>
 
-              {/* Tab 3: Reminders */}
+              {/* Tab 3: Product History — past purchases of every cart item */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedCustomer) {
+                    setShowCustomerDropdown(true)
+                    toast.info('Please select a customer to view product history')
+                    return
+                  }
+                  setTableView('product-history')
+                }}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-2 -mb-px border-b-2 text-[11px] font-semibold transition-colors',
+                  tableView === 'product-history'
+                    ? 'border-primary text-foreground'
+                    : !selectedCustomer
+                      ? 'border-transparent text-muted-foreground/40 cursor-not-allowed'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+                title={!selectedCustomer ? 'Select a customer first to view product history' : undefined}
+              >
+                <History className="h-3.5 w-3.5" />
+                Product History
+                {productHistoryCount > 0 && (
+                  <span className={cn(
+                    'ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold tabular-nums',
+                    tableView === 'product-history' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                  )}>{productHistoryCount}</span>
+                )}
+              </button>
+
+              {/* Tab 4: Reminders */}
               <button
                 type="button"
                 onClick={() => {
@@ -3328,20 +3862,59 @@ export default function NewSalePage() {
                   if (!selectedCustomer) setShowCustomerDropdown(true)
                 }}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                  'inline-flex items-center gap-1.5 px-3.5 py-2 -mb-px border-b-2 text-[11px] font-semibold transition-colors',
                   tableView === 'customer-reminders'
-                    ? 'bg-violet-600 text-white shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
-                <CalendarClock className="h-3 w-3" />
+                <CalendarClock className="h-3.5 w-3.5" />
                 {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s Reminders` : 'Reminders'}
                 {customerReminders.length > 0 && tableView !== 'customer-reminders' && (
-                  <span className="ml-0.5 rounded-full px-1 text-[9px] font-bold bg-violet-100 text-violet-600">
+                  <span className="ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold bg-muted text-muted-foreground tabular-nums">
                     {customerReminders.length}
                   </span>
                 )}
               </button>
+
+              {/* Tab 5: Quotations — scoped to selected customer, or all when none */}
+              <button
+                type="button"
+                onClick={() => setTableView('quotations')}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-2 -mb-px border-b-2 text-[11px] font-semibold transition-colors',
+                  tableView === 'quotations'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s Quotations` : 'Quotations'}
+                {quotationsList.length > 0 && tableView !== 'quotations' && (
+                  <span className="ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold bg-muted text-muted-foreground tabular-nums">
+                    {quotationsList.length}
+                  </span>
+                )}
+              </button>
+              </div>
+
+              {/* Right-end controls — only on Products tab */}
+              {tableView === 'products' && (
+                <label
+                  htmlFor="show-inline-history"
+                  className="inline-flex items-center gap-2 pb-1.5 cursor-pointer select-none"
+                  title="Show or hide each product's past purchase history under its row"
+                >
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    Show purchase history
+                  </span>
+                  <Switch
+                    id="show-inline-history"
+                    checked={showInlineHistory}
+                    onCheckedChange={setShowInlineHistory}
+                  />
+                </label>
+              )}
             </div>
 
             <Card className="flex-1 flex flex-col min-h-0 shadow-none border-0 bg-transparent">
@@ -3359,8 +3932,9 @@ export default function NewSalePage() {
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
                               <TableHead className="min-w-55 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
                               <TableHead className="w-37.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
+                              <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
                               <TableHead className="w-27.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
-                              <TableHead className="w-50 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
+                              <TableHead className="w-40 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
                               <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
                               <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
@@ -3375,10 +3949,12 @@ export default function NewSalePage() {
                                   item={item}
                                   index={idx}
                                   billingType={billingType}
+                                  invoiceType={invoiceType}
                                   onUpdate={updateItem}
                                   onRemove={removeItem}
                                   customerLastRates={customerLastRates}
                                   customerInvoices={customerInvoices}
+                                  showInlineHistory={showInlineHistory}
                                 />
                               ))}
                             </AnimatePresence>
@@ -3402,17 +3978,129 @@ export default function NewSalePage() {
                         </AnimatePresence>
                       </div>
 
-                      {items.length === 1 && !items[0].productId && (
+                      {items.length === 1 && !items[0].productId && !(invoiceType === 'quotation' && (items[0].productName || '').trim() !== '') && (
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 top-32 hidden md:flex flex-col items-center justify-center text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
                             <Package className="h-6 w-6 text-muted-foreground/30" />
                           </div>
                           <p className="mt-3 text-sm font-medium text-muted-foreground/60">Start typing in the search bar to add products</p>
                           <p className="text-[11px] text-muted-foreground/40 mt-0.5">Or press Alt+N to add a manual row</p>
+                          {invoiceType === 'quotation' && (
+                            <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-violet-600 dark:text-violet-300">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-500" />
+                              Quotation mode — type any custom product name and press Enter
+                            </p>
+                          )}
                         </div>
                       )}
 
                     </div>
+                  </div>
+                )}
+
+                {/* ── Product History Tab — past sales for every cart product ── */}
+                {tableView === 'product-history' && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {!selectedCustomer ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
+                          <History className="h-6 w-6 text-muted-foreground/30" />
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-muted-foreground/60">Select a customer to view product purchase history</p>
+                      </div>
+                    ) : customerInvoicesLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
+                      </div>
+                    ) : cartItemHistories.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
+                          <Package className="h-6 w-6 text-muted-foreground/30" />
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-muted-foreground/60">Add products to the cart to see their purchase history</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/20 shrink-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Past purchases by {selectedCustomer.name} for current cart items
+                          </p>
+                          <span className="text-[10px] font-semibold text-muted-foreground tabular-nums">
+                            {productHistoryCount} of {cartItemHistories.length} with history
+                          </span>
+                        </div>
+                        <ScrollArea className="flex-1">
+                          <div className="divide-y divide-border/40">
+                            {cartItemHistories.map((entry) => {
+                              const product = products.find((p) => p.id === entry.item.productId)
+                              return (
+                                <div key={entry.item.id} className="px-3 py-3">
+                                  {/* Product header */}
+                                  <div className="flex items-baseline justify-between gap-3 mb-2">
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-semibold truncate">{entry.item.productName}</div>
+                                      {product && (product.manufacturer || product.genericName) && (
+                                        <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground truncate">
+                                          {product.manufacturer && <span className="truncate">{product.manufacturer}</span>}
+                                          {product.manufacturer && product.genericName && <span className="opacity-40">·</span>}
+                                          {product.genericName && <span className="truncate">{product.genericName}</span>}
+                                        </div>
+                                      )}
+                                    </div>
+                                    {entry.history.length > 0 ? (
+                                      <Badge variant="secondary" size="sm" className="shrink-0 tabular-nums">
+                                        {entry.history.length} past
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" size="sm" className="shrink-0">
+                                        New for this customer
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {/* History mini-table — flat, blends with parent card */}
+                                  {entry.history.length > 0 && (
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:bg-transparent border-b border-border/40">
+                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Date</TableHead>
+                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Invoice #</TableHead>
+                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Batch</TableHead>
+                                          <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Qty</TableHead>
+                                          <TableHead className="px-3 py-1.5 h-auto text-right whitespace-nowrap">Rate</TableHead>
+                                          <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Status</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {entry.history.map((h, i) => (
+                                          <TableRow key={i} className="border-b-0 hover:bg-muted/20">
+                                            <TableCell className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                                              {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                            </TableCell>
+                                            <TableCell className="px-3 py-2 font-mono text-[11px] font-semibold text-primary/80 truncate">{h.invoiceNumber}</TableCell>
+                                            <TableCell className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{h.batchNumber}</TableCell>
+                                            <TableCell className="px-3 py-2 text-center font-mono text-xs font-semibold tabular-nums">{h.qty}</TableCell>
+                                            <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold tabular-nums">{formatCurrency(h.rate)}</TableCell>
+                                            <TableCell className="px-3 py-2 text-center">
+                                              <Badge
+                                                variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' || h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                                                size="sm"
+                                                className="text-[9px]"
+                                              >
+                                                {h.status}
+                                              </Badge>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </ScrollArea>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -3499,6 +4187,124 @@ export default function NewSalePage() {
                           })}
                         </div>
                       </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Quotations Tab ── */}
+                {tableView === 'quotations' && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/20 shrink-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {selectedCustomer
+                          ? `Quotations for ${selectedCustomer.name}`
+                          : 'All Quotations'}
+                      </p>
+                      <span className="text-[10px] font-semibold text-muted-foreground tabular-nums">
+                        {quotationsLoading ? 'Loading…' : `${quotationsList.length} ${quotationsList.length === 1 ? 'quotation' : 'quotations'}`}
+                      </span>
+                    </div>
+                    {quotationsLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
+                      </div>
+                    ) : quotationsList.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/40">
+                          <FileText className="h-6 w-6 text-muted-foreground/30" />
+                        </div>
+                        <p className="mt-3 text-sm font-medium text-muted-foreground/60">
+                          {selectedCustomer ? `No quotations for ${selectedCustomer.name} yet` : 'No quotations yet'}
+                        </p>
+                      </div>
+                    ) : (
+                      <ScrollArea className="flex-1">
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-md">
+                            <TableRow className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 hover:bg-transparent border-b border-border/40">
+                              <TableHead className="px-3 py-2 h-auto text-left whitespace-nowrap">Quotation #</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-left whitespace-nowrap">Date</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-left whitespace-nowrap">Customer</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-center whitespace-nowrap">Items</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-right whitespace-nowrap">Total</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-center whitespace-nowrap">Status</TableHead>
+                              <TableHead className="px-3 py-2 h-auto text-right whitespace-nowrap">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {quotationsList.map((qt) => {
+                              const itemsCount = qt.items?.length ?? 0
+                              const isConverted = qt.status === 'CONVERTED'
+                              const statusVariant = qt.status === 'CONVERTED' || qt.status === 'ACCEPTED'
+                                ? 'success' as const
+                                : qt.status === 'SENT'
+                                  ? 'info' as const
+                                  : qt.status === 'REJECTED'
+                                    ? 'destructive' as const
+                                    : 'secondary' as const
+                              return (
+                                <TableRow key={qt.id} className="hover:bg-muted/30 border-b border-border/30">
+                                  <TableCell className="px-3 py-2.5 align-middle">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <FileText className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                                      <span className="font-mono text-xs font-semibold text-foreground truncate">{qt.quotationNumber}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                                    {new Date(qt.date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-sm">
+                                    <span className="truncate">{qt.customerName}</span>
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-center">
+                                    <span className="inline-flex items-center justify-center min-w-6 h-5 px-2 rounded-full bg-muted text-[11px] font-semibold tabular-nums">{itemsCount}</span>
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-right font-mono text-sm font-bold tabular-nums whitespace-nowrap">
+                                    {formatCurrency(Number(qt.total))}
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-center">
+                                    <Badge variant={statusVariant} size="sm" dot className="text-[10px]">
+                                      {qt.status.charAt(0) + qt.status.slice(1).toLowerCase()}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="px-3 py-2.5 align-middle text-right">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant={isConverted ? 'outline' : 'default'}
+                                      disabled={isConverted}
+                                      className="h-7 px-2.5 text-[11px] shrink-0"
+                                      onClick={() => {
+                                        sessionStorage.setItem('quotation_prefill', JSON.stringify({
+                                          quotationId: qt.id,
+                                          quotationNumber: qt.quotationNumber,
+                                          customerId: qt.customerId ?? '',
+                                          customerName: qt.customerName,
+                                          customerPhone: qt.customerPhone ?? '',
+                                          deliveryCharge: Number(qt.deliveryCharge) || 0,
+                                          items: (qt.items ?? []).map((it) => ({
+                                            productId: it.productId ?? '',
+                                            productName: it.productName ?? '',
+                                            quantity: Number(it.quantity) || 1,
+                                            mrp: Number(it.mrp) || 0,
+                                            rate: Number(it.rate) || 0,
+                                            discountPercent: Number(it.discountPercent) || 0,
+                                            gstPercent: Number(it.gstPercent) || 0,
+                                            amount: Number(it.amount) || 0,
+                                          })),
+                                        }))
+                                        navigate(`/billing/new?from=quotation&t=${Date.now()}`)
+                                      }}
+                                    >
+                                      {isConverted ? 'Converted' : 'Convert'}
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </ScrollArea>
                     )}
                   </div>
                 )}
@@ -3794,14 +4600,14 @@ export default function NewSalePage() {
             )}
 
             {/* Mobile sticky checkout bar — hidden on md+ */}
-            <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border/40 bg-background/95 backdrop-blur-sm px-4 py-3 md:hidden">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" size="sm">{activeItemCount} items</Badge>
-                <span className="font-mono text-sm font-bold text-primary">{formatCurrency(totals.grandTotal)}</span>
+            <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border bg-background/95 backdrop-blur-sm px-4 py-3 md:hidden">
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground tabular-nums">{activeItemCount} item{activeItemCount !== 1 ? 's' : ''}</span>
+                <span className="font-mono text-base font-semibold tabular-nums">{formatCurrency(totals.grandTotal)}</span>
               </div>
               <Button
                 size="sm"
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="gap-1.5"
                 onClick={() => setMobileStep('checkout')}
                 disabled={activeItemCount === 0}
               >
@@ -3812,7 +4618,7 @@ export default function NewSalePage() {
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          <div className={cn("w-full md:w-75 shrink-0 flex flex-col gap-3 lg:w-80 overflow-y-auto pb-2", mobileStep === 'items' && 'hidden md:flex')}>
+          <div className={cn("w-full md:w-72 shrink-0 flex flex-col gap-2 lg:w-76 min-h-0", mobileStep === 'items' && 'hidden md:flex')}>
             {/* Mobile back button — hidden on md+ */}
             <div className="flex items-center gap-2 md:hidden">
               <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setMobileStep('items')}>
@@ -3823,87 +4629,104 @@ export default function NewSalePage() {
 
             {/* Credit mode indicator — shown above payment when applicable */}
             {paymentMode === 'CREDIT' && (
-              <div className="flex justify-between items-center rounded-lg bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200/50 dark:border-amber-800/30 px-3 py-2 text-amber-800 dark:text-amber-300 text-[11px] shrink-0">
+              <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
                 <span className="flex items-center gap-1.5 font-semibold">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                   Credit Sale
                 </span>
-                <span className="font-mono font-bold">{formatCurrency(totals.grandTotal)} due</span>
+                <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.grandTotal)} due</span>
               </div>
             )}
 
             {/* ═══════════════════════════════════════════════════
                 UNIFIED CHECKOUT PANEL — Payment + Actions in one card
             ═══════════════════════════════════════════════════ */}
-            <Card className="flex-1 flex flex-col min-h-0 shadow-md">
+            <Card className="flex-1 flex flex-col min-h-0 shadow-sm border-border/60">
               <CardContent className="p-0 flex-1 flex flex-col min-h-0">
                 {/* Invoice Summary Section — moved from footer */}
-                <div className="p-4 pt-4 border-b border-border/40">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground/80 mb-3 flex items-center gap-2">
-                    <Receipt className="h-4 w-4" />
-                    Invoice Summary
-                  </h3>
-
-                  {/* Items in cart — prominent first row */}
-                  <div className="flex items-center justify-between rounded-lg bg-muted/40 border border-border/40 px-3 py-2 mb-3">
-                    <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      <Package className="h-3.5 w-3.5 text-primary/70" />
-                      Items in Cart
-                    </span>
-                    <span className="font-mono text-base font-black tabular-nums text-foreground">
-                      {activeItemCount}
+                <div className="p-3 border-b border-border/60">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                      <Receipt className="h-3.5 w-3.5" />
+                      Order Summary
+                    </h3>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                      <Package className="h-3 w-3" />
+                      {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
                     </span>
                   </div>
 
-                  <div className="space-y-2 text-sm">
+                  <div className="space-y-1.5 text-sm">
                     {/* Subtotal */}
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground font-medium">Subtotal</span>
-                      <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.subtotal)}</span>
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
                     </div>
 
                     {/* Discount — only when > 0 */}
                     {totals.productDiscount > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="flex items-center gap-1.5 text-rose-500 font-medium">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
                           Discount
                           {totals.subtotal > 0 && (
-                            <Badge variant="destructive" size="sm" className="h-4 px-1 text-[9px]">
-                              -{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
-                            </Badge>
+                            <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 tabular-nums">
+                              −{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
+                            </span>
                           )}
                         </span>
-                        <span className="font-mono font-bold tabular-nums text-rose-500">-{formatCurrency(totals.productDiscount)}</span>
+                        <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
                       </div>
                     )}
 
                     {/* Taxable */}
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground font-medium">Taxable</span>
-                      <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
+                      <span className="text-muted-foreground">Taxable</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
                     </div>
 
                     {/* GST */}
                     {totals.cgst > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground font-medium">CGST + SGST</span>
-                        <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                        <span className="text-muted-foreground">CGST + SGST</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
                       </div>
                     )}
                     {totals.igst > 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground font-medium">IGST</span>
-                        <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.igst)}</span>
+                        <span className="text-muted-foreground">IGST</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
                       </div>
                     )}
+
+                    {/* Delivery / Packaging — editable, non-taxable add-on */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Delivery / Packaging</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-muted-foreground">₹</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          value={deliveryCharge === 0 ? '' : deliveryCharge}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            const n = v === '' ? 0 : parseFloat(v)
+                            setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
+                          }}
+                          placeholder="0.00"
+                          className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
 
                     {/* Round Off — only when non-zero */}
                     {totals.roundOff !== 0 && (
                       <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground font-medium">Round Off</span>
+                        <span className="text-muted-foreground">Round Off</span>
                         <span className={cn(
-                          'font-mono font-bold tabular-nums',
-                          totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'
+                          'font-mono font-medium tabular-nums',
+                          totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                         )}>
                           {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
                         </span>
@@ -3911,22 +4734,21 @@ export default function NewSalePage() {
                     )}
                   </div>
 
-                  {/* Net Payable — large highlighted block */}
-                  <div className="relative mt-4 overflow-hidden rounded-xl bg-linear-to-br from-primary/15 via-primary/8 to-transparent border-2 border-primary/25 p-4 shadow-sm">
-                    <div className="relative z-10 flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-widest text-primary/90">Net Payable</span>
-                      <span className="font-mono text-3xl font-black tabular-nums tracking-tight text-primary">
+                  {/* Net Payable — calm hero block */}
+                  <div className="mt-4 pt-3 border-t border-border/60">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Net Payable</span>
+                      <span className="font-mono text-3xl font-semibold tabular-nums tracking-tight text-foreground">
                         {formatCurrency(totals.grandTotal)}
                       </span>
                     </div>
-                    <Receipt className="absolute -right-2 -bottom-2 h-16 w-16 opacity-[0.08] rotate-12 text-primary" />
                   </div>
                 </div>
 
                 {/* Payment Section — now second */}
-                <div className="flex-1 p-4 pt-3 min-h-0 overflow-y-auto">
-                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 mb-2 flex items-center gap-2">
-                    <CreditCard className="h-3 w-3" />
+                <div className="flex-1 p-3 min-h-0 overflow-y-auto">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5" />
                     Payment
                   </h3>
                   <PaymentPanel
@@ -3952,22 +4774,22 @@ export default function NewSalePage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] as const }}
-          className="hidden md:block shrink-0 -mx-3 md:-mx-4 mt-3"
+          className="hidden md:block shrink-0 -mx-1.5 md:-mx-2 mt-2"
         >
-          <div className="relative border-t border-border/50 bg-linear-to-r from-background/80 via-background/95 to-background/80 backdrop-blur-xl shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.5)]">
-            <div className="grid grid-cols-7 gap-px bg-border/30">
+          <div className="border-t border-border bg-background/95 backdrop-blur-sm">
+            <div className="grid grid-cols-7 divide-x divide-border/60">
               {/* Held — with count badge */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     onClick={() => setHeldBillsOpen(true)}
-                    className="group relative flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                    className="group relative inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Receipt className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Held</span>
+                    <Receipt className="h-4 w-4" />
+                    <span>Held</span>
                     {heldBills.length > 0 && (
-                      <span className="absolute top-1.5 right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-black text-white">
+                      <span className="inline-flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white tabular-nums">
                         {heldBills.length}
                       </span>
                     )}
@@ -3982,13 +4804,11 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={holdCurrentBill}
-                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Pause className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Hold</span>
-                      <kbd className="rounded bg-muted/60 px-1 text-[8px] font-mono text-muted-foreground/60">F10</kbd>
-                    </div>
+                    <Pause className="h-4 w-4" />
+                    <span>Hold</span>
+                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Hold bill for later (F10)</TooltipContent>
@@ -4001,12 +4821,10 @@ export default function NewSalePage() {
                     type="button"
                     onClick={saveAsDraft}
                     disabled={isSavingDraft || isSubmitting}
-                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
-                    <Save className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">
-                      {isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}
-                    </span>
+                    <Save className="h-4 w-4" />
+                    <span>{isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -4020,13 +4838,11 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
-                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-muted/40 cursor-pointer"
+                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Share2 className="h-4 w-4 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80">Share</span>
-                      <kbd className="rounded bg-muted/60 px-1 text-[8px] font-mono text-muted-foreground/60">F9</kbd>
-                    </div>
+                    <Share2 className="h-4 w-4" />
+                    <span>Share</span>
+                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
@@ -4038,14 +4854,12 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={() => setPreviewOpen(true)}
-                    disabled={!selectedCustomer || items.filter(i => i.productId && i.quantity > 0).length === 0}
-                    className="group flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2.5 transition-all hover:bg-primary/5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-background/95"
+                    disabled={!selectedCustomer || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
+                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
-                    <FileText className="h-4 w-4 text-primary/80 group-hover:text-primary transition-colors" />
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-primary/80">Preview</span>
-                      <kbd className="rounded bg-primary/10 px-1 text-[8px] font-mono text-primary/60">F7</kbd>
-                    </div>
+                    <FileText className="h-4 w-4" />
+                    <span>Preview</span>
+                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F7</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Preview invoice (F7)</TooltipContent>
@@ -4059,33 +4873,32 @@ export default function NewSalePage() {
                     onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
                     disabled={isSubmitting || !selectedCustomer}
                     className={cn(
-                      'group col-span-2 relative flex items-center justify-center gap-2.5 px-3 py-2.5 text-primary-foreground shadow-inner overflow-hidden transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                      'group col-span-2 inline-flex items-center justify-center gap-3 px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
                       isCreditBlocked && isPharmacist
-                        ? 'bg-linear-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
-                        : 'bg-linear-to-br from-primary to-primary/85 hover:from-primary hover:to-primary'
+                        ? 'bg-amber-500 hover:bg-amber-600'
+                        : 'bg-primary hover:bg-primary/90'
                     )}
                   >
                     {isCreditBlocked && isPharmacist
-                      ? <ShieldCheck className="h-5 w-5 relative z-10" />
-                      : <Printer className="h-5 w-5 relative z-10" />
+                      ? <ShieldCheck className="h-5 w-5" />
+                      : <Printer className="h-5 w-5" />
                     }
-                    <div className="flex flex-col items-start relative z-10">
-                      <span className="text-[9px] font-black uppercase tracking-widest opacity-90">
+                    <div className="flex flex-col items-start leading-tight">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90">
                         {isCreditBlocked && isPharmacist
-                          ? 'Approval'
+                          ? 'Request'
                           : editingDraftId
                             ? 'Finalize & Print'
                             : 'Save & Print'}
                       </span>
-                      <span className="text-sm font-black tracking-tight leading-tight">
+                      <span className="text-sm font-semibold tabular-nums">
                         {isSubmitting
-                          ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving...')
-                          : (isCreditBlocked && isPharmacist ? 'Request Approval' : `${formatCurrency(totals.grandTotal)}`)
+                          ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving…')
+                          : (isCreditBlocked && isPharmacist ? 'Approval' : formatCurrency(totals.grandTotal))
                         }
                       </span>
                     </div>
-                    <kbd className="ml-2 rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-mono font-bold relative z-10">F8</kbd>
-                    <Receipt className="absolute -right-2 -bottom-2 h-14 w-14 opacity-10 rotate-12" />
+                    <kbd className="ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold">F8</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Save and print invoice (F8)</TooltipContent>
@@ -4290,31 +5103,34 @@ export default function NewSalePage() {
             <DialogDescription>Resume a previously held bill or discard it.</DialogDescription>
           </DialogHeader>
           {heldBills.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No held bills</p>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Pause className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No held bills</p>
+            </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {heldBills.map((bill) => (
                 <div
                   key={bill.id}
-                  className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3"
+                  className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{bill.customerName}</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-sm font-semibold truncate">{bill.customerName || 'Walk-in'}</p>
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
                       {bill.itemCount} item{bill.itemCount !== 1 ? 's' : ''} · {formatCurrency(bill.total)}
                     </p>
-                    <p className="text-[10px] text-muted-foreground/60">
+                    <p className="text-[10px] text-muted-foreground/60 tabular-nums">
                       Held at {new Date(bill.heldAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => resumeHeldBill(bill)}>
+                    <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => resumeHeldBill(bill)}>
                       Resume
                     </Button>
                     <Button
                       size="icon-sm"
                       variant="ghost"
-                      className="text-destructive hover:text-destructive"
+                      className="text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10"
                       onClick={() => discardHeldBill(bill.id)}
                     >
                       <X className="h-3.5 w-3.5" />

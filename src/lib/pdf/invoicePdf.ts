@@ -118,6 +118,9 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   if (Number(invoice.igst) > 0) {
     row('IGST', fmt(Number(invoice.igst)), sy); sy += 5
   }
+  if (Number(invoice.deliveryCharge) > 0) {
+    row('Delivery / Packaging', fmt(Number(invoice.deliveryCharge)), sy); sy += 5
+  }
   if (Math.abs(Number(invoice.roundOff)) > 0) {
     row('Round Off', fmt(Number(invoice.roundOff)), sy); sy += 5
   }

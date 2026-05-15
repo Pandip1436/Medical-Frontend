@@ -145,6 +145,7 @@ export interface Invoice {
   cgst: number
   sgst: number
   igst: number
+  deliveryCharge?: number
   roundOff: number
   grandTotal: number
   paymentMode: 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
@@ -278,8 +279,13 @@ export interface QuotationItem {
   id: string
   productId?: string
   productName: string
+  batchId?: string
+  batchNumber?: string
   quantity: number
+  mrp?: number
   rate: number
+  discountPercent?: number
+  gstPercent?: number
   amount: number
 }
 
@@ -289,10 +295,12 @@ export interface Quotation {
   date: string
   customerId?: string
   customerName: string
+  customerPhone?: string
   items: QuotationItem[]
   subtotal: number
   cgst: number
   sgst: number
+  deliveryCharge?: number
   total: number
   validUntil?: string
   notes?: string

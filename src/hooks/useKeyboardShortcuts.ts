@@ -12,6 +12,8 @@ interface ShortcutMap {
 export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
   useEffect(() => {
     function handler(e: KeyboardEvent) {
+      // IME composition / synthetic events can fire keydown without `key`.
+      if (!e.key) return
       const parts: string[] = []
       if (e.ctrlKey || e.metaKey) parts.push('ctrl')
       if (e.altKey) parts.push('alt')

@@ -9,7 +9,9 @@ export interface QuotationDoc {
   quotationNumber: string
   date: string
   customerName: string
+  customerPhone?: string
   items: { name: string; qty: number; rate: number }[]
+  deliveryCharge?: number
   total: number
 }
 
@@ -43,6 +45,9 @@ export function generateQuotationPdf(qt: QuotationDoc) {
   doc.text(`Date: ${new Date(qt.date).toLocaleDateString('en-IN')}`, rightX, y)
   y += 5
   doc.text(`Customer: ${qt.customerName}`, leftX, y)
+  if (qt.customerPhone) {
+    doc.text(`Phone: ${qt.customerPhone}`, rightX, y)
+  }
   y += 3
 
   autoTable(doc, {
@@ -67,10 +72,18 @@ export function generateQuotationPdf(qt: QuotationDoc) {
   })
 
   const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8
+  let totalY = afterTableY
+  if (Number(qt.deliveryCharge) > 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text('Delivery / Packaging', pageWidth - 60, totalY)
+    doc.text(fmtINR(Number(qt.deliveryCharge)), pageWidth - 14, totalY, { align: 'right' })
+    totalY += 6
+  }
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.text('Total', pageWidth - 60, afterTableY)
-  doc.text(fmtINR(Number(qt.total)), pageWidth - 14, afterTableY, { align: 'right' })
+  doc.text('Total', pageWidth - 60, totalY)
+  doc.text(fmtINR(Number(qt.total)), pageWidth - 14, totalY, { align: 'right' })
 
   const footerY = doc.internal.pageSize.getHeight() - 20
   doc.setFontSize(8)

@@ -51,6 +51,12 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -884,19 +890,24 @@ export default function CustomersPage() {
         </Card>
       </motion.div>
 
-      {/* ─── Add / Edit Customer Dialog ─── */}
-      <Dialog open={addDialogOpen} onOpenChange={(open) => {
+      {/* ─── Add / Edit Customer Drawer ─── */}
+      <Sheet open={addDialogOpen} onOpenChange={(open) => {
         if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError('') }
         setAddDialogOpen(open)
       }}>
-        {/* Single DialogContent — full-screen on mobile/tablet, centered modal on desktop */}
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-xl md:max-w-2xl md:w-full md:h-auto! md:max-h-[90vh]! md:overflow-hidden! md:flex! md:flex-col! md:grid-rows-none!">
-          <DialogHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
-            <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</DialogTitle>
-            <DialogDescription>Name, Phone, Type, Address and Referred By are required. Email is optional.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0 relative">
-            <div className="flex-1 overflow-y-auto px-5 py-4 pb-20 space-y-3">
+        {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[640px] p-0 gap-0 flex flex-col"
+        >
+          <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
+            <SheetTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</SheetTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Name, Phone, Type, Address and Referred By are required. Email is optional.
+            </p>
+          </SheetHeader>
+          <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
               {/* Row 1: Name + Phone */}
               <div className="grid grid-cols-2 gap-3">
@@ -1065,7 +1076,7 @@ export default function CustomersPage() {
               </div>
 
             </div>
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-3 px-5 py-3 bg-background/80 backdrop-blur-sm border-t border-border/40">
+            <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
               <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false) }}>Cancel</Button>
               <Button
                 type="submit"
@@ -1081,8 +1092,8 @@ export default function CustomersPage() {
               </Button>
             </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {/* ─── Camera Scan Dialog ─── */}
       <Dialog open={scanOpen} onOpenChange={(open) => { if (!open) { stopCamera(); setScanOpen(false) } }}>

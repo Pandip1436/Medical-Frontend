@@ -17,6 +17,7 @@ interface CurrentBill {
   cgst: number
   sgst: number
   igst: number
+  deliveryCharge: number
   roundOff: number
   grandTotal: number
   paymentMode: PaymentMode
@@ -47,6 +48,7 @@ function createEmptyBill(): CurrentBill {
     cgst: 0,
     sgst: 0,
     igst: 0,
+    deliveryCharge: 0,
     roundOff: 0,
     grandTotal: 0,
     paymentMode: 'CASH',
@@ -55,7 +57,7 @@ function createEmptyBill(): CurrentBill {
   }
 }
 
-function calculateTotalsFromItems(items: InvoiceItem[]): {
+function calculateTotalsFromItems(items: InvoiceItem[], deliveryCharge = 0): {
   subtotal: number
   productDiscount: number
   taxableAmount: number
@@ -82,7 +84,10 @@ function calculateTotalsFromItems(items: InvoiceItem[]): {
 
   const sgst = cgst // CGST and SGST are equal for intra-state
 
-  const totalBeforeRound = taxableAmount + cgst + sgst
+  // Delivery / Packaging is a non-taxable add-on. It is folded into the
+  // pre-rounding total so Net Payable rounds to a whole rupee and Round Off
+  // absorbs the fractional part.
+  const totalBeforeRound = taxableAmount + cgst + sgst + (Number(deliveryCharge) || 0)
   const roundOff = Math.round(totalBeforeRound) - totalBeforeRound
   const grandTotal = Math.round(totalBeforeRound)
 
@@ -109,6 +114,7 @@ interface BillingState {
   // Bill actions
   setCustomer: (customer: { id?: string; name: string; phone?: string; doctorName?: string }) => void
   setPayment: (payment: { mode: PaymentMode; amountPaid: number; details?: Record<string, unknown> }) => void
+  setDeliveryCharge: (amount: number) => void
   holdBill: (heldBy: string, label?: string) => boolean
   resumeBill: (billId: string) => void
   clearBill: () => void
@@ -124,7 +130,7 @@ export const useBillingStore = create<BillingState>()(
       addItem: (item: InvoiceItem) => {
         set((state) => {
           const updatedItems = [...state.currentBill.items, item]
-          const totals = calculateTotalsFromItems(updatedItems)
+          const totals = calculateTotalsFromItems(updatedItems, state.currentBill.deliveryCharge)
           return {
             currentBill: {
               ...state.currentBill,
@@ -139,7 +145,7 @@ export const useBillingStore = create<BillingState>()(
       removeItem: (itemId: string) => {
         set((state) => {
           const updatedItems = state.currentBill.items.filter((item) => item.id !== itemId)
-          const totals = calculateTotalsFromItems(updatedItems)
+          const totals = calculateTotalsFromItems(updatedItems, state.currentBill.deliveryCharge)
           return {
             currentBill: {
               ...state.currentBill,
@@ -156,7 +162,7 @@ export const useBillingStore = create<BillingState>()(
           const updatedItems = state.currentBill.items.map((item) =>
             item.id === itemId ? { ...item, ...updates } : item
           )
-          const totals = calculateTotalsFromItems(updatedItems)
+          const totals = calculateTotalsFromItems(updatedItems, state.currentBill.deliveryCharge)
           return {
             currentBill: {
               ...state.currentBill,
@@ -192,6 +198,21 @@ export const useBillingStore = create<BillingState>()(
             changeReturned: parseFloat(changeReturned.toFixed(2)),
           },
         }))
+      },
+
+      setDeliveryCharge: (amount: number) => {
+        set((state) => {
+          const normalized = Math.max(0, Number(amount) || 0)
+          const totals = calculateTotalsFromItems(state.currentBill.items, normalized)
+          return {
+            currentBill: {
+              ...state.currentBill,
+              deliveryCharge: parseFloat(normalized.toFixed(2)),
+              ...totals,
+              igst: 0,
+            },
+          }
+        })
       },
 
       holdBill: (heldBy: string, label?: string): boolean => {
@@ -233,7 +254,9 @@ export const useBillingStore = create<BillingState>()(
         const { id: _id, heldAt: _heldAt, heldBy: _heldBy, label: _label, ...billData } = billToResume
 
         set({
-          currentBill: billData,
+          // Legacy held bills (saved before deliveryCharge existed) won't have
+          // the field — default to 0 so totals stay coherent on resume.
+          currentBill: { ...billData, deliveryCharge: billData.deliveryCharge ?? 0 },
           heldBills: heldBills.filter((b) => b.id !== billId),
         })
       },
@@ -244,7 +267,7 @@ export const useBillingStore = create<BillingState>()(
 
       calculateTotals: () => {
         set((state) => {
-          const totals = calculateTotalsFromItems(state.currentBill.items)
+          const totals = calculateTotalsFromItems(state.currentBill.items, state.currentBill.deliveryCharge)
           return {
             currentBill: {
               ...state.currentBill,

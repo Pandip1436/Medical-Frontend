@@ -165,6 +165,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           { label: 'CGST', value: invoice.cgst },
           { label: 'SGST', value: invoice.sgst },
           Number(invoice.igst) > 0 ? { label: 'IGST', value: invoice.igst } : null,
+          Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery / Packaging', value: Number(invoice.deliveryCharge) } : null,
           Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: invoice.roundOff } : null,
         ].filter(Boolean).map((row) => (
           <div key={row!.label} className="flex justify-between text-muted-foreground">

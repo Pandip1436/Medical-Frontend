@@ -76,7 +76,9 @@ interface Quotation {
   date: string
   customerId?: string
   customerName: string
+  customerPhone?: string
   items: QuotationItem[]
+  deliveryCharge: number
   total: number
   status: QuotationStatus
 }
@@ -172,11 +174,13 @@ export default function QuotationsPage() {
         date: qt.date ?? qt.createdAt ?? new Date().toISOString(),
         customerId: qt.customerId ?? undefined,
         customerName: qt.customerName ?? '',
+        customerPhone: qt.customerPhone ?? undefined,
         items: (qt.items ?? []).map((it: any) => ({
           name: it.productName ?? '',
           qty: Number(it.quantity) || 0,
           rate: Number(it.rate) || 0,
         })),
+        deliveryCharge: Number(qt.deliveryCharge) || 0,
         total: Number(qt.total) || 0,
         status: qt.status as QuotationStatus,
       }))
@@ -218,7 +222,10 @@ export default function QuotationsPage() {
     sessionStorage.setItem('quotation_prefill', JSON.stringify({
       quotationId: qt.id,
       quotationNumber: qt.quotationNumber,
+      customerId: qt.customerId ?? '',
       customerName: qt.customerName,
+      customerPhone: qt.customerPhone ?? '',
+      deliveryCharge: Number(qt.deliveryCharge) || 0,
       items: qt.items.map((it) => ({
         productName: it.name,
         quantity: it.qty,
@@ -845,6 +852,9 @@ export default function QuotationsPage() {
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
                     <p className="mt-0.5 text-sm font-medium truncate" title={detailQt.customerName}>{detailQt.customerName}</p>
+                    {detailQt.customerPhone && (
+                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground tabular-nums">{detailQt.customerPhone}</p>
+                    )}
                   </div>
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Items</p>
@@ -892,6 +902,13 @@ export default function QuotationsPage() {
 
               {/* ── Sticky Footer: total + actions ── */}
               <div className="shrink-0 border-t border-border/40 bg-background">
+                {/* Delivery / Packaging — only when > 0 */}
+                {Number(detailQt.deliveryCharge) > 0 && (
+                  <div className="flex items-center justify-between border-b border-border/40 px-5 py-2 text-xs text-muted-foreground">
+                    <span>Delivery / Packaging</span>
+                    <span className="font-mono">{formatCurrency(Number(detailQt.deliveryCharge))}</span>
+                  </div>
+                )}
                 {/* Total strip — single cell */}
                 <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
