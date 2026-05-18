@@ -96,8 +96,36 @@ export default function AppLayout({
   // POS-style routes use full viewport with no global header/padding
   const isFullViewport = currentPath === '/billing/new'
 
+  // Compact routes keep the header but use minimal padding so the page
+  // owns its own spacing (Leads list is dense and needs the extra width).
+  // Only pages that manage their own internal scrolling belong here —
+  // long-scroll pages (like Analytics) should use the default layout so
+  // `main` provides the scroll container.
+  const isCompactPage = currentPath === '/crm/leads'
+
+  // Tight-scroll routes use the normal scrollable main, but with the same
+  // minimal horizontal padding as compact pages — for long dashboards that
+  // need the extra width without owning their own scroll containers.
+  const isTightScrollPage = currentPath === '/crm/leads/analytics'
+
+  // Auto-collapse the sidebar when entering a compact page so the table
+  // gets every pixel of horizontal space. We only force-collapse once on
+  // entry — the user can still toggle it back open manually afterwards.
+  useEffect(() => {
+    if (isCompactPage && !sidebarCollapsed) {
+      useAuthStore.setState({ sidebarCollapsed: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCompactPage])
+
   return (
-    <div className={isFullViewport ? 'flex h-screen overflow-hidden bg-background' : 'flex min-h-screen bg-background'}>
+    <div
+      className={
+        isFullViewport || isCompactPage
+          ? 'flex h-screen overflow-hidden bg-background'
+          : 'flex min-h-screen bg-background'
+      }
+    >
       {/* Sidebar */}
       <Sidebar currentPath={currentPath} />
 
@@ -106,7 +134,11 @@ export default function AppLayout({
         initial={false}
         animate={{ marginLeft: isMobile ? 0 : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className={isFullViewport ? 'flex flex-1 flex-col h-screen overflow-hidden' : 'flex flex-1 flex-col'}
+        className={
+          isFullViewport || isCompactPage
+            ? 'flex flex-1 flex-col h-screen overflow-hidden'
+            : 'flex flex-1 flex-col'
+        }
       >
         {/* Header - hidden on POS-style full-viewport pages */}
         {!isFullViewport && <Header breadcrumbs={breadcrumbs} />}
@@ -114,7 +146,7 @@ export default function AppLayout({
         {/* Page Content */}
         <main
           className={
-            isFullViewport
+            isFullViewport || isCompactPage
               ? 'flex-1 min-h-0 overflow-hidden'
               : 'flex-1 overflow-x-hidden overflow-y-auto'
           }
@@ -129,7 +161,11 @@ export default function AppLayout({
               className={
                 isFullViewport
                   ? 'content-area min-w-0 h-full flex flex-col'
-                  : 'content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6'
+                  : isCompactPage
+                    ? 'content-area min-w-0 h-full flex flex-col px-2 pt-2 pb-2 sm:px-3 md:px-4'
+                    : isTightScrollPage
+                      ? 'content-area min-w-0 px-2 py-2 sm:px-3 md:px-4'
+                      : 'content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6'
               }
             >
               {title && (

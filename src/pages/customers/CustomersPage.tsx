@@ -713,30 +713,8 @@ export default function CustomersPage() {
       <motion.div variants={itemVariants}>
         <Card className="overflow-x-auto">
           <CardContent className="p-0">
-            {/* Empty state — single shared block for both mobile + desktop */}
-            {!isLoading && pageRows.length === 0 && (
-              <EmptyState
-                icon={Users}
-                title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
-                description={
-                  searchQuery || activeFilterCount > 0
-                    ? 'Try adjusting your search or filters.'
-                    : 'Add your first customer to start billing.'
-                }
-                actionLabel={
-                  searchQuery || activeFilterCount > 0
-                    ? 'Clear filters'
-                    : 'Add Customer'
-                }
-                onAction={
-                  searchQuery || activeFilterCount > 0
-                    ? () => { clearFilters(); setSearchQuery('') }
-                    : () => setAddDialogOpen(true)
-                }
-              />
-            )}
-
-            {/* Mobile + Tablet card list (hidden on lg+) */}
+            {/* Mobile + Tablet card list (hidden on lg+). Mobile has no header,
+                so the empty state replaces the rows entirely here. */}
             <div className="lg:hidden">
               {isLoading && (
                 <div className="divide-y divide-border/40">
@@ -750,6 +728,27 @@ export default function CustomersPage() {
                     </div>
                   ))}
                 </div>
+              )}
+              {!isLoading && pageRows.length === 0 && (
+                <EmptyState
+                  icon={Users}
+                  title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
+                  description={
+                    searchQuery || activeFilterCount > 0
+                      ? 'Try adjusting your search or filters.'
+                      : 'Add your first customer to start billing.'
+                  }
+                  actionLabel={
+                    searchQuery || activeFilterCount > 0
+                      ? 'Clear filters'
+                      : 'Add Customer'
+                  }
+                  onAction={
+                    searchQuery || activeFilterCount > 0
+                      ? () => { clearFilters(); setSearchQuery('') }
+                      : () => setAddDialogOpen(true)
+                  }
+                />
               )}
               <div className="divide-y divide-border/40">
                 {!isLoading && pageRows.map((customer) => (
@@ -813,6 +812,31 @@ export default function CustomersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {!isLoading && pageRows.length === 0 && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={6} className="p-0">
+                      <EmptyState
+                        icon={Users}
+                        title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
+                        description={
+                          searchQuery || activeFilterCount > 0
+                            ? 'Try adjusting your search or filters.'
+                            : 'Add your first customer to start billing.'
+                        }
+                        actionLabel={
+                          searchQuery || activeFilterCount > 0
+                            ? 'Clear filters'
+                            : 'Add Customer'
+                        }
+                        onAction={
+                          searchQuery || activeFilterCount > 0
+                            ? () => { clearFilters(); setSearchQuery('') }
+                            : () => setAddDialogOpen(true)
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
                 {pageRows.map((customer) => (
                   <TableRow
                     key={customer.id}

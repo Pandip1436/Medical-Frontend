@@ -1727,6 +1727,43 @@ export default function NewSalePage() {
     if (params.get('type') === 'quotation') {
       setInvoiceType('quotation')
     }
+    // ?leadId=… → ties this sale/quote back to a CRM Lead. We stash it so
+    // the create payload picks it up below; the actual prefill (customer
+    // name/phone/email) comes from sessionStorage['lead_prefill'].
+    const leadIdParam = params.get('leadId')
+    if (leadIdParam) {
+      setLinkedLeadId(leadIdParam)
+      try {
+        const stored = sessionStorage.getItem('lead_prefill')
+        if (stored) {
+          const blob = JSON.parse(stored) as {
+            leadId: string
+            customerName?: string
+            customerPhone?: string
+            customerEmail?: string
+          }
+          // Only consume if it matches the leadId from the URL.
+          if (blob.leadId === leadIdParam) {
+            const stub = {
+              id: '',
+              name: blob.customerName ?? '',
+              phone: blob.customerPhone ?? '',
+              email: blob.customerEmail ?? '',
+              type: 'RETAIL' as const,
+              creditLimit: 0,
+              currentOutstanding: 0,
+              loyaltyPoints: 0,
+              createdAt: new Date().toISOString(),
+            }
+            setSelectedCustomer(stub)
+            setCustomerSearch(stub.name)
+            sessionStorage.removeItem('lead_prefill')
+          }
+        }
+      } catch {
+        /* malformed prefill — ignore */
+      }
+    }
     const dupId = params.get('duplicateId')
     const draftId = params.get('draftId')
     // `?draftId=…` resumes a server-side draft: prefill the same way `duplicateId`
@@ -1886,6 +1923,9 @@ export default function NewSalePage() {
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  // ?leadId=… → forward as `leadId` on the create payload so the new
+  // quote/invoice shows up under the lead's Quotations/Invoices tabs.
+  const [linkedLeadId, setLinkedLeadId] = useState<string | null>(null)
 
   // Derive salesperson from selected customer's referredBy field
   const selectedSalesperson = useMemo(() => {
@@ -2908,6 +2948,8 @@ export default function NewSalePage() {
 
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
+        // CRM linkage — set when the page is opened with ?leadId=…
+        ...(linkedLeadId && { leadId: linkedLeadId }),
 
         items: activeItems.map(item => {
           // Free-text quotation rows have no expiryDate. `new Date('').toISOString()`
@@ -2947,6 +2989,8 @@ export default function NewSalePage() {
           ...(selectedCustomer!.id && { customerId: selectedCustomer!.id }),
           customerName: selectedCustomer!.name,
           ...(selectedCustomer!.phone && { customerPhone: selectedCustomer!.phone }),
+          // CRM linkage — set when the page is opened with ?leadId=…
+          ...(linkedLeadId && { leadId: linkedLeadId }),
           subtotal: Number(totals.subtotal) || 0,
           cgst: Number(totals.cgst) || 0,
           sgst: Number(totals.sgst) || 0,
@@ -2989,6 +3033,15 @@ export default function NewSalePage() {
         fetchMasterData()
         navigate('/billing/sales')
         return
+      }
+
+      // CRM signal: if this sale was tied to a lead, bump a sessionStorage
+      // sentinel so the lead's Quotations / Invoices tab refetches when the
+      // user returns. Read by QuotationsTab / InvoicesTab on mount + focus.
+      if (linkedLeadId) {
+        try {
+          sessionStorage.setItem(`crm:lead-refresh:${linkedLeadId}`, String(Date.now()))
+        } catch { /* storage disabled — non-fatal */ }
       }
 
       if (invoiceType === 'quotation') {

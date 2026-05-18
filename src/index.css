@@ -275,6 +275,7 @@
     font-size: var(--text-base);
     line-height: 1.6;
     letter-spacing: -0.006em;
+    overscroll-behavior-x: none;
   }
 
   #root {
@@ -290,8 +291,11 @@
     -webkit-text-fill-color: var(--color-foreground) !important;
   }
 
-  /* Focus ring — consistent visible ring for keyboard navigation */
-  :focus-visible {
+  /* Focus ring — consistent visible ring for keyboard navigation.
+     Scoped away from form fields so they can use their own contained
+     focus styling (the global 2px outline + 2px offset was leaking
+     outside the field's border). */
+  :focus-visible:not(input):not(textarea):not(select):not(button):not(a):not([role="combobox"]):not([role="tab"]) {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
     border-radius: var(--radius-sm);

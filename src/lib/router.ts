@@ -160,6 +160,18 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Customer Detail',
     breadcrumbs: [{ label: 'Customers', href: '/customers' }, { label: 'Detail' }],
   },
+  '/crm/leads': {
+    label: 'Leads',
+    breadcrumbs: [{ label: 'CRM' }, { label: 'Leads' }],
+  },
+  '/crm/leads/analytics': {
+    label: 'Lead Analytics',
+    breadcrumbs: [
+      { label: 'CRM' },
+      { label: 'Leads', href: '/crm/leads' },
+      { label: 'Analytics' },
+    ],
+  },
   '/accounting/cashbook': {
     label: 'Cash Book',
     breadcrumbs: [{ label: 'Accounting' }, { label: 'Cash Book' }],

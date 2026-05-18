@@ -118,8 +118,8 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
           <div
             className={cn(
               "flex h-11 md:h-9 w-full items-center gap-1 rounded-lg border border-input bg-transparent px-3 text-sm shadow-sm transition-all duration-150",
-              "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:border-ring",
-              error && "border-destructive focus-within:ring-destructive/30",
+              "focus-within:border-ring",
+              error && "border-destructive",
               disabled && "cursor-not-allowed opacity-50",
               className
             )}

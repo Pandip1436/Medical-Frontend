@@ -14,8 +14,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       return (
         <div className={cn(
           "flex h-11 w-full items-center gap-2 rounded-lg border border-input bg-transparent px-3 text-sm shadow-sm transition-all duration-150 md:h-9",
-          "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:border-ring",
-          error && "border-destructive focus-within:ring-destructive/30",
+          "focus-within:border-ring",
+          error && "border-destructive",
           props.disabled && "cursor-not-allowed opacity-50",
           className
         )}>
@@ -38,9 +38,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           "flex h-11 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-all duration-150 md:h-9",
           "file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
           "placeholder:text-muted-foreground/60",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:border-ring",
+          "focus-visible:outline-none focus-visible:border-ring",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          error && "border-destructive focus-visible:ring-destructive/30",
+          error && "border-destructive",
           className
         )}
         ref={ref}

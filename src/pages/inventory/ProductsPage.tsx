@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -22,6 +22,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
@@ -144,7 +147,6 @@ export default function ProductsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [activeTab, setActiveTab] = useState('basic')
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
@@ -154,7 +156,12 @@ export default function ProductsPage() {
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(new Set(['basic']))
+
+  // Single scroll container for the Add/Edit drawer body. The header
+  // progress indicator scrolls to a section by looking up its element here.
+  const formScrollRef = useRef<HTMLDivElement>(null)
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [activeSection, setActiveSection] = useState('basic')
 
   const refreshPage = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -218,19 +225,45 @@ export default function ProductsPage() {
   const purchaseRateVal = Number(form.watch('purchaseRate')) || 0
   const margin = mrpVal > 0 ? (((mrpVal - purchaseRateVal) / mrpVal) * 100).toFixed(1) : '0.0'
 
-  // Fields per tab — used for per-tab validation and error indicators
-  const tabFields: Record<string, (keyof ProductFormValues)[]> = {
+  // Fields per section — used for the header progress indicator (error
+  // detection + "filled" check). Sections render together in one scroll,
+  // so this is no longer a navigation gate, just a status map.
+  const sectionFields: Record<string, (keyof ProductFormValues)[]> = {
     basic: ['name', 'genericName', 'manufacturer', 'categoryId', 'packSize', 'unitOfMeasure'],
     regulatory: ['hsnCode'],
     pricing: ['mrp', 'purchaseRate'],
     stock: ['rackLocation'],
   }
 
-  const validateAndGoTo = async (target: string) => {
-    await form.trigger(tabFields[activeTab])
-    setVisitedTabs(prev => new Set([...prev, target]))
-    setActiveTab(target)
+  const scrollToSection = (id: string) => {
+    const el = sectionRefs.current[id]
+    const container = formScrollRef.current
+    if (!el || !container) return
+    container.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+    setActiveSection(id)
   }
+
+  // Track which section the viewport is currently centered on, so the
+  // header pill highlights as the user scrolls. Cheap scroll handler that
+  // picks the section whose top is closest to (but not past) the top of
+  // the scroll container.
+  useEffect(() => {
+    if (!dialogOpen) return
+    const container = formScrollRef.current
+    if (!container) return
+    const onScroll = () => {
+      const order = ['basic', 'regulatory', 'pricing', 'stock'] as const
+      let current: string = order[0]
+      for (const id of order) {
+        const el = sectionRefs.current[id]
+        if (!el) continue
+        if (el.offsetTop - container.scrollTop <= 60) current = id
+      }
+      setActiveSection(prev => (prev === current ? prev : current))
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [dialogOpen])
 
   const openAddDialog = () => {
     setEditingProduct(null)
@@ -241,10 +274,28 @@ export default function ProductsPage() {
       mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 12,
       minStock: 0, maxStock: 0, reorderQty: 0, rackLocation: '',
     })
-    setVisitedTabs(new Set(['basic']))
-    setActiveTab('basic')
+    setActiveSection('basic')
     setDialogOpen(true)
   }
+
+  // Auto-open the Add Product dialog when the page is arrived at with
+  // `?add=1` (used by the lead detail "Add Product" quick action). Only
+  // fires once on mount and then strips the query param so a refresh
+  // doesn't keep re-triggering the dialog.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === '1') {
+      openAddDialog()
+      params.delete('add')
+      const qs = params.toString()
+      window.history.replaceState(
+        null,
+        '',
+        `/inventory/products${qs ? `?${qs}` : ''}`,
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openEditDialog = (product: Product) => {
     setEditingProduct(product)
@@ -271,8 +322,7 @@ export default function ProductsPage() {
       reorderQty: product.reorderQty,
       rackLocation: product.rackLocation,
     } as ProductFormValues)
-    setVisitedTabs(new Set(['basic']))
-    setActiveTab('basic')
+    setActiveSection('basic')
     setDialogOpen(true)
   }
 
@@ -706,67 +756,137 @@ export default function ProductsPage() {
         />
       </Card>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="p-0 gap-0 w-full h-dvh max-w-none rounded-none md:rounded-2xl md:max-w-4xl md:h-[85vh] flex! flex-col! justify-start! items-stretch! overflow-hidden">
+      {/* Add/Edit Drawer — slides in from the right */}
+      <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
+        <SheetContent
+          side="right"
+          className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
+        >
 
-          {/* Header */}
-          <DialogHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0">
-            <DialogTitle className="text-lg">{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-            <DialogDescription className="text-sm">
-              {editingProduct ? 'Update the product details below.' : 'Fill in the product details across all sections.'}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex! flex-col! flex-1 min-h-0 justify-start!">
-
-            {/* Mobile: horizontal scroll tabs */}
-            <div className="md:hidden shrink-0 overflow-x-auto border-b border-border/40">
-              <div className="flex w-max gap-1 px-4 py-3">
-                {[
+          {/* Header — title on the left, section progress indicator pinned
+              to the right end of the same row. Indicator pills double as
+              quick-jump anchors that scroll to the matching section below. */}
+          <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
+            <div className="flex items-center gap-4 pr-8">
+              <div className="min-w-0 flex-1 space-y-1">
+                <SheetTitle className="text-lg">{editingProduct ? 'Edit Product' : 'Add New Product'}</SheetTitle>
+                <SheetDescription className="text-sm">
+                  {editingProduct ? 'Update the product details below.' : 'Fill in the product details across all sections.'}
+                </SheetDescription>
+              </div>
+              {(() => {
+                const sections = [
                   { value: 'basic', label: 'Basic Info' },
                   { value: 'regulatory', label: 'Regulatory' },
                   { value: 'pricing', label: 'Pricing' },
                   { value: 'stock', label: 'Stock' },
-                ].map((t) => (
-                  <button key={t.value} type="button" onClick={() => validateAndGoTo(t.value)}
-                    className={cn('shrink-0 rounded-lg text-xs px-3 py-1.5 font-medium transition-colors',
-                      activeTab === t.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+                ]
+                const errs = form.formState.errors
+                const isSubmitted = form.formState.isSubmitted
+                return (
+                  <div className="hidden md:flex shrink-0 items-center gap-1.5 max-w-full overflow-x-auto">
+                    {sections.map((s, i) => {
+                      const fields = sectionFields[s.value]
+                      const sectionHasError = fields.some(f => !!errs[f])
+                      const sectionFilled = fields.every(f => {
+                        const v = form.getValues(f)
+                        return v !== undefined && v !== null && v !== '' && !(typeof v === 'number' && v === 0 && (f === 'mrp' || f === 'purchaseRate'))
+                      })
+                      const isActive = activeSection === s.value
+                      const showError = sectionHasError && isSubmitted
+                      const isComplete = sectionFilled && !sectionHasError
+                      return (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={() => scrollToSection(s.value)}
+                          className="flex items-center gap-1.5 group shrink-0"
+                        >
+                          <span className={cn(
+                            'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition-all',
+                            isActive ? 'bg-primary text-primary-foreground shadow-sm'
+                              : showError ? 'bg-rose-500 text-white'
+                              : isComplete ? 'bg-emerald-500 text-white'
+                              : 'bg-muted text-muted-foreground group-hover:bg-muted/80',
+                          )}>
+                            {showError ? '!' : isComplete ? '✓' : i + 1}
+                          </span>
+                          <span className={cn(
+                            'text-xs transition-colors',
+                            isActive ? 'text-foreground font-semibold'
+                              : showError ? 'text-rose-500 font-medium'
+                              : isComplete ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                              : 'text-muted-foreground font-medium',
+                          )}>{s.label}</span>
+                          {i < sections.length - 1 && (
+                            <span className="text-muted-foreground/30 mx-0.5">›</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
+            {/* Compact stepper for narrow screens — header is too tight for
+                pills + title on the same row below md. */}
+            {(() => {
+              const sections = [
+                { value: 'basic', label: 'Basic' },
+                { value: 'regulatory', label: 'Regulatory' },
+                { value: 'pricing', label: 'Pricing' },
+                { value: 'stock', label: 'Stock' },
+              ]
+              const errs = form.formState.errors
+              const isSubmitted = form.formState.isSubmitted
+              return (
+                <div className="md:hidden mt-3 flex items-center gap-1.5 overflow-x-auto">
+                  {sections.map((s, i) => {
+                    const fields = sectionFields[s.value]
+                    const sectionHasError = fields.some(f => !!errs[f])
+                    const sectionFilled = fields.every(f => {
+                      const v = form.getValues(f)
+                      return v !== undefined && v !== null && v !== '' && !(typeof v === 'number' && v === 0 && (f === 'mrp' || f === 'purchaseRate'))
+                    })
+                    const isActive = activeSection === s.value
+                    const showError = sectionHasError && isSubmitted
+                    const isComplete = sectionFilled && !sectionHasError
+                    return (
+                      <button key={s.value} type="button" onClick={() => scrollToSection(s.value)}
+                        className="flex items-center gap-1.5 group shrink-0">
+                        <span className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition-all',
+                          isActive ? 'bg-primary text-primary-foreground shadow-sm'
+                            : showError ? 'bg-rose-500 text-white'
+                            : isComplete ? 'bg-emerald-500 text-white'
+                            : 'bg-muted text-muted-foreground',
+                        )}>
+                          {showError ? '!' : isComplete ? '✓' : i + 1}
+                        </span>
+                        <span className={cn('text-xs', isActive ? 'text-foreground font-semibold' : 'text-muted-foreground')}>{s.label}</span>
+                        {i < sections.length - 1 && <span className="text-muted-foreground/30 mx-0.5">›</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </SheetHeader>
 
-            {/* Body: sidebar + content */}
-            <div className="flex! flex-1 min-h-0 overflow-hidden justify-start! items-stretch!">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex! flex-col! flex-1 min-h-0 justify-start!">
 
-              {/* ── Sidebar: completely independent, never reflows ── */}
-              <div className="hidden md:flex flex-col w-48 shrink-0 border-r border-border/40 bg-muted/20">
-                <nav className="flex flex-col gap-0.5 p-3 pt-4">
-                  {[
-                    { value: 'basic', label: 'Basic Info', desc: 'Name, category, pack' },
-                    { value: 'regulatory', label: 'Regulatory', desc: 'Schedule, HSN, storage' },
-                    { value: 'pricing', label: 'Pricing', desc: 'MRP, rates, GST' },
-                    { value: 'stock', label: 'Stock Settings', desc: 'Min, max, location' },
-                  ].map((t) => (
-                    <button key={t.value} type="button" onClick={() => validateAndGoTo(t.value)}
-                      className={cn('flex flex-col items-start rounded-xl px-3 py-2.5 text-left transition-colors',
-                        activeTab === t.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                      )}>
-                      <span className="text-sm font-medium">{t.label}</span>
-                      <span className={cn('text-[11px] mt-0.5', activeTab === t.value ? 'text-primary-foreground/70' : 'text-muted-foreground/60')}>{t.desc}</span>
-                    </button>
-                  ))}
-                </nav>
-              </div>
-
-              {/* ── Content: only the active panel renders, scrolls independently ── */}
-              <div className="flex-1 overflow-y-scroll flex! flex-col! justify-start! items-stretch!">
-
+            {/* Body — one scroll container, every section rendered in DOM order.
+                Each section is wrapped in a div with a ref so the header pills
+                can scrollIntoView() them. */}
+            <div
+              ref={formScrollRef}
+              className="flex-1 min-h-0 overflow-y-auto"
+            >
                 {/* ── Basic Info ── */}
-                {activeTab === 'basic' && (
+                <div ref={(el) => { sectionRefs.current.basic = el }} className="scroll-mt-2">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                    <h3 className="text-sm font-semibold">Basic Info</h3>
+                  </div>
                   <div className="p-6 pb-8 space-y-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Product Details</p>
@@ -818,10 +938,13 @@ export default function ProductsPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* ── Regulatory ── */}
-                {activeTab === 'regulatory' && (
+                <div ref={(el) => { sectionRefs.current.regulatory = el }} className="scroll-mt-2 border-t border-border/40">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                    <h3 className="text-sm font-semibold">Regulatory</h3>
+                  </div>
                   <div className="p-6 pb-8 space-y-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Scheduling & Compliance</p>
@@ -870,10 +993,13 @@ export default function ProductsPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* ── Pricing ── */}
-                {activeTab === 'pricing' && (
+                <div ref={(el) => { sectionRefs.current.pricing = el }} className="scroll-mt-2 border-t border-border/40">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                    <h3 className="text-sm font-semibold">Pricing</h3>
+                  </div>
                   <div className="p-6 pb-8 space-y-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Price Configuration</p>
@@ -919,10 +1045,13 @@ export default function ProductsPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* ── Stock Settings ── */}
-                {activeTab === 'stock' && (
+                <div ref={(el) => { sectionRefs.current.stock = el }} className="scroll-mt-2 border-t border-border/40">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                    <h3 className="text-sm font-semibold">Stock Settings</h3>
+                  </div>
                   <div className="p-6 pb-8 space-y-5">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Stock Levels</p>
@@ -952,88 +1081,20 @@ export default function ProductsPage() {
                       </div>
                     </div>
                   </div>
-                )}
-
-              </div>{/* end scrollable content */}
-            </div>{/* end body flex */}
-
-            {/* Footer */}
-            {(() => {
-              const errs = form.formState.errors
-              const tabErrorMap: Record<string, boolean> = {
-                basic: tabFields.basic.some(f => !!errs[f]),
-                regulatory: tabFields.regulatory.some(f => !!errs[f]),
-                pricing: tabFields.pricing.some(f => !!errs[f]),
-                stock: tabFields.stock.some(f => !!errs[f]),
-              }
-              const tabs = ['basic', 'regulatory', 'pricing', 'stock']
-              const labels = ['Basic', 'Regulatory', 'Pricing', 'Stock']
-              const curIdx = tabs.indexOf(activeTab)
-
-              const isTabTouched = (t: string) => {
-                const hasVisited = visitedTabs.has(t)
-                const isSubmitted = form.formState.isSubmitted
-                if (!hasVisited && !isSubmitted) return false
-                return tabFields[t].some(f => form.getFieldState(f).isTouched || form.getFieldState(f).invalid)
-              }
-
-              const handleNext = async () => {
-                const result = await form.trigger(tabFields[activeTab])
-                if (result) {
-                  const next = tabs[curIdx + 1]
-                  if (next) {
-                    setVisitedTabs(prev => new Set([...prev, next]))
-                    setActiveTab(next)
-                  }
-                }
-              }
-
-              return (
-                <div className="flex items-center justify-between gap-3 border-t border-border/40 bg-background px-6 py-4 shrink-0">
-                  <div className="flex items-center gap-1.5 text-xs">
-                    {tabs.map((t, i) => {
-                      const isActive = activeTab === t
-                      const touched = isTabTouched(t)
-                      const hasError = tabErrorMap[t] && touched
-                      const isPast = touched && !hasError && !isActive
-                      const isFuture = !touched && !isActive
-                      return (
-                        <button key={t} type="button" onClick={() => validateAndGoTo(t)} className="flex items-center gap-1.5 group">
-                          <span className={cn(
-                            'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition-all',
-                            isActive ? 'bg-primary text-primary-foreground scale-110 shadow-sm'
-                              : hasError ? 'bg-rose-500 text-white'
-                              : isPast ? 'bg-emerald-500 text-white'
-                              : 'bg-muted text-muted-foreground group-hover:bg-muted/80'
-                          )}>
-                            {hasError ? '!' : isPast ? '✓' : i + 1}
-                          </span>
-                          <span className={cn(
-                            'hidden sm:inline text-xs transition-colors',
-                            isActive ? 'text-foreground font-medium!'
-                              : hasError ? 'text-rose-500 font-medium!'
-                              : isPast ? 'text-emerald-600 dark:text-emerald-400 font-medium!'
-                              : isFuture ? 'text-muted-foreground/50 font-medium!'
-                              : 'text-muted-foreground font-medium!'
-                          )}>{labels[i]}</span>
-                          {i < 3 && <span className="text-muted-foreground/30 hidden sm:inline mx-0.5">›</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                    {activeTab !== 'stock' && (
-                      <Button type="button" variant="outline" onClick={handleNext}>Next →</Button>
-                    )}
-                    <Button type="submit">{editingProduct ? 'Save Changes' : 'Add Product'}</Button>
-                  </div>
                 </div>
-              )
-            })()}
+
+            </div>{/* end scrollable form body */}
+
+            {/* Footer — Cancel + Submit only. The section progress indicator
+                now lives in the header, and all sections render in a single
+                scroll, so there is no "Next" navigation. */}
+            <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit">{editingProduct ? 'Save Changes' : 'Add Product'}</Button>
+            </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {/* Import Dialog */}
       <Dialog open={importDialogOpen} onOpenChange={open => { if (!open) { setImportFile(null); setImportResult(null) } setImportDialogOpen(open) }}>

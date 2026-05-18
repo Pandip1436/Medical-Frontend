@@ -34,6 +34,7 @@ import {
   CalendarClock,
   ShieldCheck,
   ClipboardList,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -101,6 +102,12 @@ const navigationGroups: NavGroup[] = [
       { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
       { label: 'Expiry Management', icon: Clock, href: '/inventory/expiry' },
       { label: 'Stock Adjustment', icon: Settings2, href: '/inventory/adjustment' },
+    ],
+  },
+  {
+    title: 'CRM',
+    items: [
+      { label: 'Leads', icon: Sparkles, href: '/crm/leads' },
     ],
   },
   {

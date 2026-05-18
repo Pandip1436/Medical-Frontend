@@ -50,6 +50,8 @@ const RemindersPage = lazy(() => import('@/pages/reminders/RemindersPage'))
 const ReminderDetailPage = lazy(() => import('@/pages/reminders/ReminderDetailPage'))
 const ApprovalsPage = lazy(() => import('@/pages/admin/ApprovalsPage'))
 const ApprovalDetailPage = lazy(() => import('@/pages/admin/ApprovalDetailPage'))
+const LeadsListPage = lazy(() => import('@/pages/crm/LeadsListPage'))
+const LeadsAnalyticsPage = lazy(() => import('@/pages/crm/LeadsAnalyticsPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -62,6 +64,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/quotations',
     '/billing/returns',
     '/billing/credit-notes',
+    '/crm/leads',
+    '/crm/leads/analytics',
     '/inventory/products',
     '/inventory/product-history',
     '/inventory/categories',
@@ -129,6 +133,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/sales',
     '/salespersons',
     '/notifications',
+    '/crm/leads',
+    '/crm/leads/analytics',
   ],
 }
 
@@ -319,6 +325,10 @@ function App() {
         return <ApprovalsPage />
       case '/admin/approvals/detail':
         return <ApprovalDetailPage />
+      case '/crm/leads':
+        return <LeadsListPage />
+      case '/crm/leads/analytics':
+        return <LeadsAnalyticsPage />
       default:
         return <DashboardPage />
     }

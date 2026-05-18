@@ -1,0 +1,6 @@
+export { LeadDetailsTab } from './LeadDetailsTab'
+export { ActivityTab } from './ActivityTab'
+export { QuotationsTab } from './QuotationsTab'
+export { InvoicesTab } from './InvoicesTab'
+export { ProductsTab } from './ProductsTab'
+export { FollowUpsTab } from './FollowUpsTab'
