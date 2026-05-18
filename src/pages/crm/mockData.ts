@@ -25,7 +25,7 @@ import type {
  * calls and return data from this file instead. Flip to false to wire the
  * real API through.
  */
-export const USE_MOCK_DATA = false
+export const USE_MOCK_DATA = true
 
 // Helper so we can write ISO timestamps relative to "now" without a hardcoded date.
 function daysAgo(d: number): string {
