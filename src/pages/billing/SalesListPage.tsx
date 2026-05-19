@@ -169,7 +169,14 @@ export default function SalesListPage() {
         { label: 'Resume editing', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?draftId=${inv.id}`) },
       ]
     }
+    // PAID, UNPAID, and PARTIAL are all editable from this list. CANCELLED
+    // and RETURNED are terminal financial states. DRAFT goes through its own
+    // "Resume editing" path higher up in this function.
+    const canEdit = inv.status === 'PAID' || inv.status === 'UNPAID' || inv.status === 'PARTIAL'
     return [
+      ...(canEdit
+        ? [{ label: 'Edit invoice', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?editId=${inv.id}`) }]
+        : []),
       { label: 'Share', icon: <Share2 className="h-4 w-4" />, onClick: () => shareInvoiceViaWhatsApp(inv, phoneFor(inv)) },
       { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`) },
       { label: 'Return', icon: <RotateCcw className="h-4 w-4" />, onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`) },

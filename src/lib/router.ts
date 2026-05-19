@@ -85,12 +85,12 @@ export const routes: Record<string, RouteConfig> = {
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Orders' }],
   },
   '/purchase/grn': {
-    label: 'Goods Receipt',
-    breadcrumbs: [{ label: 'Purchase' }, { label: 'Goods Receipt' }],
+    label: 'Purchase Entry',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Entry' }],
   },
   '/purchase/grn-list': {
-    label: 'Goods Received',
-    breadcrumbs: [{ label: 'Purchase' }, { label: 'Goods Received' }],
+    label: 'Purchase Received',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Received' }],
   },
   '/purchase/returns': {
     label: 'Purchase Returns',

@@ -49,7 +49,7 @@ export default {
     salesReturns: 'Sales Returns',
     purchase: 'Purchase',
     purchaseOrders: 'Purchase Orders',
-    goodsReceipt: 'Goods Receipt',
+    goodsReceipt: 'Purchase Entry',
     purchaseReturns: 'Purchase Returns',
     suppliers: 'Suppliers',
     inventory: 'Inventory',

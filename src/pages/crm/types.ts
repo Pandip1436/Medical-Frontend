@@ -130,7 +130,9 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'stage', label: 'Stage', defaultVisible: true },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'source', label: 'Source', defaultVisible: true },
-  { id: 'assignedTo', label: 'Assigned To', defaultVisible: true },
+  // Inline server-side dropdown editor — the column header reads "Owner" in
+  // the table but the underlying field is still the lead's assignedToUser.
+  { id: 'salesPerson', label: 'Owner', defaultVisible: true },
   { id: 'score', label: 'Score', defaultVisible: true },
   { id: 'value', label: 'Value', defaultVisible: true },
   { id: 'created', label: 'Created', defaultVisible: true },

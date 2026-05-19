@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Printer, Download, Share2, ShoppingCart, Wallet,
-  User, Stethoscope, CreditCard, CalendarDays,
+  User, Stethoscope, CreditCard, CalendarDays, Pencil,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -231,6 +231,16 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
+        {(invoice.status === 'PAID' || invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
+          <Button
+            variant="outline"
+            className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+            onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Invoice
+          </Button>
+        )}
         <Button className="flex-1 gap-2 min-w-24" onClick={() => printInvoicePdf(invoice)}>
           <Printer className="h-4 w-4" />
           Print

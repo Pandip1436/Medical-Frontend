@@ -216,7 +216,7 @@ export default function ProductsPage() {
       name: '', genericName: '', saltComposition: '', manufacturer: '',
       categoryId: '', packSize: '', unitOfMeasure: '', schedule: 'NONE',
       hsnCode: '', isNarcotic: false, storageCondition: 'ROOM_TEMP',
-      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 12,
+      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 5,
       minStock: 0, maxStock: 0, reorderQty: 0, rackLocation: '',
     },
   })
@@ -271,7 +271,7 @@ export default function ProductsPage() {
       name: '', genericName: '', saltComposition: '', manufacturer: '',
       categoryId: '', packSize: '', unitOfMeasure: '', schedule: 'NONE',
       hsnCode: '', isNarcotic: false, storageCondition: 'ROOM_TEMP',
-      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 12,
+      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 5,
       minStock: 0, maxStock: 0, reorderQty: 0, rackLocation: '',
     })
     setActiveSection('basic')

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { navigate } from '@/lib/router'
+import { IndiamartSyncIndicator } from './IndiamartSyncIndicator'
 import type { LeadListCounts, LeadTab } from '../types'
 import { TABS } from '../types'
 
@@ -92,6 +93,7 @@ export function LeadsTopBar({
       {/* Right cluster — view modes + upload/download + Add Lead + kebab.
           pb-2 + shrink-0 → never wraps; sits on the same baseline as the tabs. */}
       <div className="flex shrink-0 items-center gap-1.5 pb-2">
+        <IndiamartSyncIndicator />
         <Button
           variant="ghost"
           size="sm"

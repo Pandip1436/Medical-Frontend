@@ -733,8 +733,18 @@ export default function CustomerDetailPage() {
                         const debit = Number(r.debit ?? 0)
                         const credit = Number(r.credit ?? 0)
                         const balance = Number(r.balance ?? 0)
+                        const target =
+                          r.sourceType === 'INVOICE' && r.sourceId
+                            ? `/billing/sales?invoiceId=${r.sourceId}`
+                            : r.sourceType === 'CREDIT_NOTE' && r.sourceId
+                              ? `/billing/credit-notes?id=${r.sourceId}`
+                              : null
                         return (
-                          <TableRow key={i} className="hover:bg-muted/20">
+                          <TableRow
+                            key={i}
+                            className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
+                            onClick={target ? () => navigate(target) : undefined}
+                          >
                             <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                             <TableCell className="px-3 py-2 font-mono text-xs">{r.ref ?? '—'}</TableCell>
                             <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>

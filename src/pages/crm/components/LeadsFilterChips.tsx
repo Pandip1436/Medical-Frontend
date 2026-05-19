@@ -3,7 +3,6 @@ import {
   Calendar,
   CheckCircle2,
   ChevronDown,
-  MoreVertical,
   Tag,
   User,
   Check,
@@ -22,6 +21,7 @@ import type {
   LeadSource,
   LeadStage,
 } from '../types'
+import { SalesPersonPicker } from './SalesPersonPicker'
 
 interface LeadsFilterChipsProps {
   stage: LeadStage[]
@@ -35,7 +35,8 @@ interface LeadsFilterChipsProps {
   updatedTo?: string
   onUpdatedChange: (from?: string, to?: string) => void
   assignedToUserId?: string
-  onAssigneeClick?: () => void
+  assignedToUserName?: string
+  onAssigneeChange: (next: { id: string; name: string } | null) => void
   /**
    * Optional Columns toggle rendered as the 6th equal-width slot. We accept
    * it as a node (rather than wiring the props through) so the parent owns
@@ -56,7 +57,8 @@ export function LeadsFilterChips({
   updatedTo,
   onUpdatedChange,
   assignedToUserId,
-  onAssigneeClick,
+  assignedToUserName,
+  onAssigneeChange,
   columnsSlot,
 }: LeadsFilterChipsProps) {
   // Equal-width grid: 6 slots split evenly across the panel width.
@@ -69,23 +71,15 @@ export function LeadsFilterChips({
       {/* Stage filter chip */}
       <StageChip selected={stage} onChange={onStageChange} />
 
-      {/* Employee/Assignee chip — opens parent-supplied dialog (TBD).
-          We render the chip in the screenshot's shape now; wiring the
-          assignee picker can land in a follow-up commit. */}
-      <button
-        type="button"
-        onClick={onAssigneeClick}
-        className={cn(
-          'inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-border/80 hover:text-foreground',
-          assignedToUserId && 'border-primary/30 text-foreground',
-        )}
-      >
-        <span className="flex items-center gap-2">
-          <User className="h-3.5 w-3.5" />
-          <span>Employ…</span>
-        </span>
-        <MoreVertical className="h-3 w-3 opacity-60" />
-      </button>
+      {/* Sales-person chip — server-side searchable picker. The list of
+          salespeople is potentially large (tenants with hundreds of reps),
+          so the dropdown hits /salespersons?q=… on every keystroke instead
+          of loading everything up front. */}
+      <SalesPersonChip
+        value={assignedToUserId}
+        label={assignedToUserName}
+        onChange={onAssigneeChange}
+      />
 
       {/* Created date range chip */}
       <DateRangeChip
@@ -318,6 +312,44 @@ function DateRangeChip({
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+// ── Sales-person chip (server-side searchable picker) ───────
+function SalesPersonChip({
+  value,
+  label,
+  onChange,
+}: {
+  value?: string
+  label?: string
+  onChange: (next: { id: string; name: string } | null) => void
+}) {
+  const active = !!value
+  return (
+    <SalesPersonPicker
+      value={value ?? null}
+      onChange={(opt) => onChange(opt ? { id: opt.id, name: opt.name } : null)}
+      trigger={
+        <button
+          type="button"
+          className={cn(
+            'inline-flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-background px-3 text-xs font-medium transition-colors hover:border-border/80',
+            active
+              ? 'border-primary/30 text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <User className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">
+              {active ? (label ?? 'Sales Person') : 'Sales Person'}
+            </span>
+          </span>
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+        </button>
+      }
+    />
   )
 }
 

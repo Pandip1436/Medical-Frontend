@@ -21,6 +21,7 @@ import {
   Shield,
   Settings,
   Wrench,
+  Zap,
   RotateCcw,
   Save,
   Plus,
@@ -77,6 +78,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
+import { IndiamartCard } from './integrations/IndiamartCard'
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -129,6 +131,7 @@ const settingsSections: SettingsSection[] = [
   { id: 'discounts', label: 'Discount Rules', icon: Percent, description: 'Auto & manual discounts' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'audit', label: 'Audit Trail', icon: Shield, description: 'System change log' },
+  { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'data-integrity', label: 'Data Integrity', icon: Wrench, description: 'Admin data fix tools', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
 ]
@@ -415,6 +418,7 @@ export default function SettingsPage() {
                 {activeSection === 'discounts' && <DiscountRulesSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
                 {activeSection === 'audit' && <AuditTrailSection />}
+                {activeSection === 'integrations' && userRole === 'ADMIN' && <IntegrationsSection />}
                 {activeSection === 'data-integrity' && userRole === 'ADMIN' && <DataIntegritySection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
@@ -2267,6 +2271,24 @@ interface ReverseStockResult {
   message: string
   fixed: Array<{ debitNoteNo: string; reason: string; items: number }>
   skipped?: number
+}
+
+// ─────────────────────────────────────────────────────────────
+// Integrations section — IndiaMART (and future external APIs)
+// ─────────────────────────────────────────────────────────────
+
+function IntegrationsSection() {
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-base font-semibold">Integrations</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Connect external lead sources. New leads land in /crm/leads automatically.
+        </p>
+      </div>
+      <IndiamartCard />
+    </div>
+  )
 }
 
 function DataIntegritySection() {

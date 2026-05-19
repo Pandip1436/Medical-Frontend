@@ -49,7 +49,7 @@ export default {
     salesReturns: 'बिक्री वापसी',
     purchase: 'खरीद',
     purchaseOrders: 'खरीद आर्डर',
-    goodsReceipt: 'माल रसीद',
+    goodsReceipt: 'खरीद प्रविष्टि',
     purchaseReturns: 'खरीद वापसी',
     suppliers: 'आपूर्तिकर्ता',
     inventory: 'इन्वेंटरी',

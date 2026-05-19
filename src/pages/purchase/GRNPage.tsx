@@ -20,11 +20,13 @@ import {
   FileWarning,
   XCircle,
   ChevronLeft,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -116,6 +118,7 @@ export default function GRNPage() {
   const [directSupplierName, setDirectSupplierName] = useState(prefilledSupplierName)
   const [supplierSearch, setSupplierSearch] = useState('')
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
+  const [supplierFormOpen, setSupplierFormOpen] = useState(false)
 
   // Backend-paginated supplier search for the Direct Entry picker.
   // Loads 10 at a time, fetches next 10 on scroll-to-bottom, debounces typing.
@@ -534,7 +537,7 @@ export default function GRNPage() {
           })
         }
       } else {
-        toast.success('Goods Receipt Note created successfully!', {
+        toast.success('Purchase Entry created successfully!', {
           description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
         })
       }
@@ -648,7 +651,7 @@ export default function GRNPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">Goods Receipt</h1>
+            <h1 className="text-lg font-bold tracking-tight">Purchase Entry</h1>
             <p className="text-[11px] text-muted-foreground">Receive and verify incoming goods</p>
           </div>
         </div>
@@ -719,7 +722,7 @@ export default function GRNPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div>
-                  <h2 className="text-base font-bold tracking-tight">Review Goods Receipt</h2>
+                  <h2 className="text-base font-bold tracking-tight">Review Purchase Entry</h2>
                   <p className="text-[11px] text-muted-foreground">Verify everything below — confirming will update stock</p>
                 </div>
               </div>
@@ -974,23 +977,23 @@ export default function GRNPage() {
           {sourceType === 'direct' && (
             <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 space-y-3 dark:bg-muted/5">
               {/* Supplier selector */}
-              <div className="relative">
-                {directSupplierId ? (
-                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">{directSupplierName}</p>
-                      <p className="text-[10px] text-muted-foreground">Selected supplier</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
-                    >
-                      ✕ Change
-                    </button>
+              {directSupplierId ? (
+                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">{directSupplierName}</p>
+                    <p className="text-[10px] text-muted-foreground">Selected supplier</p>
                   </div>
-                ) : (
-                  <>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
+                  >
+                    ✕ Change
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2">
+                  <div className="relative flex-1">
                     <Input
                       icon={<Search />}
                       placeholder="Search and select supplier..."
@@ -998,6 +1001,7 @@ export default function GRNPage() {
                       onChange={(e) => { setSupplierSearch(e.target.value); setSupplierDropdownOpen(true) }}
                       onFocus={() => setSupplierDropdownOpen(true)}
                       onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
+                      autoFocus
                     />
                     {supplierDropdownOpen && (
                       <div
@@ -1029,9 +1033,18 @@ export default function GRNPage() {
                         )}
                       </div>
                     )}
-                  </>
-                )}
-              </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 gap-1.5"
+                    onClick={() => setSupplierFormOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Supplier
+                  </Button>
+                </div>
+              )}
               {/* Product search */}
               <div className="relative">
                 <Input
@@ -1039,7 +1052,6 @@ export default function GRNPage() {
                   placeholder="Search products to add..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
-                  autoFocus
                 />
                 {productSearch && filteredProducts.length > 0 && (
                   <motion.div
@@ -1629,6 +1641,30 @@ export default function GRNPage() {
           }}
         />
       )}
+
+      <SupplierFormDialog
+        open={supplierFormOpen}
+        onOpenChange={setSupplierFormOpen}
+        editingSupplier={null}
+        onSaved={async (saved, mode) => {
+          if (mode !== 'create') return
+          await fetchMasterData()
+          try {
+            const res = await api.get(`/suppliers?q=${encodeURIComponent(saved.name)}&take=10`)
+            const payload = res.data
+            const items = (payload?.data ?? payload ?? []) as Array<{ id: string; name: string; phone?: string }>
+            const match = items.find((s) => s.name === saved.name) ?? items[0]
+            if (match) {
+              setDirectSupplierId(match.id)
+              setDirectSupplierName(match.name)
+              setSupplierSearch('')
+              setSupplierDropdownOpen(false)
+            }
+          } catch {
+            // master data refresh still happened; user can pick manually
+          }
+        }}
+      />
     </div>
   )
 }

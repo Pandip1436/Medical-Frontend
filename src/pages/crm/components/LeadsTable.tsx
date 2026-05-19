@@ -43,8 +43,10 @@ import {
   USE_MOCK_DATA,
   mockSetLeadStage,
   mockSetLeadSource,
+  mockSetLeadAssignee,
   mockDeleteLead,
 } from '../mockData'
+import { SalesPersonPicker, type SalesPersonOption } from './SalesPersonPicker'
 
 interface LeadsTableProps {
   data: Lead[]
@@ -112,7 +114,7 @@ export function LeadsTable({
             {show('stage') && <TableHead>Stage</TableHead>}
             {show('pipeline') && <TableHead>Pipeline</TableHead>}
             {show('source') && <TableHead>Source</TableHead>}
-            {show('assignedTo') && <TableHead>Owner</TableHead>}
+            {show('salesPerson') && <TableHead>Owner</TableHead>}
             {show('score') && <TableHead>Score</TableHead>}
             {show('value') && <TableHead>Value</TableHead>}
             {show('created') && <TableHead>Created</TableHead>}
@@ -357,14 +359,9 @@ function LeadRow({
         </TableCell>
       )}
 
-      {show('assignedTo') && (
-        <TableCell>
-          <div className="flex items-center gap-1.5">
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
-              {lead.assignedToUser.name.charAt(0).toUpperCase()}
-            </div>
-            <span className="truncate text-xs">{lead.assignedToUser.name}</span>
-          </div>
+      {show('salesPerson') && (
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <InlineSalesPersonPill lead={lead} onChanged={onChanged} />
         </TableCell>
       )}
 
@@ -572,6 +569,72 @@ function InlineSourcePill({
         })}
       </PopoverContent>
     </Popover>
+  )
+}
+
+// ── Inline sales-person editor ────────────────────────────────
+// Uses the shared SalesPersonPicker (server-side searchable) so the dropdown
+// stays performant when the tenant has many salespeople. Optimistic toast on
+// success — the parent refetch refreshes the cell.
+function InlineSalesPersonPill({
+  lead,
+  onChanged,
+}: {
+  lead: Lead
+  onChanged?: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  const current = lead.assignedToUser
+  const handle = async (next: SalesPersonOption | null) => {
+    if (!next || next.id === lead.assignedToUserId) {
+      setOpen(false)
+      return
+    }
+    setBusy(true)
+    try {
+      if (USE_MOCK_DATA) {
+        mockSetLeadAssignee(lead.id, next)
+      } else {
+        await api.patch(`/leads/${lead.id}`, { assignedToUserId: next.id })
+      }
+      toast.success(`Assigned to ${next.name}`)
+      onChanged?.()
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } }
+      toast.error(e?.response?.data?.message ?? 'Failed to update sales person')
+    } finally {
+      setBusy(false)
+      setOpen(false)
+    }
+  }
+
+  return (
+    <SalesPersonPicker
+      open={open}
+      onOpenChange={setOpen}
+      value={lead.assignedToUserId}
+      onChange={handle}
+      allowClear={false}
+      contentClassName="w-64"
+      trigger={
+        <button
+          type="button"
+          disabled={busy}
+          className={cn(
+            'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 text-xs transition-colors hover:bg-muted',
+            busy && 'opacity-60',
+          )}
+        >
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[9px] font-bold text-primary">
+            {current.name.charAt(0).toUpperCase()}
+          </span>
+          <span className="truncate">{current.name}</span>
+          <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-70" />
+        </button>
+      }
+    />
   )
 }
 

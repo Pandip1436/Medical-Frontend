@@ -15,6 +15,8 @@ type LedgerRow = {
   debit?: number | string
   credit?: number | string
   balance?: number | string
+  sourceType?: 'INVOICE' | 'CREDIT_NOTE'
+  sourceId?: string
 }
 
 type Kpi = { label: string; value: string | number }

@@ -208,7 +208,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
       <div class="org-sub">${orgSub}</div>
     </div>
     <div style="text-align:center">
-      <div class="doc-title">Goods Receipt Note</div>
+      <div class="doc-title">Purchase Entry Note</div>
       <div class="doc-grn">${grn.grnNumber}</div>
     </div>
     <div class="print-meta">
@@ -738,9 +738,9 @@ export default function GRNListPage() {
               <PackageCheck className="h-7 w-7 text-muted-foreground/50" />
             </div>
             <p className="text-sm font-medium text-muted-foreground">
-              {search ? 'No GRNs match your search' : 'No goods received yet'}
+              {search ? 'No entries match your search' : 'No purchases received yet'}
             </p>
-            {!search && <Button size="sm" onClick={() => navigate('/purchase/grn')}>Create First GRN</Button>}
+            {!search && <Button size="sm" onClick={() => navigate('/purchase/grn')}>Create First Entry</Button>}
           </CardContent>
         ) : (
           <>

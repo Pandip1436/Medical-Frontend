@@ -129,6 +129,11 @@ export default function OutstandingPage() {
   const [collectAmount, setCollectAmount] = useState('')
   const [collectReference, setCollectReference] = useState('')
   const [collectSubmitting, setCollectSubmitting] = useState(false)
+  // Payment allocation strategy: FIFO across all open invoices, or only the ones the user picked.
+  const [allocationMode, setAllocationMode] = useState<'fifo' | 'specific'>('fifo')
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set())
+  // True while the amount input mirrors the selected-invoices sum, so we keep it in sync.
+  const [amountAutoFilled, setAmountAutoFilled] = useState(true)
 
   // ── Query builder ──
   const buildQueryParams = useCallback((): URLSearchParams => {
@@ -273,6 +278,59 @@ export default function OutstandingPage() {
     setCollectAmount('')
     setCollectReference('')
     setCollectMode('cash')
+    setAllocationMode('fifo')
+    setSelectedInvoiceIds(new Set())
+    setAmountAutoFilled(true)
+  }
+
+  // Sum of balances for invoices the user has ticked.
+  const selectedInvoicesSum = useMemo(() => {
+    if (selectedInvoiceIds.size === 0) return 0
+    return drawerInvoices
+      .filter((inv) => selectedInvoiceIds.has(inv.id))
+      .reduce((s, inv) => s + inv.balance, 0)
+  }, [drawerInvoices, selectedInvoiceIds])
+
+  const toggleInvoiceSelection = (invoiceId: string) => {
+    setSelectedInvoiceIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(invoiceId)) next.delete(invoiceId)
+      else next.add(invoiceId)
+      return next
+    })
+    setAmountAutoFilled(true)
+  }
+
+  const allInvoicesSelected =
+    drawerInvoices.length > 0 && drawerInvoices.every((inv) => selectedInvoiceIds.has(inv.id))
+
+  const toggleAllInvoices = () => {
+    setSelectedInvoiceIds((prev) => {
+      if (drawerInvoices.length > 0 && drawerInvoices.every((inv) => prev.has(inv.id))) {
+        return new Set()
+      }
+      return new Set(drawerInvoices.map((inv) => inv.id))
+    })
+    setAmountAutoFilled(true)
+  }
+
+  // Keep the amount input mirroring the selected-invoice total while the user
+  // is in "specific" mode and hasn't manually edited the amount yet.
+  useEffect(() => {
+    if (allocationMode !== 'specific') return
+    if (!amountAutoFilled) return
+    setCollectAmount(selectedInvoicesSum > 0 ? selectedInvoicesSum.toFixed(2) : '')
+  }, [allocationMode, amountAutoFilled, selectedInvoicesSum])
+
+  const switchAllocationMode = (mode: 'fifo' | 'specific') => {
+    setAllocationMode(mode)
+    setAmountAutoFilled(true)
+    if (mode === 'fifo') {
+      setSelectedInvoiceIds(new Set())
+      setCollectAmount('')
+    } else {
+      setCollectAmount('')
+    }
   }
 
   const fetchDrawerInvoices = useCallback(async (customerId: string) => {
@@ -302,7 +360,16 @@ export default function OutstandingPage() {
       toast.error('Enter a valid amount')
       return
     }
-    if (amount > selectedRow.outstanding) {
+    if (allocationMode === 'specific') {
+      if (selectedInvoiceIds.size === 0) {
+        toast.error('Pick at least one invoice')
+        return
+      }
+      if (amount > selectedInvoicesSum + 0.01) {
+        toast.error(`Amount exceeds selected invoices (${formatCurrency(selectedInvoicesSum)})`)
+        return
+      }
+    } else if (amount > selectedRow.outstanding) {
       toast.error(`Amount exceeds outstanding (${formatCurrency(selectedRow.outstanding)})`)
       return
     }
@@ -312,10 +379,15 @@ export default function OutstandingPage() {
         amount,
         paymentMode: collectMode,
         referenceNumber: collectReference || undefined,
+        ...(allocationMode === 'specific'
+          ? { invoiceIds: Array.from(selectedInvoiceIds) }
+          : {}),
       })
       toast.success(`Payment recorded · Receipt ${res.data?.receiptNumber ?? '—'}`)
       setCollectAmount('')
       setCollectReference('')
+      setSelectedInvoiceIds(new Set())
+      setAmountAutoFilled(true)
       // Refresh list + the drawer's invoice table; row may now be settled.
       await fetchRows()
       if (selectedRow.customerId) {
@@ -666,13 +738,29 @@ export default function OutstandingPage() {
 
                 {/* Overdue invoices */}
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                    Open Invoices ({drawerInvoices.length})
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Open Invoices ({drawerInvoices.length})
+                    </p>
+                    {allocationMode === 'specific' && drawerInvoices.length > 0 && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {selectedInvoiceIds.size} selected · {formatCurrency(selectedInvoicesSum)}
+                      </p>
+                    )}
+                  </div>
                   <div className="overflow-hidden rounded-xl border border-border/40">
                     <Table>
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
+                          {allocationMode === 'specific' && (
+                            <TableHead className="h-9 w-9 px-3">
+                              <Checkbox
+                                checked={allInvoicesSelected}
+                                onCheckedChange={toggleAllInvoices}
+                                aria-label="Select all invoices"
+                              />
+                            </TableHead>
+                          )}
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice #</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Age</TableHead>
@@ -684,46 +772,95 @@ export default function OutstandingPage() {
                       </TableHeader>
                       <TableBody>
                         {drawerInvoicesLoading ? (
-                          <TableRow><TableCell colSpan={7} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</TableCell></TableRow>
                         ) : drawerInvoices.length === 0 ? (
-                          <TableRow><TableCell colSpan={7} className="py-6 text-center text-xs text-muted-foreground">No open invoices.</TableCell></TableRow>
-                        ) : drawerInvoices.map((inv) => (
-                          <TableRow
-                            key={inv.id}
-                            className="border-b border-border/30 last:border-b-0 hover:bg-muted/20 cursor-pointer"
-                            onClick={() => {
-                              if (!selectedRow?.customerId) return
-                              navigate(`/customers/invoices?customerId=${selectedRow.customerId}&customerName=${encodeURIComponent(selectedRow.customer)}`)
-                              setSelectedRow(null)
-                            }}
-                          >
-                            <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
-                            <TableCell className={cn('px-3 py-2.5 text-xs font-mono whitespace-nowrap', inv.daysOverdue > 60 && 'text-rose-600 dark:text-rose-400 font-semibold')}>
-                              {inv.daysOverdue}d
-                            </TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap">{formatCurrency(inv.grandTotal)}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">{formatCurrency(inv.amountPaid)}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(inv.balance)}</TableCell>
-                            <TableCell className="px-3 py-2.5">
-                              <Badge variant={inv.status === 'PARTIAL' ? 'warning' : 'secondary'} size="sm">
-                                {inv.status}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground">No open invoices.</TableCell></TableRow>
+                        ) : drawerInvoices.map((inv) => {
+                          const isInvSelected = selectedInvoiceIds.has(inv.id)
+                          const rowClickable = allocationMode !== 'specific'
+                          return (
+                            <TableRow
+                              key={inv.id}
+                              className={cn(
+                                'border-b border-border/30 last:border-b-0 hover:bg-muted/20',
+                                rowClickable && 'cursor-pointer',
+                                allocationMode === 'specific' && isInvSelected && 'bg-primary/5',
+                              )}
+                              onClick={() => {
+                                if (allocationMode === 'specific') {
+                                  toggleInvoiceSelection(inv.id)
+                                  return
+                                }
+                                if (!selectedRow?.customerId) return
+                                navigate(`/customers/invoices?customerId=${selectedRow.customerId}&customerName=${encodeURIComponent(selectedRow.customer)}`)
+                                setSelectedRow(null)
+                              }}
+                            >
+                              {allocationMode === 'specific' && (
+                                <TableCell className="px-3 py-2.5 w-9" onClick={(e) => e.stopPropagation()}>
+                                  <Checkbox
+                                    checked={isInvSelected}
+                                    onCheckedChange={() => toggleInvoiceSelection(inv.id)}
+                                    aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                  />
+                                </TableCell>
+                              )}
+                              <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
+                              <TableCell className={cn('px-3 py-2.5 text-xs font-mono whitespace-nowrap', inv.daysOverdue > 60 && 'text-rose-600 dark:text-rose-400 font-semibold')}>
+                                {inv.daysOverdue}d
+                              </TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap">{formatCurrency(inv.grandTotal)}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground whitespace-nowrap">{formatCurrency(inv.amountPaid)}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(inv.balance)}</TableCell>
+                              <TableCell className="px-3 py-2.5">
+                                <Badge variant={inv.status === 'PARTIAL' ? 'warning' : 'secondary'} size="sm">
+                                  {inv.status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>
                 </div>
 
-                {/* Inline Record Payment form (FIFO allocation) */}
+                {/* Inline Record Payment form — FIFO or invoice-specific */}
                 <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                      Record Payment · FIFO (oldest invoice first)
-                    </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        Record Payment
+                      </p>
+                    </div>
+                    <div className="inline-flex rounded-md border border-amber-300/60 bg-white/60 p-0.5 dark:border-amber-900/60 dark:bg-amber-950/40">
+                      <button
+                        type="button"
+                        onClick={() => switchAllocationMode('fifo')}
+                        className={cn(
+                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
+                          allocationMode === 'fifo'
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : 'text-amber-800 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/30',
+                        )}
+                      >
+                        FIFO (oldest first)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => switchAllocationMode('specific')}
+                        className={cn(
+                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
+                          allocationMode === 'specific'
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : 'text-amber-800 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/30',
+                        )}
+                      >
+                        Specific invoice(s)
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr_180px_auto] gap-2">
                     <Select value={collectMode} onValueChange={(v) => setCollectMode(v as 'cash' | 'cheque' | 'neft_upi')}>
@@ -741,8 +878,9 @@ export default function OutstandingPage() {
                       placeholder="Amount"
                       className="h-9 font-mono text-sm"
                       value={collectAmount}
-                      onChange={(e) => setCollectAmount(e.target.value)}
-                      max={selectedRow.outstanding}
+                      onChange={(e) => { setCollectAmount(e.target.value); setAmountAutoFilled(false) }}
+                      max={allocationMode === 'specific' ? selectedInvoicesSum : selectedRow.outstanding}
+                      disabled={allocationMode === 'specific' && selectedInvoiceIds.size === 0}
                     />
                     <Input
                       type="text"
@@ -754,7 +892,11 @@ export default function OutstandingPage() {
                     <Button
                       size="sm"
                       className="gap-1.5 h-9"
-                      disabled={collectSubmitting || !collectAmount}
+                      disabled={
+                        collectSubmitting ||
+                        !collectAmount ||
+                        (allocationMode === 'specific' && selectedInvoiceIds.size === 0)
+                      }
                       onClick={handleCollectPayment}
                     >
                       <Wallet className="h-4 w-4" />
@@ -762,7 +904,11 @@ export default function OutstandingPage() {
                     </Button>
                   </div>
                   <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
-                    Payment will be allocated to oldest unpaid invoice(s) first.
+                    {allocationMode === 'fifo'
+                      ? 'Payment will be allocated to oldest unpaid invoice(s) first.'
+                      : selectedInvoiceIds.size === 0
+                        ? 'Tick one or more invoices above to collect against them.'
+                        : `Payment will be allocated to the ${selectedInvoiceIds.size} selected invoice${selectedInvoiceIds.size !== 1 ? 's' : ''} (oldest-first within selection).`}
                   </p>
                 </div>
               </div>

@@ -147,7 +147,7 @@ export default function PurchaseReturnsPage() {
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const needsApproval = userRole === 'PHARMACIST' || userRole === 'INVENTORY_MANAGER'
 
-  // Pre-select GRN from URL param (e.g. navigated from Goods Received page)
+  // Pre-select GRN from URL param (e.g. navigated from Purchase Received page)
   const preselectedGrnId = useMemo(() => new URLSearchParams(search).get('grnId') ?? '', [search])
 
   // Short-delivery prefill from GRN page post-confirm dialog
@@ -264,7 +264,7 @@ export default function PurchaseReturnsPage() {
     setCurrentStep(step)
   }, [])
 
-  // Auto-select and advance to step 2 when navigated from Goods Received.
+  // Auto-select and advance to step 2 when navigated from Purchase Received.
   // selectedGRN here is an intentional guard, not a trigger — listing it would
   // cause the effect to fire after we set it. eslint warns; we accept it.
   useEffect(() => {

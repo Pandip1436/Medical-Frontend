@@ -87,8 +87,8 @@ const navigationGroups: NavGroup[] = [
     title: 'PURCHASE',
     items: [
       { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders' },
-      { label: 'Goods Receipt', icon: PackageCheck, href: '/purchase/grn' },
-      { label: 'Goods Received', icon: ClipboardList, href: '/purchase/grn-list' },
+      { label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn' },
+      { label: 'Purchase Received', icon: ClipboardList, href: '/purchase/grn-list' },
       { label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns' },
       { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers' },

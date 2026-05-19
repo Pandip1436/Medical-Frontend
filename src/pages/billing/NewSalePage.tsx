@@ -33,6 +33,7 @@ import {
   Camera,
   FileImage,
   CalendarClock,
+  Pencil,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -1419,7 +1420,6 @@ function PaymentPanel({
 
   const paymentModes: { label: string; value: PaymentMode; icon: React.ReactNode; shortcut?: string }[] = [
     { label: 'Cash', value: 'CASH', icon: <Banknote className="h-3.5 w-3.5" /> },
-    { label: 'Card', value: 'CARD', icon: <CreditCard className="h-3.5 w-3.5" /> },
     { label: 'UPI', value: 'UPI', icon: <Smartphone className="h-3.5 w-3.5" /> },
     { label: 'Credit', value: 'CREDIT', icon: <Clock className="h-3.5 w-3.5" /> },
   ]
@@ -1430,7 +1430,7 @@ function PaymentPanel({
   return (
     <div className="space-y-3">
       {/* Mode segmented control */}
-      <div className="grid grid-cols-4 gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
+      <div className="grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
         {paymentModes.map((pm) => (
           <button
             key={pm.value}
@@ -1766,9 +1766,12 @@ export default function NewSalePage() {
     }
     const dupId = params.get('duplicateId')
     const draftId = params.get('draftId')
+    const editId = params.get('editId')
     // `?draftId=…` resumes a server-side draft: prefill the same way `duplicateId`
     // does, but also remember the id so subsequent saves PATCH instead of POST.
-    const prefillId = draftId ?? dupId
+    // `?editId=…` edits an existing UNPAID/PARTIAL invoice: prefill the cart
+    // and route the save through PATCH /:id/edit-invoice.
+    const prefillId = editId ?? draftId ?? dupId
     if (prefillId) {
       api.get(`/billing/${prefillId}`).then((res) => {
         const inv = res.data
@@ -1790,10 +1793,14 @@ export default function NewSalePage() {
             schedule: it.schedule ?? '',
           })))
         }
-        // Drafts also restore the customer + payment intent so the user
-        // returns to exactly where they left off.
-        if (draftId) {
-          setEditingDraftId(draftId)
+        // Drafts and existing-invoice edits restore the customer + payment
+        // intent so the user returns to exactly where they left off.
+        if (draftId || editId) {
+          if (draftId) setEditingDraftId(draftId)
+          if (editId) {
+            setEditingInvoiceId(editId)
+            setEditingInvoiceNumber(inv.invoiceNumber ?? null)
+          }
           if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
           if (inv.paymentMode) setPaymentMode(inv.paymentMode as PaymentMode)
           if (inv.deliveryCharge !== undefined) setDeliveryCharge(Number(inv.deliveryCharge) || 0)
@@ -2125,7 +2132,7 @@ export default function NewSalePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quotationSource])
 
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH')
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('CREDIT')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
     amountReceived: 0,
     cardLast4: '',
@@ -2149,6 +2156,7 @@ export default function NewSalePage() {
     const hasExplicitPrefill = !!(
       params.get('draftId') ||
       params.get('duplicateId') ||
+      params.get('editId') ||
       sessionStorage.getItem('quotation_prefill') ||
       sessionStorage.getItem('repurchase_items')
     )
@@ -2678,6 +2686,12 @@ export default function NewSalePage() {
   // When resuming a server-side draft (?draftId=…), this holds the id so
   // saves re-route to PATCH instead of POST and "Save & Print" finalizes.
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null)
+  // When editing an existing UNPAID / PARTIAL invoice (?editId=…), this holds
+  // the id so the save call routes to PATCH /billing/:id/edit-invoice (which
+  // reverses the original stock/ledger/loyalty and re-applies the new figures)
+  // instead of POSTing a brand-new invoice.
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
 
   // ── Invoice Preview ────────────────────────────────────────
@@ -2761,6 +2775,13 @@ export default function NewSalePage() {
   // payment, no loyalty). New draft → POST; resuming an existing one → PATCH.
   // User can come back later (different device, different session) and finish.
   const saveAsDraft = async () => {
+    if (editingInvoiceId) {
+      // You can't demote a real invoice back to DRAFT — it already has stock,
+      // ledger, and loyalty side effects in place. The only way out is the
+      // regular Save & Print, which routes through the edit-invoice endpoint.
+      toast.info('This is an existing invoice — use Save & Print to apply your changes.')
+      return
+    }
     const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
     if (activeItems.length === 0) {
       toast.info('Add at least one item before saving as draft')
@@ -3011,6 +3032,12 @@ export default function NewSalePage() {
             amount: Number(item.amount) || 0,
           })),
         }
+      } else if (editingInvoiceId) {
+        // Editing an existing UNPAID / PARTIAL invoice. Server reverses the
+        // original side effects and re-applies the new figures atomically.
+        endpoint = `/billing/${editingInvoiceId}/edit-invoice`
+        method = 'patch'
+        finalPayload = payload
       } else if (editingDraftId) {
         endpoint = `/billing/${editingDraftId}/finalize`
         method = 'patch'
@@ -3054,7 +3081,7 @@ export default function NewSalePage() {
           try { await api.patch(`/quotations/${quotationSource.id}/status`, { status: 'CONVERTED' }) } catch { /* non-critical */ }
         }
         printInvoicePdf(savedInvoice)
-        toast.success('Invoice saved and sent to printer')
+        toast.success(editingInvoiceId ? 'Invoice updated and sent to printer' : 'Invoice saved and sent to printer')
         localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
         navigate('/billing/sales')
@@ -3254,7 +3281,9 @@ export default function NewSalePage() {
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen px-1.5 pt-2 md:px-2 md:pt-2.5 overflow-hidden bg-background">
+      {/* responsive: h-dvh handles mobile viewport collapse; outer scrolls horizontally on lower-resolution desktops where the lg+ side-by-side layout can't fit (~1208px minimum: 920px table + 288px sidebar). Inner enforces lg:min-w-[1280px] so columns keep their proper desktop dimensions instead of compressing. */}
+      <div className="h-dvh w-full overflow-x-auto overflow-y-hidden bg-background">
+      <div className="flex flex-col h-full w-full max-w-[1920px] mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6 lg:min-w-[1280px]">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
@@ -3262,20 +3291,23 @@ export default function NewSalePage() {
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }}
-          className="flex items-center justify-between mb-3 shrink-0"
+          className="flex items-center justify-between gap-2 mb-3 shrink-0"
         >
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
+          {/* responsive: title block can truncate, gap-2.5 stays, icon shrinks at xs */}
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
               <Receipt className="h-4 w-4" />
             </div>
-            <div className="flex flex-col leading-tight">
-              <h1 className="text-base font-semibold tracking-tight">New Sale</h1>
-              <span className="hidden sm:inline-block font-mono text-[10px] text-muted-foreground tracking-wider">
-                {invoiceNumber}
+            <div className="flex flex-col leading-tight min-w-0">
+              <h1 className="text-sm sm:text-base font-semibold tracking-tight truncate">
+                {editingInvoiceId ? 'Edit Invoice' : 'New Sale'}
+              </h1>
+              <span className="hidden sm:inline-block font-mono text-[10px] text-muted-foreground tracking-wider truncate">
+                {editingInvoiceId ? (editingInvoiceNumber ?? invoiceNumber) : invoiceNumber}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <PillToggle
               options={[
                 { label: 'Invoice', value: 'invoice' as const },
@@ -3296,18 +3328,29 @@ export default function NewSalePage() {
           </div>
         )}
 
+        {/* Edit-invoice banner — appears when ?editId=… is in the URL */}
+        {editingInvoiceId && (
+          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <Pencil className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Editing invoice <span className="font-semibold font-mono">{editingInvoiceNumber ?? '…'}</span>. Stock, customer outstanding, and loyalty points will be re-calculated on save. Already-collected payments are preserved.
+            </span>
+          </div>
+        )}
+
         {/* ═══════════════════════════════════════════════════
             SEARCH BAR + CONTEXT ROW
         ═══════════════════════════════════════════════════ */}
-        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:items-stretch md:h-11 md:gap-3 shrink-0", mobileStep === 'checkout' && 'hidden md:flex')}>
+        {/* responsive: stack vertically below md, side-by-side md+; gap scales lg+. Hidden in checkout step until lg (where both panels show side-by-side) */}
+        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:flex-wrap md:items-stretch md:h-auto lg:h-11 md:gap-2 lg:gap-3 shrink-0", mobileStep === 'checkout' && 'hidden lg:flex')}>
           {/* ═══════════════════════════════════════════════════
               TABLE ACTION AREA (Aligned with Table Card)
           ═══════════════════════════════════════════════════ */}
-          <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-stretch md:gap-3">
+          <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-stretch md:gap-2 lg:gap-3">
             {/* Mobile row 1: search + add item button */}
             <div className="flex items-center gap-2 md:contents">
-              {/* Hero Product Search */}
-              <div className="flex-1 md:w-[40%] md:flex-none lg:w-[42%] relative">
+              {/* responsive: percentages only kick in at lg+; at md the search shares the row with customer 50/50 */}
+              <div className="flex-1 min-w-0 md:basis-1/2 md:min-w-0 lg:basis-auto lg:w-[42%] lg:flex-none relative">
               <div className="relative">
                 {!selectedCustomer ? (
                   /* Locked state — no customer selected */
@@ -3634,7 +3677,8 @@ export default function NewSalePage() {
           {/* ═══════════════════════════════════════════════════
               SIDEBAR HEADER (Salesperson — read-only, derived from customer)
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden md:flex w-44 lg:w-52 xl:w-56 shrink-0 items-stretch">
+          {/* responsive: only show salesperson context strip on lg+; below that, the customer row already shows the badge */}
+          <div className="hidden lg:flex w-48 xl:w-56 shrink-0 items-stretch">
             <div className={cn(
               'flex items-center gap-2 w-full h-11 rounded-lg border border-border bg-muted/30 px-3 text-xs select-none overflow-hidden',
             )}>
@@ -3656,7 +3700,8 @@ export default function NewSalePage() {
           {/* ═══════════════════════════════════════════════════
               RIGHT-END ACTIONS (Reminder + Add Item) — desktop only
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden md:flex shrink-0 items-stretch gap-2">
+          {/* responsive: tablet (md) shows icon-only Add Item; lg+ adds the "Add Item" label; xl+ adds the kbd hint */}
+          <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
             {selectedCustomer && (
               <Button
                 type="button"
@@ -3736,9 +3781,11 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             MAIN TWO-PANEL LAYOUT
         ═══════════════════════════════════════════════════ */}
-        <div className="flex flex-col gap-1.5 flex-1 md:flex-row md:gap-2 overflow-hidden">
+        {/* responsive: stacks below lg (tablets get full-width table); side-by-side only at lg+ where there's room for both 920px table + 288px sidebar */}
+        <div className="flex flex-col gap-1.5 flex-1 lg:flex-row lg:gap-2 overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
-          <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden md:flex')}>
+          {/* responsive: hidden during checkout step on mobile + tablet; always visible at lg+ where panels are side-by-side */}
+          <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden lg:flex')}>
             {addCustomerDialogOpen ? (
               /* ═══════════════════════════════════════════════════
                   INLINE ADD-CUSTOMER VIEW (replaces tabs + tabbed content)
@@ -3769,8 +3816,9 @@ export default function NewSalePage() {
                 <form onSubmit={customerForm.handleSubmit(handleAddCustomer)} className="flex-1 flex flex-col min-h-0">
                   <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
+                    {/* responsive: stack on phones, side-by-side from sm (640px+) */}
                     {/* Row 1: Name + Phone */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
                         <Input {...customerForm.register('name')} placeholder="Customer name" error={!!customerForm.formState.errors.name} />
@@ -3793,7 +3841,7 @@ export default function NewSalePage() {
                     </div>
 
                     {/* Row 2: Type + Email */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
                         <Controller control={customerForm.control} name="type" render={({ field }) => (
@@ -3816,7 +3864,7 @@ export default function NewSalePage() {
 
                     {/* Row 3a: GSTIN + DL — WHOLESALE only */}
                     {customerForm.watch('type') === 'WHOLESALE' && (
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
                           <Input {...customerForm.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!customerForm.formState.errors.gstin} />
@@ -3840,7 +3888,7 @@ export default function NewSalePage() {
                     )}
 
                     {/* Row 4: Referred By + Address */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
                         <Controller control={customerForm.control} name="referredBy" render={({ field }) => (
@@ -4079,9 +4127,9 @@ export default function NewSalePage() {
                 {tableView === 'products' && (
                   <div className="flex-1 flex flex-col min-h-0">
                     <div className="flex-1 flex flex-col min-h-0 relative">
-                      {/* Desktop Table View — single Table, sticky header, perfect column alignment */}
-                      <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-hidden">
-                        <Table className="w-full min-w-150">
+                      {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. min-w bumped to 960px to match real column widths. */}
+                      <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-auto">
+                        <Table className="w-full min-w-[960px]">
                           <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-md">
                             <TableRow className="border-b border-border/40 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
@@ -4620,8 +4668,9 @@ export default function NewSalePage() {
                         </div>
 
                         {/* Footer — single-row horizontal totals bar */}
+                        {/* responsive: cells wrap onto multiple rows below md, where 8+ flex-1 cells would otherwise squish labels into unreadable widths. Each cell has a min-width so it stays legible when wrapped. */}
                         <div className="border-t border-border/40 bg-muted/20 shrink-0">
-                          <div className="flex items-stretch gap-px bg-border/30">
+                          <div className="flex flex-wrap items-stretch gap-px bg-border/30 [&>*]:min-w-[140px] md:[&>*]:min-w-0">
                             {/* Payment Mode */}
                             <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
                               <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Payment</span>
@@ -4754,8 +4803,8 @@ export default function NewSalePage() {
               </>
             )}
 
-            {/* Mobile sticky checkout bar — hidden on md+ */}
-            <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border bg-background/95 backdrop-blur-sm px-4 py-3 md:hidden">
+            {/* responsive: sticky checkout bar shown on mobile + tablet (lg:hidden) — at lg+ the sidebar is always visible so no step-switcher needed */}
+            <div className="sticky bottom-0 left-0 right-0 flex items-center justify-between gap-3 border-t border-border bg-background/95 backdrop-blur-sm px-4 py-3 lg:hidden">
               <div className="flex flex-col leading-tight">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground tabular-nums">{activeItemCount} item{activeItemCount !== 1 ? 's' : ''}</span>
                 <span className="font-mono text-base font-semibold tabular-nums">{formatCurrency(totals.grandTotal)}</span>
@@ -4773,9 +4822,10 @@ export default function NewSalePage() {
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          <div className={cn("w-full md:w-72 shrink-0 flex flex-col gap-2 lg:w-76 min-h-0", mobileStep === 'items' && 'hidden md:flex')}>
-            {/* Mobile back button — hidden on md+ */}
-            <div className="flex items-center gap-2 md:hidden">
+          {/* responsive: full-width on mobile + tablet (in checkout step); 288px at lg; 304px at xl. md (tablets) now goes through the step flow */}
+          <div className={cn("w-full shrink-0 flex flex-col gap-2 lg:w-72 xl:w-76 min-h-0", mobileStep === 'items' && 'hidden lg:flex')}>
+            {/* responsive: back-to-items button shown on mobile + tablet; hidden at lg+ */}
+            <div className="flex items-center gap-2 lg:hidden">
               <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setMobileStep('items')}>
                 <ChevronLeft className="h-4 w-4" />
                 Back to Items
@@ -4797,7 +4847,8 @@ export default function NewSalePage() {
                 UNIFIED CHECKOUT PANEL — Payment + Actions in one card
             ═══════════════════════════════════════════════════ */}
             <Card className="flex-1 flex flex-col min-h-0 shadow-sm border-border/60">
-              <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+              {/* Single scroll region: Order Summary + Payment scroll together so credit-mode content (Outstanding card + Due Date) is always reachable on short laptop screens. Net Payable also shown on the F8 Save & Print button so it isn't lost when scrolled. */}
+              <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
                 {/* Invoice Summary Section — moved from footer */}
                 <div className="p-3 border-b border-border/60">
                   <div className="flex items-center justify-between mb-3">
@@ -4900,8 +4951,8 @@ export default function NewSalePage() {
                   </div>
                 </div>
 
-                {/* Payment Section — now second */}
-                <div className="flex-1 p-3 min-h-0 overflow-y-auto">
+                {/* Payment Section — now second. No inner scroll: the parent CardContent is the single scroll region. */}
+                <div className="p-3">
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
                     <CreditCard className="h-3.5 w-3.5" />
                     Payment
@@ -4929,9 +4980,10 @@ export default function NewSalePage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] as const }}
-          className="hidden md:block shrink-0 -mx-1.5 md:-mx-2 mt-2"
+          className="hidden md:block shrink-0 -mx-2 sm:-mx-3 md:-mx-4 lg:-mx-6 mt-2"
         >
           <div className="border-t border-border bg-background/95 backdrop-blur-sm">
+            {/* responsive: kbd badges (F7/F8/F9/F10) hidden on md tablets to keep cells from overflowing; columns still 7-wide because Save & Print spans 2 — but cell padding shrinks at md */}
             <div className="grid grid-cols-7 divide-x divide-border/60">
               {/* Held — with count badge */}
               <Tooltip>
@@ -4939,9 +4991,9 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={() => setHeldBillsOpen(true)}
-                    className="group relative inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+                    className="group relative inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Receipt className="h-4 w-4" />
+                    <Receipt className="h-4 w-4 shrink-0" />
                     <span>Held</span>
                     {heldBills.length > 0 && (
                       <span className="inline-flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white tabular-nums">
@@ -4959,11 +5011,12 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={holdCurrentBill}
-                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Pause className="h-4 w-4" />
+                    <Pause className="h-4 w-4 shrink-0" />
                     <span>Hold</span>
-                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
+                    {/* responsive: kbd hidden below xl to free up column space at md/lg */}
+                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Hold bill for later (F10)</TooltipContent>
@@ -4976,10 +5029,10 @@ export default function NewSalePage() {
                     type="button"
                     onClick={saveAsDraft}
                     disabled={isSavingDraft || isSubmitting}
-                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
-                    <Save className="h-4 w-4" />
-                    <span>{isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}</span>
+                    <Save className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -4993,11 +5046,11 @@ export default function NewSalePage() {
                   <button
                     type="button"
                     onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
-                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
                   >
-                    <Share2 className="h-4 w-4" />
+                    <Share2 className="h-4 w-4 shrink-0" />
                     <span>Share</span>
-                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
+                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
@@ -5010,11 +5063,11 @@ export default function NewSalePage() {
                     type="button"
                     onClick={() => setPreviewOpen(true)}
                     disabled={!selectedCustomer || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
-                    className="group inline-flex items-center justify-center gap-2 px-3 py-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
-                    <FileText className="h-4 w-4" />
+                    <FileText className="h-4 w-4 shrink-0" />
                     <span>Preview</span>
-                    <kbd className="rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F7</kbd>
+                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F7</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Preview invoice (F7)</TooltipContent>
@@ -5028,32 +5081,35 @@ export default function NewSalePage() {
                     onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
                     disabled={isSubmitting || !selectedCustomer}
                     className={cn(
-                      'group col-span-2 inline-flex items-center justify-center gap-3 px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                      'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
                       isCreditBlocked && isPharmacist
                         ? 'bg-amber-500 hover:bg-amber-600'
                         : 'bg-primary hover:bg-primary/90'
                     )}
                   >
                     {isCreditBlocked && isPharmacist
-                      ? <ShieldCheck className="h-5 w-5" />
-                      : <Printer className="h-5 w-5" />
+                      ? <ShieldCheck className="h-5 w-5 shrink-0" />
+                      : <Printer className="h-5 w-5 shrink-0" />
                     }
-                    <div className="flex flex-col items-start leading-tight">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90">
+                    <div className="flex flex-col items-start leading-tight min-w-0">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90 truncate">
                         {isCreditBlocked && isPharmacist
                           ? 'Request'
-                          : editingDraftId
-                            ? 'Finalize & Print'
-                            : 'Save & Print'}
+                          : editingInvoiceId
+                            ? 'Update & Print'
+                            : editingDraftId
+                              ? 'Finalize & Print'
+                              : 'Save & Print'}
                       </span>
-                      <span className="text-sm font-semibold tabular-nums">
+                      <span className="text-sm font-semibold tabular-nums truncate">
                         {isSubmitting
                           ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving…')
                           : (isCreditBlocked && isPharmacist ? 'Approval' : formatCurrency(totals.grandTotal))
                         }
                       </span>
                     </div>
-                    <kbd className="ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold">F8</kbd>
+                    {/* responsive: F8 kbd hidden below lg to keep amount visible at md */}
+                    <kbd className="hidden lg:inline-flex ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold shrink-0">F8</kbd>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>Save and print invoice (F8)</TooltipContent>
@@ -5061,6 +5117,7 @@ export default function NewSalePage() {
             </div>
           </div>
         </motion.div>
+      </div>
       </div>
 
       {/* ─── Invoice Preview Dialog ─── */}
@@ -5113,9 +5170,10 @@ export default function NewSalePage() {
                   </div>
 
                   {/* ── Bill To + Invoice Meta ── */}
-                  <div className="grid grid-cols-3 divide-x divide-border/40 border-b border-border/30">
+                  {/* responsive: stack vertically below sm, 2/1 column split at sm+ where there's room */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/40 border-b border-border/30">
                     {/* Bill To */}
-                    <div className="col-span-2 px-6 py-4">
+                    <div className="sm:col-span-2 px-4 sm:px-6 py-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">Bill To</p>
                       <p className="text-lg font-black text-zinc-900 dark:text-zinc-50 leading-snug">{prev.customerName}</p>
                       <div className="flex flex-wrap items-start gap-x-4 gap-y-0.5 mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
@@ -5129,7 +5187,8 @@ export default function NewSalePage() {
                       </div>
                     </div>
                     {/* Invoice Meta */}
-                    <div className="px-6 py-4 space-y-3 text-right">
+                    {/* responsive: left-aligned on mobile (when stacked), right-aligned at sm+ */}
+                    <div className="px-4 sm:px-6 py-4 space-y-3 text-left sm:text-right">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Invoice No</p>
                         <p className="text-xl font-black font-mono text-primary break-all">{prev.invoiceNumber}</p>
@@ -5252,7 +5311,8 @@ export default function NewSalePage() {
       {/* ─── Add Customer Dialog ─── */}
       {/* ── Held Bills Dialog ── */}
       <Dialog open={heldBillsOpen} onOpenChange={setHeldBillsOpen}>
-        <DialogContent className="sm:max-w-md">
+        {/* responsive: clamp width on tiny phones so dialog can't push viewport horizontally */}
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Held Bills ({heldBills.length})</DialogTitle>
             <DialogDescription>Resume a previously held bill or discard it.</DialogDescription>
@@ -5300,7 +5360,8 @@ export default function NewSalePage() {
 
       {/* ── Pay Pending Credits Dialog ── */}
       <Dialog open={creditPayDialogOpen} onOpenChange={setCreditPayDialogOpen}>
-        <DialogContent className="max-w-lg rounded-2xl">
+        {/* responsive: full-screen on small phones, capped at lg on sm+ */}
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-lg rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-destructive" />
@@ -5314,10 +5375,11 @@ export default function NewSalePage() {
           </DialogHeader>
 
           {/* Payment mode selector */}
-          <div className="flex items-center gap-2">
+          {/* responsive: wraps the amount input onto its own row below sm */}
+          <div className="flex flex-wrap items-center gap-2">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Mode</label>
             <Select value={collectMode} onValueChange={setCollectMode}>
-              <SelectTrigger className="h-8 text-xs w-32">
+              <SelectTrigger className="h-8 text-xs w-28 sm:w-32 shrink-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -5329,7 +5391,7 @@ export default function NewSalePage() {
             <Input
               type="number"
               placeholder="Amount for one-by-one"
-              className="h-8 text-xs font-mono flex-1"
+              className="h-8 text-xs font-mono flex-1 min-w-[140px]"
               value={collectAmount}
               onChange={(e) => setCollectAmount(e.target.value)}
             />
@@ -5399,7 +5461,8 @@ export default function NewSalePage() {
 
       {/* ── Quick Reminder Dialog ── */}
       <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
-        <DialogContent className="sm:max-w-sm">
+        {/* responsive: clamp width on tiny phones */}
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-violet-500" />

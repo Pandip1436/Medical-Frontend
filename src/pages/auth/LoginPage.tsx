@@ -3,19 +3,26 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mail, Lock, Eye, EyeOff, Pill, ChevronDown, Sparkles, Shield, FlaskConical, Package, Calculator, UserCheck } from 'lucide-react'
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  Sparkles,
+  Shield,
+  FlaskConical,
+  Package,
+  Calculator,
+  UserCheck,
+  ArrowRight,
+  Check,
+} from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from '@/components/ui/card'
-import AuthLayout from '@/components/layout/AuthLayout'
+import { RightPanel } from './RightPanel'
 
 const loginSchema = z.object({
   email: z
@@ -95,6 +102,7 @@ export default function LoginPage({
   onForgotPassword,
   onLoginSuccess,
 }: LoginPageProps) {
+  // ─── PRESERVED STATE — DO NOT TOUCH ──────────────────────────
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [loginError, setLoginError] = useState('')
@@ -116,7 +124,7 @@ export default function LoginPage({
     defaultValues: { email: '', password: '' },
   })
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside — PRESERVED
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -127,6 +135,7 @@ export default function LoginPage({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // PRESERVED
   const fillDemo = (account: typeof demoAccounts[0]) => {
     setValue('email', account.email, { shouldValidate: true })
     setValue('password', account.password, { shouldValidate: true })
@@ -134,6 +143,7 @@ export default function LoginPage({
     setDemoOpen(false)
   }
 
+  // PRESERVED
   const onSubmit = async (data: LoginFormData) => {
     setLoginError('')
     setIsLoading(true)
@@ -155,207 +165,397 @@ export default function LoginPage({
   }
 
   return (
-    <AuthLayout>
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.97 }}
-        animate={{
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          x: shake ? [0, -10, 10, -10, 10, -5, 5, 0] : 0,
-        }}
-        transition={{
-          opacity: { duration: 0.5 },
-          y: { duration: 0.5 },
-          scale: { duration: 0.5 },
-          x: { duration: 0.5, ease: 'easeInOut' },
-        }}
+    <>
+      <style>{`
+        :root {
+          --ms-navy: #0a1628;
+          --ms-navy-2: #0f1e35;
+          --ms-teal: #0fb5a8;
+          --ms-teal-bright: #22d3c5;
+          --ms-mint: #a7f3d0;
+          --ms-indigo: #6366f1;
+        }
+        .ms-font-display { font-family: 'Fraunces', Georgia, serif; font-feature-settings: 'ss01' on; }
+        .ms-font-body { font-family: 'Outfit', ui-sans-serif, system-ui, sans-serif; }
+        .ms-font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+        /* Staggered entrance */
+        @keyframes ms-reveal {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .ms-reveal { opacity: 0; animation: ms-reveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+        /* Pulsing status dot */
+        @keyframes ms-dot-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(15, 181, 168, 0.55); }
+          80%, 100% { box-shadow: 0 0 0 8px rgba(15, 181, 168, 0); }
+        }
+        .ms-pulse-dot { animation: ms-dot-pulse 1.8s cubic-bezier(0.66, 0, 0, 1) infinite; }
+
+        /* Pulsing rings around hero core */
+        @keyframes ms-ring-pulse {
+          0% { transform: scale(0.7); opacity: 0.85; }
+          100% { transform: scale(1.8); opacity: 0; }
+        }
+        .ms-ring-pulse { transform-origin: center; animation: ms-ring-pulse 3s ease-out infinite; }
+
+        /* Floating Y motion */
+        @keyframes ms-floatY {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        .ms-floatY { animation: ms-floatY 6s ease-in-out infinite; }
+        @keyframes ms-floatY-slow {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-14px); }
+        }
+        .ms-floatY-slow { animation: ms-floatY-slow 8s ease-in-out infinite; }
+
+        /* Rotation for orbit ring */
+        @keyframes ms-spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .ms-spin-slow { transform-origin: center; animation: ms-spin-slow 42s linear infinite; }
+        @keyframes ms-spin-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+        .ms-spin-rev { transform-origin: center; animation: ms-spin-rev 56s linear infinite; }
+
+        /* Animated flow dashes for connection lines */
+        @keyframes ms-flow { to { stroke-dashoffset: -100; } }
+        .ms-flow { stroke-dasharray: 4 8; animation: ms-flow 3.5s linear infinite; }
+
+        /* Bar growth pulse */
+        @keyframes ms-bar-pulse { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }
+        .ms-bar { animation: ms-bar-pulse 2.4s ease-in-out infinite; }
+
+        /* Background gradient blobs drift */
+        @keyframes ms-blob1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(36px, -28px) scale(1.08); }
+        }
+        @keyframes ms-blob2 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(-28px, 36px) scale(1.12); }
+        }
+        .ms-blob1 { animation: ms-blob1 22s ease-in-out infinite; }
+        .ms-blob2 { animation: ms-blob2 26s ease-in-out infinite; }
+
+        /* Shine sweep for primary button */
+        .ms-shine { position: relative; overflow: hidden; }
+        .ms-shine::before {
+          content: '';
+          position: absolute;
+          top: 0; left: -120%;
+          width: 60%; height: 100%;
+          background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.18) 50%, transparent 100%);
+          transform: skewX(-18deg);
+          transition: left 0.7s ease;
+        }
+        .ms-shine:hover:not(:disabled)::before { left: 130%; }
+        .ms-shine:hover:not(:disabled) { transform: translateY(-1px); }
+
+        /* Floating label */
+        .ms-field input:focus ~ label,
+        .ms-field input:not(:placeholder-shown) ~ label {
+          top: 8px;
+          transform: translateY(0);
+          font-size: 11px;
+          letter-spacing: 0.04em;
+        }
+        .ms-field input:focus ~ label { color: var(--ms-teal); }
+        .ms-field input:focus ~ .ms-field-icon { color: var(--ms-teal); }
+        .ms-field-wrap:focus-within { border-color: var(--ms-teal); box-shadow: 0 0 0 4px rgba(15, 181, 168, 0.12); }
+
+        /* Dashed link */
+        .ms-link {
+          padding-bottom: 2px;
+          background-image: linear-gradient(90deg, currentColor 50%, transparent 50%);
+          background-repeat: no-repeat;
+          background-size: 6px 1px;
+          background-position: 0 100%;
+          transition: background-size 0.2s ease, background-image 0.2s ease;
+        }
+        .ms-link:hover {
+          background-image: linear-gradient(currentColor, currentColor);
+          background-size: 100% 1.5px;
+        }
+
+        /* Dot grid backdrop */
+        .ms-dotgrid {
+          background-image: radial-gradient(rgba(230, 237, 247, 0.08) 1px, transparent 1px);
+          background-size: 22px 22px;
+          mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+          -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+        }
+
+        /* Floor perspective grid */
+        .ms-floor {
+          background-image:
+            linear-gradient(rgba(34,211,197,0.18) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(34,211,197,0.18) 1px, transparent 1px);
+          background-size: 40px 40px;
+          mask-image: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 80%);
+          -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 80%);
+          transform: perspective(700px) rotateX(62deg) translateZ(0);
+          transform-origin: center bottom;
+        }
+
+        /* Solid checkbox styling */
+        .ms-checkbox[data-state='checked'] {
+          background-color: var(--ms-navy) !important;
+          border-color: var(--ms-navy) !important;
+        }
+        .ms-checkbox { border-color: #cbd5e1 !important; }
+      `}</style>
+
+      <div
+        className="ms-font-body fixed inset-0 w-screen h-screen overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row"
       >
-        <Card className="border-0 bg-linear-to-b from-secondary/95 to-primary/30 shadow-2xl backdrop-blur-xl dark:from-surface/95 dark:to-primary/30">
-          <CardHeader className="space-y-4 pb-4 text-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
-                <Pill className="h-7 w-7 text-white" />
+
+        {/* ─── LEFT PANEL — FORM ──────────────────────────────────── */}
+        <aside className="relative w-full lg:w-[45%] h-full flex items-center justify-center px-6 py-6 lg:px-12 lg:py-8 overflow-y-auto">
+          <div className="w-full max-w-[440px]">
+
+            {/* Brand row */}
+            <div className="ms-reveal flex items-center gap-3" style={{ animationDelay: '0ms' }}>
+              <div className="relative h-10 w-10 rounded-xl bg-[#0a1628] flex items-center justify-center rotate-[6deg] shadow-[0_8px_20px_-8px_rgba(10,22,40,0.5)]">
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] -rotate-[6deg]" fill="none" stroke="#22d3c5" strokeWidth="2.4" strokeLinecap="round">
+                  <path d="M12 4v16M4 12h16" />
+                </svg>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                  Hospital Suppliers
-                </h1>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Pharma Billing &amp; Inventory Management
-                </p>
+              <div className="flex items-center gap-2.5">
+                <span className="ms-font-display text-[20px] font-[500] tracking-tight text-[#0a1628]">Hospital Suppliers</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#047857] border border-[#a7f3d0]">
+                  <span className="ms-pulse-dot relative inline-block h-1.5 w-1.5 rounded-full bg-[#0fb5a8]" />
+                  Network Online
+                </span>
               </div>
             </div>
-          </CardHeader>
 
-          <CardContent className="space-y-4">
-            {loginError && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="rounded-xl border border-rose-200 bg-rose-50/80 px-4 py-2.5 text-center text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-400"
-                role="alert"
-              >
-                {loginError}
-              </motion.div>
-            )}
+            {/* Headline */}
+            <h1
+              className="ms-reveal ms-font-display mt-9 text-[32px] leading-[1.05] font-[300] text-[#0a1628] tracking-[-0.02em]"
+              style={{ animationDelay: '160ms' }}
+            >
+              Welcome <em className="italic text-[#0fb5a8]">back.</em>
+              <br />
+              Ship what hospitals need.
+            </h1>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-xs font-medium">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  icon={<Mail className="h-4 w-4 text-black/60" />}
-                  error={!!errors.email}
-                  aria-invalid={!!errors.email}
-                  aria-describedby={errors.email ? 'email-error' : undefined}
-                  className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40"
-                  {...register('email')}
-                />
+            {/* Subtitle */}
+            <p
+              className="ms-reveal mt-2.5 text-[13px] leading-relaxed text-[#64748b] max-w-[400px]"
+              style={{ animationDelay: '240ms' }}
+            >
+              Sign in to manage tenders, bid on hospital RFQs and track shipments in real time.
+            </p>
+
+            {/* Error banner */}
+            <AnimatePresence>
+              {loginError && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                  animate={{ opacity: 1, height: 'auto', marginTop: 16 }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  className="overflow-hidden"
+                  role="alert"
+                >
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[12.5px] text-rose-700">
+                    {loginError}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Form */}
+            <motion.form
+              onSubmit={handleSubmit(onSubmit)}
+              noValidate
+              className="ms-reveal mt-5 space-y-3"
+              style={{ animationDelay: '320ms' }}
+              animate={{ x: shake ? [0, -10, 10, -10, 10, -5, 5, 0] : 0 }}
+              transition={{ x: { duration: 0.5, ease: 'easeInOut' } }}
+            >
+              {/* Email field */}
+              <div className="ms-field">
+                <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-4 transition-colors">
+                  <Mail className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder=" "
+                    error={!!errors.email}
+                    aria-invalid={!!errors.email}
+                    aria-describedby={errors.email ? 'email-error' : undefined}
+                    className="h-[52px] md:h-[52px] w-full !border-0 !shadow-none !bg-transparent !rounded-none pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:!border-0 focus-visible:!shadow-none focus-visible:!ring-0 focus-visible:!outline-none"
+                    {...register('email')}
+                  />
+                  <label
+                    htmlFor="email"
+                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body"
+                  >
+                    Email address
+                  </label>
+                </div>
                 {errors.email && (
-                  <p id="email-error" className="text-[11px] text-rose-600 dark:text-rose-400" role="alert">
+                  <p id="email-error" className="mt-1 text-[11px] text-rose-600" role="alert">
                     {errors.email.message}
                   </p>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-xs font-medium">Password</Label>
-                <div className="relative">
+              {/* Password field */}
+              <div className="ms-field">
+                <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-12 transition-colors">
+                  <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
-                    icon={<Lock className="h-4 w-4 text-black/60" />}
+                    placeholder=" "
                     error={!!errors.password}
                     aria-invalid={!!errors.password}
                     aria-describedby={errors.password ? 'password-error' : undefined}
-                    className="border-black/20 bg-black/5 text-black placeholder:text-black/40 focus-within:border-black/40 pr-10"
+                    className="h-[52px] md:h-[52px] w-full !border-0 !shadow-none !bg-transparent !rounded-none pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:!border-0 focus-visible:!shadow-none focus-visible:!ring-0 focus-visible:!outline-none"
                     {...register('password')}
                   />
+                  <label
+                    htmlFor="password"
+                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body"
+                  >
+                    Password
+                  </label>
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors hover:text-black"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#0a1628] transition-colors cursor-pointer"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     tabIndex={-1}
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4 cursor-pointer" /> : <Eye className="h-4 w-4 cursor-pointer" />}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p id="password-error" className="text-[11px] text-rose-600 dark:text-rose-400" role="alert">
+                  <p id="password-error" className="mt-1 text-[11px] text-rose-600" role="alert">
                     {errors.password.message}
                   </p>
                 )}
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              {/* Remember + Forgot */}
+              <div className="flex items-center justify-between pt-0.5">
+                <div className="flex items-center gap-2.5">
                   <Checkbox
                     id="remember"
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMe(checked === true)}
                     aria-label="Remember me"
-                    className='cursor-pointer'
+                    className="ms-checkbox h-4 w-4 rounded-[5px] cursor-pointer"
                   />
-                  <Label htmlFor="remember" className="cursor-pointer text-xs font-normal">
+                  <Label htmlFor="remember" className="cursor-pointer text-[12.5px] font-normal text-[#475569]">
                     Remember me
                   </Label>
                 </div>
                 <button
                   type="button"
                   onClick={onForgotPassword}
-                  className="cursor-pointer text-xs font-bold text-black/70 hover:text-black hover:underline"
+                  className="ms-link cursor-pointer text-[12.5px] font-medium text-[#0a1628] hover:text-[#0fb5a8]"
                 >
-                  Forgot Password?
+                  Forgot password?
                 </button>
               </div>
 
-              <Button
+              {/* Primary submit button */}
+              <button
                 type="submit"
-                className="w-full cursor-pointer"
-                size="lg"
-                loading={isLoading}
                 disabled={isLoading || loginSucceeded}
+                className="ms-shine group relative flex h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-[#0f1e35] to-[#0a1628] text-[14px] font-medium tracking-wide text-white shadow-[0_10px_24px_-10px_rgba(10,22,40,0.6)] transition-all duration-200 hover:shadow-[0_16px_30px_-12px_rgba(10,22,40,0.7)] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
-                {loginSucceeded ? 'Signed In' : 'Sign In'}
-              </Button>
-            </form>
-          </CardContent>
+                {isLoading ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    <span>Signing in…</span>
+                  </>
+                ) : loginSucceeded ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    <span>Signed In</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </>
+                )}
+              </button>
+            </motion.form>
 
-          <CardFooter className="flex-col gap-2 pb-6">
-            <div className="w-full border-t border-border/40 pt-4">
-              {/* Demo Login Button */}
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  type="button"
-                  id="demo-login-btn"
-                  onClick={() => setDemoOpen((v) => !v)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/30 bg-foreground/5 px-4 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-foreground/10 hover:border-foreground/50"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Demo Login
-                  <ChevronDown
-                    className={`ml-auto h-4 w-4 transition-transform duration-200 ${demoOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
+            {/* Demo Login dropdown — PRESERVED LOGIC */}
+            <div
+              className="ms-reveal mt-4 relative"
+              ref={dropdownRef}
+              style={{ animationDelay: '400ms' }}
+            >
+              <button
+                type="button"
+                id="demo-login-btn"
+                onClick={() => setDemoOpen((v) => !v)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#cbd5e1] bg-white px-4 py-2 text-[12px] font-medium text-[#475569] hover:border-[#0fb5a8] hover:text-[#0a1628] transition-colors cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[#0fb5a8]" />
+                Demo Login
+                <ChevronDown
+                  className={`ml-auto h-4 w-4 transition-transform duration-200 ${demoOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-                {/* Dropdown */}
-                <AnimatePresence>
-                  {demoOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                      className="absolute bottom-full left-0 right-0 mb-2 z-50 overflow-hidden rounded-2xl border border-border/60 bg-popover shadow-2xl shadow-black/10"
-                    >
-                      <div className="p-2 space-y-1">
-                        <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Select a demo account
-                        </p>
-                        {demoAccounts.map((account) => {
-                          const Icon = account.icon
-                          return (
-                            <button
-                              key={account.role}
-                              type="button"
-                              onClick={() => fillDemo(account)}
-                              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all hover:scale-[1.01] ${account.bg}`}
-                            >
-                              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/70 dark:bg-white/5 shadow-sm`}>
-                                <Icon className={`h-4 w-4 ${account.color}`} />
+              <AnimatePresence>
+                {demoOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="absolute bottom-full left-0 right-0 mb-2 z-50 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white shadow-2xl shadow-black/10"
+                  >
+                    <div className="p-2 space-y-1">
+                      <p className="ms-font-mono px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#94a3b8]">
+                        Select a demo account
+                      </p>
+                      {demoAccounts.map((account) => {
+                        const Icon = account.icon
+                        return (
+                          <button
+                            key={account.role}
+                            type="button"
+                            onClick={() => fillDemo(account)}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-all hover:scale-[1.01] ${account.bg}`}
+                          >
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
+                              <Icon className={`h-4 w-4 ${account.color}`} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[13px] font-semibold text-[#0a1628]">{account.name}</span>
+                                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${account.badge}`}>
+                                  {account.role}
+                                </span>
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-semibold text-foreground">{account.name}</span>
-                                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${account.badge}`}>
-                                    {account.role}
-                                  </span>
-                                </div>
-                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                  {account.email} · {account.description}
-                                </p>
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <p className="mt-3 text-center text-[10px] text-muted-foreground/60">
-                Credentials auto-fill on selection
-              </p>
+                              <p className="mt-0.5 truncate text-[11px] text-[#64748b]">
+                                {account.email} · {account.description}
+                              </p>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          </CardFooter>
-        </Card>
-      </motion.div>
-    </AuthLayout>
+
+          </div>
+        </aside>
+
+        <RightPanel />
+      </div>
+    </>
   )
 }

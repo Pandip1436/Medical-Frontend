@@ -3,7 +3,6 @@ import { Download, Plus, Search, SlidersHorizontal, Upload, X } from 'lucide-rea
 // Import / Export / Add Lead live next to the Filters button now — the top
 // bar was tightened by the user to tabs + view-mode toggle + analytics only.
 import { AnimatePresence, motion } from 'framer-motion'
-import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -237,7 +236,8 @@ export default function LeadsListPage() {
                       list.setFilters((prev) => ({ ...prev, updatedFrom, updatedTo }))
                     }
                     assignedToUserId={list.filters.assignedToUserId}
-                    onAssigneeClick={() => toast.info('Employee picker coming soon')}
+                    assignedToUserName={list.filters.assignedToUserName}
+                    onAssigneeChange={list.setAssignedTo}
                     columnsSlot={
                       <ColumnsToggle visible={cols.visible} onToggle={cols.toggle} />
                     }

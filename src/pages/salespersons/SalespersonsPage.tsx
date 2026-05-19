@@ -9,6 +9,7 @@ import {
   Plus,
   UserCheck,
   UserX,
+  UserPlus,
   Phone,
   Mail,
   Pencil,
@@ -29,13 +30,6 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -55,6 +49,8 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
+  SheetFooter,
 } from '@/components/ui/sheet'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -182,10 +178,10 @@ export default function SalespersonsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
 
-  // ── Drawer state ──
+  // ── Detail drawer state ──
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // ── Edit dialog state ──
+  // ── Add/Edit drawer state ──
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Salesperson | null>(null)
   const [saving, setSaving] = useState(false)
@@ -331,7 +327,7 @@ export default function SalespersonsPage() {
       .slice(0, 10)
   }, [allInvoices, selected])
 
-  // ── Dialog handlers ──
+  // ── Drawer handlers ──
   const openCreate = () => {
     setEditing(null)
     reset({ name: '', email: '', phone: '', password: '', branchId: '', commissionRate: 0 })
@@ -690,86 +686,147 @@ export default function SalespersonsPage() {
         </SheetContent>
       </Sheet>
 
-      {/* ── Add/Edit dialog ── */}
+      {/* ── Add/Edit drawer ── */}
       {isAdmin && (
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{editing ? 'Edit Salesperson' : 'Add Salesperson'}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" {...register('name')} placeholder="John Doe" />
-                  {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+        <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
+          <SheetContent
+            side="right"
+            className="w-full sm:max-w-lg p-0 gap-0 flex flex-col"
+          >
+            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-full min-h-0">
+              {/* Sticky header */}
+              <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
+                <div className="flex items-center justify-between gap-3 pr-8">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {editing ? (
+                      <Avatar className="h-11 w-11">
+                        <AvatarFallback className={cn('text-sm font-bold', getAvatarColor(editing.name))}>
+                          {getInitials(editing.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ) : (
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <UserPlus className="h-5 w-5" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <SheetTitle className="text-base font-semibold truncate">
+                        {editing ? 'Edit Salesperson' : 'Add Salesperson'}
+                      </SheetTitle>
+                      <SheetDescription className="text-[11px] truncate">
+                        {editing
+                          ? `${editing.name} · ${editing.email}`
+                          : 'Create a new login for the sales team'}
+                      </SheetDescription>
+                    </div>
+                  </div>
+                  {editing && <StatusBadge status={editing.isActive ? 'active' : 'inactive'} />}
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" {...register('phone')} placeholder="9876543210" maxLength={10} />
-                  {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" {...register('email')} placeholder="john@example.com" />
-                  {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Branch</Label>
-                  <Select
-                    value={watchBranchId}
-                    onValueChange={(val) => setValue('branchId', val, { shouldValidate: true })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select branch..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {branches.filter((b) => b.isActive).map((b) => (
-                        <SelectItem key={b.id} value={b.id}>
-                          {b.name} <span className="text-muted-foreground text-xs">({b.code})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.branchId && <p className="text-xs text-destructive">{errors.branchId.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="commissionRate">Commission (%)</Label>
-                  <Input
-                    id="commissionRate"
-                    type="number"
-                    step="0.5"
-                    min={0}
-                    max={100}
-                    {...register('commissionRate', { valueAsNumber: true })}
-                    placeholder="0"
-                  />
-                  {errors.commissionRate && <p className="text-xs text-destructive">{errors.commissionRate.message}</p>}
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="password">
-                    {editing ? 'New Password (leave blank to keep current)' : 'Password'}
-                  </Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    {...register('password')}
-                    placeholder={editing ? '••••••••' : 'Min 6 characters'}
-                  />
-                  {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
-                </div>
+              </SheetHeader>
+
+              {/* Scrollable body */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {/* Identity */}
+                <section className="space-y-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Identity</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="name">Full Name</Label>
+                      <Input id="name" {...register('name')} placeholder="John Doe" />
+                      {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input id="phone" {...register('phone')} placeholder="9876543210" maxLength={10} inputMode="numeric" />
+                      {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Contact */}
+                <section className="space-y-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Contact</h3>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" {...register('email')} placeholder="john@example.com" />
+                    {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+                  </div>
+                </section>
+
+                {/* Assignment */}
+                <section className="space-y-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Assignment</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Branch</Label>
+                      <Select
+                        value={watchBranchId}
+                        onValueChange={(val) => setValue('branchId', val, { shouldValidate: true })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select branch..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {branches.filter((b) => b.isActive).map((b) => (
+                            <SelectItem key={b.id} value={b.id}>
+                              {b.name} <span className="text-muted-foreground text-xs">({b.code})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {errors.branchId && <p className="text-xs text-destructive">{errors.branchId.message}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="commissionRate">Commission (%)</Label>
+                      <Input
+                        id="commissionRate"
+                        type="number"
+                        step="0.5"
+                        min={0}
+                        max={100}
+                        {...register('commissionRate', { valueAsNumber: true })}
+                        placeholder="0"
+                      />
+                      {errors.commissionRate
+                        ? <p className="text-xs text-destructive">{errors.commissionRate.message}</p>
+                        : <p className="text-[11px] text-muted-foreground">0–100% of invoice value</p>}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Access */}
+                <section className="space-y-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Access</h3>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      {...register('password')}
+                      placeholder={editing ? '••••••••' : 'Min 6 characters'}
+                      autoComplete="new-password"
+                    />
+                    {errors.password
+                      ? <p className="text-xs text-destructive">{errors.password.message}</p>
+                      : <p className="text-[11px] text-muted-foreground">
+                          {editing ? 'Leave blank to keep current password' : 'Minimum 6 characters'}
+                        </p>}
+                  </div>
+                </section>
               </div>
-              <DialogFooter>
+
+              {/* Sticky footer */}
+              <SheetFooter className="shrink-0 border-t border-border/40 bg-muted/20 px-5 py-3 flex-row sm:justify-end gap-2 sm:space-x-0">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? 'Saving...' : editing ? 'Update' : 'Create'}
                 </Button>
-              </DialogFooter>
+              </SheetFooter>
             </form>
-          </DialogContent>
-        </Dialog>
+          </SheetContent>
+        </Sheet>
       )}
     </motion.div>
   )

@@ -55,7 +55,7 @@ const allItems: CommandItem[] = [
   { id: 'quotations', label: 'Quotations', icon: FileCheck, href: '/billing/quotations', section: 'Navigation', keywords: 'quotes estimates' },
   { id: 'sales-returns', label: 'Sales Returns', icon: RotateCcw, href: '/billing/returns', section: 'Navigation', keywords: 'credit note refund' },
   { id: 'purchase-orders', label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders', section: 'Navigation', keywords: 'po buy' },
-  { id: 'goods-receipt', label: 'Goods Receipt', icon: PackageCheck, href: '/purchase/grn', section: 'Navigation', keywords: 'grn receive' },
+  { id: 'goods-receipt', label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn', section: 'Navigation', keywords: 'grn receive goods receipt purchase entry' },
   { id: 'purchase-returns', label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns', section: 'Navigation', keywords: 'debit note' },
   { id: 'suppliers', label: 'Suppliers', icon: Truck, href: '/purchase/suppliers', section: 'Navigation', keywords: 'vendors distributors' },
   { id: 'products', label: 'Products', icon: Package, href: '/inventory/products', section: 'Navigation', keywords: 'inventory medicines drugs' },

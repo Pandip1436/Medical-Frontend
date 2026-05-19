@@ -88,6 +88,8 @@ type LedgerRow = {
   debit?: number | string
   credit?: number | string
   balance?: number | string
+  sourceType?: 'GRN' | 'PURCHASE_RETURN'
+  sourceId?: string
 }
 
 type Kpi = { label: string; value: string | number }
@@ -1013,8 +1015,18 @@ export default function SupplierDetailPage() {
                       const debit = Number(r.debit ?? 0)
                       const credit = Number(r.credit ?? 0)
                       const balance = Number(r.balance ?? 0)
+                      const target =
+                        r.sourceType === 'GRN' && r.sourceId
+                          ? `/purchase/grn-list?grnId=${r.sourceId}`
+                          : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
+                            ? `/purchase/debit-notes?id=${r.sourceId}`
+                            : null
                       return (
-                        <TableRow key={i} className="hover:bg-muted/20">
+                        <TableRow
+                          key={i}
+                          className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
+                          onClick={target ? () => navigate(target) : undefined}
+                        >
                           <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                           <TableCell className="px-3 py-2 font-mono text-xs">{r.ref ?? '—'}</TableCell>
                           <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>
@@ -1108,8 +1120,8 @@ export default function SupplierDetailPage() {
               <TabListContent
                 state={d.grns}
                 emptyIcon={Receipt}
-                emptyTitle="No goods receipts"
-                emptySubtitle="No GRNs in this period."
+                emptyTitle="No purchase entries"
+                emptySubtitle="No entries in this period."
                 rows={grnsPaged}
                 renderRow={(g: any) => (
                   <TableRow

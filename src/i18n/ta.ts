@@ -49,7 +49,7 @@ export default {
     salesReturns: 'விற்பனை திருப்பம்',
     purchase: 'கொள்முதல்',
     purchaseOrders: 'கொள்முதல் ஆர்டர்கள்',
-    goodsReceipt: 'பொருள் ரசீது',
+    goodsReceipt: 'கொள்முதல் பதிவு',
     purchaseReturns: 'கொள்முதல் திருப்பம்',
     suppliers: 'விநியோகஸ்தர்கள்',
     inventory: 'சரக்கு',

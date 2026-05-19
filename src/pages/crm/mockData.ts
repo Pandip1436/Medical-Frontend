@@ -674,6 +674,25 @@ export function mockSetLeadSource(id: string, source: LeadSource): boolean {
   return true
 }
 
+// Mock-mode reassignment helper for the inline sales-person pill. Mirrors
+// mockSetLeadStage / mockSetLeadSource — keeps MOCK_LEADS in sync so the
+// pill doesn't snap back after a refetch.
+export function mockSetLeadAssignee(
+  id: string,
+  user: { id: string; name: string; email?: string | null },
+): boolean {
+  const lead = MOCK_LEADS.find((l) => l.id === id)
+  if (!lead) return false
+  lead.assignedToUserId = user.id
+  lead.assignedToUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email ?? '',
+  }
+  lead.updatedAt = new Date().toISOString()
+  return true
+}
+
 // ─────────────────────────────────────────────────────────────
 // Mutation helpers — keep the in-memory MOCK_LEADS array in sync
 // with create/update/delete actions so the UI behaves like prod.

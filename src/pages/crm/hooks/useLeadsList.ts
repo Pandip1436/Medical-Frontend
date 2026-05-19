@@ -20,6 +20,12 @@ export interface LeadsFilters {
   stage: LeadStage[]
   source: LeadSource[]
   assignedToUserId?: string
+  /**
+   * Cached label for the selected sales person so the filter chip can render
+   * the name without a second fetch. Kept in client state only — never sent
+   * to the API.
+   */
+  assignedToUserName?: string
   createdFrom?: string
   createdTo?: string
   updatedFrom?: string
@@ -193,6 +199,12 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
     activeFilterCount,
     clearFilters: () =>
       setFilters({ q: filters.q, stage: [], source: [] }),
+    setAssignedTo: (next: { id: string; name: string } | null) =>
+      setFilters((prev) => ({
+        ...prev,
+        assignedToUserId: next?.id,
+        assignedToUserName: next?.name,
+      })),
     // actions
     refetch,
   }

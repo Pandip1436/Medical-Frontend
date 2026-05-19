@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Receipt, IndianRupee, CheckCircle2, Clock, FileX2,
-  User, Package, Wallet, Printer, Download, Share2,
+  User, Package, Wallet, Printer, Download, Share2, Pencil,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { Card, CardContent } from '@/components/ui/card'
@@ -739,6 +739,16 @@ export default function CustomerInvoicesPage() {
 
                   {/* Action buttons */}
                   <div className="px-5 py-3 flex gap-2">
+                    {(detailInvoice.status === 'PAID' || detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
+                      <Button
+                        variant="outline"
+                        className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                        onClick={() => navigate(`/billing/new?editId=${detailInvoice.id}`)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Edit
+                      </Button>
+                    )}
                     <Button className="flex-1 gap-2" onClick={() => printInvoicePdf(detailInvoice)}>
                       <Printer className="h-4 w-4" />
                       Print
