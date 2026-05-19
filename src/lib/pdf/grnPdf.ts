@@ -32,7 +32,6 @@ export interface GrnItemLike {
   orderedQty: number
   receivedQty: number
   freeQty: number
-  damageQty: number
   purchaseRate: number | string
   mrp: number | string
 }
@@ -89,7 +88,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
 
   autoTable(doc, {
     startY: y + 3,
-    head: [['#', 'Product', 'Batch', 'Expiry', 'Ordered', 'Received', 'Free', 'Damaged', 'Rate', 'MRP']],
+    head: [['#', 'Product', 'Batch', 'Expiry', 'Ordered', 'Received', 'Free', 'Rate', 'MRP']],
     body: grn.items.map((it, i) => [
       i + 1,
       it.productName,
@@ -98,7 +97,6 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
       it.orderedQty,
       it.receivedQty,
       it.freeQty,
-      it.damageQty,
       Number(it.purchaseRate).toFixed(2),
       Number(it.mrp).toFixed(2),
     ]),
@@ -111,7 +109,6 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
       6: { halign: 'right' },
       7: { halign: 'right' },
       8: { halign: 'right' },
-      9: { halign: 'right' },
     },
     margin: { left: 14, right: 14 },
   })

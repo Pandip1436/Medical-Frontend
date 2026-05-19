@@ -195,7 +195,7 @@ export interface GRNItem {
   expiryDate: string
   purchaseRate: number
   mrp: number
-  damageQty: number
+  damageQty?: number
 }
 
 export interface GRN {

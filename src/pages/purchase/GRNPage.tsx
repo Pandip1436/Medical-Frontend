@@ -88,7 +88,6 @@ function createEmptyItem(): GRNFormItem {
     expiryDate: '',
     purchaseRate: 0,
     mrp: 0,
-    damageQty: 0,
     shortSupply: false,
     _alreadyReceived: 0,
     _remaining: 0,
@@ -251,7 +250,6 @@ export default function GRNPage() {
                 expiryDate: '',
                 purchaseRate: Number(item.expectedRate),
                 mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
-                damageQty: 0,
                 shortSupply: false,
                 _alreadyReceived: alreadyReceived,
                 _remaining: isPartial ? remaining : item.requiredQty,
@@ -341,7 +339,6 @@ export default function GRNPage() {
             expiryDate: '',
             purchaseRate: item.expectedRate,
             mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
-            damageQty: 0,
             shortSupply: false,
             // Store remaining so label can show "X of Y remaining"
             _alreadyReceived: alreadyReceived,
@@ -394,7 +391,6 @@ export default function GRNPage() {
         expiryDate: '',
         purchaseRate: product.purchaseRate,
         mrp: product.mrp,
-        damageQty: 0,
         shortSupply: false,
       },
     ])
@@ -471,10 +467,6 @@ export default function GRNPage() {
         toast.error(`${label}: purchase rate and MRP must be non-negative`)
         return
       }
-      if (Number(i.damageQty || 0) > Number(i.receivedQty || 0)) {
-        toast.error(`${label}: damaged qty cannot exceed received qty`)
-        return
-      }
       // PO-linked: don't let user over-receive (server also enforces this, but
       // we want instant feedback before the round-trip)
       if (selectedPOId && (i._remaining ?? i.orderedQty) > 0) {
@@ -516,7 +508,6 @@ export default function GRNPage() {
           expiryDate: new Date(i.expiryDate).toISOString(),
           purchaseRate: Number(i.purchaseRate),
           mrp: Number(i.mrp),
-          damageQty: Number(i.damageQty || 0),
         })),
       }
       const grnRes = await api.post('/grn', payload)
@@ -610,7 +601,6 @@ export default function GRNPage() {
         orderedQty: i.orderedQty || i.receivedQty,
         receivedQty: i.receivedQty,
         freeQty: i.freeQty || 0,
-        damageQty: i.damageQty || 0,
         purchaseRate: i.purchaseRate,
         mrp: i.mrp,
       })),
@@ -1223,7 +1213,7 @@ export default function GRNPage() {
                         </div>
                       </div>
                       {/* Batch & dates row */}
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
@@ -1243,16 +1233,6 @@ export default function GRNPage() {
                             value={item.expiryDate}
                             min={new Date().toISOString().slice(0, 10)}
                             onChange={(v) => updateItem(index, 'expiryDate', v)}
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Damage/Rej.</Label>
-                          <Input
-                            type="number"
-                            className="h-9 font-mono text-xs text-rose-600 border-rose-100 bg-rose-50/20 focus:bg-background dark:border-rose-900/40 dark:bg-rose-900/5 transition-all"
-                            placeholder="0"
-                            value={item.damageQty || ''}
-                            onChange={(e) => updateItem(index, 'damageQty', Number(e.target.value))}
                           />
                         </div>
                       </div>
