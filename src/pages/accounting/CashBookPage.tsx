@@ -21,6 +21,11 @@ import {
   Paperclip,
   Upload,
   X,
+  Download,
+  ChevronDown,
+  FileDown,
+  FileSpreadsheet,
+  Printer,
 } from 'lucide-react'
 
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -56,6 +61,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import { cn, formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -191,6 +204,52 @@ export default function CashBookPage() {
     return transactionsWithBalance.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   }, [transactionsWithBalance, currentPage])
 
+  // ── Export ───────────────────────────────────────────────────
+  // Cash book is fully in-memory after the day fetch — we can export directly
+  // from `transactionsWithBalance` without re-hitting the BE. Opening + closing
+  // balance rows bookend the table so the export reads as a self-contained
+  // cash book on paper.
+  const handleExport = (format: 'PDF' | 'CSV' | 'Print') => {
+    if (!transactionsWithBalance.length) {
+      toast.info('Nothing to export for this date')
+      return
+    }
+    const openingRow = {
+      Time: '',
+      Particular: 'Opening Balance',
+      Type: '—',
+      'Ref #': '—',
+      'Debit (In)': '—',
+      'Credit (Out)': '—',
+      Balance: formatCurrency(summary.openingBalance),
+    }
+    const closingRow = {
+      Time: '',
+      Particular: 'Closing Balance',
+      Type: '—',
+      'Ref #': '—',
+      'Debit (In)': formatCurrency(summary.cashIn),
+      'Credit (Out)': formatCurrency(summary.cashOut),
+      Balance: formatCurrency(summary.closingBalance),
+    }
+    const txnRows = transactionsWithBalance.map((t) => ({
+      Time: t.time,
+      Particular: t.particular,
+      Type: t.type,
+      'Ref #': t.type === 'Expense' ? '—' : t.refNumber,
+      'Debit (In)': t.debit > 0 ? formatCurrency(t.debit) : '—',
+      'Credit (Out)': t.credit > 0 ? formatCurrency(t.credit) : '—',
+      Balance: formatCurrency(t.balance),
+    }))
+    const rows = [openingRow, ...txnRows, closingRow]
+    const prettyDate = dayjs(selectedDate).format('DD MMM YYYY')
+    const title = `Cash Book — ${prettyDate}`
+    const filename = `cash-book-${selectedDate}`
+    if (format === 'PDF') exportToPdf(rows, title, filename)
+    else if (format === 'CSV') exportToCsv(rows, filename)
+    else printReport(rows, title)
+  }
+
   // Expense form
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
@@ -316,7 +375,7 @@ export default function CashBookPage() {
         ))}
       </div>
 
-      {/* ── Date + Actions Row ── */}
+      {/* ── Unified Toolbar Row: Date · Search · Export · Add Expense · Manage ── */}
       {(() => {
         const isToday = dayjs(selectedDate).isSame(dayjs(), 'day')
         const isFuture = dayjs(selectedDate).isAfter(dayjs(), 'day')
@@ -325,71 +384,103 @@ export default function CashBookPage() {
         const goNext = () => setSelectedDate(dayjs(selectedDate).add(1, 'day').format('YYYY-MM-DD'))
         const goToday = () => setSelectedDate(dayjs().format('YYYY-MM-DD'))
         return (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-1.5">
-              <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrev} aria-label="Previous day">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={goNext}
-                disabled={isToday || isFuture}
-                aria-label="Next day"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium">
-                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                    {formattedDate}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={dayjs(selectedDate).toDate()}
-                    onSelect={(d) => d && setSelectedDate(dayjs(d).format('YYYY-MM-DD'))}
-                    disabled={(d) => dayjs(d).isAfter(dayjs(), 'day')}
-                  />
-                </PopoverContent>
-              </Popover>
-              <Button variant="outline" size="sm" className="h-9" onClick={goToday} disabled={isToday}>
-                Today
-              </Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Date controls */}
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrev} aria-label="Previous day">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              onClick={goNext}
+              disabled={isToday || isFuture}
+              aria-label="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  {formattedDate}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={dayjs(selectedDate).toDate()}
+                  onSelect={(d) => d && setSelectedDate(dayjs(d).format('YYYY-MM-DD'))}
+                  disabled={(d) => dayjs(d).isAfter(dayjs(), 'day')}
+                />
+              </PopoverContent>
+            </Popover>
+            <Button variant="outline" size="sm" className="h-9" onClick={goToday} disabled={isToday}>
+              Today
+            </Button>
+
+            {/* Search — flex-grow so it absorbs the middle of the row */}
+            <div className="order-last w-full sm:order-0 sm:w-auto sm:flex-1 sm:min-w-48">
+              <Input
+                icon={<Search className="h-4 w-4" />}
+                placeholder="Search particulars or ref#..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9"
+                suffix={
+                  <span className="tabular-nums whitespace-nowrap text-xs text-muted-foreground">
+                    {transactions.length} found
+                  </span>
+                }
+              />
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 hidden md:inline-flex"
-                onClick={() => navigate('/accounting/expenses')}
-              >
-                Manage all expenses →
-              </Button>
-              <Button size="sm" className="h-9" onClick={() => setAddExpenseOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" />
-                Add Expense
-              </Button>
-            </div>
+
+            {/* Right cluster — Export · Add Expense · Manage */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5"
+                  disabled={transactionsWithBalance.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => handleExport('PDF')}>
+                  <FileDown className="h-4 w-4 text-rose-600" />
+                  <span>PDF</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExport('CSV')}>
+                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                  <span>CSV</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => handleExport('Print')}>
+                  <Printer className="h-4 w-4 text-sky-600" />
+                  <span>Print</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" className="h-9" onClick={() => setAddExpenseOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Add Expense</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 hidden md:inline-flex"
+              onClick={() => navigate('/accounting/expenses')}
+            >
+              Manage all expenses →
+            </Button>
           </div>
         )
       })()}
-
-      {/* ── Search ── */}
-      <Input
-        icon={<Search className="h-4 w-4" />}
-        placeholder="Search particulars or ref#..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        suffix={
-          <span className="tabular-nums whitespace-nowrap text-xs text-muted-foreground">
-            {transactions.length} found
-          </span>
-        }
-      />
 
       {/* ── Transaction Table ── */}
       <Card className="overflow-x-auto rounded-2xl border-border/60">

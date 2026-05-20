@@ -28,6 +28,7 @@ import {
   Hash,
   Star,
   Calculator,
+  ShieldCheck,
 } from 'lucide-react'
 import { navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -69,7 +70,9 @@ const allItems: CommandItem[] = [
   { id: 'ledger', label: 'Ledger', icon: FileSpreadsheet, href: '/accounting/ledger', section: 'Navigation', keywords: 'accounts book' },
   { id: 'pnl', label: 'Profit & Loss', icon: TrendingUp, href: '/accounting/pnl', section: 'Navigation', keywords: 'income statement revenue' },
   { id: 'reports', label: 'Report Hub', icon: PieChart, href: '/reports', section: 'Navigation', keywords: 'analytics data' },
-  { id: 'settings', label: 'Settings', icon: Settings, href: '/settings', section: 'Navigation', keywords: 'preferences configuration' },
+  { id: 'users', label: 'User Management', icon: Users, href: '/users', section: 'Navigation', keywords: 'roles permissions staff accounts' },
+  { id: 'audit-trail', label: 'Audit Trail', icon: ShieldCheck, href: '/audit-trail', section: 'Navigation', keywords: 'log history changes' },
+  { id: 'settings', label: 'Settings', icon: Settings, href: '/settings', section: 'Navigation', keywords: 'preferences configuration invoice prefix numbering format counter sequence template' },
 ]
 
 

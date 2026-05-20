@@ -3,6 +3,7 @@ import { motion, type Variants } from 'framer-motion'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Sparkline } from './Sparkline'
 import { navigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import type { KpiTileData } from './types'
@@ -28,13 +29,15 @@ export function KpiTile({ kpi, isLoading }: KpiTileProps) {
   const Icon = kpi.icon
   const isCurrency = kpi.isCurrency !== false
   const delta = kpi.delta
+  const hasHref = !!kpi.href && kpi.href !== '#'
+  const hasSparkline = !isLoading && kpi.sparkline && kpi.sparkline.length >= 2
 
   return (
     <motion.div variants={itemVariants}>
       <Card
         hover
-        className="group relative h-full cursor-pointer overflow-hidden"
-        onClick={() => navigate(kpi.href)}
+        className={cn('group relative h-full overflow-hidden', hasHref && 'cursor-pointer')}
+        onClick={hasHref ? () => navigate(kpi.href) : undefined}
       >
         <CardContent className="flex h-full flex-col p-3.5">
           {/* Row 1: title + icon. Icon is colored, title is uppercase muted. */}
@@ -60,6 +63,13 @@ export function KpiTile({ kpi, isLoading }: KpiTileProps) {
               <CountUp end={kpi.value} duration={1.0} />
             )}
           </div>
+
+          {/* Optional sparkline — only when caller supplies data with >= 2 points. */}
+          {hasSparkline && (
+            <div className="mt-1.5 -mx-0.5">
+              <Sparkline data={kpi.sparkline} color={kpi.sparkColor} height={22} />
+            </div>
+          )}
 
           {/* Row 3: delta + subtitle on one line — context that explains the number. */}
           <div className="mt-auto flex items-center gap-1.5 pt-1 text-[10px] text-muted-foreground">

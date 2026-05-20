@@ -1578,7 +1578,7 @@ function PaymentPanel({
       {mode === 'CREDIT' && (
         <div className="space-y-2.5">
           {customer && (
-            <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5 text-[11px] space-y-1.5">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5 text-[11px] space-y-1.5">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Outstanding</span>
                 <span className="font-semibold font-mono tabular-nums text-foreground">
@@ -1677,8 +1677,8 @@ function PaymentPanel({
               className={cn(
                 'flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold',
                 Math.abs(splitRemaining) < 0.01
-                  ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-700 dark:text-emerald-400'
-                  : 'border-amber-500/25 bg-amber-500/[0.06] text-amber-700 dark:text-amber-400'
+                  ? 'border-emerald-500/25 bg-emerald-500/6 text-emerald-700 dark:text-emerald-400'
+                  : 'border-amber-500/25 bg-amber-500/6 text-amber-700 dark:text-amber-400'
               )}
             >
               {Math.abs(splitRemaining) < 0.01
@@ -3283,7 +3283,7 @@ export default function NewSalePage() {
     <TooltipProvider>
       {/* responsive: h-dvh handles mobile viewport collapse; outer scrolls horizontally on lower-resolution desktops where the lg+ side-by-side layout can't fit (~1208px minimum: 920px table + 288px sidebar). Inner enforces lg:min-w-[1280px] so columns keep their proper desktop dimensions instead of compressing. */}
       <div className="h-dvh w-full overflow-x-auto overflow-y-hidden bg-background">
-      <div className="flex flex-col h-full w-full max-w-[1920px] mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6 lg:min-w-[1280px]">
+      <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6 lg:min-w-7xl">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
@@ -3321,7 +3321,7 @@ export default function NewSalePage() {
 
         {/* Quotation source banner */}
         {quotationSource && (
-          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <FileText className="h-3.5 w-3.5 shrink-0" />
             <span>Converting from quotation <span className="font-semibold">{quotationSource.number}</span> — customer: <span className="font-semibold">{quotationSource.customerName}</span>. Verify item batches before saving.</span>
             <button onClick={() => setQuotationSource(null)} className="ml-auto shrink-0 rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-amber-500/10 transition-colors"><X className="h-3.5 w-3.5" /></button>
@@ -3330,7 +3330,7 @@ export default function NewSalePage() {
 
         {/* Edit-invoice banner — appears when ?editId=… is in the URL */}
         {editingInvoiceId && (
-          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <Pencil className="h-3.5 w-3.5 shrink-0" />
             <span>
               Editing invoice <span className="font-semibold font-mono">{editingInvoiceNumber ?? '…'}</span>. Stock, customer outstanding, and loyalty points will be re-calculated on save. Already-collected payments are preserved.
@@ -3493,7 +3493,7 @@ export default function NewSalePage() {
                   'flex items-center gap-2.5 w-full h-11 rounded-lg border bg-background px-3 text-xs transition-colors',
                   selectedCustomer
                     ? 'border-border hover:border-border/80'
-                    : 'border-dashed border-amber-500/40 bg-amber-500/[0.04] hover:border-amber-500/60'
+                    : 'border-dashed border-amber-500/40 bg-amber-500/4 hover:border-amber-500/60'
                 )}
               >
                 <div className={cn(
@@ -3741,7 +3741,7 @@ export default function NewSalePage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden mb-3"
             >
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.05] px-3 py-2.5 dark:border-rose-800/40">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-500/25 bg-rose-500/5 px-3 py-2.5 dark:border-rose-800/40">
                 <div className="flex items-center gap-2.5 text-xs text-rose-700 dark:text-rose-400">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
                   <span>
@@ -4129,7 +4129,7 @@ export default function NewSalePage() {
                     <div className="flex-1 flex flex-col min-h-0 relative">
                       {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. min-w bumped to 960px to match real column widths. */}
                       <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-auto">
-                        <Table className="w-full min-w-[960px]">
+                        <Table className="w-full min-w-240">
                           <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-md">
                             <TableRow className="border-b border-border/40 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
@@ -4670,7 +4670,7 @@ export default function NewSalePage() {
                         {/* Footer — single-row horizontal totals bar */}
                         {/* responsive: cells wrap onto multiple rows below md, where 8+ flex-1 cells would otherwise squish labels into unreadable widths. Each cell has a min-width so it stays legible when wrapped. */}
                         <div className="border-t border-border/40 bg-muted/20 shrink-0">
-                          <div className="flex flex-wrap items-stretch gap-px bg-border/30 [&>*]:min-w-[140px] md:[&>*]:min-w-0">
+                          <div className="flex flex-wrap items-stretch gap-px bg-border/30 *:min-w-35 md:*:min-w-0">
                             {/* Payment Mode */}
                             <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
                               <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Payment</span>
@@ -4834,7 +4834,7 @@ export default function NewSalePage() {
 
             {/* Credit mode indicator — shown above payment when applicable */}
             {paymentMode === 'CREDIT' && (
-              <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
+              <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
                 <span className="flex items-center gap-1.5 font-semibold">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                   Credit Sale
@@ -5391,7 +5391,7 @@ export default function NewSalePage() {
             <Input
               type="number"
               placeholder="Amount for one-by-one"
-              className="h-8 text-xs font-mono flex-1 min-w-[140px]"
+              className="h-8 text-xs font-mono flex-1 min-w-35"
               value={collectAmount}
               onChange={(e) => setCollectAmount(e.target.value)}
             />

@@ -42,6 +42,8 @@ const LedgerPage = lazy(() => import('@/pages/accounting/LedgerPage'))
 const ProfitLossPage = lazy(() => import('@/pages/accounting/ProfitLossPage'))
 const ReportsHubPage = lazy(() => import('@/pages/reports/ReportsHubPage'))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage'))
+const UsersPage = lazy(() => import('@/pages/users/UsersPage'))
+const AuditTrailPage = lazy(() => import('@/pages/audit/AuditTrailPage'))
 const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPage'))
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
@@ -52,6 +54,7 @@ const ApprovalsPage = lazy(() => import('@/pages/admin/ApprovalsPage'))
 const ApprovalDetailPage = lazy(() => import('@/pages/admin/ApprovalDetailPage'))
 const LeadsListPage = lazy(() => import('@/pages/crm/LeadsListPage'))
 const LeadsAnalyticsPage = lazy(() => import('@/pages/crm/LeadsAnalyticsPage'))
+const PayPage = lazy(() => import('@/pages/pay/PayPage'))
 
 // ─── Role-based page access control ───────────────────────────────────────────
 // Maps each role to the set of routes it can access.
@@ -192,15 +195,21 @@ function App() {
   // Register global keyboard shortcuts
   useGlobalShortcuts()
 
+  // Public routes that bypass auth entirely — customer-facing pages linked
+  // from WhatsApp messages. The user reaching these has no JWT and shouldn't
+  // be bounced to /login.
+  const isPublicPayRoute = path.startsWith('/pay/')
+
   // Auth redirects
   useEffect(() => {
+    if (isPublicPayRoute) return
     if (!isAuthenticated && path !== '/login' && path !== '/forgot-password') {
       navigate('/login')
     }
     if (isAuthenticated && (path === '/login' || path === '/forgot-password')) {
       navigate('/dashboard')
     }
-  }, [isAuthenticated, path])
+  }, [isAuthenticated, path, isPublicPayRoute])
 
   // Handle global 401 from API interceptor — avoids page reload loop
   useEffect(() => {
@@ -211,6 +220,20 @@ function App() {
     window.addEventListener('pbims:unauthorized', handler)
     return () => window.removeEventListener('pbims:unauthorized', handler)
   }, [logout])
+
+  // Public pay page — renders without AppLayout for both authed and
+  // unauthed visitors (customers reaching this URL from WhatsApp).
+  if (isPublicPayRoute) {
+    const invoiceId = path.slice('/pay/'.length).replace(/\/+$/, '')
+    return (
+      <TooltipProvider>
+        <Suspense fallback={<LoadingFallback />}>
+          <PayPage invoiceId={invoiceId} />
+        </Suspense>
+        <Toaster position="top-right" richColors closeButton />
+      </TooltipProvider>
+    )
+  }
 
   // Auth pages (not authenticated)
   if (!isAuthenticated) {
@@ -309,6 +332,10 @@ function App() {
         return <ReportsHubPage />
       case '/settings':
         return <SettingsPage />
+      case '/users':
+        return <UsersPage />
+      case '/audit-trail':
+        return <AuditTrailPage />
       case '/branches':
         return <BranchesPage />
       case '/salespersons':

@@ -1,10 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import api from '@/lib/api'
 import { createPortal } from 'react-dom'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -13,8 +11,6 @@ import { toast } from 'sonner'
 import {
   Building2,
   Receipt,
-  Users,
-  Bell,
   Printer,
   Percent,
   Database,
@@ -28,15 +24,10 @@ import {
   Pencil,
   Trash2,
   Power,
-  Send,
-  Eye,
-  EyeOff,
   Download,
   Clock,
-  Search,
-  ChevronRight,
   Check,
-  X,
+  Hash,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -75,10 +66,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
-import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 import { IndiamartCard } from './integrations/IndiamartCard'
+import NumberingSection from '@/pages/numbering/NumberingPage'
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -124,9 +115,8 @@ interface SettingsSection {
 
 const settingsSections: SettingsSection[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, description: 'Company details & invoicing' },
+  { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / GRN formats' },
   { id: 'tax', label: 'Tax Configuration', icon: Receipt, description: 'GST rates & tax settings' },
-  { id: 'users', label: 'User Management', icon: Users, description: 'Roles & permissions' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, description: 'SMS, email & templates' },
   { id: 'printer', label: 'Printer Settings', icon: Printer, description: 'Invoice & label formats' },
   { id: 'discounts', label: 'Discount Rules', icon: Percent, description: 'Auto & manual discounts' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
@@ -203,30 +193,9 @@ const businessProfileSchema = z.object({
   email: z.string().email('Valid email required'),
   gstin: z.string().min(15, 'Valid GSTIN required').max(15),
   drugLicense: z.string().min(1, 'Drug license is required'),
-  invoicePrefix: z.string().min(1, 'Invoice prefix is required'),
 })
 
 type BusinessProfileForm = z.infer<typeof businessProfileSchema>
-
-const addUserSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  email: z.string().email('Valid email required'),
-  phone: z.string().min(10, 'Valid phone number required'),
-  role: z.string().min(1, 'Role is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  branchId: z.string().optional(),
-})
-
-type AddUserForm = z.infer<typeof addUserSchema>
-
-const editUserSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  phone: z.string().min(10, 'Valid phone number required'),
-  role: z.string().min(1, 'Role is required'),
-  branchId: z.string().optional(),
-  newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
-})
-type EditUserForm = z.infer<typeof editUserSchema>
 
 const addDiscountSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -380,13 +349,11 @@ export default function SettingsPage() {
               <div className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-lg',
                 activeSection === 'business' ? 'bg-primary/10 text-primary' :
+                activeSection === 'numbering' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
                 activeSection === 'tax' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                activeSection === 'users' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' :
-                activeSection === 'notifications' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
                 activeSection === 'printer' ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400' :
                 activeSection === 'discounts' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
                 activeSection === 'backup' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
-                activeSection === 'audit' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' :
                 'bg-muted/60 text-muted-foreground'
               )}>
                 <ActiveIcon className="h-3.5 w-3.5" />
@@ -411,9 +378,8 @@ export default function SettingsPage() {
                 transition={{ duration: 0.2, ease: 'easeOut' }}
               >
                 {activeSection === 'business' && <BusinessProfileSection />}
+                {activeSection === 'numbering' && <NumberingSection />}
                 {activeSection === 'tax' && <TaxConfigSection />}
-                {activeSection === 'users' && <UserManagementSection />}
-                {activeSection === 'notifications' && <NotificationSettingsSection />}
                 {activeSection === 'printer' && <PrinterSettingsSection />}
                 {activeSection === 'discounts' && <DiscountRulesSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
@@ -440,7 +406,6 @@ function BusinessProfileSection() {
   const {
     register,
     handleSubmit,
-    watch,
     reset,
     formState: { errors },
   } = useForm<BusinessProfileForm>({
@@ -456,12 +421,9 @@ function BusinessProfileSection() {
         email: businessProfile.email || '',
         gstin: businessProfile.gstin || '',
         drugLicense: businessProfile.drugLicense || '',
-        invoicePrefix: businessProfile.invoicePrefix || 'INV',
       })
     }
   }, [businessProfile, reset])
-
-  const invoicePrefix = watch('invoicePrefix')
 
   const onSubmit = (data: BusinessProfileForm) => {
     updateBusinessProfile(data)
@@ -576,32 +538,6 @@ function BusinessProfileSection() {
               </div>
             </div>
 
-            <Separator className="bg-border/40" />
-
-            <div>
-              <SectionLabel>Invoice Settings</SectionLabel>
-              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="invoicePrefix">Invoice Prefix <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="invoicePrefix"
-                    {...register('invoicePrefix')}
-                    error={!!errors.invoicePrefix}
-                  />
-                  {errors.invoicePrefix && (
-                    <p className="text-xs text-destructive">{errors.invoicePrefix.message}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Invoice preview */}
-            <div className="rounded-xl border border-border/60 bg-muted/30 p-4 dark:bg-muted/15">
-              <SectionLabel>Invoice Number Preview</SectionLabel>
-              <p className="mt-1.5 font-mono text-sm font-semibold text-foreground">
-                {invoicePrefix || 'INV'}/24/00001
-              </p>
-            </div>
           </form>
         </CardContent>
       </Card>
@@ -747,759 +683,6 @@ function TaxConfigSection() {
             <p className="text-xs text-muted-foreground">
               Determines whether CGST+SGST or IGST applies
             </p>
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// Section: User Management
-// ─────────────────────────────────────────────────────────────
-
-function UserManagementSection() {
-  type UserRow = {
-    id: string; name: string; email: string; phone: string; role: string
-    isActive: boolean; lastLogin: string; branchId?: string
-    branch?: { id: string; name: string; code: string } | null
-  }
-  const [users, setUsers] = useState<UserRow[]>([])
-  const [showAddDialog, setShowAddDialog] = useState(false)
-  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const { branches, fetchBranches } = useBranchStore()
-
-  const fetchUsers = useCallback(() => {
-    fetchBranches()
-    api.get('/users').then((res) => {
-      const rows = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
-      setUsers(rows.map((u: any) => ({
-        id: u.id, name: u.name, email: u.email,
-        phone: u.phone ?? '', role: u.role,
-        isActive: u.isActive ?? true,
-        lastLogin: u.updatedAt ?? '',
-        branchId: u.branchId ?? '',
-        branch: u.branch ?? null,
-      })))
-    }).catch(() => { toast.error('Failed to load users') })
-  }, [fetchBranches])
-
-  useEffect(() => { fetchUsers() }, [fetchUsers])
-  useBranchRefresh(fetchUsers)
-
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users
-    const q = searchQuery.toLowerCase()
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.role.toLowerCase().includes(q)
-    )
-  }, [users, searchQuery])
-
-  const {
-    control,
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<AddUserForm>({
-    resolver: zodResolver(addUserSchema),
-  })
-
-  const roleLabels: Record<string, string> = {
-    ADMIN: 'Admin',
-    PHARMACIST: 'Pharmacist',
-    INVENTORY_MANAGER: 'Inventory Manager',
-    ACCOUNTANT: 'Accountant',
-  }
-
-  const roleBadgeVariant: Record<string, 'purple' | 'info' | 'warning' | 'success'> = {
-    ADMIN: 'purple',
-    PHARMACIST: 'info',
-    INVENTORY_MANAGER: 'warning',
-    ACCOUNTANT: 'success',
-  }
-
-  const onAddUser = async (data: AddUserForm) => {
-    try {
-      const res = await api.post('/users', {
-        name: data.name, email: data.email, phone: data.phone,
-        role: data.role, password: (data as any).password,
-        branchId: data.branchId || undefined,
-      })
-      setUsers((prev) => [...prev, {
-        id: res.data.id, name: res.data.name, email: res.data.email,
-        phone: res.data.phone ?? '', role: res.data.role,
-        isActive: res.data.isActive ?? true, lastLogin: '',
-        branchId: res.data.branchId ?? '', branch: res.data.branch ?? null,
-      }])
-      setShowAddDialog(false)
-      reset()
-      toast.success(`User ${data.name} created successfully`)
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to create user')
-    }
-  }
-
-  const toggleUserStatus = async (userId: string) => {
-    const user = users.find((u) => u.id === userId)
-    if (!user) return
-    try {
-      await api.patch(`/users/${userId}`, { isActive: !user.isActive })
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, isActive: !u.isActive } : u))
-      toast.success('User status updated')
-    } catch {
-      toast.error('Failed to update user status')
-    }
-  }
-
-  return (
-    <motion.div variants={itemVariants}>
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
-                <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <CardTitle>User Management</CardTitle>
-                <CardDescription>Manage users and their access roles</CardDescription>
-              </div>
-            </div>
-            {document.getElementById('settings-save-button-portal') && createPortal(
-              <Button onClick={() => setShowAddDialog(true)} size="sm" className="gap-1.5 cursor-pointer h-8">
-                <Plus className="h-4 w-4" />
-                Add User
-              </Button>,
-              document.getElementById('settings-save-button-portal')!
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <DataTableFilterBar
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            searchPlaceholder="Search by name, email, or role..."
-            resultsCount={filteredUsers.length}
-          />
-          <div className="rounded-xl border border-border/60 overflow-x-auto">
-            {/* Mobile card list */}
-            <div className="md:hidden">
-              {filteredUsers.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">No users found</div>
-              ) : (
-                <div className="divide-y divide-border/40">
-                  {filteredUsers.map((user) => (
-                    <div key={user.id} className="flex items-start justify-between gap-2 px-4 py-3">
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <p className="truncate font-medium text-sm">{user.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                          <Badge variant={roleBadgeVariant[user.role] || 'secondary'} size="sm">
-                            {roleLabels[user.role] || user.role}
-                          </Badge>
-                          <Badge variant={user.isActive ? 'success' : 'secondary'} size="sm" dot>
-                            {user.isActive ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-0.5 shrink-0">
-                        <span className="text-xs text-muted-foreground">
-                          {user.lastLogin ? formatDate(user.lastLogin) : 'Never'}
-                        </span>
-                        {user.branch && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">{user.branch.code}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Desktop table */}
-            <div className="hidden md:block">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30 dark:bg-muted/15">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Branch</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Login</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={roleBadgeVariant[user.role] || 'secondary'} size="sm">
-                        {roleLabels[user.role] || user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {user.branch ? (
-                        <span className="inline-flex items-center gap-1">
-                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">{user.branch.code}</span>
-                          {user.branch.name}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/50">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={user.isActive ? 'success' : 'secondary'}
-                        size="sm"
-                        dot
-                      >
-                        {user.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {user.lastLogin ? formatDateTime(user.lastLogin) : 'Never'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DataTableRowActions
-                        onEdit={() => setEditingUser(user)}
-                        customActions={[
-                          {
-                            label: user.isActive ? 'Deactivate' : 'Activate',
-                            icon: <Power className={cn('h-4 w-4', user.isActive ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400')} />,
-                            onClick: () => toggleUserStatus(user.id),
-                          },
-                        ]}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Add User Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New User</DialogTitle>
-            <DialogDescription>Create a new user account. Password will be auto-generated.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onAddUser)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="userName">Full Name</Label>
-              <Input
-                id="userName"
-                placeholder="Enter full name"
-                {...register('name')}
-                error={!!errors.name}
-              />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="userEmail">Email</Label>
-              <Input
-                id="userEmail"
-                type="email"
-                placeholder="user@company.com"
-                {...register('email')}
-                error={!!errors.email}
-              />
-              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="userPhone">Phone</Label>
-              <Input
-                id="userPhone"
-                placeholder="9876543210"
-                {...register('phone')}
-                error={!!errors.phone}
-              />
-              {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="userRole">Role <span className="text-destructive">*</span></Label>
-              <Controller
-                name="role"
-                control={control}
-                render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <SelectTrigger id="userRole" className="h-10 cursor-pointer">
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ADMIN" className="cursor-pointer">Admin</SelectItem>
-                      <SelectItem value="PHARMACIST" className="cursor-pointer">Pharmacist</SelectItem>
-                      <SelectItem value="INVENTORY_MANAGER" className="cursor-pointer">Inventory Manager</SelectItem>
-                      <SelectItem value="ACCOUNTANT" className="cursor-pointer">Accountant</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="userPassword">Password</Label>
-              <Input
-                id="userPassword"
-                type="password"
-                placeholder="Min. 6 characters"
-                {...register('password')}
-                error={!!(errors as any).password}
-              />
-              {(errors as any).password && <p className="text-xs text-destructive">{(errors as any).password.message}</p>}
-            </div>
-            {branches.length > 0 && (
-              <div className="space-y-2">
-                <Label htmlFor="userBranch">Assign Branch</Label>
-                <Controller
-                  name="branchId"
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                      value={field.value || '__none__'}
-                    >
-                      <SelectTrigger id="userBranch" className="h-10">
-                        <SelectValue placeholder="No branch (access all)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">No branch (access all)</SelectItem>
-                        {branches.filter((b: any) => b.isActive).map((b: any) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            <span className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
-                              {b.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Leave blank to give access to all branches
-                </p>
-              </div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddDialog(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">Create User</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit User Dialog */}
-      {editingUser && (
-        <EditUserDialog
-          user={editingUser}
-          branches={branches}
-          onClose={() => setEditingUser(null)}
-          onSaved={(updated) => {
-            setUsers((prev) => prev.map((u) => u.id === updated.id ? { ...u, ...updated } : u))
-            setEditingUser(null)
-          }}
-        />
-      )}
-    </motion.div>
-  )
-}
-
-// ── Edit User Dialog ──────────────────────────────────────────
-function EditUserDialog({
-  user,
-  branches,
-  onClose,
-  onSaved,
-}: {
-  user: { id: string; name: string; email: string; phone: string; role: string; isActive: boolean; lastLogin?: string; branchId?: string; branch?: { id: string; name: string; code: string } | null }
-  branches: { id: string; name: string; code: string; isActive: boolean }[]
-  onClose: () => void
-  onSaved: (updated: any) => void
-}) {
-  const { register, handleSubmit, control, formState: { errors } } = useForm<EditUserForm>({
-    resolver: zodResolver(editUserSchema),
-    defaultValues: {
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      branchId: user.branchId ?? '',
-      newPassword: '',
-    },
-  })
-  const [saving, setSaving] = useState(false)
-
-  const onSubmit = async (data: EditUserForm) => {
-    setSaving(true)
-    try {
-      const payload: any = {
-        name: data.name,
-        phone: data.phone,
-        role: data.role,
-        branchId: data.branchId || null,
-      }
-      if (data.newPassword) payload.password = data.newPassword
-      const res = await api.patch(`/users/${user.id}`, payload)
-      const updated = res.data?.data ?? res.data
-      onSaved({
-        id: updated.id,
-        name: updated.name,
-        email: updated.email ?? user.email,
-        phone: updated.phone,
-        role: updated.role,
-        isActive: updated.isActive ?? user.isActive,
-        branchId: updated.branchId ?? '',
-        branch: updated.branch ?? null,
-        lastLogin: user.lastLogin ?? '',
-      })
-      toast.success('User updated successfully')
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to update user')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const roleLabels: Record<string, string> = {
-    ADMIN: 'Admin',
-    PHARMACIST: 'Pharmacist',
-    INVENTORY_MANAGER: 'Inventory Manager',
-    ACCOUNTANT: 'Accountant',
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit User</DialogTitle>
-          <DialogDescription>Update user details and branch assignment for <strong>{user.email}</strong></DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Full Name</Label>
-            <Input {...register('name')} placeholder="Full name" />
-            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label>Phone</Label>
-            <Input {...register('phone')} placeholder="9876543210" />
-            {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label>Role</Label>
-            <Controller
-              name="role"
-              control={control}
-              render={({ field }) => (
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(roleLabels).map(([val, label]) => (
-                      <SelectItem key={val} value={val}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            {errors.role && <p className="text-xs text-destructive">{errors.role.message}</p>}
-          </div>
-          {branches.length > 0 && (
-            <div className="space-y-2">
-              <Label>Assign Branch</Label>
-              <Controller
-                name="branchId"
-                control={control}
-                render={({ field }) => (
-                  <Select
-                    onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                    value={field.value || '__none__'}
-                  >
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="No branch (access all)" />
-                    </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">No branch (access all)</SelectItem>
-                        {branches.filter((b: any) => b.isActive).map((b: any) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            <span className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-muted-foreground">{b.code}</span>
-                              {b.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                  </Select>
-                )}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Leave blank to give access to all branches
-              </p>
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label>New Password <span className="text-muted-foreground text-[11px]">(leave blank to keep current)</span></Label>
-            <Input
-              {...register('newPassword')}
-              type="password"
-              placeholder="Min. 6 characters"
-            />
-            {errors.newPassword && <p className="text-xs text-destructive">{errors.newPassword.message}</p>}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// Section: Notification Settings
-// ─────────────────────────────────────────────────────────────
-
-function NotificationSettingsSection() {
-  const { getSetting, updateSetting } = useSettingsStore()
-  const [smsProvider, setSmsProvider] = useState('twilio')
-  const [smsApiKey, setSmsApiKey] = useState('sk_live_*****************************')
-  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com')
-  const [smtpPort, setSmtpPort] = useState('587')
-  const [smtpUser, setSmtpUser] = useState('notifications@hospitalsuppliers.com')
-  const [smtpPass, setSmtpPass] = useState('app-password-here')
-  const [showSmtpPass, setShowSmtpPass] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState('invoice')
-  const [templateContent, setTemplateContent] = useState(
-    'Dear {{customer_name}},\n\nYour invoice {{invoice_number}} of {{amount}} has been generated on {{date}}.\n\nThank you for your business.\n\n- {{company_name}}'
-  )
-
-  const templateTypes = [
-    { value: 'invoice', label: 'Invoice Generated' },
-    { value: 'payment', label: 'Payment Received' },
-    { value: 'reminder', label: 'Payment Reminder' },
-    { value: 'expiry', label: 'Near-Expiry Alert' },
-    { value: 'low-stock', label: 'Low Stock Alert' },
-  ]
-
-  const templateVariables = ['customer_name', 'invoice_number', 'amount', 'date', 'company_name', 'due_date', 'product_name', 'batch_number']
-
-  useEffect(() => {
-    getSetting('notification_settings').then(data => {
-      if (data) {
-        setSmsProvider(data.smsProvider || 'twilio')
-        setSmsApiKey(data.smsApiKey || '')
-        setSmtpHost(data.smtpHost || 'smtp.gmail.com')
-        setSmtpPort(data.smtpPort || '587')
-        setSmtpUser(data.smtpUser || '')
-        setSmtpPass(data.smtpPass || '')
-        setTemplateContent(data.templateContent || '')
-        setSelectedTemplate(data.selectedTemplate || 'invoice')
-      }
-    })
-  }, [getSetting])
-
-  const handleSave = async () => {
-    await updateSetting('notification_settings', {
-      smsProvider,
-      smsApiKey,
-      smtpHost,
-      smtpPort,
-      smtpUser,
-      smtpPass,
-      templateContent,
-      selectedTemplate
-    })
-  }
-
-  const handleTemplateChange = (type: string) => {
-    setSelectedTemplate(type)
-    const templates: Record<string, string> = {
-      invoice: 'Dear {{customer_name}},\n\nYour invoice {{invoice_number}} of {{amount}} has been generated on {{date}}.\n\nThank you for your business.\n\n- {{company_name}}',
-      payment: 'Dear {{customer_name}},\n\nWe have received your payment of {{amount}} against invoice {{invoice_number}} on {{date}}.\n\nThank you.\n\n- {{company_name}}',
-      reminder: 'Dear {{customer_name}},\n\nThis is a reminder that invoice {{invoice_number}} of {{amount}} is due on {{due_date}}.\n\nPlease arrange payment at the earliest.\n\n- {{company_name}}',
-      expiry: 'Alert: {{product_name}} (Batch: {{batch_number}}) is expiring on {{date}}. Please take necessary action.\n\n- {{company_name}}',
-      'low-stock': 'Alert: {{product_name}} stock is below minimum level. Current stock needs replenishment.\n\n- {{company_name}}',
-    }
-    setTemplateContent(templates[type] || '')
-  }
-
-  return (
-    <motion.div className="space-y-6" variants={itemVariants}>
-      {document.getElementById('settings-save-button-portal') && createPortal(
-        <Button onClick={handleSave} size="sm" className="gap-1.5 cursor-pointer h-8">
-          <Save className="h-4 w-4" />
-          Save Notifications
-        </Button>,
-        document.getElementById('settings-save-button-portal')!
-      )}
-      {/* SMS Gateway */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15">
-              <Send className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <CardTitle>SMS Gateway</CardTitle>
-              <CardDescription>Configure SMS notifications</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <Select value={smsProvider} onValueChange={setSmsProvider}>
-                <SelectTrigger className="cursor-pointer">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="twilio" className="cursor-pointer">Twilio</SelectItem>
-                  <SelectItem value="msg91" className="cursor-pointer">MSG91</SelectItem>
-                  <SelectItem value="textlocal" className="cursor-pointer">TextLocal</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>API Key</Label>
-              <Input
-                value={smsApiKey}
-                onChange={(e) => setSmsApiKey(e.target.value)}
-                type="password"
-              />
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 cursor-pointer"
-            onClick={() => toast.success('SMS test sent successfully')}
-          >
-            <Send className="h-3.5 w-3.5" />
-            Send Test SMS
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Email SMTP */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 dark:bg-blue-500/15">
-              <Bell className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <CardTitle>Email SMTP</CardTitle>
-              <CardDescription>Configure email notifications</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>SMTP Host</Label>
-              <Input value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Port</Label>
-              <Input value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Username</Label>
-              <Input value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Password</Label>
-              <Input
-                type={showSmtpPass ? 'text' : 'password'}
-                value={smtpPass}
-                onChange={(e) => setSmtpPass(e.target.value)}
-                suffix={
-                  <button
-                    type="button"
-                    onClick={() => setShowSmtpPass(!showSmtpPass)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showSmtpPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                }
-              />
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 cursor-pointer"
-            onClick={() => toast.success('Email test sent successfully')}
-          >
-            <Send className="h-3.5 w-3.5" />
-            Send Test Email
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Template Editor */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10 dark:bg-purple-500/15">
-              <Pencil className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <CardTitle>Template Editor</CardTitle>
-              <CardDescription>Customize notification message templates</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Template Type</Label>
-            <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
-              <SelectTrigger className="w-full max-w-xs cursor-pointer">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {templateTypes.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <SectionLabel>Available Variables</SectionLabel>
-            <div className="flex flex-wrap gap-1.5">
-              {templateVariables.map((v) => (
-                <Badge key={v} variant="info" size="sm" className="cursor-pointer font-mono">
-                  {`{{${v}}}`}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Template Content</Label>
-            <Textarea
-              value={templateContent}
-              onChange={(e) => setTemplateContent(e.target.value)}
-              rows={8}
-              className="font-mono text-xs rounded-xl"
-            />
           </div>
         </CardContent>
       </Card>

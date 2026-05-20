@@ -738,7 +738,7 @@ export default function BranchesPage() {
       <Sheet open={!!drawerId} onOpenChange={(open) => { if (!open) setDrawerId(null) }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[680px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-170 p-0 gap-0 flex flex-col"
         >
           {selectedRow && (
             <BranchDrawerBody
@@ -760,7 +760,7 @@ export default function BranchesPage() {
         <Sheet open={formOpen} onOpenChange={setFormOpen}>
           <SheetContent
             side="right"
-            className="w-full sm:max-w-[560px] p-0 gap-0 flex flex-col"
+            className="w-full sm:max-w-140 p-0 gap-0 flex flex-col"
           >
             <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
               <div className="flex items-start justify-between gap-4 pr-8">
@@ -938,7 +938,7 @@ function BranchDrawerBody({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap flex items-center gap-1">
               <MapPin className="h-3 w-3" /> Address
             </p>
-            <p className="mt-0.5 text-sm font-medium break-words" title={b.address ?? ''}>
+            <p className="mt-0.5 text-sm font-medium wrap-break-word" title={b.address ?? ''}>
               {b.address || '—'}
             </p>
           </div>

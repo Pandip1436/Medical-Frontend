@@ -144,6 +144,8 @@ const navigationGroups: NavGroup[] = [
     title: 'SETTINGS',
     items: [
       { label: 'Branches', icon: Building2, href: '/branches', adminOnly: true },
+      { label: 'User Management', icon: Users, href: '/users', adminOnly: true },
+      { label: 'Audit Trail', icon: ShieldCheck, href: '/audit-trail', adminOnly: true },
       { label: 'Settings', icon: Settings, href: '/settings', adminOnly: true },
     ],
   },

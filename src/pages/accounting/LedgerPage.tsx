@@ -1,8 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import dayjs from 'dayjs'
 import api from '@/lib/api'
-import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { KpiTile } from '@/components/dashboard/KpiTile'
+import type { KpiTileData, KpiDelta } from '@/components/dashboard/types'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -16,15 +20,23 @@ import {
   Wallet,
   Receipt,
   Check,
-  ChevronsUpDown,
   X,
   ArrowUpDown,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Download,
+  Rows3,
+  LineChart as LineChartIcon,
+  Phone,
+  RefreshCw,
+  Users,
+  TrendingUp,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -36,11 +48,30 @@ import {
   Card,
   CardContent,
 } from '@/components/ui/card'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SkeletonCard, SkeletonTable } from '@/components/ui/skeleton'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import type { Customer, Supplier } from '@/types'
+import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
-// Ledger entry type
+// Types
 // ─────────────────────────────────────────────────────────────
 
 interface LedgerEntry {
@@ -50,6 +81,122 @@ interface LedgerEntry {
   credit: number
 }
 
+type Period = 'year' | 'month'
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// ─────────────────────────────────────────────────────────────
+// Date helpers
+// ─────────────────────────────────────────────────────────────
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const isoDate = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
+function periodToRange(period: Period, year: number, monthIdx: number): { from: string; to: string } {
+  if (period === 'year') {
+    return {
+      from: dayjs().year(year).startOf('year').format('YYYY-MM-DD'),
+      to: dayjs().year(year).endOf('year').format('YYYY-MM-DD'),
+    }
+  }
+  const m = dayjs().year(year).month(monthIdx)
+  return {
+    from: m.startOf('month').format('YYYY-MM-DD'),
+    to: m.endOf('month').format('YYYY-MM-DD'),
+  }
+}
+
+function periodDisplay(period: Period, year: number, monthIdx: number): string {
+  if (period === 'year') return `Year ${year}`
+  return `${MONTH_NAMES[monthIdx]} ${year}`
+}
+
+const addDaysISO = (iso: string, n: number): string => {
+  const d = new Date(iso)
+  d.setDate(d.getDate() + n)
+  return isoDate(d)
+}
+const daysBetweenISO = (a: string, b: string): number =>
+  Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000)
+
+// ─────────────────────────────────────────────────────────────
+// Aggregations
+// ─────────────────────────────────────────────────────────────
+
+function sumInWindow(entries: LedgerEntry[], from: string, to: string) {
+  let debit = 0
+  let credit = 0
+  let count = 0
+  for (const e of entries) {
+    if (from && e.date < from) continue
+    if (to && e.date > to) continue
+    debit += e.debit
+    credit += e.credit
+    count++
+  }
+  return { debit, credit, net: debit - credit, count }
+}
+
+function dirFor(curr: number, prev: number): KpiDelta {
+  if (prev === 0) return { pct: 0, dir: curr === 0 ? 'flat' : 'up' }
+  const pct = ((curr - prev) / Math.abs(prev)) * 100
+  return { pct, dir: curr > prev ? 'up' : curr < prev ? 'down' : 'flat' }
+}
+
+interface DayPoint { date: string; balance: number; debit: number; credit: number }
+
+function buildDailySeries(entries: LedgerEntry[], from: string, to: string): DayPoint[] {
+  if (!from || !to) return []
+  // The API may return `date` as a full ISO timestamp (e.g. "2026-05-15T08:30:00.000Z").
+  // String compares against YYYY-MM-DD work fine for ordering, but Map keys require
+  // exact equality with the day-walk's YYYY-MM-DD output — so normalize once here.
+  const dayOf = (d: string) => d.slice(0, 10)
+
+  let bal = 0
+  for (const e of entries) if (dayOf(e.date) < from) bal += e.debit - e.credit
+
+  const dayMap = new Map<string, { debit: number; credit: number }>()
+  for (const e of entries) {
+    const ed = dayOf(e.date)
+    if (ed < from || ed > to) continue
+    const cur = dayMap.get(ed) ?? { debit: 0, credit: 0 }
+    cur.debit += e.debit
+    cur.credit += e.credit
+    dayMap.set(ed, cur)
+  }
+
+  const out: DayPoint[] = []
+  const start = new Date(from)
+  const end = new Date(to)
+  // Cap at ~370 days to keep render cost bounded if someone picks a huge custom range.
+  let safety = 400
+  for (const d = new Date(start); d <= end && safety-- > 0; d.setDate(d.getDate() + 1)) {
+    const iso = isoDate(d)
+    const day = dayMap.get(iso) ?? { debit: 0, credit: 0 }
+    bal += day.debit - day.credit
+    out.push({ date: iso, balance: bal, debit: day.debit, credit: day.credit })
+  }
+  return out
+}
+
+function downsample<T>(arr: T[], maxPoints: number): T[] {
+  if (arr.length <= maxPoints) return arr
+  const step = arr.length / maxPoints
+  const out: T[] = []
+  for (let i = 0; i < maxPoints; i++) out.push(arr[Math.floor(i * step)])
+  out[out.length - 1] = arr[arr.length - 1]
+  return out
+}
+
+const initialsOf = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase() ?? '')
+    .join('') || '?'
+
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
@@ -57,60 +204,113 @@ interface LedgerEntry {
 export default function LedgerPage() {
   const [partyType, setPartyType] = useState<'customer' | 'supplier'>('customer')
   const [selectedPartyId, setSelectedPartyId] = useState<string>('')
-  const [dateFrom, setDateFrom] = useState('2026-03-01')
-  const [dateTo, setDateTo] = useState('2026-03-31')
   const [partySearch, setPartySearch] = useState('')
   const [ledgerSearch, setLedgerSearch] = useState('')
-  const [partyPopoverOpen, setPartyPopoverOpen] = useState(false)
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('oldest')
+
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('month')
+  const [selectedYear, setSelectedYear] = useState(() => dayjs().year())
+  const [selectedMonthIdx, setSelectedMonthIdx] = useState(() => dayjs().month())
+  const [yearPopoverOpen, setYearPopoverOpen] = useState(false)
+  const [monthPopoverOpen, setMonthPopoverOpen] = useState(false)
+
+  const { from: dateFrom, to: dateTo } = useMemo(
+    () => periodToRange(selectedPeriod, selectedYear, selectedMonthIdx),
+    [selectedPeriod, selectedYear, selectedMonthIdx],
+  )
+
+  const [activeTab, setActiveTab] = useState<'ledger' | 'trend'>('ledger')
+  const [isLoading, setIsLoading] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Which tab is active INSIDE the picker. Independent of `partyType` (which
+  // tracks the currently-selected party's type — they happen to align after a pick).
+  const [pickerType, setPickerType] = useState<'customer' | 'supplier'>('customer')
   const [hasMoreBelow, setHasMoreBelow] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { customers, suppliers, fetchMasterData } = useMasterDataStore()
-  // Full history for the selected party. Date range/search/sort applied client-side
-  // so changing those doesn't re-hit the API.
   const [allLedgerEntries, setAllLedgerEntries] = useState<LedgerEntry[]>([])
+  // Captured at pick-time from the paginated search response, or fetched on
+  // first render when only an id is known (e.g. ?customerId= deep-link).
+  const [selectedPartyDetail, setSelectedPartyDetail] = useState<Customer | Supplier | null>(null)
 
-  useBranchRefresh(fetchMasterData)
+  // Force the ledger fetch effect to re-run on branch change so the table
+  // reflects the new branch's data without the user having to re-pick the party.
+  useBranchRefresh(() => {
+    setSelectedPartyDetail(null)
+    setRefreshKey((k) => k + 1)
+  })
 
   useEffect(() => {
-    if (customers.length === 0 || suppliers.length === 0) {
-      fetchMasterData()
-    }
-    // Read ?customerId=&name= from URL (navigated from OutstandingPage)
     const params = new URLSearchParams(window.location.search)
     const cid = params.get('customerId')
     if (cid) {
       setPartyType('customer')
       setSelectedPartyId(cid)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Unified party list (customers + suppliers in one searchable pool)
-  const unifiedParties = useMemo(() => {
-    const all = [
-      ...customers.map((c) => ({ id: c.id, name: c.name, type: 'customer' as const })),
-      ...suppliers.map((s) => ({ id: s.id, name: s.name, type: 'supplier' as const })),
-    ]
-    if (!partySearch.trim()) return all
-    const q = partySearch.toLowerCase()
-    return all.filter((p) => p.name.toLowerCase().includes(q))
-  }, [customers, suppliers, partySearch])
+  // ── Paginated party search (one hook per type — switching tabs flips which is enabled) ──
+  // Enabled when the popover is open OR when the no-party hero state is shown
+  // (in which case the picker renders inline and should fetch immediately).
+  const pickerEnabled = pickerOpen || !selectedPartyId
+  const customerResults = usePaginatedSearch<Customer>({
+    endpoint: '/customers',
+    pageSize: 20,
+    enabled: pickerEnabled && pickerType === 'customer',
+  })
+  const supplierResults = usePaginatedSearch<Supplier>({
+    endpoint: '/suppliers',
+    pageSize: 20,
+    enabled: pickerEnabled && pickerType === 'supplier',
+  })
+
+  useEffect(() => {
+    customerResults.setQuery(partySearch)
+    supplierResults.setQuery(partySearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partySearch])
+
+  // When the popover opens with an existing selection, default the picker tab to that party's type.
+  useEffect(() => {
+    if (pickerOpen && selectedPartyId) setPickerType(partyType)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerOpen])
+
+  const activeResults = pickerType === 'customer' ? customerResults : supplierResults
 
   const selectedParty = useMemo(() => {
-    if (!selectedPartyId) return null
-    if (partyType === 'customer') {
-      const c = customers.find((c) => c.id === selectedPartyId)
-      return c ? { id: c.id, name: c.name, type: 'customer' as const } : null
+    if (!selectedPartyId || !selectedPartyDetail) return null
+    return { id: selectedPartyDetail.id, name: selectedPartyDetail.name, type: partyType }
+  }, [selectedPartyId, selectedPartyDetail, partyType])
+
+  // Fetch the selected party's full record by id when we don't already have it
+  // (e.g. arrived via ?customerId= deep-link, or after a branch switch).
+  const fetchedDetailFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedPartyId) {
+      setSelectedPartyDetail(null)
+      fetchedDetailFor.current = null
+      return
     }
-    const s = suppliers.find((s) => s.id === selectedPartyId)
-    return s ? { id: s.id, name: s.name, type: 'supplier' as const } : null
-  }, [selectedPartyId, partyType, customers, suppliers])
+    if (selectedPartyDetail && (selectedPartyDetail as any).id === selectedPartyId) return
+    if (fetchedDetailFor.current === selectedPartyId) return
+    fetchedDetailFor.current = selectedPartyId
+
+    const endpoint = partyType === 'customer'
+      ? `/customers/${selectedPartyId}`
+      : `/suppliers/${selectedPartyId}`
+    let cancelled = false
+    api.get(endpoint)
+      .then((res) => { if (!cancelled) setSelectedPartyDetail(res.data) })
+      .catch(() => { /* leave detail null; ledger still loads by id */ })
+    return () => { cancelled = true }
+  }, [selectedPartyId, partyType, selectedPartyDetail])
 
   useEffect(() => {
     if (!selectedPartyId) {
       setAllLedgerEntries([])
+      setIsLoading(false)
       return
     }
 
@@ -119,6 +319,7 @@ export default function LedgerPage() {
       : `/reports/financial/supplier-ledger/${selectedPartyId}`
 
     let cancelled = false
+    setIsLoading(true)
     api
       .get(endpoint, { params: { from: '1900-01-01', to: '2099-12-31' } })
       .then((res) => {
@@ -134,9 +335,10 @@ export default function LedgerPage() {
         )
       })
       .catch(() => { if (!cancelled) setAllLedgerEntries([]) })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [selectedPartyId, partyType])
+  }, [selectedPartyId, partyType, refreshKey])
 
   // Apply date filter, compute opening/closing balance, then apply search + sort.
   // Balances are always computed chronologically; sort order only affects display.
@@ -186,24 +388,49 @@ export default function LedgerPage() {
 
   // Summary stats reflect the date-range window (search filter excluded so totals stay stable)
   const summary = useMemo(() => {
-    let totalDebit = 0
-    let totalCredit = 0
-    for (const e of allLedgerEntries) {
-      if (dateFrom && e.date < dateFrom) continue
-      if (dateTo && e.date > dateTo) continue
-      totalDebit += e.debit
-      totalCredit += e.credit
-    }
+    const s = sumInWindow(allLedgerEntries, dateFrom, dateTo)
     return {
-      totalDebit,
-      totalCredit,
+      totalDebit: s.debit,
+      totalCredit: s.credit,
       netBalance: closingBalance,
       txnCount: ledgerData.inRangeCount,
     }
   }, [allLedgerEntries, dateFrom, dateTo, closingBalance, ledgerData.inRangeCount])
 
-  const activeFilterCount =
-    (dateFrom ? 1 : 0) + (dateTo ? 1 : 0) + (sortOrder !== 'oldest' ? 1 : 0)
+  // Deltas vs prior equivalent-length window (ending the day before dateFrom).
+  const deltas = useMemo(() => {
+    if (!dateFrom || !dateTo) return null
+    const lenDays = daysBetweenISO(dateFrom, dateTo) + 1
+    const priorTo = addDaysISO(dateFrom, -1)
+    const priorFrom = addDaysISO(priorTo, -(lenDays - 1))
+    const prev = sumInWindow(allLedgerEntries, priorFrom, priorTo)
+    return {
+      debit: dirFor(summary.totalDebit, prev.debit),
+      credit: dirFor(summary.totalCredit, prev.credit),
+      net: dirFor(summary.netBalance, prev.net),
+      txn: dirFor(summary.txnCount, prev.count),
+    }
+  }, [allLedgerEntries, dateFrom, dateTo, summary])
+
+  // Full-resolution series for the Trend tab; downsampled copy for the Net sparkline.
+  const dailySeries = useMemo(
+    () => buildDailySeries(allLedgerEntries, dateFrom, dateTo),
+    [allLedgerEntries, dateFrom, dateTo],
+  )
+  // Sparkline plots the absolute outstanding amount, so the line always reads
+  // as "up = outstanding grew" regardless of Dr/Cr side. Side direction is
+  // conveyed elsewhere (KPI subtitle, big chart's color and chip).
+  const netSparkline = useMemo(() => {
+    if (dailySeries.length < 2) return undefined
+    return downsample(dailySeries.map((d) => Math.abs(d.balance)), 30)
+  }, [dailySeries])
+
+  const periodLabel = useMemo(
+    () => periodDisplay(selectedPeriod, selectedYear, selectedMonthIdx),
+    [selectedPeriod, selectedYear, selectedMonthIdx],
+  )
+
+  const activeFilterCount = sortOrder !== 'oldest' ? 1 : 0
 
   const handleExport = (format: string) => {
     if (!ledgerWithBalance.length) { toast.info('No ledger data to export'); return }
@@ -224,7 +451,9 @@ export default function LedgerPage() {
 
   // Track whether the ledger scroll container has content below the fold
   // so we can show a "more below" chevron above the sticky closing row.
+  // Depends on activeTab so we re-attach when the table remounts after switching tabs.
   useEffect(() => {
+    if (activeTab !== 'ledger') return
     const el = scrollRef.current
     if (!el) return
     const update = () => {
@@ -238,241 +467,573 @@ export default function LedgerPage() {
       el.removeEventListener('scroll', update)
       ro.disconnect()
     }
-  }, [ledgerWithBalance.length, selectedPartyId])
+  }, [ledgerWithBalance.length, selectedPartyId, activeTab])
+
+  const resetToCurrentMonth = () => {
+    setSelectedPeriod('month')
+    setSelectedYear(dayjs().year())
+    setSelectedMonthIdx(dayjs().month())
+  }
+  const handleClearFilters = () => {
+    setSortOrder('oldest')
+  }
+
+  const handlePickParty = (p: Customer | Supplier, type: 'customer' | 'supplier') => {
+    setPartyType(type)
+    setSelectedPartyId(p.id)
+    setSelectedPartyDetail(p)
+    fetchedDetailFor.current = p.id
+    setPartySearch('')
+    setPickerOpen(false)
+  }
+
+  // ── Picker list — reused by the hero picker (no-party state) and the header "Change party" button.
+  // Tabs at the top switch between server-paginated customer and supplier searches; only the
+  // active tab fetches. Scrolling near the bottom loads the next page.
+  const PartyPickerList = (
+    <>
+      <div className="grid grid-cols-2 gap-0.5 p-1 m-2 mb-0 rounded-md bg-muted">
+        {(['customer', 'supplier'] as const).map((t) => {
+          const isActive = pickerType === t
+          const total = (t === 'customer' ? customerResults : supplierResults).total
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setPickerType(t)}
+              className={cn(
+                'h-7 rounded text-xs font-medium transition-colors',
+                isActive
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t === 'customer' ? 'Customers' : 'Suppliers'}
+              {total > 0 && (
+                <span className="ml-1 text-[10px] opacity-60 tabular-nums">{total}</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      <div className="p-2 border-b border-border/40">
+        <Input
+          autoFocus
+          icon={<Search className="h-4 w-4" />}
+          placeholder={`Search ${pickerType === 'customer' ? 'customers' : 'suppliers'}...`}
+          value={partySearch}
+          onChange={(e) => setPartySearch(e.target.value)}
+          className="h-8"
+        />
+      </div>
+      <div
+        className="h-72 overflow-y-auto"
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+            activeResults.loadMore()
+          }
+        }}
+      >
+        {activeResults.loading && activeResults.items.length === 0 && (
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</p>
+        )}
+        {!activeResults.loading && activeResults.items.length === 0 && (
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+            {partySearch
+              ? `No ${pickerType}s match "${partySearch}"`
+              : `No ${pickerType}s found`}
+          </p>
+        )}
+        {activeResults.items.map((p) => {
+          const isSelected = selectedPartyId === p.id && partyType === pickerType
+          const phone = (p as any).phone
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => handlePickParty(p, pickerType)}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors',
+                isSelected && 'bg-muted/40',
+              )}
+            >
+              <Badge
+                variant={pickerType === 'customer' ? 'info' : 'purple'}
+                size="sm"
+                className="shrink-0"
+              >
+                {pickerType === 'customer' ? 'Cust' : 'Supp'}
+              </Badge>
+              <div className="min-w-0 flex-1">
+                <p className="truncate">{p.name}</p>
+                {phone && phone !== '0000000000' && (
+                  <p className="text-[10px] text-muted-foreground tabular-nums truncate">{phone}</p>
+                )}
+              </div>
+              {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
+            </button>
+          )
+        })}
+        {activeResults.items.length > 0 && activeResults.loading && (
+          <p className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</p>
+        )}
+        {activeResults.items.length > 0
+          && !activeResults.loading
+          && !activeResults.hasMore && (
+            <p className="px-3 py-2 text-center text-[10px] text-muted-foreground/60">
+              {activeResults.total} {pickerType}
+              {activeResults.total !== 1 ? 's' : ''}
+            </p>
+        )}
+      </div>
+      {selectedParty && (
+        <div className="border-t border-border/40 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedPartyId('')
+              setSelectedPartyDetail(null)
+              setPartySearch('')
+              setPickerOpen(false)
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 rounded-sm transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear selection
+          </button>
+        </div>
+      )}
+    </>
+  )
+
+  // ── KPI tile data (re-built each render — cheap)
+  const kpis: KpiTileData[] = [
+    {
+      key: 'debit',
+      title: 'Total Debit',
+      value: summary.totalDebit,
+      subtitle: periodLabel,
+      icon: ArrowUpRight,
+      iconBg: 'bg-rose-500/10',
+      iconColor: 'text-rose-600 dark:text-rose-400',
+      sparkColor: '#f43f5e',
+      href: '#',
+      delta: deltas?.debit,
+    },
+    {
+      key: 'credit',
+      title: 'Total Credit',
+      value: summary.totalCredit,
+      subtitle: periodLabel,
+      icon: ArrowDownLeft,
+      iconBg: 'bg-emerald-500/10',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      sparkColor: '#10b981',
+      href: '#',
+      delta: deltas?.credit,
+    },
+    {
+      key: 'net',
+      title: 'Net Balance',
+      value: Math.abs(summary.netBalance),
+      subtitle:
+        summary.netBalance > 0
+          ? 'Dr — receivable'
+          : summary.netBalance < 0
+            ? 'Cr — payable'
+            : 'Settled',
+      icon: Wallet,
+      iconBg:
+        summary.netBalance > 0
+          ? 'bg-rose-500/10'
+          : summary.netBalance < 0
+            ? 'bg-emerald-500/10'
+            : 'bg-slate-500/10',
+      iconColor:
+        summary.netBalance > 0
+          ? 'text-rose-600 dark:text-rose-400'
+          : summary.netBalance < 0
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-slate-600 dark:text-slate-400',
+      sparkColor:
+        summary.netBalance > 0 ? '#f43f5e' : summary.netBalance < 0 ? '#10b981' : '#64748b',
+      href: '#',
+      delta: deltas?.net,
+      sparkline: netSparkline,
+    },
+    {
+      key: 'txn',
+      title: 'Transactions',
+      value: summary.txnCount,
+      subtitle: `of ${allLedgerEntries.length} total`,
+      icon: Receipt,
+      iconBg: 'bg-blue-500/10',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      sparkColor: '#3b82f6',
+      href: '#',
+      isCurrency: false,
+      delta: deltas?.txn,
+    },
+  ]
+
+  // ── Year / Month switcher (matches the ProfitLossPage pattern) ──
+  const nowYear = dayjs().year()
+  const nowMonth = dayjs().month()
+  const atCurrentMonth = selectedYear === nowYear && selectedMonthIdx === nowMonth
+  const cannotGoNextMonth = selectedYear === nowYear && selectedMonthIdx >= nowMonth
+  const goPrevMonth = () => {
+    if (selectedMonthIdx === 0) {
+      setSelectedMonthIdx(11)
+      setSelectedYear((y) => y - 1)
+    } else {
+      setSelectedMonthIdx((m) => m - 1)
+    }
+  }
+  const goNextMonth = () => {
+    if (cannotGoNextMonth) return
+    if (selectedMonthIdx === 11) {
+      setSelectedMonthIdx(0)
+      setSelectedYear((y) => y + 1)
+    } else {
+      setSelectedMonthIdx((m) => m + 1)
+    }
+  }
+  const yearOptions = Array.from({ length: 10 }, (_, i) => nowYear - i)
+
+  const periodSwitcher = (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Year / Month toggle */}
+      <div className="inline-flex rounded-md border border-border/60 overflow-hidden h-9">
+        {(['year', 'month'] as Period[]).map((p) => (
+          <button
+            key={p}
+            type="button"
+            className={cn(
+              'px-3 text-xs font-medium transition-colors',
+              selectedPeriod === p
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-background hover:bg-muted dark:hover:bg-muted/50',
+            )}
+            onClick={() => setSelectedPeriod(p)}
+          >
+            {p === 'year' ? 'Year' : 'Month'}
+          </button>
+        ))}
+      </div>
+
+      {/* Year picker — always visible */}
+      <Popover open={yearPopoverOpen} onOpenChange={setYearPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            {selectedYear}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-32 p-1" align="start">
+          <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto">
+            {yearOptions.map((y) => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => { setSelectedYear(y); setYearPopoverOpen(false) }}
+                className={cn(
+                  'rounded px-2 py-1.5 text-sm text-left transition-colors hover:bg-muted',
+                  selectedYear === y && 'bg-primary/10 text-primary font-medium',
+                )}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* Month navigator — only when period === 'month' */}
+      {selectedPeriod === 'month' && (
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrevMonth} aria-label="Previous month">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Popover open={monthPopoverOpen} onOpenChange={setMonthPopoverOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+                {MONTH_NAMES[selectedMonthIdx]}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" align="start">
+              <div className="grid grid-cols-3 gap-1">
+                {MONTH_NAMES.map((name, idx) => {
+                  const disabled = selectedYear === nowYear && idx > nowMonth
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => { setSelectedMonthIdx(idx); setMonthPopoverOpen(false) }}
+                      className={cn(
+                        'rounded px-2 py-1.5 text-xs font-medium transition-colors',
+                        selectedMonthIdx === idx
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-muted',
+                        disabled && 'opacity-40 cursor-not-allowed hover:bg-transparent',
+                      )}
+                    >
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={goNextMonth}
+            disabled={cannotGoNextMonth}
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {!atCurrentMonth && (
+            <Button variant="outline" size="sm" className="h-9" onClick={resetToCurrentMonth}>
+              This Month
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  // ── Export dropdown (single trigger replaces 3 buttons)
+  const exportDropdown = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!ledgerWithBalance.length}
+          className="gap-1.5"
+        >
+          <Download className="h-4 w-4" />
+          <span className="hidden sm:inline">Export</span>
+          <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onSelect={() => handleExport('PDF')}>
+          <FileDown className="h-4 w-4 text-rose-600" />
+          <span>PDF</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleExport('Excel')}>
+          <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+          <span>CSV</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => handleExport('Print')}>
+          <Printer className="h-4 w-4 text-sky-600" />
+          <span>Print</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  // ── No-party hero state — inline embedded picker, no popover ──
+  if (!selectedPartyId) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      >
+        <Card className="rounded-2xl border-border/60 overflow-hidden">
+          <CardContent className="p-0">
+            {/* Hero copy */}
+            <div className="flex flex-col items-center text-center px-6 pt-10 pb-6">
+              <div className="relative mb-4">
+                <div className="absolute inset-0 -m-3 rounded-full bg-linear-to-br from-sky-500/15 to-purple-500/15 blur-2xl" />
+                <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-sky-500/15 to-purple-500/15 ring-1 ring-border/40">
+                  <Users className="h-7 w-7 text-sky-600 dark:text-sky-400" />
+                </div>
+              </div>
+              <h2 className="text-lg font-semibold tracking-tight">
+                Pick a customer or supplier
+              </h2>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Browse a party's full ledger — running balance, debit/credit history, and exports.
+              </p>
+            </div>
+
+            {/* Inline picker — no popover, results visible immediately */}
+            <div className="mx-auto max-w-md px-6 pb-8">
+              <div className="rounded-xl border border-border/60 bg-background overflow-hidden shadow-sm">
+                {PartyPickerList}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  // ── Party-selected layout
+  const partyTypeLabel =
+    selectedParty?.type === 'customer' ? 'Customer' : 'Supplier'
+  const outstanding = (selectedPartyDetail as any)?.currentOutstanding ?? 0
+  const creditLimit =
+    selectedParty?.type === 'customer'
+      ? ((selectedPartyDetail as Customer | null)?.creditLimit ?? 0)
+      : 0
+  const creditUsagePct =
+    creditLimit > 0 ? Math.min(100, Math.max(0, (outstanding / creditLimit) * 100)) : 0
+  const phone =
+    (selectedPartyDetail as any)?.phone ?? ''
+  const subMeta =
+    selectedParty?.type === 'customer'
+      ? (selectedPartyDetail as Customer | null)?.gstin
+      : (selectedPartyDetail as Supplier | null)?.contactPerson
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="space-y-5"
+      className="space-y-4"
     >
-      {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          {
-            label: 'Total Debit',
-            value: formatCurrency(summary.totalDebit),
-            icon: ArrowUpRight,
-            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-            borderAccent: 'border-l-rose-500',
-            valueClass: 'text-rose-600 dark:text-rose-400',
-          },
-          {
-            label: 'Total Credit',
-            value: formatCurrency(summary.totalCredit),
-            icon: ArrowDownLeft,
-            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-            borderAccent: 'border-l-emerald-500',
-            valueClass: 'text-emerald-600 dark:text-emerald-400',
-          },
-          {
-            label: 'Net Balance',
-            value: `${formatCurrency(Math.abs(summary.netBalance))}${summary.netBalance > 0 ? ' Dr' : summary.netBalance < 0 ? ' Cr' : ''}`,
-            icon: Wallet,
-            iconBg: summary.netBalance > 0
-              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-              : summary.netBalance < 0
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
-            borderAccent: summary.netBalance > 0
-              ? 'border-l-rose-500'
-              : summary.netBalance < 0
-                ? 'border-l-emerald-500'
-                : 'border-l-slate-400',
-            valueClass: summary.netBalance > 0
-              ? 'text-rose-600 dark:text-rose-400'
-              : summary.netBalance < 0
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : '',
-          },
-          {
-            label: 'Transactions',
-            value: summary.txnCount.toString(),
-            icon: Receipt,
-            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-            borderAccent: 'border-l-blue-500',
-            valueClass: '',
-          },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {stat.label}
-                </p>
-                <p className={cn('text-lg font-bold font-mono leading-tight', stat.valueClass)}>
-                  {stat.value}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* ── Year / Month switcher ── */}
+      <div className="flex flex-wrap items-center gap-2">{periodSwitcher}</div>
 
-      {/* ── Search + Filter Row ── */}
+      {/* ── Party Header Card ── */}
+      <Card
+        className={cn(
+          'rounded-2xl border-l-[3px]',
+          selectedParty?.type === 'customer' ? 'border-l-sky-500' : 'border-l-purple-500',
+        )}
+      >
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+          {/* Avatar + identity */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className={cn(
+                'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-base font-semibold',
+                selectedParty?.type === 'customer'
+                  ? 'bg-linear-to-br from-sky-500/20 to-blue-500/20 text-sky-700 dark:text-sky-300'
+                  : 'bg-linear-to-br from-purple-500/20 to-fuchsia-500/20 text-purple-700 dark:text-purple-300',
+              )}
+            >
+              {initialsOf(selectedPartyName)}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-semibold tracking-tight truncate max-w-xs sm:max-w-md">
+                  {selectedPartyName}
+                </h2>
+                <Badge
+                  variant={selectedParty?.type === 'customer' ? 'info' : 'purple'}
+                  size="sm"
+                >
+                  {partyTypeLabel}
+                </Badge>
+              </div>
+              <div className="mt-0.5 flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                {phone && (
+                  <span className="inline-flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    {phone}
+                  </span>
+                )}
+                {subMeta && (
+                  <>
+                    <span className="opacity-50">·</span>
+                    <span className="truncate max-w-40 sm:max-w-xs">{subMeta}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Outstanding + credit usage + change party */}
+          <div className="flex items-center gap-4 sm:ml-auto">
+            <div className="text-right shrink-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Outstanding
+              </p>
+              <p
+                className={cn(
+                  'text-base font-bold font-mono tabular-nums',
+                  outstanding > 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : outstanding < 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : '',
+                )}
+              >
+                {formatCurrency(Math.abs(outstanding))}
+                {outstanding > 0 ? ' Dr' :outstanding < 0 ? ' Cr' : ''}
+              </p>
+              {selectedParty?.type === 'customer' && creditLimit > 0 && (
+                <div className="mt-1.5 w-32">
+                  <div className="h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all',
+                        creditUsagePct >= 90
+                          ? 'bg-rose-500'
+                          : creditUsagePct >= 70
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500',
+                      )}
+                      style={{ width: `${creditUsagePct}%` }}
+                    />
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground text-right">
+                    {creditUsagePct.toFixed(0)}% of {formatCurrencyCompact(creditLimit)}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 shrink-0">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Change</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="end">
+                {PartyPickerList}
+              </PopoverContent>
+            </Popover>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── KPI Strip ── */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {kpis.map((kpi) => (
+            <KpiTile key={kpi.key} kpi={kpi} />
+          ))}
+        </div>
+      )}
+
+      {/* ── Filter Bar ── */}
       <DataTableFilterBar
         searchQuery={ledgerSearch}
         onSearchChange={setLedgerSearch}
         searchPlaceholder="Search ledger particulars..."
         resultsCount={ledgerWithBalance.length}
         activeFilterCount={activeFilterCount}
-        defaultFiltersOpen
-        onClearFilters={() => { setDateFrom(''); setDateTo(''); setSortOrder('oldest') }}
-        midNode={
-          <Popover open={partyPopoverOpen} onOpenChange={setPartyPopoverOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                role="combobox"
-                aria-expanded={partyPopoverOpen}
-                className="min-w-40 max-w-60 justify-between"
-              >
-                {selectedParty ? (
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <Badge
-                      variant={selectedParty.type === 'customer' ? 'info' : 'purple'}
-                      size="sm"
-                      className="shrink-0"
-                    >
-                      {selectedParty.type === 'customer' ? 'Cust' : 'Supp'}
-                    </Badge>
-                    <span className="truncate">{selectedParty.name}</span>
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">Pick party...</span>
-                )}
-                <ChevronsUpDown className="ml-2 h-3.5 w-3.5 opacity-50 shrink-0" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-0" align="end">
-              <div className="p-2 border-b border-border/40">
-                <Input
-                  autoFocus
-                  icon={<Search className="h-4 w-4" />}
-                  placeholder="Search customer or supplier..."
-                  value={partySearch}
-                  onChange={(e) => setPartySearch(e.target.value)}
-                  className="h-8"
-                />
-              </div>
-              <div className="max-h-72 overflow-y-auto">
-                {unifiedParties.length === 0 ? (
-                  <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                    No parties match "{partySearch}"
-                  </p>
-                ) : (
-                  unifiedParties.map((p) => {
-                    const isSelected = selectedPartyId === p.id && partyType === p.type
-                    return (
-                      <button
-                        key={`${p.type}-${p.id}`}
-                        type="button"
-                        onClick={() => {
-                          setPartyType(p.type)
-                          setSelectedPartyId(p.id)
-                          setPartySearch('')
-                          setPartyPopoverOpen(false)
-                        }}
-                        className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors',
-                          isSelected && 'bg-muted/40'
-                        )}
-                      >
-                        <Badge
-                          variant={p.type === 'customer' ? 'info' : 'purple'}
-                          size="sm"
-                          className="shrink-0"
-                        >
-                          {p.type === 'customer' ? 'Cust' : 'Supp'}
-                        </Badge>
-                        <span className="truncate flex-1">{p.name}</span>
-                        {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-              {selectedParty && (
-                <div className="border-t border-border/40 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPartyId('')
-                      setPartySearch('')
-                      setPartyPopoverOpen(false)
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 rounded-sm transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Clear selection
-                  </button>
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-        }
-        actionNode={
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-400 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 dark:hover:border-rose-700"
-              onClick={() => handleExport('PDF')}
-            >
-              <FileDown className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">PDF</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={() => handleExport('Excel')}
-            >
-              <FileSpreadsheet className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">CSV</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => handleExport('Print')}
-            >
-              <Printer className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Print</span>
-            </Button>
-          </div>
-        }
+        onClearFilters={handleClearFilters}
+        actionNode={exportDropdown}
       >
-        {/* From Date */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            From Date
-          </Label>
-          <DatePicker
-            value={dateFrom}
-            onChange={setDateFrom}
-            className="h-9 text-xs"
-          />
-        </div>
-
-        {/* To Date */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            To Date
-          </Label>
-          <DatePicker
-            value={dateTo}
-            onChange={setDateTo}
-            className="h-9 text-xs"
-          />
-        </div>
-
-        {/* Sort Order */}
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Sort Order
@@ -492,94 +1053,135 @@ export default function LedgerPage() {
         </div>
       </DataTableFilterBar>
 
-      {/* ── Ledger Table ── */}
-      {selectedPartyId ? (
-        (() => {
-          // Sticky cells (sticky on <td>/<th> works reliably across browsers;
-          // sticky on <tr> does not). Each cell gets its own opaque bg so rows
-          // behind don't bleed through. Sticky direction is tied to DOM position:
-          // a row at the top sticks to top-10 (below the h-10 header); a row at
-          // the bottom sticks to bottom-0. We swap WHICH balance row goes top vs
-          // bottom based on sort order so it always reads naturally (newest-first
-          // → Closing on top, Opening at bottom).
-          const renderBalanceRow = (kind: 'opening' | 'closing', position: 'top' | 'bottom') => {
-            const cellCls = position === 'top'
-              ? 'sticky top-10 z-10 bg-zinc-100 dark:bg-zinc-800 font-semibold'
-              : 'sticky bottom-0 z-10 bg-zinc-100 dark:bg-zinc-800 font-bold'
-            const isOpening = kind === 'opening'
-            const date = isOpening ? dateFrom : dateTo
-            const label = isOpening ? 'Opening Balance' : 'Closing Balance'
-            const balance = isOpening ? openingBalance : closingBalance
-            const rowBorder = position === 'top' ? 'border-b-2 border-border/60' : 'border-t-2 border-border/60'
-            return (
-              <tr key={kind} className={rowBorder}>
-                <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{date ? formatDate(date) : '-'}</td>
-                <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{label}</td>
-                <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
-                <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
-                <td className={cn(
-                  cellCls,
-                  'px-3 py-2.5 text-right font-mono text-sm',
-                  balance > 0 ? 'text-rose-600 dark:text-rose-400'
-                    : balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
-                )}>
-                  {formatCurrency(Math.abs(balance))}
-                  {balance > 0 ? ' Dr' : balance < 0 ? ' Cr' : ''}
-                </td>
-              </tr>
-            )
-          }
-          const topBalanceRow = sortOrder === 'oldest'
-            ? renderBalanceRow('opening', 'top')
-            : renderBalanceRow('closing', 'top')
-          const bottomBalanceRow = sortOrder === 'oldest'
-            ? renderBalanceRow('closing', 'bottom')
-            : renderBalanceRow('opening', 'bottom')
+      {/* ── Tabs: Ledger | Trend ── */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ledger' | 'trend')}>
+        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-flex">
+          <TabsTrigger value="ledger" className="gap-1.5">
+            <Rows3 className="h-3.5 w-3.5" />
+            Ledger
+          </TabsTrigger>
+          <TabsTrigger value="trend" className="gap-1.5">
+            <LineChartIcon className="h-3.5 w-3.5" />
+            Trend
+          </TabsTrigger>
+        </TabsList>
 
-          return (
-          <Card className="rounded-2xl border-border/60 flex flex-col overflow-hidden">
-            <CardContent className="p-0 flex flex-col min-h-0">
-              {/* Mobile card list */}
-              <div className="md:hidden max-h-[calc(100vh-22rem)] overflow-y-auto">
-                {ledgerWithBalance.length === 0 && (
-                  <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
-                      <BookOpen className="h-6 w-6 text-muted-foreground" />
+        {/* ── Ledger Tab ── */}
+        <TabsContent value="ledger" className="mt-3">
+          {isLoading ? (
+            <Card className="rounded-2xl border-border/60">
+              <CardContent className="p-4">
+                <SkeletonTable rows={8} cols={5} />
+              </CardContent>
+            </Card>
+          ) : (
+            renderLedgerCard()
+          )}
+        </TabsContent>
+
+        {/* ── Trend Tab ── */}
+        <TabsContent value="trend" className="mt-3">
+          {isLoading ? (
+            <Card className="rounded-2xl border-border/60">
+              <CardContent className="p-4">
+                <div className="h-72 sm:h-80 flex items-center justify-center">
+                  <div className="h-full w-full animate-pulse rounded-lg bg-muted/40" />
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            renderTrendCard()
+          )}
+        </TabsContent>
+      </Tabs>
+    </motion.div>
+  )
+
+  // ─────────────────────────────────────────────────────────────
+  // Ledger card (table + mobile list)
+  // ─────────────────────────────────────────────────────────────
+  function renderLedgerCard() {
+    // Sticky cells (sticky on <td>/<th> works reliably across browsers; sticky on <tr> does not).
+    // Each cell gets its own opaque bg so rows behind don't bleed through. We swap WHICH balance
+    // row goes top vs bottom based on sort order so it always reads naturally.
+    const renderBalanceRow = (kind: 'opening' | 'closing', position: 'top' | 'bottom') => {
+      const cellCls = position === 'top'
+        ? 'sticky top-10 z-10 bg-zinc-100 dark:bg-zinc-800 font-semibold'
+        : 'sticky bottom-0 z-10 bg-zinc-100 dark:bg-zinc-800 font-bold'
+      const isOpening = kind === 'opening'
+      const date = isOpening ? dateFrom : dateTo
+      const label = isOpening ? 'Opening Balance' : 'Closing Balance'
+      const balance = isOpening ? openingBalance : closingBalance
+      const rowBorder = position === 'top' ? 'border-b-2 border-border/60' : 'border-t-2 border-border/60'
+      return (
+        <tr key={kind} className={rowBorder}>
+          <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{date ? formatDate(date) : '-'}</td>
+          <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{label}</td>
+          <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
+          <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
+          <td className={cn(
+            cellCls,
+            'px-3 py-2.5 text-right font-mono text-sm',
+            balance > 0 ? 'text-rose-600 dark:text-rose-400'
+              : balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
+          )}>
+            {formatCurrency(Math.abs(balance))}
+            {balance > 0 ? ' Dr' :balance < 0 ? ' Cr' : ''}
+          </td>
+        </tr>
+      )
+    }
+    const topBalanceRow = sortOrder === 'oldest'
+      ? renderBalanceRow('opening', 'top')
+      : renderBalanceRow('closing', 'top')
+    const bottomBalanceRow = sortOrder === 'oldest'
+      ? renderBalanceRow('closing', 'bottom')
+      : renderBalanceRow('opening', 'bottom')
+
+    const isEmpty = ledgerWithBalance.length === 0
+
+    return (
+      <Card className="rounded-2xl border-border/60 flex flex-col overflow-hidden">
+        <CardContent className="p-0 flex flex-col min-h-0">
+          {/* Mobile card list */}
+          <div className="md:hidden max-h-[calc(100vh-28rem)] overflow-y-auto">
+            {isEmpty ? (
+              <EmptyState
+                icon={BookOpen}
+                title="No transactions in this period"
+                description="Try widening the date range or pick a different party."
+                actionLabel="Reset to This Month"
+                onAction={resetToCurrentMonth}
+              />
+            ) : (
+              <div className="divide-y divide-border/40">
+                {ledgerWithBalance.map((entry, idx) => (
+                  <div key={idx} className="flex items-start justify-between gap-2 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{entry.particular}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(entry.date)}</p>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">No transactions in this period</p>
-                      <p className="text-xs text-muted-foreground max-w-sm px-4">
-                        Try widening the date range or pick another party.
+                    <div className="text-right shrink-0">
+                      {entry.debit > 0 && (
+                        <p className="font-mono text-xs text-rose-600 dark:text-rose-400">Dr {formatCurrency(entry.debit)}</p>
+                      )}
+                      {entry.credit > 0 && (
+                        <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(entry.credit)}</p>
+                      )}
+                      <p className={cn('font-mono text-xs font-semibold', entry.balance > 0 ? 'text-rose-600 dark:text-rose-400' : entry.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : '')}>
+                        Bal: {formatCurrency(Math.abs(entry.balance))}{entry.balance > 0 ? ' Dr' :entry.balance < 0 ? ' Cr' : ''}
                       </p>
                     </div>
                   </div>
-                )}
-                <div className="divide-y divide-border/40">
-                  {ledgerWithBalance.map((entry, idx) => (
-                    <div key={idx} className="flex items-start justify-between gap-2 px-4 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{entry.particular}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(entry.date)}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        {entry.debit > 0 && (
-                          <p className="font-mono text-xs text-rose-600 dark:text-rose-400">Dr {formatCurrency(entry.debit)}</p>
-                        )}
-                        {entry.credit > 0 && (
-                          <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(entry.credit)}</p>
-                        )}
-                        <p className={cn('font-mono text-xs font-semibold', entry.balance > 0 ? 'text-rose-600 dark:text-rose-400' : entry.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : '')}>
-                          Bal: {formatCurrency(Math.abs(entry.balance))}{entry.balance > 0 ? ' Dr' : entry.balance < 0 ? ' Cr' : ''}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                ))}
               </div>
-              {/* Desktop table — raw <table> so sticky cells anchor to THIS scroll container
-                  (shadcn's <Table> adds its own overflow-auto wrapper, which would shadow ours). */}
-              <div className="hidden md:block relative">
-              <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-22rem)]">
+            )}
+          </div>
+
+          {/* Desktop table — raw <table> so sticky cells anchor to THIS scroll container
+              (shadcn's <Table> adds its own overflow-auto wrapper, which would shadow ours). */}
+          <div className="hidden md:block relative">
+            <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-28rem)]">
               <table className="w-full caption-bottom text-sm">
                 <thead>
                   <tr className="border-b border-border/60">
@@ -594,7 +1196,7 @@ export default function LedgerPage() {
                         key={col.label}
                         className={cn(
                           'sticky top-0 z-20 h-10 px-3 align-middle bg-background',
-                          col.align
+                          col.align,
                         )}
                       >
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -605,15 +1207,14 @@ export default function LedgerPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {topBalanceRow}
+                  {!isEmpty && topBalanceRow}
 
-                  {/* Ledger entries */}
                   {ledgerWithBalance.map((entry, idx) => (
                     <tr
                       key={idx}
                       className={cn(
                         'border-b border-border/40 transition-colors hover:bg-muted/30',
-                        idx % 2 === 0 ? 'bg-background' : 'bg-muted/20 dark:bg-muted/10'
+                        idx % 2 === 0 ? 'bg-background' : 'bg-muted/20 dark:bg-muted/10',
                       )}
                     >
                       <td className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">
@@ -632,62 +1233,268 @@ export default function LedgerPage() {
                           entry.balance > 0
                             ? 'text-rose-600 dark:text-rose-400'
                             : entry.balance < 0
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : ''
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : '',
                         )}
                       >
                         {formatCurrency(Math.abs(entry.balance))}
-                        {entry.balance > 0 ? ' Dr' : entry.balance < 0 ? ' Cr' : ''}
+                        {entry.balance > 0 ? ' Dr' :entry.balance < 0 ? ' Cr' : ''}
                       </td>
                     </tr>
                   ))}
 
-                  {bottomBalanceRow}
+                  {!isEmpty && bottomBalanceRow}
 
-                  {ledgerWithBalance.length === 0 && (
+                  {isEmpty && (
                     <tr>
                       <td colSpan={5} className="p-0">
-                        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
-                            <BookOpen className="h-6 w-6 text-muted-foreground" />
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">No transactions in this period</p>
-                            <p className="text-xs text-muted-foreground max-w-sm">
-                              Try widening the date range or pick another party.
-                            </p>
-                          </div>
-                        </div>
+                        <EmptyState
+                          icon={BookOpen}
+                          title="No transactions in this period"
+                          description="Try widening the date range or pick a different party."
+                          actionLabel="Reset to This Month"
+                          onAction={resetToCurrentMonth}
+                        />
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-              </div>
-              {hasMoreBelow && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center">
-                  <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/90 backdrop-blur px-2.5 py-1 shadow-sm text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    <span>More</span>
-                    <ChevronDown className="h-3 w-3 animate-bounce" />
-                  </div>
-                </div>
-              )}
-              </div>
-            </CardContent>
-          </Card>
-          )
-        })()
-      ) : (
-        <Card className="rounded-2xl border-border/60">
-          <CardContent className="py-16 text-center text-muted-foreground">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/60 dark:bg-muted/30">
-              <BookOpen className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-lg font-medium">Select a party to view their ledger</p>
-            <p className="text-sm mt-1">Choose a customer or supplier from the controls above</p>
+            {hasMoreBelow && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center">
+                <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/90 backdrop-blur px-2.5 py-1 shadow-sm text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span>More</span>
+                  <ChevronDown className="h-3 w-3 animate-bounce" />
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Trend card (running-balance area chart)
+  // ─────────────────────────────────────────────────────────────
+  function renderTrendCard() {
+    if (dailySeries.length < 2) {
+      return (
+        <Card className="rounded-2xl border-border/60">
+          <CardContent className="p-4">
+            <EmptyState
+              icon={TrendingUp}
+              title="Not enough data to chart"
+              description="Pick a wider date range to see the running balance trend."
+              actionLabel="Reset to This Month"
+              onAction={resetToCurrentMonth}
+            />
           </CardContent>
         </Card>
-      )}
-    </motion.div>
-  )
+      )
+    }
+
+    // Reconstruct the period's opening balance (chronological balance right before dateFrom).
+    const opening = dailySeries[0].balance - (dailySeries[0].debit - dailySeries[0].credit)
+    const closing = dailySeries[dailySeries.length - 1].balance
+
+    // Plot absolute outstanding — line always reads "up = outstanding grew".
+    // Side direction (Dr / Cr) is conveyed by the color and labels, not by the
+    // line going below zero. This is simpler to read for both customer and
+    // supplier ledgers regardless of which side they sit on.
+    const plotData = dailySeries.map((d) => ({ ...d, plot: Math.abs(d.balance) }))
+
+    // Peak outstanding (highest |balance|) and its date.
+    let peakIdx = 0
+    for (let i = 1; i < plotData.length; i++) {
+      if (plotData[i].plot > plotData[peakIdx].plot) peakIdx = i
+    }
+    const peak = plotData[peakIdx]
+
+    // Days that had any activity in this period.
+    const activeDays = dailySeries.filter((d) => d.debit > 0 || d.credit > 0).length
+
+    // Color & meaning derived from the closing balance side.
+    const accentHex = closing > 0 ? '#f43f5e' : closing < 0 ? '#10b981' : '#64748b'
+    const accentTextClass = closing > 0
+      ? 'text-rose-600 dark:text-rose-400'
+      : closing < 0
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-muted-foreground'
+    const sideLabel = closing > 0 ? 'Dr' : closing < 0 ? 'Cr' : ''
+    const sideMeaning = closing === 0
+      ? 'settled'
+      : partyType === 'customer'
+        ? (closing > 0 ? 'receivable' : 'we owe — overpaid / credit')
+        : (closing > 0 ? 'they owe — overpaid' : 'payable')
+
+    // Change vs opening — direction interpreted contextually.
+    const change = closing - opening
+    const changeAbs = Math.abs(change)
+    const changeGrew = Math.abs(closing) > Math.abs(opening)
+
+    return (
+      <Card className="rounded-2xl border-border/60">
+        <CardContent className="p-5">
+          {/* Hero header — the closing balance leads the eye. */}
+          <div className="mb-5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Closing balance · {periodLabel}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+              <p className={cn('font-mono font-bold tabular-nums text-3xl sm:text-4xl', accentTextClass)}>
+                {formatCurrency(Math.abs(closing))}
+              </p>
+              {sideLabel && (
+                <Badge
+                  variant={closing > 0 ? 'destructive' : 'success'}
+                  size="sm"
+                  className="uppercase tracking-wider"
+                >
+                  {sideLabel} · {sideMeaning}
+                </Badge>
+              )}
+              {change !== 0 && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  {changeGrew ? (
+                    <ArrowUpRight className="h-3 w-3 text-rose-500" />
+                  ) : (
+                    <ArrowDownLeft className="h-3 w-3 text-emerald-500" />
+                  )}
+                  <span className="font-mono font-medium">{formatCurrency(changeAbs)}</span>
+                  <span>{changeGrew ? 'increase' : 'decrease'} from opening</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Chart */}
+          <div className="h-56 sm:h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={plotData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="balGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={accentHex} stopOpacity={0.22} />
+                    <stop offset="100%" stopColor={accentHex} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-20" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(d: string) => {
+                    const parts = d.split('-')
+                    return `${parts[2]}/${parts[1]}`
+                  }}
+                  interval="preserveStartEnd"
+                  minTickGap={32}
+                  stroke="currentColor"
+                  strokeOpacity={0.3}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v: number) => formatCurrencyCompact(v)}
+                  width={56}
+                  stroke="currentColor"
+                  strokeOpacity={0.3}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0].payload as DayPoint
+                    return (
+                      <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur px-3 py-2 text-xs shadow-md">
+                        <p className="font-semibold mb-1">{formatDate(d.date)}</p>
+                        <p className="font-mono">
+                          Balance:{' '}
+                          <span className={d.balance > 0 ? 'text-rose-600 dark:text-rose-400' : d.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}>
+                            {formatCurrency(Math.abs(d.balance))}
+                            {d.balance > 0 ? ' Dr' : d.balance < 0 ? ' Cr' : ''}
+                          </span>
+                        </p>
+                        {(d.debit > 0 || d.credit > 0) && (
+                          <p className="font-mono mt-0.5 text-muted-foreground">
+                            {d.debit > 0 && <span className="text-rose-600 dark:text-rose-400">Dr {formatCurrency(d.debit)}</span>}
+                            {d.debit > 0 && d.credit > 0 && ' · '}
+                            {d.credit > 0 && <span className="text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(d.credit)}</span>}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }}
+                />
+                <Area
+                  type="stepAfter"
+                  dataKey="plot"
+                  stroke={accentHex}
+                  strokeWidth={2.5}
+                  fill="url(#balGradient)"
+                  isAnimationActive
+                  activeDot={{ r: 5, fill: accentHex, stroke: '#fff', strokeWidth: 2 }}
+                  dot={(props: any) => {
+                    const { cx, cy, payload, index } = props
+                    if (!payload || (payload.debit === 0 && payload.credit === 0)) {
+                      return <g key={`dot-${index}`} />
+                    }
+                    const isDebitDominant = payload.debit >= payload.credit
+                    return (
+                      <circle
+                        key={`dot-${index}`}
+                        cx={cx}
+                        cy={cy}
+                        r={3}
+                        fill={isDebitDominant ? '#f43f5e' : '#10b981'}
+                      />
+                    )
+                  }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Footer stats */}
+          <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border/40 pt-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Opening
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                {formatCurrency(Math.abs(opening))}
+                {opening !== 0 && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">
+                    {opening > 0 ? 'Dr' : 'Cr'}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Peak
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                {formatCurrency(peak.plot)}
+                {peak.plot > 0 && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">
+                    on {formatDate(peak.date)}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Active days
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                {activeDays}
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  of {plotData.length}
+                </span>
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 }

@@ -196,6 +196,14 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Settings',
     breadcrumbs: [{ label: 'Settings' }],
   },
+  '/users': {
+    label: 'User Management',
+    breadcrumbs: [{ label: 'User Management' }],
+  },
+  '/audit-trail': {
+    label: 'Audit Trail',
+    breadcrumbs: [{ label: 'Audit Trail' }],
+  },
   '/branches': {
     label: 'Branches',
     breadcrumbs: [{ label: 'Branches' }],

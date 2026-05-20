@@ -1,9 +1,7 @@
-﻿import { useState, useMemo, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { useState, useMemo, useEffect } from 'react'
+import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { toast } from 'sonner'
-import { navigate, useRoute } from '@/lib/router'
 import { APPROVAL_THRESHOLD_INR } from '@/lib/inventory'
 import {
   Plus,
@@ -13,12 +11,23 @@ import {
   CheckCircle2,
   ClipboardList,
   Package,
-  IndianRupee,
+  PackagePlus,
+  Search,
+  RefreshCw,
+  X,
+  ChevronRight,
+  History,
+  User,
+  Calendar,
+  FileText,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -38,8 +47,9 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import api from '@/lib/api'
-import { cn, formatCurrency, generateId, generateInvoiceNumber } from '@/lib/utils'
+import { cn, formatCurrency, generateId } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
 // Adjustment types
@@ -62,8 +72,99 @@ interface AdjustmentItem {
   rawAdjustment: string
   newQty: number
   reason: AdjustmentReason
+  notes: string
   mrp: number
 }
+
+type FolderKey = 'all' | 'in-adjustment' | 'available' | 'history'
+
+const FOLDERS: { key: FolderKey; label: string; icon: typeof Package; accent: string }[] = [
+  { key: 'all',           label: 'All Batches',   icon: Package,       accent: 'text-foreground' },
+  { key: 'in-adjustment', label: 'In Adjustment', icon: ClipboardList, accent: 'text-amber-600 dark:text-amber-400' },
+  { key: 'available',     label: 'Available',     icon: PackagePlus,   accent: 'text-emerald-600 dark:text-emerald-400' },
+  { key: 'history',       label: 'History',       icon: History,       accent: 'text-blue-600 dark:text-blue-400' },
+]
+
+interface HistoryItem {
+  productId: string
+  productName: string
+  batchId: string
+  batchNumber: string
+  reason: string
+  previousQty: number
+  adjustedQty: number
+  diff: number
+  notes: string | null
+  mrp: number
+  impact: number
+}
+
+interface AdjustmentHistoryRow {
+  adjustmentNo: string
+  createdAt: string
+  userId: string
+  userName: string
+  branchId: string | null
+  itemsCount: number
+  totalDiff: number
+  totalImpact: number
+  items: HistoryItem[]
+}
+
+// Rows shown by the editor flow (All Batches / Available / In Adjustment).
+// `BatchRow` and `BatchDetailPanel` only handle these — history rows are
+// rendered by `HistoryRow` / `HistoryDetailPanel` instead.
+type BatchKindRow =
+  | { kind: 'item'; item: AdjustmentItem }
+  | {
+      kind: 'batch'
+      batchId: string
+      productId: string
+      productName: string
+      genericName: string
+      batchNumber: string
+      quantity: number
+      mrp: number
+    }
+
+type DisplayRow =
+  | BatchKindRow
+  | { kind: 'history'; history: AdjustmentHistoryRow }
+
+const rowKey = (r: DisplayRow) =>
+  r.kind === 'item' ? r.item.id
+    : r.kind === 'batch' ? r.batchId
+    : r.history.adjustmentNo
+const rowBatchId = (r: DisplayRow) => (r.kind === 'batch' ? r.batchId : r.kind === 'item' ? r.item.batchId : r.history.adjustmentNo)
+
+// Write-off math, shared by the reducer below and the fresh-batch detail panel
+// so the two can't drift. Any positive input is auto-negated — typing "7"
+// produces "-7" — because this page is write-off only (additions go through
+// the GRN flow).
+function computeAdjustment(systemQty: number, raw: string) {
+  const parsed = raw === '' || raw === '-' ? 0 : parseInt(raw) || 0
+  const signed = parsed > 0 ? -parsed : parsed
+  const newQty = Math.max(0, systemQty + signed)
+  // When the user types below -systemQty, pin newQty at 0 and recompute the
+  // effective delta so adjustment + newQty stay consistent.
+  const adjustment = newQty === 0 && systemQty + signed < 0 ? -systemQty : signed
+  // Reflect the auto-negation back into the visible input so positive entries
+  // flip to "-N" the moment they're typed.
+  const sanitizedRaw = parsed > 0 ? `-${parsed}` : raw
+  return { adjustment, newQty, sanitizedRaw }
+}
+
+const containerVariants: Variants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
+}
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const } },
+}
+
+const BATCHES_PAGE_SIZE = 10
+const HISTORY_PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────
 // StockAdjustmentPage
@@ -72,17 +173,24 @@ interface AdjustmentItem {
 export default function StockAdjustmentPage() {
   const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
 
-  const [isSubmitted, setIsSubmitted] = useState(false)
   const [search, setSearch] = useState('')
   const [items, setItems] = useState<AdjustmentItem[]>([])
-  const [referenceNumber, setReferenceNumber] = useState('')
   const [batchesPage, setBatchesPage] = useState(1)
-  const BATCHES_PAGE_SIZE = 10
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Server-paginated Available Batches list (replaces deriving from the master
-  // batches array, which forced a /products full-catalogue load on mount).
   const [availableRows, setAvailableRows] = useState<any[]>([])
   const [availableTotal, setAvailableTotal] = useState(0)
+  const [fetching, setFetching] = useState(false)
+
+  // History (folder === 'history'). Lazy-loaded the first time the user opens
+  // the folder and re-fetched on page change or explicit refresh.
+  const [historyRows, setHistoryRows] = useState<AdjustmentHistoryRow[]>([])
+  const [historyTotal, setHistoryTotal] = useState<number | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
+  const [fetchingHistory, setFetchingHistory] = useState(false)
+
+  const [folder, setFolder] = useState<FolderKey>('all')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -94,6 +202,7 @@ export default function StockAdjustmentPage() {
   // keystroke.
   useEffect(() => {
     let cancelled = false
+    setFetching(true)
     const handle = setTimeout(() => {
       api.get('/batches', {
         params: {
@@ -111,70 +220,137 @@ export default function StockAdjustmentPage() {
         .catch(() => {
           if (!cancelled) { setAvailableRows([]); setAvailableTotal(0) }
         })
+        .finally(() => { if (!cancelled) setFetching(false) })
     }, search.trim() ? 200 : 0)
     return () => { cancelled = true; clearTimeout(handle) }
   }, [search, batchesPage])
 
-  // Deep-link from Stock Overview / Expiry Management: /inventory/adjustment?batchId=…
-  // Pre-add that batch via a single /batches/:id fetch — no full master load.
-  const { search: routeSearch } = useRoute()
-  const handledBatchIds = useRef<Set<string>>(new Set())
+  // Fetch the current page of history when the user is on the History folder
+  // or when historyPage changes. We don't bind this to `search` — history list
+  // doesn't filter server-side (the search box is reused for client-side filter
+  // below).
   useEffect(() => {
-    const targetBatchId = new URLSearchParams(routeSearch).get('batchId')
-    if (!targetBatchId) return
-    if (handledBatchIds.current.has(targetBatchId)) return
+    if (folder !== 'history') return
+    let cancelled = false
+    setFetchingHistory(true)
+    api.get('/products/adjustments', {
+      params: {
+        skip: (historyPage - 1) * HISTORY_PAGE_SIZE,
+        take: HISTORY_PAGE_SIZE,
+      },
+    })
+      .then((res) => {
+        if (cancelled) return
+        setHistoryRows(res.data?.data ?? [])
+        setHistoryTotal(res.data?.total ?? 0)
+      })
+      .catch(() => {
+        if (!cancelled) { setHistoryRows([]); setHistoryTotal(0) }
+      })
+      .finally(() => { if (!cancelled) setFetchingHistory(false) })
+    return () => { cancelled = true }
+  }, [folder, historyPage])
 
-    // Mark handled and strip the URL FIRST — re-entry guard.
-    handledBatchIds.current.add(targetBatchId)
-    window.history.replaceState(null, '', '/inventory/adjustment')
-
-    if (items.some((i) => i.batchId === targetBatchId)) return
-
-    api.get(`/batches/${targetBatchId}`)
+  // Deep-link from Stock Overview / Expiry Management:
+  //   /inventory/adjustment?batchId=…
+  // Behavior change vs the old page: in addition to pre-adding the batch to the
+  // cart, we now also auto-open the detail panel for it and switch the sidebar
+  // to "In Adjustment" so the user lands directly on the editor.
+  const { targetId: deepLinkBatchId, clearParam } = useDeepLinkParam('batchId', '/inventory/adjustment')
+  const { highlightId, highlight } = useDeepLinkHighlightState()
+  useEffect(() => {
+    if (!deepLinkBatchId) return
+    const existing = items.find((i) => i.batchId === deepLinkBatchId)
+    if (existing) {
+      setFolder('in-adjustment')
+      setSelectedId(existing.id)
+      highlight(existing.id)
+      clearParam()
+      return
+    }
+    api.get(`/batches/${deepLinkBatchId}`)
       .then((res) => {
         const row = res.data
         if (!row) return
-        addItem(
-          { id: row.productId, name: row.productName },
-          { id: row.id, batchNumber: row.batchNumber, quantity: row.quantity, mrp: row.mrp },
-        )
+        const newItem: AdjustmentItem = {
+          id: generateId('adj'),
+          productId: row.productId,
+          productName: row.productName,
+          batchId: row.id,
+          batchNumber: row.batchNumber,
+          systemQty: row.quantity,
+          adjustment: 0,
+          rawAdjustment: '0',
+          newQty: row.quantity,
+          reason: 'Damaged',
+          notes: '',
+          mrp: Number(row.mrp),
+        }
+        setItems((prev) => [...prev, newItem])
+        setFolder('in-adjustment')
+        setSelectedId(newItem.id)
+        highlight(newItem.id)
+        clearParam()
       })
-      .catch(() => { /* batch missing or unauthorised — silent */ })
-    // `addItem` and `items` are intentionally excluded.
+      .catch(() => clearParam())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeSearch])
+  }, [deepLinkBatchId])
 
-  // Available batches list — already-added items filtered out client-side so
-  // users can't add the same batch twice within the same session.
-  const searchResults = useMemo(() => {
-    const addedIds = new Set(items.map((i) => i.batchId))
-    return availableRows
-      .filter((r) => !addedIds.has(r.id))
-      .map((r) => ({
-        product: { id: r.productId, name: r.productName, genericName: r.genericName ?? '' },
-        batch: { id: r.id, batchNumber: r.batchNumber, quantity: r.quantity, mrp: r.mrp },
-      }))
-  }, [availableRows, items])
+  const itemByBatchId = useMemo(
+    () => new Map(items.map((i) => [i.batchId, i])),
+    [items],
+  )
 
-  const addItem = (product: any, batch: any) => {
-    setItems((prev) => [
-      ...prev,
-      {
-        id: generateId('adj'),
-        productId: product.id,
-        productName: product.name,
-        batchId: batch.id,
-        batchNumber: batch.batchNumber,
-        systemQty: batch.quantity,
-        adjustment: 0,
-        rawAdjustment: '0',
-        newQty: batch.quantity,
-        reason: 'Damaged',
-        mrp: Number(batch.mrp),
-      },
-    ])
-    setSearch('')
-  }
+  const displayRows: DisplayRow[] = useMemo(() => {
+    if (folder === 'in-adjustment') {
+      return items.map((i) => ({ kind: 'item' as const, item: i }))
+    }
+    if (folder === 'history') {
+      // Client-side search filter on adjustmentNo / userName / batchNumber /
+      // productName. Server returns the page as-is; the search box is reused
+      // for in-page filtering.
+      const q = search.trim().toLowerCase()
+      const rows = q
+        ? historyRows.filter((h) => {
+            if (h.adjustmentNo.toLowerCase().includes(q)) return true
+            if (h.userName.toLowerCase().includes(q)) return true
+            return h.items.some((it) =>
+              it.batchNumber.toLowerCase().includes(q)
+              || it.productName.toLowerCase().includes(q),
+            )
+          })
+        : historyRows
+      return rows.map((h) => ({ kind: 'history' as const, history: h }))
+    }
+    const mapped = availableRows.map<DisplayRow>((r) => {
+      const existing = itemByBatchId.get(r.id)
+      return existing
+        ? { kind: 'item', item: existing }
+        : {
+            kind: 'batch',
+            batchId: r.id,
+            productId: r.productId,
+            productName: r.productName,
+            genericName: r.genericName ?? '',
+            batchNumber: r.batchNumber,
+            quantity: r.quantity,
+            mrp: Number(r.mrp),
+          }
+    })
+    return folder === 'available' ? mapped.filter((r) => r.kind === 'batch') : mapped
+  }, [folder, items, availableRows, itemByBatchId, historyRows, search])
+
+  // Look first in the current page's rows; fall back to items / history so the
+  // panel doesn't blink away when the user pages past a selected row.
+  const selectedRow: DisplayRow | null = useMemo(() => {
+    if (!selectedId) return null
+    const inList = displayRows.find((r) => rowKey(r) === selectedId)
+    if (inList) return inList
+    const inItems = items.find((i) => i.id === selectedId)
+    if (inItems) return { kind: 'item', item: inItems }
+    const inHistory = historyRows.find((h) => h.adjustmentNo === selectedId)
+    return inHistory ? { kind: 'history', history: inHistory } : null
+  }, [selectedId, displayRows, items, historyRows])
 
   const removeItem = (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id))
@@ -184,40 +360,65 @@ export default function StockAdjustmentPage() {
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item
-        const parsed = raw === '' || raw === '-' ? 0 : parseInt(raw) || 0
-        // Write-off only: cap parsed at 0 so the user can never push stock UP
-        // from this page (additions belong to the Purchase Order / GRN flow).
-        const negativeOnly = Math.min(0, parsed)
-        const newQty = Math.max(0, item.systemQty + negativeOnly)
-        // If the user typed below -systemQty, recompute the effective delta so
-        // adjustment + newQty stay consistent (newQty pinned at 0).
-        const clampedAdjustment = newQty === 0 && item.systemQty + negativeOnly < 0
-          ? -item.systemQty
-          : negativeOnly
-        // Mirror the cap into the visible input so positive inputs don't linger.
-        const sanitizedRaw = parsed > 0 ? '0' : raw
-        return { ...item, rawAdjustment: sanitizedRaw, adjustment: clampedAdjustment, newQty }
-      })
+        const { adjustment, newQty, sanitizedRaw } = computeAdjustment(item.systemQty, raw)
+        return { ...item, rawAdjustment: sanitizedRaw, adjustment, newQty }
+      }),
     )
   }
 
   const updateReason = (id: string, reason: AdjustmentReason) => {
     setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, reason } : item))
+      prev.map((item) => (item.id === id ? { ...item, reason } : item)),
+    )
+  }
+
+  const updateNotes = (id: string, notes: string) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, notes } : item)),
     )
   }
 
   // Calculations
-  const totalValueImpact = useMemo(() => {
-    return items.reduce((sum, item) => sum + item.adjustment * item.mrp, 0)
-  }, [items])
+  const totalValueImpact = useMemo(
+    () => items.reduce((sum, item) => sum + item.adjustment * item.mrp, 0),
+    [items],
+  )
 
   // Backend is authoritative on approval — it returns its own `threshold` and
   // decides whether to queue the adjustment. This constant exists so the UI can
   // preview the "Approval Required" state before the request fires.
   const requiresApproval = Math.abs(totalValueImpact) > APPROVAL_THRESHOLD_INR
+  const netQtyChange = useMemo(
+    () => items.reduce((sum, item) => sum + item.adjustment, 0),
+    [items],
+  )
 
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const qtyColor =
+    netQtyChange > 0 ? 'text-emerald-600 dark:text-emerald-400'
+      : netQtyChange < 0 ? 'text-rose-600 dark:text-rose-400'
+      : ''
+  const valueColor =
+    totalValueImpact > 0 ? 'text-emerald-600 dark:text-emerald-400'
+      : totalValueImpact < 0 ? 'text-rose-600 dark:text-rose-400'
+      : ''
+  const valueLabel =
+    totalValueImpact > 0
+      ? `+${formatCurrency(totalValueImpact)}`
+      : formatCurrency(totalValueImpact)
+
+  const folderCounts: Record<FolderKey, number> = {
+    all: availableTotal,
+    'in-adjustment': items.length,
+    // Approximate — `items` may include batches outside the current
+    // active-status server pool, so this can drift by up to `items.length`.
+    // Sidebar counts are navigational hints, not authoritative.
+    available: Math.max(0, availableTotal - items.length),
+    // 0 until the user opens the folder for the first time (lazy fetch). The
+    // badge JSX hides 0-counts, so this just stays invisible until then.
+    history: historyTotal ?? 0,
+  }
+
+  const activeFolderLabel = FOLDERS.find((f) => f.key === folder)?.label ?? 'All Batches'
 
   const handleConfirm = async () => {
     try {
@@ -239,6 +440,7 @@ export default function StockAdjustmentPage() {
           batchId: item.batchId,
           adjustedQty: item.newQty,
           reason: item.reason,
+          notes: item.notes.trim() || undefined,
         })),
       })
 
@@ -248,8 +450,7 @@ export default function StockAdjustmentPage() {
           { duration: 5500 },
         )
         // Don't apply local changes — they'll happen at approval time.
-        setReferenceNumber(`PENDING/${res.data.approvalRequestId ?? ''}`)
-        setIsSubmitted(true)
+        resetCart()
         return
       }
 
@@ -258,11 +459,13 @@ export default function StockAdjustmentPage() {
         updateBatchLocally(item.batchId, item.adjustment)
       })
 
-      const refNo = res.data.adjustmentNo
-        ?? generateInvoiceNumber('ADJ', Math.floor(Math.random() * 1000) + 1)
-      setReferenceNumber(refNo)
-      setIsSubmitted(true)
-      toast.success('Stock adjustment saved successfully')
+      const refNo = res.data.adjustmentNo ?? null
+      toast.success(
+        refNo
+          ? `Stock adjustment ${refNo} saved successfully`
+          : 'Stock adjustment saved successfully',
+      )
+      resetCart()
     } catch (error) {
       console.error(error)
       toast.error('Failed to process stock adjustments')
@@ -271,403 +474,897 @@ export default function StockAdjustmentPage() {
     }
   }
 
-  const handleReset = () => {
-    setIsSubmitted(false)
+  const resetCart = () => {
     setItems([])
     setSearch('')
-    setReferenceNumber('')
+    setSelectedId(null)
+    // History badge may now be stale — bump its page so the effect refires
+    // next time the user opens the folder.
+    setHistoryTotal(null)
+    setHistoryRows([])
   }
 
-  // Live KPI computations (in addition to existing totalValueImpact / requiresApproval)
-  const netQtyChange = useMemo(
-    () => items.reduce((sum, item) => sum + item.adjustment, 0),
-    [items],
-  )
+  const handleAddBatch = (
+    args: { productId: string; productName: string; batchId: string;
+            batchNumber: string; systemQty: number; mrp: number },
+    adjustment: number,
+    reason: AdjustmentReason,
+    notes: string,
+  ) => {
+    const newQty = Math.max(0, args.systemQty + adjustment)
+    const newItem: AdjustmentItem = {
+      id: generateId('adj'),
+      productId: args.productId,
+      productName: args.productName,
+      batchId: args.batchId,
+      batchNumber: args.batchNumber,
+      systemQty: args.systemQty,
+      adjustment,
+      rawAdjustment: String(adjustment),
+      newQty,
+      reason,
+      notes,
+      mrp: args.mrp,
+    }
+    setItems((prev) => [...prev, newItem])
+    setSelectedId(newItem.id)
+  }
 
-  // ── Derived values for KPI cards ──
-  const qtyColor =
-    netQtyChange > 0 ? 'text-emerald-600 dark:text-emerald-400'
-      : netQtyChange < 0 ? 'text-rose-600 dark:text-rose-400'
-      : ''
-  const valueColor =
-    totalValueImpact > 0 ? 'text-emerald-600 dark:text-emerald-400'
-      : totalValueImpact < 0 ? 'text-rose-600 dark:text-rose-400'
-      : ''
-  const valueLabel =
-    totalValueImpact > 0
-      ? `+${formatCurrency(totalValueImpact)}`
-      : formatCurrency(totalValueImpact)
-  const valueSubtitle =
-    totalValueImpact > 0 ? 'increase'
-      : totalValueImpact < 0 ? 'decrease'
-      : 'no change'
+  const refresh = () => {
+    // Re-trigger the active folder's fetch by resetting its page (cheap,
+    // predictable — the page-effect refires).
+    if (folder === 'history') setHistoryPage(1)
+    else setBatchesPage(1)
+  }
+
+  const totalBatchesPages = Math.max(1, Math.ceil(availableTotal / BATCHES_PAGE_SIZE))
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="space-y-5"
-    >
-      {isSubmitted ? (
-        /* ── Success screen ── */
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15 dark:bg-emerald-500/10">
-            <CheckCircle2 className="h-10 w-10 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <h2 className="mb-2 text-2xl font-bold">Adjustment Saved Successfully</h2>
-          <p className="mb-4 text-muted-foreground">Your stock adjustment has been recorded.</p>
-          <div className="mb-8 rounded-xl border border-border/60 bg-muted/50 dark:bg-muted/30 px-6 py-4 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Reference Number
-            </p>
-            <p className="mt-1 font-mono text-lg font-bold">{referenceNumber}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={handleReset}>New Adjustment</Button>
-            <Button onClick={() => navigate('/reports')}>View History</Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* ── Summary KPI Cards ── */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card hover className="border-l-[3px] border-l-blue-500">
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                  <ClipboardList className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Items Added</p>
-                  <p className="text-lg font-bold font-mono leading-tight">{items.length}</p>
-                  <p className="text-[11px] text-muted-foreground">in this adjustment</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card hover className="border-l-[3px] border-l-sky-500">
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                  <Package className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Net Qty Change</p>
-                  <p className={cn('text-lg font-bold font-mono leading-tight', qtyColor)}>
-                    {netQtyChange > 0 ? `+${netQtyChange}` : netQtyChange}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">units total</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card hover className="border-l-[3px] border-l-emerald-500">
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <IndianRupee className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Value Impact</p>
-                  <p className={cn('text-lg font-bold font-mono leading-tight', valueColor)}>
-                    {valueLabel}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">{valueSubtitle}</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card
-              hover
-              className={cn(
-                'border-l-[3px]',
-                requiresApproval ? 'border-l-amber-500' : 'border-l-emerald-500',
-              )}
-            >
-              <CardContent className="flex items-center gap-4 p-4">
-                <div
-                  className={cn(
-                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
-                    requiresApproval
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
+      <motion.div variants={itemVariants}>
+        <Card className="overflow-hidden p-0">
+          {/* ── Slim toolbar ── */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {items.length === 0 ? (
+                <>No items in this adjustment</>
+              ) : (
+                <>
+                  <span className="font-semibold text-foreground">{items.length}</span> item{items.length === 1 ? '' : 's'}
+                  {' · '}
+                  <span className={cn('font-semibold', qtyColor)}>
+                    {netQtyChange > 0 ? `+${netQtyChange}` : netQtyChange} units
+                  </span>
+                  {' · '}
+                  <span className={cn('font-semibold', valueColor)}>{valueLabel}</span>
+                  {requiresApproval && (
+                    <> {' · '}<span className="font-semibold text-amber-600 dark:text-amber-400">approval required</span></>
                   )}
-                >
-                  {requiresApproval ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Approval Required</p>
-                  <p className="text-lg font-bold font-mono leading-tight">
-                    {requiresApproval ? 'Yes' : 'No'}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {requiresApproval
-                      ? `exceeds ${formatCurrency(APPROVAL_THRESHOLD_INR)}`
-                      : `under ${formatCurrency(APPROVAL_THRESHOLD_INR)} threshold`}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+                </>
+              )}
+            </p>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-7 w-7"
+              onClick={refresh}
+              disabled={fetching || fetchingHistory}
+              aria-label="Refresh"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', (fetching || fetchingHistory) && 'animate-spin')} />
+            </Button>
           </div>
 
-          {/* ── Product search ── */}
-          <DataTableFilterBar
-            searchQuery={search}
-            onSearchChange={setSearch}
-            searchPlaceholder="Search products by name or generic name..."
-            resultsCount={availableTotal}
-          />
+          <div className="flex h-[calc(100vh-200px)] min-h-100 flex-col lg:flex-row">
+            {/* ── Sidebar: folders ── */}
+            <aside className={cn(
+              'shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r',
+              selectedRow && 'hidden lg:block',
+            )}>
+              <div className="px-3 py-3">
+                <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Folders
+                </p>
+                <nav className="space-y-0.5">
+                  {FOLDERS.map((cat) => {
+                    const Icon = cat.icon
+                    const count = folderCounts[cat.key]
+                    const isActive = folder === cat.key
+                    return (
+                      <button
+                        key={cat.key}
+                        type="button"
+                        onClick={() => setFolder(cat.key)}
+                        className={cn(
+                          'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                          isActive
+                            ? 'bg-accent font-medium text-foreground'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                        )}
+                      >
+                        {isActive && (
+                          <motion.span
+                            layoutId="adjustment-sidebar-active"
+                            className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                          />
+                        )}
+                        <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
+                        <span className="flex-1 truncate">{cat.label}</span>
+                        {count > 0 && (
+                          <span className={cn(
+                            'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
+                            isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                          )}>
+                            {count > 99 ? '99+' : count}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
+            </aside>
 
-          {/* ── Split picker: Available Batches (left) | Items in Adjustment (right) ── */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-          {/* ── Available batches: server-paginated, debounced search, refreshes on page change ── */}
-          {(() => {
-            const totalBatchesPages = Math.max(1, Math.ceil(availableTotal / BATCHES_PAGE_SIZE))
-            // `searchResults` is already the current server-side page minus
-            // already-added items; no client slicing needed.
-            const pagedBatches = searchResults
-            return (
-              <Card className="flex flex-col lg:h-[calc(100vh-22rem)] lg:max-h-160">
-                <div className="shrink-0 flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Available Batches
-                  </p>
-                  <span className="text-[11px] text-muted-foreground">
-                    {availableTotal} batch{availableTotal === 1 ? '' : 'es'}
+            {/* ── Main: search + list + detail panel ── */}
+            <section className="flex min-h-0 flex-1 flex-row">
+              {/* List column */}
+              <div className={cn(
+                'flex min-w-0 flex-1 flex-col',
+                selectedRow && 'hidden lg:flex',
+              )}>
+                <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder={`Search ${activeFolderLabel.toLowerCase()}…`}
+                      className="h-8 border-border/60 pl-8 text-xs"
+                    />
+                  </div>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    {displayRows.length} in {activeFolderLabel}
                   </span>
                 </div>
 
-                {/* Compact card list — scrolls internally; pagination stays pinned below */}
                 <div className="flex-1 overflow-y-auto">
-                  {pagedBatches.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
-                        <Package className="h-6 w-6 text-muted-foreground/60" />
+                  {folder === 'history' && fetchingHistory && displayRows.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 py-16">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <p className="text-xs text-muted-foreground">Loading history…</p>
+                    </div>
+                  ) : displayRows.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/60">
+                        {folder === 'history'
+                          ? <History className="h-5 w-5 text-muted-foreground/50" />
+                          : <Package className="h-5 w-5 text-muted-foreground/50" />}
                       </div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {search.trim() ? 'No batches match your search' : 'No batches available to adjust'}
-                      </p>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {folder === 'in-adjustment' ? 'No items yet'
+                            : folder === 'history' ? 'No adjustments yet'
+                            : 'No batches found'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {folder === 'in-adjustment'
+                            ? 'Pick a batch from All Batches or Available to start an adjustment'
+                            : folder === 'history'
+                              ? search.trim() ? 'Try clearing the search' : 'Submitted adjustments will appear here'
+                              : search.trim()
+                                ? 'Try clearing the search'
+                                : folder === 'available'
+                                  ? 'All visible batches are already in the adjustment'
+                                  : 'No batches available to adjust'}
+                        </p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="divide-y divide-border/40">
-                      {pagedBatches.map(({ product, batch }) => (
-                        <button
-                          key={batch.id}
-                          onClick={() => addItem(product, batch)}
-                          className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/30"
-                        >
-                          <div className="min-w-0 flex-1 space-y-0.5">
-                            <p className="truncate text-sm font-medium">{product.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">{product.genericName}</p>
-                            <p className="font-mono text-[11px] text-muted-foreground">
-                              {batch.batchNumber} · Qty {batch.quantity} · MRP {formatCurrency(Number(batch.mrp))}
-                            </p>
-                          </div>
-                          <Plus className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
-                      ))}
+                    // Flat list — batches lack a natural time/category bucket
+                    // (unlike Reminders/Approvals which group by date), and a
+                    // single flat list is faster to scan.
+                    <div>
+                      {displayRows.map((row) =>
+                        row.kind === 'history' ? (
+                          <HistoryRow
+                            key={rowKey(row)}
+                            row={row.history}
+                            isSelected={selectedId === row.history.adjustmentNo}
+                            onSelect={setSelectedId}
+                          />
+                        ) : (
+                          <BatchRow
+                            key={rowKey(row)}
+                            row={row}
+                            isSelected={selectedId === rowKey(row)}
+                            highlighted={highlightId === rowKey(row)}
+                            onSelect={setSelectedId}
+                          />
+                        ),
+                      )}
                     </div>
                   )}
                 </div>
 
-                <DataTablePagination
-                  currentPage={batchesPage}
-                  totalPages={totalBatchesPages}
-                  onPageChange={setBatchesPage}
-                  totalItems={availableTotal}
-                  itemsPerPage={BATCHES_PAGE_SIZE}
-                  className="shrink-0 border-t border-border/40 px-4"
-                />
-              </Card>
-            )
-          })()}
+                {folder === 'history' ? (
+                  <DataTablePagination
+                    currentPage={historyPage}
+                    totalPages={Math.max(1, Math.ceil((historyTotal ?? 0) / HISTORY_PAGE_SIZE))}
+                    onPageChange={setHistoryPage}
+                    totalItems={historyTotal ?? 0}
+                    itemsPerPage={HISTORY_PAGE_SIZE}
+                    className="shrink-0 border-t border-border/60 px-3"
+                  />
+                ) : folder !== 'in-adjustment' && (
+                  <DataTablePagination
+                    currentPage={batchesPage}
+                    totalPages={totalBatchesPages}
+                    onPageChange={setBatchesPage}
+                    totalItems={availableTotal}
+                    itemsPerPage={BATCHES_PAGE_SIZE}
+                    className="shrink-0 border-t border-border/60 px-3"
+                  />
+                )}
+              </div>
 
-          {/* ── Items in this adjustment — only shown once at least one batch is added ── */}
-          {items.length > 0 && (
-            <Card className="flex flex-col lg:h-[calc(100vh-22rem)] lg:max-h-160">
-              <div className="shrink-0 flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Items in this Adjustment
-                </p>
-                <span className="text-[11px] text-muted-foreground">
-                  {items.length} item{items.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              {/* Compact card list with inline editor — scrolls internally */}
-              <div className="flex-1 overflow-y-auto divide-y divide-border/40">
-                <AnimatePresence mode="popLayout">
-                  {items.map((item, idx) => {
-                    const impact = item.adjustment * item.mrp
-                    return (
-                      <motion.div
-                        key={item.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.15, delay: idx * 0.02 }}
-                        className="flex flex-col gap-3 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{item.productName}</p>
-                            <p className="font-mono text-[11px] text-muted-foreground">{item.batchNumber}</p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => removeItem(item.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-[11px] text-muted-foreground">
-                            System: <span className="font-mono text-foreground">{item.systemQty}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => updateAdjustment(item.id, String(item.adjustment - 1))}
-                              disabled={item.newQty === 0}
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-red-50 hover:border-red-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-muted disabled:hover:border-border disabled:hover:text-muted-foreground"
-                            >
-                              <Minus className="h-3.5 w-3.5" />
-                            </button>
-                            <Input
-                              type="text"
-                              inputMode="numeric"
-                              value={item.rawAdjustment}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                // Write-off only — allow empty, "0", "-", or "-N…"; reject positive inputs.
-                                if (/^(0|-\d*)?$/.test(val)) updateAdjustment(item.id, val)
-                              }}
-                              className={cn(
-                                'h-8 w-16 text-center font-mono',
-                                item.adjustment < 0 && 'border-red-500 text-red-600 dark:text-red-400',
-                              )}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => updateAdjustment(item.id, String(item.adjustment + 1))}
-                              disabled={item.adjustment >= 0}
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-muted disabled:hover:border-border disabled:hover:text-muted-foreground"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <div className={cn(
-                            'text-[11px] text-muted-foreground',
-                            item.newQty < 0 && 'text-rose-600 dark:text-rose-400',
-                          )}>
-                            New: <span className="font-mono font-semibold text-foreground">{item.newQty}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <Select
-                            value={item.reason}
-                            onValueChange={(v) => updateReason(item.id, v as AdjustmentReason)}
-                          >
-                            <SelectTrigger className="h-8 w-full max-w-44 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {adjustmentReasons.map((r) => (
-                                <SelectItem key={r} value={r}>{r}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <span
-                            className={cn(
-                              'shrink-0 font-mono text-sm font-semibold',
-                              impact > 0 && 'text-emerald-600 dark:text-emerald-400',
-                              impact < 0 && 'text-rose-600 dark:text-rose-400',
-                            )}
-                          >
-                            {impact > 0 ? `+${formatCurrency(impact)}` : formatCurrency(impact)}
-                          </span>
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                </AnimatePresence>
-              </div>
-            </Card>
-          )}
-
-          {/* Empty placeholder so the right column stays aligned in split layout */}
-          {items.length === 0 && (
-            <Card className="hidden lg:flex flex-col items-center justify-center gap-3 py-16 text-center lg:h-[calc(100vh-22rem)] lg:max-h-160">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
-                <ClipboardList className="h-6 w-6 text-muted-foreground/60" />
-              </div>
-              <p className="text-sm font-medium text-muted-foreground">No items yet</p>
-              <p className="text-[11px] text-muted-foreground/60">
-                Pick a batch from the left to start an adjustment
-              </p>
-            </Card>
-          )}
+              {/* Detail panel */}
+              <AnimatePresence initial={false}>
+                {selectedRow && (
+                  <motion.aside
+                    key={rowKey(selectedRow)}
+                    initial={{ x: 24, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: 24, opacity: 0 }}
+                    transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                    className="flex min-w-0 flex-1 flex-col bg-background lg:w-md lg:flex-none lg:border-l lg:border-border/60 xl:w-lg"
+                  >
+                    {selectedRow.kind === 'history' ? (
+                      <HistoryDetailPanel
+                        row={selectedRow.history}
+                        onClose={() => setSelectedId(null)}
+                      />
+                    ) : (
+                      <BatchDetailPanel
+                        row={selectedRow}
+                        onClose={() => setSelectedId(null)}
+                        onAdd={handleAddBatch}
+                        onUpdateAdjustment={updateAdjustment}
+                        onUpdateReason={updateReason}
+                        onUpdateNotes={updateNotes}
+                        onRemove={(id) => { removeItem(id); setSelectedId(null) }}
+                      />
+                    )}
+                  </motion.aside>
+                )}
+              </AnimatePresence>
+            </section>
           </div>
+        </Card>
+      </motion.div>
 
-          {/* ── Submit footer ── */}
-          {items.length > 0 && (
-            <div className="space-y-3">
-              {requiresApproval && (
-                <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                      Requires Admin Approval
-                    </p>
-                    <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
-                      Total adjustment value exceeds {formatCurrency(APPROVAL_THRESHOLD_INR)}.
-                      This adjustment will require admin approval before processing.
-                    </p>
-                  </div>
-                </div>
-              )}
-              <div className="flex justify-end">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button disabled={isSubmitting}>
-                      <CheckCircle2 className="mr-1 h-4 w-4" />
-                      {isSubmitting ? 'Processing...' : 'Confirm Adjustment'}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Submit stock adjustment?</AlertDialogTitle>
-                      <AlertDialogDescription asChild>
-                        <div className="space-y-2">
-                          <p>
-                            You're about to adjust <span className="font-semibold">{items.length}</span> batch
-                            {items.length === 1 ? '' : 'es'} with a total value impact of{' '}
-                            <span className={cn(
-                              'font-semibold',
-                              totalValueImpact < 0 ? 'text-rose-600' : 'text-emerald-600',
-                            )}>
-                              {totalValueImpact >= 0 ? '+' : ''}{formatCurrency(totalValueImpact)}
-                            </span>.
-                          </p>
-                          {requiresApproval && (
-                            <p className="text-amber-600 dark:text-amber-400 text-xs">
-                              ⓘ Adjustment exceeds {formatCurrency(APPROVAL_THRESHOLD_INR)} — admins will see this immediately; non-admins will be queued for approval.
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            This action is logged with your name and reason. It cannot be undone — you'd have to make a counter-adjustment.
-                          </p>
-                        </div>
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleConfirm} disabled={isSubmitting}>
-                        {isSubmitting ? 'Submitting…' : 'Yes, submit'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+      {/* ── Submit footer (outside the Card so it's always reachable) ── */}
+      {/* Hidden in History view so the read-only context doesn't show a stray
+          Confirm button — the cart is preserved and reappears when the user
+          switches back to All Batches / In Adjustment / Available. */}
+      {items.length > 0 && folder !== 'history' && (
+        <motion.div variants={itemVariants} className="space-y-3">
+          {requiresApproval && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  Requires Admin Approval
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                  Total adjustment value exceeds {formatCurrency(APPROVAL_THRESHOLD_INR)}.
+                  This adjustment will require admin approval before processing.
+                </p>
               </div>
             </div>
           )}
-        </>
+          <div className="flex justify-end">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={isSubmitting}>
+                  <CheckCircle2 className="mr-1 h-4 w-4" />
+                  {isSubmitting ? 'Processing...' : 'Confirm Adjustment'}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Submit stock adjustment?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2">
+                      <p>
+                        You're about to adjust <span className="font-semibold">{items.length}</span> batch
+                        {items.length === 1 ? '' : 'es'} with a total value impact of{' '}
+                        <span className={cn(
+                          'font-semibold',
+                          totalValueImpact < 0 ? 'text-rose-600' : 'text-emerald-600',
+                        )}>
+                          {totalValueImpact >= 0 ? '+' : ''}{formatCurrency(totalValueImpact)}
+                        </span>.
+                      </p>
+                      {requiresApproval && (
+                        <p className="text-amber-600 dark:text-amber-400 text-xs">
+                          ⓘ Adjustment exceeds {formatCurrency(APPROVAL_THRESHOLD_INR)} — admins will see this immediately; non-admins will be queued for approval.
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        This action is logged with your name and reason. It cannot be undone — you'd have to make a counter-adjustment.
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleConfirm} disabled={isSubmitting}>
+                    {isSubmitting ? 'Submitting…' : 'Yes, submit'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </motion.div>
       )}
     </motion.div>
+  )
+}
+
+// ─── List row ─────────────────────────────────────────────────
+function BatchRow({
+  row, isSelected, highlighted, onSelect,
+}: {
+  row: BatchKindRow
+  isSelected: boolean
+  highlighted: boolean
+  onSelect: (id: string) => void
+}) {
+  const key = rowKey(row)
+  const isItem = row.kind === 'item'
+  const impact = isItem ? row.item.adjustment * row.item.mrp : 0
+  const aboveThreshold = isItem && Math.abs(impact) > APPROVAL_THRESHOLD_INR
+  const borderTone = !isItem
+    ? 'border-l-transparent'
+    : aboveThreshold
+      ? 'border-l-amber-500'
+      : row.item.adjustment < 0
+        ? 'border-l-rose-500'
+        : 'border-l-transparent'
+
+  const productName = isItem ? row.item.productName : row.productName
+  const subLine = isItem
+    ? `${row.item.batchNumber} · Qty ${row.item.systemQty} · MRP ${formatCurrency(row.item.mrp)}`
+    : `${row.batchNumber} · Qty ${row.quantity} · MRP ${formatCurrency(row.mrp)}`
+  const generic = !isItem ? row.genericName : ''
+
+  return (
+    <div
+      id={`batchId-${rowBatchId(row)}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(key)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(key)
+        }
+      }}
+      className={cn(
+        'group flex cursor-pointer items-start gap-2.5 border-b border-l-[3px] border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
+        borderTone,
+        isSelected && 'bg-accent/60',
+        highlighted && 'bg-emerald-500/10 ring-1 ring-emerald-500/40',
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="truncate text-[13px] font-semibold leading-tight text-foreground">
+            {productName}
+          </p>
+          {isItem && (
+            <Badge
+              variant={row.item.adjustment < 0 ? 'destructive' : 'secondary'}
+              size="sm"
+              className="text-[9px]"
+            >
+              In adjustment · {row.item.adjustment > 0 ? `+${row.item.adjustment}` : row.item.adjustment} · {formatCurrency(impact)}
+            </Badge>
+          )}
+        </div>
+        {generic && (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{generic}</p>
+        )}
+        <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/70">
+          {subLine}
+        </p>
+      </div>
+
+      <ChevronRight
+        className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/40"
+        aria-hidden
+      />
+    </div>
+  )
+}
+
+// ─── Side detail panel ────────────────────────────────────────
+// One panel handles both "fresh batch about to be added" and "already in cart"
+// states. For fresh batches it keeps a local adjustment/reason draft until the
+// user clicks Add; for cart items it edits the parent state in place.
+function BatchDetailPanel({
+  row, onClose, onAdd, onUpdateAdjustment, onUpdateReason, onUpdateNotes, onRemove,
+}: {
+  row: BatchKindRow
+  onClose: () => void
+  onAdd: (
+    args: { productId: string; productName: string; batchId: string;
+            batchNumber: string; systemQty: number; mrp: number },
+    adjustment: number,
+    reason: AdjustmentReason,
+    notes: string,
+  ) => void
+  onUpdateAdjustment: (id: string, raw: string) => void
+  onUpdateReason: (id: string, reason: AdjustmentReason) => void
+  onUpdateNotes: (id: string, notes: string) => void
+  onRemove: (id: string) => void
+}) {
+  const isItem = row.kind === 'item'
+
+  // Fresh-batch draft state. The outer AnimatePresence `key={rowKey(...)}`
+  // remounts this component between selections, so initial values are fine.
+  const [draftRaw, setDraftRaw] = useState('0')
+  const [draftReason, setDraftReason] = useState<AdjustmentReason>('Damaged')
+  const [draftNotes, setDraftNotes] = useState('')
+
+  const systemQty = isItem ? row.item.systemQty : row.quantity
+  const mrp = isItem ? row.item.mrp : row.mrp
+  const productName = isItem ? row.item.productName : row.productName
+  const batchNumber = isItem ? row.item.batchNumber : row.batchNumber
+
+  const draftDerived = computeAdjustment(systemQty, draftRaw)
+  const adjustment = isItem ? row.item.adjustment : draftDerived.adjustment
+  const newQty = isItem ? row.item.newQty : draftDerived.newQty
+  const rawAdjustment = isItem ? row.item.rawAdjustment : draftRaw
+  const reason = isItem ? row.item.reason : draftReason
+  const notes = isItem ? row.item.notes : draftNotes
+  const impact = adjustment * mrp
+  const aboveThreshold = Math.abs(impact) > APPROVAL_THRESHOLD_INR
+
+  const handleRawChange = (raw: string) => {
+    if (isItem) {
+      onUpdateAdjustment(row.item.id, raw)
+    } else {
+      const { sanitizedRaw } = computeAdjustment(systemQty, raw)
+      setDraftRaw(sanitizedRaw)
+    }
+  }
+
+  const stepBy = (delta: number) => {
+    const next = String(adjustment + delta)
+    handleRawChange(next)
+  }
+
+  const handleReasonChange = (v: AdjustmentReason) => {
+    if (isItem) onUpdateReason(row.item.id, v)
+    else setDraftReason(v)
+  }
+
+  const handleNotesChange = (v: string) => {
+    if (isItem) onUpdateNotes(row.item.id, v)
+    else setDraftNotes(v)
+  }
+
+  const headerBorder = aboveThreshold
+    ? 'border-l-amber-500'
+    : adjustment < 0
+      ? 'border-l-rose-500'
+      : 'border-l-border'
+
+  const impactColor = impact > 0
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : impact < 0
+      ? 'text-rose-600 dark:text-rose-400'
+      : 'text-muted-foreground'
+
+  return (
+    <>
+      {/* Header */}
+      <div className={cn(
+        'flex items-start gap-3 border-b border-border/60 border-l-[3px] px-4 py-3',
+        headerBorder,
+      )}>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+          <Package className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-semibold">{productName}</p>
+            {isItem && (
+              <Badge
+                variant={row.item.adjustment < 0 ? 'destructive' : 'secondary'}
+                size="sm"
+              >
+                In adjustment
+              </Badge>
+            )}
+          </div>
+          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+            {batchNumber}
+          </p>
+        </div>
+        <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* System / New / Impact summary */}
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/40 bg-muted/20 p-3 text-center">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">System</p>
+            <p className="mt-1 font-mono text-base font-bold">{systemQty}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">New</p>
+            <p className={cn(
+              'mt-1 font-mono text-base font-bold',
+              newQty < systemQty && 'text-rose-600 dark:text-rose-400',
+            )}>
+              {newQty}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Impact</p>
+            <p className={cn('mt-1 font-mono text-base font-bold', impactColor)}>
+              {impact > 0 ? `+${formatCurrency(impact)}` : formatCurrency(impact)}
+            </p>
+          </div>
+        </div>
+
+        {/* Adjustment stepper */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Adjustment quantity
+          </Label>
+          <div className="flex items-center justify-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => stepBy(-1)}
+              disabled={newQty === 0}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:border-red-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted disabled:hover:text-muted-foreground"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <Input
+              type="text"
+              inputMode="numeric"
+              value={rawAdjustment}
+              onChange={(e) => {
+                const val = e.target.value
+                // Accept digits with optional leading minus. Positive entries
+                // are auto-negated by `computeAdjustment` (write-off only).
+                if (/^-?\d*$/.test(val)) handleRawChange(val)
+              }}
+              className={cn(
+                'h-9 w-24 text-center font-mono',
+                adjustment < 0 && 'border-red-500 text-red-600 dark:text-red-400',
+              )}
+            />
+            <button
+              type="button"
+              onClick={() => stepBy(1)}
+              disabled={adjustment >= 0}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted disabled:hover:text-muted-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <p className="text-center text-[10px] text-muted-foreground">
+            Write-offs only — additions go through Goods Receipt.
+          </p>
+        </div>
+
+        {/* Reason */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Reason
+          </Label>
+          <Select value={reason} onValueChange={(v) => handleReasonChange(v as AdjustmentReason)}>
+            <SelectTrigger className="h-9 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {adjustmentReasons.map((r) => (
+                <SelectItem key={r} value={r}>{r}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Notes (optional) */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Notes <span className="font-normal normal-case tracking-normal text-muted-foreground/60">(optional)</span>
+          </Label>
+          <Textarea
+            value={notes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            placeholder="e.g. batch number printed wrong, water damage during transport, recall lot…"
+            rows={3}
+            className="resize-none text-xs"
+          />
+        </div>
+
+        {aboveThreshold && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50/50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              This item alone exceeds the {formatCurrency(APPROVAL_THRESHOLD_INR)} approval threshold.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/10 px-4 py-3">
+        {isItem ? (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => onRemove(row.item.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remove
+            </Button>
+            <Button size="sm" onClick={onClose} className="gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Done
+            </Button>
+          </>
+        ) : (
+          <>
+            <span className="text-[11px] text-muted-foreground">
+              Set quantity to add this batch
+            </span>
+            <Button
+              size="sm"
+              disabled={adjustment === 0}
+              className="gap-1.5"
+              onClick={() => onAdd(
+                {
+                  productId: row.productId,
+                  productName: row.productName,
+                  batchId: row.batchId,
+                  batchNumber: row.batchNumber,
+                  systemQty: row.quantity,
+                  mrp: row.mrp,
+                },
+                adjustment,
+                draftReason,
+                draftNotes,
+              )}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add to adjustment
+            </Button>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ─── History row (one per submitted adjustment) ──────────────
+function HistoryRow({
+  row, isSelected, onSelect,
+}: {
+  row: AdjustmentHistoryRow
+  isSelected: boolean
+  onSelect: (id: string) => void
+}) {
+  const aboveThreshold = Math.abs(row.totalImpact) > APPROVAL_THRESHOLD_INR
+  const borderTone = aboveThreshold
+    ? 'border-l-amber-500'
+    : row.totalDiff < 0
+      ? 'border-l-rose-500'
+      : 'border-l-transparent'
+  const when = new Date(row.createdAt)
+  const whenLabel = when.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(row.adjustmentNo)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(row.adjustmentNo)
+        }
+      }}
+      className={cn(
+        'group flex cursor-pointer items-start gap-2.5 border-b border-l-[3px] border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
+        borderTone,
+        isSelected && 'bg-accent/60',
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="truncate font-mono text-[13px] font-semibold leading-tight text-foreground">
+            {row.adjustmentNo}
+          </p>
+          <Badge
+            variant={row.totalDiff < 0 ? 'destructive' : 'secondary'}
+            size="sm"
+            className="text-[9px]"
+          >
+            {row.itemsCount} item{row.itemsCount === 1 ? '' : 's'} · {row.totalDiff > 0 ? `+${row.totalDiff}` : row.totalDiff} units · {row.totalImpact > 0 ? `+${formatCurrency(row.totalImpact)}` : formatCurrency(row.totalImpact)}
+          </Badge>
+        </div>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <User className="mr-1 inline h-3 w-3 align-[-2px]" />
+          {row.userName}
+        </p>
+        <p className="mt-1 truncate text-[10px] text-muted-foreground/70">
+          <Calendar className="mr-1 inline h-3 w-3 align-[-2px]" />
+          {whenLabel}
+        </p>
+      </div>
+      <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/40" aria-hidden />
+    </div>
+  )
+}
+
+// ─── History detail panel (read-only) ─────────────────────────
+function HistoryDetailPanel({
+  row, onClose,
+}: {
+  row: AdjustmentHistoryRow
+  onClose: () => void
+}) {
+  const aboveThreshold = Math.abs(row.totalImpact) > APPROVAL_THRESHOLD_INR
+  const headerBorder = aboveThreshold
+    ? 'border-l-amber-500'
+    : row.totalDiff < 0
+      ? 'border-l-rose-500'
+      : 'border-l-border'
+  const when = new Date(row.createdAt)
+  const whenLabel = when.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+  const totalImpactColor = row.totalImpact > 0
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : row.totalImpact < 0
+      ? 'text-rose-600 dark:text-rose-400'
+      : 'text-muted-foreground'
+
+  return (
+    <>
+      {/* Header */}
+      <div className={cn(
+        'flex items-start gap-3 border-b border-border/60 border-l-[3px] px-4 py-3',
+        headerBorder,
+      )}>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+          <History className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate font-mono text-sm font-semibold">{row.adjustmentNo}</p>
+            <Badge variant="secondary" size="sm">Posted</Badge>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            By <span className="font-medium text-foreground">{row.userName}</span>
+            {' · '}{whenLabel}
+          </p>
+        </div>
+        <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* Summary */}
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/40 bg-muted/20 p-3 text-center">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Items</p>
+            <p className="mt-1 font-mono text-base font-bold">{row.itemsCount}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Net units</p>
+            <p className={cn(
+              'mt-1 font-mono text-base font-bold',
+              row.totalDiff < 0 && 'text-rose-600 dark:text-rose-400',
+              row.totalDiff > 0 && 'text-emerald-600 dark:text-emerald-400',
+            )}>
+              {row.totalDiff > 0 ? `+${row.totalDiff}` : row.totalDiff}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Impact</p>
+            <p className={cn('mt-1 font-mono text-base font-bold', totalImpactColor)}>
+              {row.totalImpact > 0 ? `+${formatCurrency(row.totalImpact)}` : formatCurrency(row.totalImpact)}
+            </p>
+          </div>
+        </div>
+
+        {/* Line items */}
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Line items · {row.items.length}
+          </p>
+          <div className="space-y-2">
+            {row.items.map((it) => (
+              <div
+                key={`${it.batchId}-${it.productId}`}
+                className={cn(
+                  'rounded-lg border bg-muted/10 p-3',
+                  it.diff < 0 ? 'border-rose-200 dark:border-rose-900/40' : 'border-border/40',
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{it.productName}</p>
+                    <p className="truncate font-mono text-[10px] text-muted-foreground/70">
+                      {it.batchNumber}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={it.diff < 0 ? 'destructive' : 'secondary'}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    {it.reason}
+                  </Badge>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                  <div>
+                    <p className="text-muted-foreground/60">Was</p>
+                    <p className="font-mono font-semibold">{it.previousQty}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground/60">Now</p>
+                    <p className="font-mono font-semibold">{it.adjustedQty}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground/60">Δ</p>
+                    <p className={cn(
+                      'font-mono font-semibold',
+                      it.diff < 0 && 'text-rose-600 dark:text-rose-400',
+                      it.diff > 0 && 'text-emerald-600 dark:text-emerald-400',
+                    )}>
+                      {it.diff > 0 ? `+${it.diff}` : it.diff}
+                      {it.mrp > 0 && (
+                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                          ({it.impact > 0 ? `+${formatCurrency(it.impact)}` : formatCurrency(it.impact)})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {it.notes && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded-md bg-muted/30 px-2 py-1.5">
+                    <FileText className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    <p className="text-[11px] text-muted-foreground">{it.notes}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Caveat about mrp lookup */}
+        <p className="text-[10px] text-muted-foreground/60">
+          Impact uses the current batch MRP. If the batch was deleted, impact shows as ₹0.
+        </p>
+      </div>
+    </>
   )
 }

@@ -17,6 +17,9 @@ import {
   Wallet,
   Package,
   Pencil,
+  Send,
+  QrCode,
+  RefreshCw,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -259,6 +262,68 @@ export default function SalesListPage() {
       toast.error(err.response?.data?.message ?? 'Failed to collect payment')
     } finally {
       setCollectSubmitting(false)
+    }
+  }
+
+  // ─── Server-side WhatsApp + Razorpay QR actions ─────────────────
+  // Distinct from `shareInvoiceViaWhatsApp` (the wa.me deeplink share). These
+  // call the backend, which talks to Meta Cloud API + Razorpay directly.
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false)
+  const [regeneratingQr, setRegeneratingQr] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
+
+  const handleSendWhatsApp = async () => {
+    if (!detailInvoice) return
+    setSendingWhatsApp(true)
+    try {
+      await api.post(`/billing/${detailInvoice.id}/send-whatsapp`)
+      toast.success('Queued — WhatsApp message will be sent shortly')
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to queue WhatsApp send')
+    } finally {
+      setSendingWhatsApp(false)
+    }
+  }
+
+  const handleRegenerateQr = async () => {
+    if (!detailInvoice) return
+    setRegeneratingQr(true)
+    try {
+      const res = await api.post(`/billing/${detailInvoice.id}/payment-link`)
+      if (res.data == null) {
+        toast.info('Invoice fully paid — no payment QR needed')
+      } else {
+        toast.success('Payment QR generated')
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message ?? 'Failed to generate payment QR'
+      toast.error(typeof msg === 'string' ? msg : 'Failed to generate payment QR')
+    } finally {
+      setRegeneratingQr(false)
+    }
+  }
+
+  const handleReconcile = async () => {
+    if (!detailInvoice) return
+    setReconciling(true)
+    try {
+      const res = await api.post(`/billing/${detailInvoice.id}/reconcile-payment-link`)
+      const applied = res.data?.applied ?? []
+      const newPayments = applied.filter((a: any) => !a.duplicate)
+      if (newPayments.length === 0) {
+        toast.info('No new payments found at the gateway')
+      } else {
+        toast.success(`Reconciled ${newPayments.length} payment(s) from gateway`)
+        try {
+          const fresh = await api.get(`/billing/${detailInvoice.id}`)
+          setDetailInvoice(fresh.data)
+          fetchInvoices()
+        } catch { /* swallow */ }
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to reconcile payment')
+    } finally {
+      setReconciling(false)
     }
   }
 
@@ -1131,6 +1196,49 @@ export default function SalesListPage() {
                       <Share2 className="h-4 w-4" />
                     </Button>
                   </div>
+
+                  {/* Server-side WhatsApp + Razorpay QR actions. Distinct
+                      row so admins don't confuse them with the wa.me share
+                      icon above. These hit the backend, which talks to Meta
+                      Cloud API + Razorpay directly. Hidden for draft and
+                      cancelled invoices. */}
+                  {detailInvoice.status !== 'DRAFT' && detailInvoice.status !== 'CANCELLED' && (
+                    <div className="px-5 pb-4 flex flex-wrap gap-2 border-t border-dashed border-border/60 pt-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40"
+                        onClick={handleSendWhatsApp}
+                        disabled={sendingWhatsApp}
+                        title="Re-send the invoice PDF + payment QR to the customer's WhatsApp via Meta Cloud API"
+                      >
+                        <Send className={cn('h-4 w-4', sendingWhatsApp && 'animate-pulse')} />
+                        {sendingWhatsApp ? 'Sending…' : 'Send WhatsApp'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40"
+                        onClick={handleRegenerateQr}
+                        disabled={regeneratingQr}
+                        title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
+                      >
+                        <QrCode className={cn('h-4 w-4', regeneratingQr && 'animate-pulse')} />
+                        {regeneratingQr ? 'Generating…' : 'Generate QR'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleReconcile}
+                        disabled={reconciling}
+                        title="Poll Razorpay for payments captured against this invoice's QR. Use if a webhook was missed."
+                      >
+                        <RefreshCw className={cn('h-4 w-4', reconciling && 'animate-spin')} />
+                        {reconciling ? 'Syncing…' : 'Sync Payment'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </>
             )

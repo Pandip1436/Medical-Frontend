@@ -20,6 +20,11 @@ import {
   X,
   TableProperties,
   BarChart3,
+  Download,
+  ChevronDown,
+  FileDown,
+  FileSpreadsheet,
+  Printer,
 } from 'lucide-react'
 import { useDebounce } from '@/hooks/useDebounce'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -61,9 +66,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 import type { Expense } from '@/types'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RTooltip,
+  ResponsiveContainer,
+  Cell,
+  LabelList,
+} from 'recharts'
+
+// Shared palette used across reports / dashboards
+const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6', '#a855f7', '#f97316']
+const OTHERS_COLOR = '#94a3b8' // slate-400 — neutral so it reads as "everything else"
+
+// Beyond this count we bucket the tail into a single "Others" slice so the
+// donut legend and column labels stay readable even with many categories.
+const TOP_N = 8
+
+// "SOFTWARE_IT" -> "Software/IT", "COLD_STORAGE" -> "Cold Storage"
+const prettifyCategory = (raw: string) =>
+  raw
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
 
 // ─────────────────────────────────────────────────────────────
 // Zod schema
@@ -200,8 +239,82 @@ export default function ExpensesPage() {
   const [removeReceipt, setRemoveReceipt] = useState(false)
   const receiptInputRef = useRef<HTMLInputElement>(null)
 
-  const maxCategoryTotal = categoryBreakdown.length > 0 ? categoryBreakdown[0].total : 1
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // Sorted, colored, prettified data for the chart view. Sorting desc so the
+  // column chart reads as a clear ranking and the donut largest slice starts at top.
+  // When there are more than TOP_N + 1 categories, the tail collapses into a
+  // single "Others" bucket — otherwise long names overlap on the X-axis and
+  // the donut legend wraps to several rows.
+  const chartData = useMemo(() => {
+    const sorted = [...categoryBreakdown].sort((a, b) => b.total - a.total)
+    if (sorted.length <= TOP_N + 1) {
+      return sorted.map((row, i) => ({
+        name: prettifyCategory(row.category),
+        value: row.total,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }))
+    }
+    const top = sorted.slice(0, TOP_N).map((row, i) => ({
+      name: prettifyCategory(row.category),
+      value: row.total,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
+    const rest = sorted.slice(TOP_N)
+    const othersTotal = rest.reduce((s, r) => s + r.total, 0)
+    return [
+      ...top,
+      { name: `Others (${rest.length})`, value: othersTotal, color: OTHERS_COLOR },
+    ]
+  }, [categoryBreakdown])
+
+  const categoryTotal = useMemo(
+    () => chartData.reduce((sum, d) => sum + d.value, 0),
+    [chartData],
+  )
+
+  // ── Export ───────────────────────────────────────────────────
+  // The table view is server-paginated, so `expenses` only holds the current
+  // page. For an export the user almost always wants ALL rows matching their
+  // current filters, so we re-fetch with a large page size on demand.
+  const [isExporting, setIsExporting] = useState(false)
+
+  const handleExport = async (format: 'PDF' | 'CSV' | 'Print') => {
+    setIsExporting(true)
+    try {
+      const res = await api.get('/expenses', {
+        params: {
+          page: 1,
+          pageSize: 10000,
+          search: debouncedSearch.trim() || undefined,
+          category: categoryFilter !== 'all' ? categoryFilter : undefined,
+          paymentMode: paymentModeFilter !== 'all' ? paymentModeFilter : undefined,
+        },
+      })
+      const allRows: Expense[] = Array.isArray(res.data?.data) ? res.data.data : []
+      if (!allRows.length) {
+        toast.info('No expenses to export with current filters')
+        return
+      }
+      // Map to user-facing columns; exportUtils derives headers from key names.
+      const rows = allRows.map((e) => ({
+        Date: formatDate(e.date),
+        Category: e.category,
+        Description: e.description,
+        Amount: formatCurrency(e.amount),
+        'Payment Mode': e.paymentMode,
+      }))
+      const title = 'Expenses Report'
+      const filename = `expenses-${new Date().toISOString().split('T')[0]}`
+      if (format === 'PDF') exportToPdf(rows, title, filename)
+      else if (format === 'CSV') exportToCsv(rows, filename)
+      else printReport(rows, title)
+    } catch {
+      toast.error('Export failed')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Form
   const form = useForm<ExpenseFormValues>({
@@ -452,6 +565,35 @@ export default function ExpensesPage() {
                 Chart
               </Button>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={isExporting || total === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">{isExporting ? 'Exporting…' : 'Export'}</span>
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => handleExport('PDF')}>
+                  <FileDown className="h-4 w-4 text-rose-600" />
+                  <span>PDF</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExport('CSV')}>
+                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                  <span>CSV</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => handleExport('Print')}>
+                  <Printer className="h-4 w-4 text-sky-600" />
+                  <span>Print</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={handleOpenAdd}>
               <Plus className="mr-1 h-4 w-4" />
               Add Expense
@@ -673,38 +815,118 @@ export default function ExpensesPage() {
 
       {/* ── Chart view (viewMode === 'chart') ── */}
       {viewMode === 'chart' && (
-        <Card className="rounded-2xl border-border/60">
-          <CardHeader>
-            <CardTitle className="text-base">Category Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {categoryBreakdown.length === 0 ? (
+        chartData.length === 0 ? (
+          <Card className="rounded-2xl border-border/60">
+            <CardHeader>
+              <CardTitle className="text-base">Category Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
                   <BarChart3 className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <p className="text-sm text-muted-foreground">No expense data to chart for the current filter.</p>
               </div>
-            ) : (
-              categoryBreakdown.map(({ category, total: catTotal }) => (
-                <div key={category} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">{category}</span>
-                    <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
-                      {formatCurrency(catTotal)}
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted/60 dark:bg-muted/30 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-rose-500/70 dark:bg-rose-500/50 transition-all duration-500"
-                      style={{ width: `${(catTotal / maxCategoryTotal) * 100}%` }}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="rounded-2xl border-border/60">
+            <CardHeader className="flex flex-col gap-3 pb-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <CardTitle className="text-base">Expenses by Category</CardTitle>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Ranked highest to lowest across {categoryBreakdown.length} categor{categoryBreakdown.length === 1 ? 'y' : 'ies'}
+                  {chartData.some((d) => d.name.startsWith('Others (')) && ' · smallest grouped as "Others"'}
+                </p>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Total Expenses
+                </span>
+                <span
+                  className="font-mono text-xl font-bold text-rose-600 dark:text-rose-400"
+                  title={formatCurrency(categoryTotal)}
+                >
+                  {formatCurrencyCompact(categoryTotal)}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 24, right: 16, left: 8, bottom: 12 }}
+                  barCategoryGap="22%"
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    className="stroke-border/40"
+                  />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: 'currentColor' }}
+                    className="text-muted-foreground"
+                    angle={-25}
+                    textAnchor="end"
+                    interval={0}
+                    height={80}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: 'currentColor' }}
+                    className="text-muted-foreground"
+                    tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`}
+                    axisLine={false}
+                    tickLine={false}
+                    width={52}
+                  />
+                  <RTooltip
+                    cursor={{ fill: 'currentColor', fillOpacity: 0.06 }}
+                    wrapperStyle={{ outline: 'none' }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0].payload as { name: string; value: number; color: string }
+                      const share = categoryTotal > 0 ? (d.value / categoryTotal) * 100 : 0
+                      return (
+                        <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 text-popover-foreground shadow-md">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: d.color }}
+                            />
+                            <span className="text-xs font-medium">{d.name}</span>
+                          </div>
+                          <div className="mt-1 flex items-baseline gap-2">
+                            <span className="font-mono text-sm font-semibold">
+                              {formatCurrency(d.value)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {share.toFixed(1)}% of total
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={56}>
+                    {chartData.map((d, i) => (
+                      <Cell key={i} fill={d.color} />
+                    ))}
+                    <LabelList
+                      dataKey="value"
+                      position="top"
+                      className="fill-foreground"
+                      style={{ fontSize: 10, fontWeight: 600 }}
+                      formatter={(value: any) => formatCurrencyCompact(Number(value))}
                     />
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )
       )}
 
       </>}
