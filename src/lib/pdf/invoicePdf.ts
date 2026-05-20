@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable'
 import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { printPdfInPage } from '@/lib/printUtils'
+import { formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 import { useSettingsStore } from '@/stores/settingsStore'
 
@@ -80,7 +81,7 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   const rightX = pageWidth / 2 + 5
   let y = 48
   doc.text(`Invoice No: ${invoice.invoiceNumber}`, leftX, y)
-  doc.text(`Date: ${new Date(invoice.date).toLocaleDateString('en-IN')}`, rightX, y)
+  doc.text(`Date: ${formatDate(invoice.date)}`, rightX, y)
   y += 5
   doc.text(`Billing Type: ${invoice.billingType}`, leftX, y)
   doc.text(`Payment Mode: ${invoice.paymentMode}`, rightX, y)

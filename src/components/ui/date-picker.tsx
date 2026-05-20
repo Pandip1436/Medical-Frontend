@@ -3,6 +3,7 @@ import { format, parse, isValid } from "date-fns"
 import { Calendar as CalendarIcon, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useSettingsStore, type DateFormat } from "@/stores/settingsStore"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Popover,
@@ -12,7 +13,17 @@ import {
 } from "@/components/ui/popover"
 
 const ISO_FMT = "yyyy-MM-dd"
-const DISPLAY_FMT = "dd/MM/yyyy"
+
+// Map our app-level DateFormat to a date-fns pattern + a human placeholder.
+function fmtConfig(dateFormat: DateFormat): { displayFmt: string; placeholder: string; useDdMask: boolean } {
+  switch (dateFormat) {
+    case 'mm/dd/yyyy':  return { displayFmt: 'MM/dd/yyyy',  placeholder: 'MM/DD/YYYY',  useDdMask: false }
+    case 'yyyy-mm-dd':  return { displayFmt: 'yyyy-MM-dd',  placeholder: 'YYYY-MM-DD',  useDdMask: false }
+    case 'dd-mmm-yyyy': return { displayFmt: 'dd-MMM-yyyy', placeholder: 'DD-MMM-YYYY', useDdMask: false }
+    case 'dd/mm/yyyy':
+    default:            return { displayFmt: 'dd/MM/yyyy',  placeholder: 'DD/MM/YYYY',  useDdMask: true }
+  }
+}
 
 function parseISO(s?: string | null): Date | undefined {
   if (!s) return undefined
@@ -20,19 +31,32 @@ function parseISO(s?: string | null): Date | undefined {
   return isValid(d) ? d : undefined
 }
 
-// Accept a few common Indian-format variants when the user types directly.
-function parseFlexible(input: string): Date | undefined {
+// Try the user's preferred format first, then fall back to other common patterns
+// so a user who pastes a date in some other format still gets a valid parse.
+function parseFlexible(input: string, displayFmt: string): Date | undefined {
   const s = input.trim()
   if (!s) return undefined
-  const fmts = ["dd/MM/yyyy", "dd-MM-yyyy", "d/M/yyyy", "d-M-yyyy", "ddMMyyyy"]
-  for (const fmt of fmts) {
-    const d = parse(s, fmt, new Date())
+  // Preferred format first; the rest are fallbacks the user might paste.
+  const fmts = [
+    displayFmt,
+    "dd/MM/yyyy", "dd-MM-yyyy", "d/M/yyyy", "d-M-yyyy",
+    "MM/dd/yyyy", "yyyy-MM-dd", "dd-MMM-yyyy",
+    "ddMMyyyy",
+  ]
+  // Dedup while preserving order
+  const seen = new Set<string>()
+  for (const f of fmts) {
+    if (seen.has(f)) continue
+    seen.add(f)
+    const d = parse(s, f, new Date())
     if (isValid(d)) return d
   }
   return undefined
 }
 
-// DD/MM/YYYY mask — strips non-digits and re-inserts slashes after positions 2 and 4.
+// DD/MM/YYYY mask — strips non-digits and re-inserts slashes after positions 2
+// and 4. Only applied when the chosen format starts with `dd/` (the layout
+// matches digits-only entry). For other formats we let the user type freely.
 function applyDateMask(input: string): string {
   const digits = input.replace(/\D/g, "").slice(0, 8)
   if (digits.length <= 2) return digits
@@ -62,7 +86,7 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       min,
       max,
       disabled,
-      placeholder = "DD/MM/YYYY",
+      placeholder,
       className,
       id,
       error,
@@ -71,19 +95,25 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
     },
     ref
   ) {
+    // Reactive: when the admin changes the preference, every DatePicker
+    // re-renders with the new display format.
+    const dateFormat = useSettingsStore((s) => s.generalSettings.dateFormat)
+    const { displayFmt, placeholder: defaultPh, useDdMask } = fmtConfig(dateFormat)
+
     const selected = parseISO(value)
     const minDate = parseISO(min)
     const maxDate = parseISO(max)
     const [open, setOpen] = React.useState(false)
     const [text, setText] = React.useState(
-      selected ? format(selected, DISPLAY_FMT) : ""
+      selected ? format(selected, displayFmt) : ""
     )
 
+    // Re-display in the new format whenever the value OR the format changes.
     React.useEffect(() => {
-      const next = selected ? format(selected, DISPLAY_FMT) : ""
+      const next = selected ? format(selected, displayFmt) : ""
       if (next !== text) setText(next)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value])
+    }, [value, displayFmt])
 
     const commit = (input: string) => {
       const trimmed = input.trim()
@@ -91,12 +121,12 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         onChange?.("")
         return
       }
-      const d = parseFlexible(trimmed)
+      const d = parseFlexible(trimmed, displayFmt)
       if (d) {
         onChange?.(format(d, ISO_FMT))
-        setText(format(d, DISPLAY_FMT))
+        setText(format(d, displayFmt))
       } else {
-        setText(selected ? format(selected, DISPLAY_FMT) : "")
+        setText(selected ? format(selected, displayFmt) : "")
       }
     }
 
@@ -138,12 +168,12 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
               ref={ref}
               id={id}
               type="text"
-              inputMode="numeric"
+              inputMode={useDdMask ? "numeric" : "text"}
               autoComplete="off"
               value={text}
               disabled={disabled}
-              placeholder={placeholder}
-              onChange={(e) => setText(applyDateMask(e.target.value))}
+              placeholder={placeholder ?? defaultPh}
+              onChange={(e) => setText(useDdMask ? applyDateMask(e.target.value) : e.target.value)}
               onBlur={(e) => commit(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -174,7 +204,7 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
             onSelect={(d) => {
               if (d) {
                 onChange?.(format(d, ISO_FMT))
-                setText(format(d, DISPLAY_FMT))
+                setText(format(d, displayFmt))
               }
               setOpen(false)
             }}

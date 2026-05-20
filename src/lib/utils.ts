@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -37,27 +38,56 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat('en-IN').format(num)
 }
 
+/** Human-friendly byte count: 1.2 MB / 23 KB / 512 B. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = bytes / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`
+}
+
+// Renders just the date part in the user's chosen format (set in Settings →
+// General). Falls back to DD/MM/YYYY for unknown formats. Read from the
+// settings store synchronously; the store is hydrated from localStorage on
+// page load, so the first render after refresh already has the right value.
+function renderDate(d: Date, fmt: string): string {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = String(d.getFullYear())
+  const monthShort = d.toLocaleString('en-IN', { month: 'short' }).toUpperCase()
+  switch (fmt) {
+    case 'mm/dd/yyyy':   return `${mm}/${dd}/${yyyy}`
+    case 'yyyy-mm-dd':   return `${yyyy}-${mm}-${dd}`
+    case 'dd-mmm-yyyy':  return `${dd}-${monthShort}-${yyyy}`
+    case 'dd/mm/yyyy':
+    default:             return `${dd}/${mm}/${yyyy}`
+  }
+}
+
 export function formatDate(date: Date | string | undefined | null): string {
   if (!date) return '-'
   const d = typeof date === 'string' ? new Date(date) : date
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  // Reading from the store this way (outside React) is fine — it's a synchronous
+  // snapshot. The store is hydrated from localStorage at module load.
+  const fmt = useSettingsStore.getState().generalSettings.dateFormat
+  return renderDate(d, fmt)
 }
 
 export function formatDateTime(date: Date | string | undefined | null): string {
   if (!date) return '-'
   const d = typeof date === 'string' ? new Date(date) : date
-  return d.toLocaleDateString('en-IN', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  const fmt = useSettingsStore.getState().generalSettings.dateFormat
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  return `${renderDate(d, fmt)}, ${time}`
 }
 
 export function generateId(prefix: string = ''): string {
   const id = Math.random().toString(36).substring(2, 10)
   return prefix ? `${prefix}_${id}` : id
 }
-
-import { useSettingsStore } from '@/stores/settingsStore'
 
 export function generateInvoiceNumber(type: 'INV' | 'QTN' | 'CN' | 'DN' | 'PO' | 'GRN' | 'RCT' | 'PV' | 'ADJ' | 'AUD' | 'TRF', seq: number): string {
   const profile = useSettingsStore.getState().businessProfile

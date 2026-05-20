@@ -87,7 +87,8 @@ import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
-import { cn, formatCurrency, generateInvoiceNumber } from '@/lib/utils'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { cn, formatCurrency, generateInvoiceNumber, formatDate } from '@/lib/utils'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 
@@ -151,6 +152,10 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     registrationNumber: z.string().optional(),
     referredBy: mode === 'invoice' ? z.string().min(1, 'Please select a salesperson') : z.string().optional(),
     notes: z.string().optional(),
+    // Customer-level consent for transactional WhatsApp messages. Defaults
+    // to true; the New Sale form omits the toggle for quick walk-in adds,
+    // but the value is still sent to the backend.
+    whatsappOptIn: z.boolean().optional(),
   })
   if (mode === 'quotation') return base
   return base.superRefine((data, ctx) => {
@@ -449,12 +454,15 @@ function BillingRow({
       // FEFO check: warn if the user picks a batch other than the
       // earliest-expiry one. We don't block — sometimes the soonest batch is
       // damaged or held — but pharmacists should know they're skipping it.
-      const fefoBatch = productBatches[0]
-      if (fefoBatch && fefoBatch.id !== batch.id) {
-        toast.warning(
-          `FEFO: ${fefoBatch.batchNumber} expires sooner (${formatExpiryShort(fefoBatch.expiryDate)}). Selling later-expiry stock first risks write-offs.`,
-          { duration: 4500 },
-        )
+      // Gated on Settings → General → FEFO Enforcement.
+      if (useSettingsStore.getState().generalSettings.fefoEnforcement) {
+        const fefoBatch = productBatches[0]
+        if (fefoBatch && fefoBatch.id !== batch.id) {
+          toast.warning(
+            `FEFO: ${fefoBatch.batchNumber} expires sooner (${formatExpiryShort(fefoBatch.expiryDate)}). Selling later-expiry stock first risks write-offs.`,
+            { duration: 4500 },
+          )
+        }
       }
       const updates: Partial<BillingItem> = {
         batchId: batch.id,
@@ -1317,12 +1325,14 @@ function MobileBillingCard({
             <Select value={item.batchId} onValueChange={(vid) => {
               const b = batches.find(x => x.id === vid)
               if (!b) return
-              const fefoBatch = productBatches[0]
-              if (fefoBatch && fefoBatch.id !== b.id) {
-                toast.warning(
-                  `FEFO: ${fefoBatch.batchNumber} expires sooner. Selling later-expiry stock first risks write-offs.`,
-                  { duration: 4500 },
-                )
+              if (useSettingsStore.getState().generalSettings.fefoEnforcement) {
+                const fefoBatch = productBatches[0]
+                if (fefoBatch && fefoBatch.id !== b.id) {
+                  toast.warning(
+                    `FEFO: ${fefoBatch.batchNumber} expires sooner. Selling later-expiry stock first risks write-offs.`,
+                    { duration: 4500 },
+                  )
+                }
               }
               onUpdate(item.id, { batchId: b.id, batchNumber: b.batchNumber, expiryDate: b.expiryDate, mrp: Number(b.mrp || selectedProduct?.mrp) || 0 })
             }}>
@@ -2049,6 +2059,7 @@ export default function NewSalePage() {
             registrationNumber: '',
             referredBy: '',
             notes: '',
+            whatsappOptIn: true,
           })
           // Clear any stale document selections so a previous session's file
           // doesn't auto-attach to the converted customer.
@@ -3080,8 +3091,13 @@ export default function NewSalePage() {
         if (quotationSource) {
           try { await api.patch(`/quotations/${quotationSource.id}/status`, { status: 'CONVERTED' }) } catch { /* non-critical */ }
         }
-        printInvoicePdf(savedInvoice)
-        toast.success(editingInvoiceId ? 'Invoice updated and sent to printer' : 'Invoice saved and sent to printer')
+        const autoPrint = useSettingsStore.getState().generalSettings.autoPrint
+        if (autoPrint) printInvoicePdf(savedInvoice)
+        toast.success(
+          editingInvoiceId
+            ? (autoPrint ? 'Invoice updated and sent to printer' : 'Invoice updated')
+            : (autoPrint ? 'Invoice saved and sent to printer' : 'Invoice saved'),
+        )
         localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
         navigate('/billing/sales')
@@ -3206,6 +3222,7 @@ export default function NewSalePage() {
       registrationNumber: '',
       referredBy: '',
       notes: '',
+      whatsappOptIn: true,
     },
   })
 
@@ -3956,6 +3973,31 @@ export default function NewSalePage() {
                       <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
                       <Textarea {...customerForm.register('notes')} placeholder="Additional notes (optional)" rows={2} />
                     </div>
+
+                    {/* Row 8: WhatsApp opt-in toggle. Controls auto-delivery
+                        of invoices + payment QR via Meta Cloud API. */}
+                    <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
+                      <Controller
+                        control={customerForm.control}
+                        name="whatsappOptIn"
+                        render={({ field }) => (
+                          <Switch
+                            checked={field.value ?? true}
+                            onCheckedChange={field.onChange}
+                            className="mt-0.5"
+                          />
+                        )}
+                      />
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium leading-none cursor-pointer">
+                          Send WhatsApp messages to this customer
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Invoices and payment QR codes will be auto-delivered to the phone number above.
+                          Turn off if the customer prefers not to receive WhatsApp messages.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Sticky footer */}
@@ -4454,7 +4496,7 @@ export default function NewSalePage() {
                                     </div>
                                   </TableCell>
                                   <TableCell className="px-3 py-2.5 align-middle text-xs text-muted-foreground whitespace-nowrap">
-                                    {new Date(qt.date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                    {formatDate(qt.date)}
                                   </TableCell>
                                   <TableCell className="px-3 py-2.5 align-middle text-sm">
                                     <span className="truncate">{qt.customerName}</span>

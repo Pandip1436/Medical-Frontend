@@ -1,5 +1,5 @@
 import { useSettingsStore } from '@/stores/settingsStore'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 
 interface PrintHeaderProps {
   title: string
@@ -29,7 +29,7 @@ export function PrintHeader({ title, className }: PrintHeaderProps) {
         </div>
         <div className="text-right">
           <h2 className="text-xl font-bold text-slate-900 uppercase underline decoration-2 underline-offset-4">{title}</h2>
-          <p className="text-xs text-slate-500 mt-2">Date: {new Date().toLocaleDateString('en-IN')}</p>
+          <p className="text-xs text-slate-500 mt-2">Date: {formatDate(new Date())}</p>
         </div>
       </div>
     </div>

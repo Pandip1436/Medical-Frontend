@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
+import { formatDate } from '@/lib/utils'
 
 // Fallback company info — used when the caller doesn't supply one. Real
 // values come from the business profile in settings (passed via GrnPdfData).
@@ -73,7 +74,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
   doc.setFontSize(9)
   const leftX = 14
   const rightX = pageWidth / 2 + 5
-  const dateStr = grn.date ? new Date(grn.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')
+  const dateStr = grn.date ? formatDate(grn.date) : formatDate(new Date())
   let y = 48
   doc.text(`GRN No: ${grn.grnNumber}`, leftX, y)
   doc.text(`Date: ${dateStr}`, rightX, y)
@@ -82,7 +83,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
   if (grn.supplierInvoiceNo) doc.text(`Invoice No: ${grn.supplierInvoiceNo}`, rightX, y)
   y += 5
   if (grn.supplierInvoiceDate) {
-    doc.text(`Supplier Inv Date: ${new Date(grn.supplierInvoiceDate).toLocaleDateString('en-IN')}`, leftX, y)
+    doc.text(`Supplier Inv Date: ${formatDate(grn.supplierInvoiceDate)}`, leftX, y)
     y += 3
   }
 

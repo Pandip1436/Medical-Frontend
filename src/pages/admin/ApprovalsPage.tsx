@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import api from '@/lib/api'
-import { cn, formatCurrency, timeAgo } from '@/lib/utils'
+import { cn, formatCurrency, timeAgo, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
@@ -631,7 +631,7 @@ function ApprovalDetailPanel({
           </div>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             Requested by <span className="font-medium text-foreground">{req.requestedBy?.name ?? 'Unknown'}</span>
-            {' · '}{new Date(req.requestedAt).toLocaleString('en-IN')}
+            {' · '}{formatDateTime(req.requestedAt)}
           </p>
         </div>
         <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
@@ -646,7 +646,7 @@ function ApprovalDetailPanel({
           <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs">
             <p className="font-medium">
               {req.status === 'APPROVED' ? 'Approved' : 'Rejected'} by {req.reviewedBy.name}
-              {req.reviewedAt && <> · {new Date(req.reviewedAt).toLocaleString('en-IN')}</>}
+              {req.reviewedAt && <> · {formatDateTime(req.reviewedAt)}</>}
             </p>
             {req.reviewNote && (
               <p className="mt-1.5 text-muted-foreground">

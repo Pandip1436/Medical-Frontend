@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
+import { formatDate } from '@/lib/utils'
 
 const COMPANY_FALLBACK = {
   name: 'HOSPITAL SUPPLIERS',
@@ -86,7 +87,7 @@ function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: bo
   const rightX = pageWidth / 2 + 5
   let y = 43
   doc.text(`Note No: ${note.noteNo}`, leftX, y)
-  doc.text(`Date: ${new Date(note.date).toLocaleDateString('en-IN')}`, rightX, y)
+  doc.text(`Date: ${formatDate(note.date)}`, rightX, y)
   y += 5
   doc.text(`${note.partyLabel}: ${note.partyName}`, leftX, y)
   doc.text(`${note.referenceLabel}: ${note.referenceValue}`, rightX, y)

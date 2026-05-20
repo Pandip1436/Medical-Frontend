@@ -2,6 +2,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { formatDate } from '@/lib/utils'
 
 const DEFAULT_COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
@@ -70,7 +71,7 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
   doc.setFontSize(9)
   const leftX = 14
   const rightX = pageWidth / 2 + 5
-  const dateStr = po.date ? new Date(po.date).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')
+  const dateStr = po.date ? formatDate(po.date) : formatDate(new Date())
   let y = 48
   doc.text(`PO No: ${po.poNumber}`, leftX, y)
   doc.text(`Date: ${dateStr}`, rightX, y)
@@ -79,7 +80,7 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
   doc.text(`Status: ${po.status}`, rightX, y)
   y += 5
   if (po.expectedDelivery) {
-    doc.text(`Expected Delivery: ${new Date(po.expectedDelivery).toLocaleDateString('en-IN')}`, leftX, y)
+    doc.text(`Expected Delivery: ${formatDate(po.expectedDelivery)}`, leftX, y)
     y += 3
   }
 

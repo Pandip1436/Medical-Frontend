@@ -39,6 +39,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
@@ -124,6 +125,10 @@ const customerSchema = z.object({
   registrationNumber: z.string().optional(),
   referredBy: z.string().min(1, 'Please select a salesperson'),
   notes: z.string().optional(),
+  // Toggle whether this customer receives transactional WhatsApp messages
+  // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
+  // can switch off if a customer explicitly opts out.
+  whatsappOptIn: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.type === 'WHOLESALE') {
     if (!data.gstin || data.gstin.trim() === '') {
@@ -476,6 +481,7 @@ export default function CustomersPage() {
       registrationNumber: '',
       referredBy: '',
       notes: '',
+      whatsappOptIn: true,
     },
   })
 
@@ -510,6 +516,9 @@ export default function CustomersPage() {
       registrationNumber: (customer as { registrationNumber?: string }).registrationNumber ?? '',
       referredBy: customer.referredBy ?? '',
       notes: customer.notes ?? '',
+      // Legacy customers with null/undefined whatsappOptIn → treat as opted in
+      // (matches the schema default of true).
+      whatsappOptIn: (customer as { whatsappOptIn?: boolean }).whatsappOptIn ?? true,
     })
     setDocFiles([])
     setDocPreviews([])
@@ -888,7 +897,7 @@ export default function CustomersPage() {
         {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[640px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-160 p-0 gap-0 flex flex-col"
         >
           <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
             <SheetTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</SheetTitle>
@@ -1066,6 +1075,32 @@ export default function CustomersPage() {
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
                 <Textarea {...form.register('notes')} placeholder="Additional notes (optional)" rows={2} />
+              </div>
+
+              {/* Row 8: WhatsApp opt-in toggle. Controls whether invoices +
+                  payment QRs auto-deliver to this customer's phone via Meta
+                  Cloud API. Defaults on; toggle off for customers who opt out. */}
+              <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
+                <Controller
+                  control={form.control}
+                  name="whatsappOptIn"
+                  render={({ field }) => (
+                    <Switch
+                      checked={field.value ?? true}
+                      onCheckedChange={field.onChange}
+                      className="mt-0.5"
+                    />
+                  )}
+                />
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium leading-none cursor-pointer">
+                    Send WhatsApp messages to this customer
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Invoices and payment QR codes will be auto-delivered to the phone number above.
+                    Turn off if the customer prefers not to receive WhatsApp messages.
+                  </p>
+                </div>
               </div>
 
             </div>

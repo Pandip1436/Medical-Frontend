@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printHtmlInPage } from '@/lib/printUtils'
+import { formatDate } from '@/lib/utils'
 
 // HTML-escape for safe interpolation into printable markup.
 // Customer/lead/product fields can contain `<`, `>`, `&`, `"`, `'` that would
@@ -59,7 +60,7 @@ export function exportToPdf(
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.text(
-    `Generated on ${new Date().toLocaleDateString('en-IN')}`,
+    `Generated on ${formatDate(new Date())}`,
     pageWidth / 2,
     21,
     { align: 'center' },
@@ -104,7 +105,7 @@ export function printReport(rows: Record<string, unknown>[], title: string) {
     @media print and (max-width:480px){body{font-size:9px}}
   </style></head><body>
   <h2>${safeTitle}</h2>
-  <p style="text-align:center;color:#666;font-size:10px">Generated on ${escapeHtml(new Date().toLocaleDateString('en-IN'))}</p>
+  <p style="text-align:center;color:#666;font-size:10px">Generated on ${formatDate(new Date())}</p>
   <table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
   </body></html>`
 

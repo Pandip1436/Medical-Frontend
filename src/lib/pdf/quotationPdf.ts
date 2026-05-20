@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { COMPANY, fmtINR, uploadAndShareUrl } from './invoicePdf'
+import { formatDate } from '@/lib/utils'
 
 // Quotation list rows carry less than invoices (no batch/GST/expiry). This
 // generator targets that slim shape directly so we don't have to invent
@@ -42,7 +43,7 @@ export function generateQuotationPdf(qt: QuotationDoc) {
   const rightX = pageWidth / 2 + 5
   let y = 48
   doc.text(`Quotation No: ${qt.quotationNumber}`, leftX, y)
-  doc.text(`Date: ${new Date(qt.date).toLocaleDateString('en-IN')}`, rightX, y)
+  doc.text(`Date: ${formatDate(qt.date)}`, rightX, y)
   y += 5
   doc.text(`Customer: ${qt.customerName}`, leftX, y)
   if (qt.customerPhone) {

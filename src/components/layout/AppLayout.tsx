@@ -44,6 +44,7 @@ const pageVariants = {
 }
 
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 
 export default function AppLayout({
   children,
@@ -54,13 +55,18 @@ export default function AppLayout({
   const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
   const isMobile = useIsMobile()
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
+  const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
+
+  // Auto-logout on inactivity. Reads sessionTimeoutMinutes from generalSettings.
+  useIdleTimeout()
 
   // Initialize settings
   useEffect(() => {
     if (isAuthenticated) {
       fetchSettings()
+      fetchGeneralSettings()
     }
-  }, [isAuthenticated, fetchSettings])
+  }, [isAuthenticated, fetchSettings, fetchGeneralSettings])
 
   // Apply theme class to document
   useEffect(() => {

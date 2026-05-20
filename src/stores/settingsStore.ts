@@ -14,15 +14,24 @@ interface BusinessProfile {
   invoicePrefix?: string
 }
 
-interface DiscountRule {
-  id: string
-  name: string
-  type: 'PERCENTAGE' | 'FLAT'
-  value: number
-  applicableTo?: string
-  validFrom?: string
-  validTo?: string
-  isActive: boolean
+// App-wide preferences (persisted as JSON under the `general_settings` key in
+// the backend GlobalSetting key-value table). All four fields are consumed by
+// real code: see utils.ts (dateFormat), NewSalePage (autoPrint, fefoEnforcement),
+// and useIdleTimeout (sessionTimeoutMinutes).
+export type DateFormat = 'dd/mm/yyyy' | 'mm/dd/yyyy' | 'yyyy-mm-dd' | 'dd-mmm-yyyy'
+
+export interface GeneralSettings {
+  dateFormat: DateFormat
+  autoPrint: boolean
+  fefoEnforcement: boolean
+  sessionTimeoutMinutes: number
+}
+
+export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+  dateFormat: 'dd/mm/yyyy',
+  autoPrint: true,
+  fefoEnforcement: true,
+  sessionTimeoutMinutes: 60,
 }
 
 // Generic JSON-shaped bag for settings entries. Callers know the concrete
@@ -32,17 +41,15 @@ type SettingBag = Record<string, unknown>
 interface SettingsState {
   businessProfile: BusinessProfile | null
   taxSettings: SettingBag | null
-  discountRules: DiscountRule[]
+  generalSettings: GeneralSettings
   isLoading: boolean
 
   // Actions
   fetchSettings: () => Promise<void>
   updateBusinessProfile: (data: Partial<BusinessProfile>) => Promise<void>
 
-  fetchDiscountRules: () => Promise<void>
-  addDiscountRule: (data: Omit<DiscountRule, 'id'>) => Promise<void>
-  updateDiscountRule: (id: string, data: Partial<DiscountRule>) => Promise<void>
-  deleteDiscountRule: (id: string) => Promise<void>
+  fetchGeneralSettings: () => Promise<void>
+  updateGeneralSettings: (data: Partial<GeneralSettings>) => Promise<void>
 
   // Generic key-value setting accessor. Callers cast the returned bag to the
   // expected shape per setting key. Default of `any` preserves backwards
@@ -57,7 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       businessProfile: null,
       taxSettings: null,
-      discountRules: [],
+      generalSettings: DEFAULT_GENERAL_SETTINGS,
       isLoading: false,
 
       fetchSettings: async () => {
@@ -101,48 +108,27 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
-      fetchDiscountRules: async () => {
+      fetchGeneralSettings: async () => {
         try {
-          const res = await api.get('/settings/discounts')
-          set({ discountRules: res.data || [] })
+          const res = await api.get('/settings/general_settings')
+          // Backend returns `{}` when the key doesn't exist yet — merge onto
+          // defaults so all four fields are always present.
+          const raw = (res.data && typeof res.data === 'object') ? res.data : {}
+          set({ generalSettings: { ...DEFAULT_GENERAL_SETTINGS, ...raw } })
         } catch (error) {
-          console.error('Failed to fetch discount rules:', error)
+          console.error('Failed to fetch general settings:', error)
         }
       },
 
-      addDiscountRule: async (data) => {
+      updateGeneralSettings: async (data) => {
         try {
-          const res = await api.post('/settings/discounts', data, { suppressGlobalToast: true } as any)
-          set((state) => ({
-            discountRules: [...state.discountRules, res.data]
-          }))
-          toast.success('Discount rule added')
+          const next = { ...DEFAULT_GENERAL_SETTINGS, ...(useSettingsStore.getState().generalSettings), ...data }
+          await api.put('/settings/general_settings', next)
+          set({ generalSettings: next })
+          toast.success('General settings saved')
         } catch {
-          toast.error('Failed to add discount rule')
-        }
-      },
-
-      updateDiscountRule: async (id, data) => {
-        try {
-          await api.patch(`/settings/discounts/${id}`, data, { suppressGlobalToast: true } as any)
-          set((state) => ({
-            discountRules: state.discountRules.map(r => r.id === id ? { ...r, ...data } : r)
-          }))
-          toast.success('Discount rule updated')
-        } catch {
-          toast.error('Failed to update discount rule')
-        }
-      },
-
-      deleteDiscountRule: async (id) => {
-        try {
-          await api.delete(`/settings/discounts/${id}`, { suppressGlobalToast: true } as any)
-          set((state) => ({
-            discountRules: state.discountRules.filter(r => r.id !== id)
-          }))
-          toast.success('Discount rule deleted')
-        } catch {
-          toast.error('Failed to delete discount rule')
+          toast.error('Failed to save general settings')
+          throw new Error('save_failed')
         }
       },
 
@@ -170,6 +156,11 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'pbims-settings-storage',
       partialize: (state) => ({
         businessProfile: state.businessProfile,
+        // Persist generalSettings so date format / FEFO toggle / etc. are
+        // available synchronously on first paint (before the network fetch
+        // completes). The fetchGeneralSettings() call still runs on app boot
+        // and overwrites with fresh server state.
+        generalSettings: state.generalSettings,
       }),
     }
   )

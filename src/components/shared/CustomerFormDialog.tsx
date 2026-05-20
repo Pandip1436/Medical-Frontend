@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import api from '@/lib/api'
 import type { Customer } from '@/types'
 
@@ -52,6 +53,10 @@ export const customerFormSchema = z
     doctorRef: z.string().optional(),
     creditLimit: z.coerce.number().min(0, 'Credit limit must be ≥ 0').optional(),
     notes: z.string().optional(),
+    // Toggle whether this customer receives transactional WhatsApp messages
+    // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
+    // can switch off if a customer explicitly opts out.
+    whatsappOptIn: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === 'WHOLESALE') {
@@ -85,6 +90,7 @@ const EMPTY_VALUES: CustomerFormValues = {
   doctorRef: '',
   creditLimit: 0,
   notes: '',
+  whatsappOptIn: true,
 }
 
 interface CustomerFormDialogProps {
@@ -141,6 +147,10 @@ export function CustomerFormDialog({
         doctorRef: editingCustomer.doctorRef ?? '',
         creditLimit: editingCustomer.creditLimit ?? 0,
         notes: editingCustomer.notes ?? '',
+        // Pre-fill with the existing customer's value. Older customer records
+        // saved before this column existed will be null/undefined — treat
+        // those as opted-in (matches the schema default).
+        whatsappOptIn: (editingCustomer as any).whatsappOptIn ?? true,
       })
     } else {
       reset(EMPTY_VALUES)
@@ -310,6 +320,32 @@ export function CustomerFormDialog({
                 Notes
               </Label>
               <Input placeholder="Additional notes (optional)" {...register('notes')} />
+            </div>
+          </div>
+
+          {/* WhatsApp opt-in — controls whether invoices + payment QRs auto-
+              deliver to this customer's phone via Meta Cloud API. Defaults to
+              on; toggle off for customers who explicitly opt out. */}
+          <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
+            <Controller
+              control={control}
+              name="whatsappOptIn"
+              render={({ field }) => (
+                <Switch
+                  checked={field.value ?? true}
+                  onCheckedChange={field.onChange}
+                  className="mt-0.5"
+                />
+              )}
+            />
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium leading-none cursor-pointer">
+                Send WhatsApp messages to this customer
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Invoices and payment QR codes will be auto-delivered to the phone number above.
+                Turn off if the customer prefers not to receive WhatsApp messages.
+              </p>
             </div>
           </div>
 

@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 
 type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN'
@@ -202,7 +202,7 @@ function ApprovalDetailBody({
               <p className="text-base font-semibold">{cfg.label}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Requested by <span className="font-medium text-foreground">{req.requestedBy.name}</span>
-                {' · '}{new Date(req.requestedAt).toLocaleString('en-IN')}
+                {' · '}{formatDateTime(req.requestedAt)}
               </p>
             </div>
           </div>
@@ -221,7 +221,7 @@ function ApprovalDetailBody({
           <div className="rounded-xl border border-border/40 bg-muted/20 p-3 text-xs">
             <p className="font-medium">
               {req.status === 'APPROVED' ? 'Approved' : 'Rejected'} by {req.reviewedBy.name}
-              {' · '}{req.reviewedAt ? new Date(req.reviewedAt).toLocaleString('en-IN') : ''}
+              {' · '}{req.reviewedAt ? formatDateTime(req.reviewedAt) : ''}
             </p>
             {req.reviewNote && (
               <p className="mt-1.5 text-muted-foreground">

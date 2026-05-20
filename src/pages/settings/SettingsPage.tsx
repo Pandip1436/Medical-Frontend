@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import api from '@/lib/api'
 import { createPortal } from 'react-dom'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useSettingsStore, type DateFormat } from '@/stores/settingsStore'
 import { useAuthStore } from '@/stores/authStore'
 import { motion, type Variants } from 'framer-motion'
 import { useForm } from 'react-hook-form'
@@ -17,6 +17,8 @@ import {
   Download,
   Clock,
   Hash,
+  Loader2,
+  Trash2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -27,7 +29,6 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
-import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -45,7 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn, formatDateTime } from '@/lib/utils'
+import { cn, formatDateTime, formatBytes } from '@/lib/utils'
 import { IndiamartCard } from './integrations/IndiamartCard'
 import NumberingSection from '@/pages/numbering/NumberingPage'
 
@@ -81,18 +82,6 @@ const settingsSections: SettingsSection[] = [
   { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
 ]
-
-// ─────────────────────────────────────────────────────────────
-// Backup history
-// ─────────────────────────────────────────────────────────────
-
-interface BackupEntry {
-  id: string
-  date: string
-  size: string
-  type: 'AUTO' | 'MANUAL'
-  status: 'COMPLETED' | 'FAILED'
-}
 
 // ─────────────────────────────────────────────────────────────
 // Zod schemas
@@ -153,7 +142,7 @@ function SettingToggleRow({
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('business')
-  const { fetchSettings, fetchDiscountRules } = useSettingsStore()
+  const { fetchSettings } = useSettingsStore()
   const userRole = useAuthStore((s) => s.user?.role)
   const visibleSections = useMemo(
     () => settingsSections.filter((s) => !s.adminOnly || userRole === 'ADMIN'),
@@ -162,8 +151,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSettings()
-    fetchDiscountRules()
-  }, [fetchSettings, fetchDiscountRules])
+  }, [fetchSettings])
 
   const activeConfig = visibleSections.find((s) => s.id === activeSection)
   const ActiveIcon = activeConfig?.icon || Settings
@@ -439,47 +427,91 @@ function BusinessProfileSection() {
   )
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // Section: Backup & Data
 // ─────────────────────────────────────────────────────────────
 
-function BackupDataSection() {
-  const [backupProgress, setBackupProgress] = useState(0)
-  const [isBackingUp, setIsBackingUp] = useState(false)
-  const [backupHistory, setBackupHistory] = useState<BackupEntry[]>([])
+interface BackupRow {
+  id: string
+  filename: string
+  sizeBytes: number
+  rowCount: number
+  trigger: 'MANUAL' | 'SCHEDULED'
+  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'
+  errorMessage?: string | null
+  createdAt: string
+  completedAt?: string | null
+  createdBy?: { id: string; name: string; email: string } | null
+}
 
-  useEffect(() => {
-    api
-      .get('/settings/backups')
-      .then((res) => setBackupHistory(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setBackupHistory([]))
+function BackupDataSection() {
+  const [history, setHistory] = useState<BackupRow[]>([])
+  const [isBackingUp, setIsBackingUp] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await api.get<BackupRow[]>('/backups')
+      setHistory(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setHistory([])
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  const handleBackup = () => {
+  useEffect(() => { fetchHistory() }, [fetchHistory])
+
+  const handleBackup = async () => {
     setIsBackingUp(true)
-    setBackupProgress(0)
-    const interval = setInterval(() => {
-      setBackupProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsBackingUp(false)
-          toast.success('Backup completed successfully')
-          return 100
-        }
-        return prev + 5
-      })
-    }, 150)
+    try {
+      await api.post('/backups')
+      toast.success('Backup completed')
+      await fetchHistory()
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Backup failed'
+      toast.error(Array.isArray(msg) ? msg[0] : msg)
+      await fetchHistory() // surface the FAILED row so admin can see the error
+    } finally {
+      setIsBackingUp(false)
+    }
+  }
+
+  const handleDownload = async (id: string) => {
+    try {
+      const res = await api.get<{ url: string; expiresAt: string }>(`/backups/${id}/download`)
+      window.open(res.data.url, '_blank', 'noopener,noreferrer')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Failed to get download link')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this backup? The file in R2 will also be removed.')) return
+    setDeletingId(id)
+    try {
+      await api.delete(`/backups/${id}`)
+      toast.success('Backup deleted')
+      await fetchHistory()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
     <motion.div className="space-y-6" variants={itemVariants}>
       {document.getElementById('settings-save-button-portal') && createPortal(
         <Button onClick={handleBackup} disabled={isBackingUp} size="sm" className="gap-1.5 cursor-pointer h-8">
-          <Download className="h-4 w-4" />
-          {isBackingUp ? 'Backing Up...' : 'Backup Now'}
+          {isBackingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {isBackingUp ? 'Backing up…' : 'Backup Now'}
         </Button>,
         document.getElementById('settings-save-button-portal')!
       )}
+
       {/* Manual Backup */}
       <Card>
         <CardHeader>
@@ -489,21 +521,23 @@ function BackupDataSection() {
             </div>
             <div>
               <CardTitle>Manual Backup</CardTitle>
-              <CardDescription>Create an immediate backup of all data</CardDescription>
+              <CardDescription>
+                Snapshot all business data as a compressed JSONL file. Stored in Cloudflare R2 and
+                downloadable from the history below. For disaster recovery, use Neon's point-in-time
+                recovery from the Neon console.
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           {isBackingUp && (
-            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-4 dark:bg-muted/10">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Backing up...</span>
-                <span className="font-medium text-foreground">{backupProgress}%</span>
-              </div>
-              <Progress value={backupProgress} />
+            <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 dark:bg-muted/10">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
+                Backup in progress — this typically takes 10–30 seconds. The page will refresh when done.
+              </span>
             </div>
           )}
-          {/* Backup button moved to top-right portal */}
         </CardContent>
       </Card>
 
@@ -516,7 +550,7 @@ function BackupDataSection() {
             </div>
             <div>
               <CardTitle>Auto-Backup Schedule</CardTitle>
-              <CardDescription>Automatic daily backup configuration</CardDescription>
+              <CardDescription>Runs automatically on the backend</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -524,22 +558,17 @@ function BackupDataSection() {
           <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4 dark:bg-muted/10">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Frequency</span>
-              <span className="text-sm font-medium text-foreground">Daily</span>
-            </div>
-            <Separator className="bg-border/40" />
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Time</span>
-              <span className="text-sm font-medium text-foreground">06:00 AM IST</span>
+              <span className="text-sm font-medium text-foreground">Daily, ~02:00 IST</span>
             </div>
             <Separator className="bg-border/40" />
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Retention</span>
-              <span className="text-sm font-medium text-foreground">30 days</span>
+              <span className="text-sm font-medium text-foreground">Last 30 completed backups</span>
             </div>
             <Separator className="bg-border/40" />
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Status</span>
-              <Badge variant="success" size="sm" dot>Active</Badge>
+              <span className="text-sm text-muted-foreground">Storage</span>
+              <span className="text-sm font-medium text-foreground">Cloudflare R2 (private)</span>
             </div>
           </div>
         </CardContent>
@@ -554,7 +583,7 @@ function BackupDataSection() {
             </div>
             <div>
               <CardTitle>Backup History</CardTitle>
-              <CardDescription>Recent backup records</CardDescription>
+              <CardDescription>Newest first — click a row to download</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -563,33 +592,94 @@ function BackupDataSection() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
-                  <TableHead>Date & Time</TableHead>
+                  <TableHead>Date &amp; Time</TableHead>
                   <TableHead>Size</TableHead>
+                  <TableHead className="text-right">Rows</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {backupHistory.map((backup) => (
-                  <TableRow key={backup.id}>
-                    <TableCell className="text-xs text-muted-foreground">{formatDateTime(backup.date)}</TableCell>
-                    <TableCell className="font-medium">{backup.size}</TableCell>
-                    <TableCell>
-                      <Badge variant={backup.type === 'AUTO' ? 'info' : 'purple'} size="sm">
-                        {backup.type === 'AUTO' ? 'Automatic' : 'Manual'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={backup.status === 'COMPLETED' ? 'success' : 'destructive'}
-                        size="sm"
-                        dot
-                      >
-                        {backup.status === 'COMPLETED' ? 'Completed' : 'Failed'}
-                      </Badge>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-20 text-center text-sm text-muted-foreground">
+                      Loading…
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : history.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-20 text-center text-sm text-muted-foreground italic">
+                      No backups yet — click "Backup Now" to create the first one.
+                    </TableCell>
+                  </TableRow>
+                ) : history.map((b) => {
+                  const isCompleted = b.status === 'COMPLETED'
+                  const isFailed = b.status === 'FAILED'
+                  const isRunning = b.status === 'IN_PROGRESS'
+                  return (
+                    <TableRow key={b.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDateTime(b.createdAt)}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {isCompleted ? formatBytes(b.sizeBytes) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {isCompleted ? b.rowCount.toLocaleString() : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={b.trigger === 'SCHEDULED' ? 'info' : 'purple'} size="sm">
+                          {b.trigger === 'SCHEDULED' ? 'Scheduled' : 'Manual'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {isRunning ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            In progress
+                          </span>
+                        ) : (
+                          <Badge
+                            variant={isCompleted ? 'success' : 'destructive'}
+                            size="sm"
+                            dot
+                            title={isFailed ? b.errorMessage ?? undefined : undefined}
+                          >
+                            {isCompleted ? 'Completed' : 'Failed'}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {isCompleted && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 cursor-pointer hover:text-primary"
+                              onClick={() => handleDownload(b.id)}
+                              title="Download"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {!isRunning && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 cursor-pointer text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDelete(b.id)}
+                              disabled={deletingId === b.id}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -622,18 +712,51 @@ function IntegrationsSection() {
 // ─────────────────────────────────────────────────────────────
 
 function GeneralSettingsSection() {
-  const [dateFormat, setDateFormat] = useState('dd/mm/yyyy')
-  const [autoPrint, setAutoPrint] = useState(true)
-  const [fefoEnforcement, setFefoEnforcement] = useState(true)
-  const [negativeStock, setNegativeStock] = useState(false)
-  const [sessionTimeout, setSessionTimeout] = useState('60')
+  const storeSettings = useSettingsStore((s) => s.generalSettings)
+  const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
+  const updateGeneralSettings = useSettingsStore((s) => s.updateGeneralSettings)
+
+  // Local draft state so toggles feel responsive; saved as a batch on Save click.
+  const [dateFormat, setDateFormat] = useState<DateFormat>(storeSettings.dateFormat)
+  const [autoPrint, setAutoPrint] = useState(storeSettings.autoPrint)
+  const [fefoEnforcement, setFefoEnforcement] = useState(storeSettings.fefoEnforcement)
+  const [sessionTimeout, setSessionTimeout] = useState(String(storeSettings.sessionTimeoutMinutes))
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { fetchGeneralSettings() }, [fetchGeneralSettings])
+
+  // Re-sync local draft when the store updates (e.g. after the fetch above).
+  useEffect(() => {
+    setDateFormat(storeSettings.dateFormat)
+    setAutoPrint(storeSettings.autoPrint)
+    setFefoEnforcement(storeSettings.fefoEnforcement)
+    setSessionTimeout(String(storeSettings.sessionTimeoutMinutes))
+  }, [storeSettings])
+
+  const handleSave = async () => {
+    const minutes = Number(sessionTimeout)
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 480) {
+      toast.error('Session timeout must be between 5 and 480 minutes')
+      return
+    }
+    setSaving(true)
+    try {
+      await updateGeneralSettings({
+        dateFormat,
+        autoPrint,
+        fefoEnforcement,
+        sessionTimeoutMinutes: minutes,
+      })
+    } catch { /* error toast already shown by store */ }
+    finally { setSaving(false) }
+  }
 
   return (
     <motion.div variants={itemVariants}>
       {document.getElementById('settings-save-button-portal') && createPortal(
-        <Button onClick={() => toast.success('General settings saved')} size="sm" className="gap-1.5 cursor-pointer h-8">
+        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-1.5 cursor-pointer h-8">
           <Save className="h-4 w-4" />
-          Save General Settings
+          {saving ? 'Saving…' : 'Save General Settings'}
         </Button>,
         document.getElementById('settings-save-button-portal')!
       )}
@@ -658,7 +781,7 @@ function GeneralSettingsSection() {
                 <p className="text-sm font-medium text-foreground">Date Format</p>
                 <p className="text-xs text-muted-foreground">How dates are displayed across the app</p>
               </div>
-              <Select value={dateFormat} onValueChange={setDateFormat}>
+              <Select value={dateFormat} onValueChange={(v) => setDateFormat(v as DateFormat)}>
                 <SelectTrigger className="w-44">
                   <SelectValue />
                 </SelectTrigger>
@@ -687,19 +810,6 @@ function GeneralSettingsSection() {
                 description="First Expiry First Out - auto-select earliest expiring batch"
                 checked={fefoEnforcement}
                 onCheckedChange={setFefoEnforcement}
-              />
-            </div>
-          </div>
-
-          {/* Stock */}
-          <div>
-            <SectionLabel>Stock Control</SectionLabel>
-            <div className="mt-3 space-y-2">
-              <SettingToggleRow
-                title="Allow Negative Stock"
-                description="Allow billing when stock quantity is zero or below"
-                checked={negativeStock}
-                onCheckedChange={setNegativeStock}
               />
             </div>
           </div>
