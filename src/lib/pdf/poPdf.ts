@@ -1,13 +1,26 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
+import { useSettingsStore } from '@/stores/settingsStore'
 
-const COMPANY = {
+const DEFAULT_COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
   address: 'Hospital Suppliers, Madurai, Tamil Nadu',
   phone: '+91 452 234 5678',
   email: 'contact@hospitalsuppliers.in',
   gstin: '33AAAPL1234C1Z5',
+}
+
+function getCompany() {
+  const profile = useSettingsStore.getState().businessProfile
+  if (!profile) return DEFAULT_COMPANY
+  return {
+    name: profile.name || DEFAULT_COMPANY.name,
+    address: profile.address || DEFAULT_COMPANY.address,
+    phone: profile.phone || DEFAULT_COMPANY.phone,
+    email: profile.email || DEFAULT_COMPANY.email,
+    gstin: profile.gstin || DEFAULT_COMPANY.gstin,
+  }
 }
 
 const fmt = (n: number) =>
@@ -34,16 +47,17 @@ export interface PoPdfData {
 export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
+  const company = getCompany()
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text(COMPANY.name, pageWidth / 2, 15, { align: 'center' })
+  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(COMPANY.address, pageWidth / 2, 21, { align: 'center' })
-  doc.text(`Phone: ${COMPANY.phone}  |  Email: ${COMPANY.email}`, pageWidth / 2, 26, { align: 'center' })
-  doc.text(`GSTIN: ${COMPANY.gstin}`, pageWidth / 2, 31, { align: 'center' })
+  doc.text(company.address, pageWidth / 2, 21, { align: 'center' })
+  doc.text(`Phone: ${company.phone}  |  Email: ${company.email}`, pageWidth / 2, 26, { align: 'center' })
+  doc.text(`GSTIN: ${company.gstin}`, pageWidth / 2, 31, { align: 'center' })
 
   doc.setDrawColor(180)
   doc.line(14, 34, pageWidth - 14, 34)
@@ -78,7 +92,9 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
       it.requiredQty,
       it.receivedQty,
       Number(it.expectedRate).toFixed(2),
-      (it.requiredQty * Number(it.expectedRate)).toFixed(2),
+      // Round line total to paise (2 decimal places) before display so IEEE-754
+      // artifacts (e.g., 38.970000000000006) never leak into printed PDFs.
+      (Math.round(it.requiredQty * Number(it.expectedRate) * 100) / 100).toFixed(2),
       it.remarks ?? '',
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },

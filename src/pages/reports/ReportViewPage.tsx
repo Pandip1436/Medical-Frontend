@@ -296,7 +296,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="hour" tick={{ fontSize: 12 }} />
@@ -304,7 +304,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Sales']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -322,7 +322,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (reportType === 'monthly-sales') {
       const chart = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
@@ -330,7 +330,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return <ReportTable headers={['Month', 'Revenue', 'Invoices']} rows={chart.map((r: any) => [r.month, formatCurrency(r.amount), r.invoices])} />
     }
@@ -339,7 +339,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (reportType === 'yearly-sales') {
       const chart = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="year" tick={{ fontSize: 12 }} />
@@ -347,7 +347,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="total" fill="#3b82f6" radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return <ReportTable headers={['Year', 'Total Sales', 'Invoices']} rows={chart.map((r: any) => [r.year, formatCurrency(r.total), r.invoiceCount])} />
     }
@@ -356,7 +356,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (reportType === 'product-sales') {
       const data = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={400}>
+        <div className="h-70 sm:h-85 lg:h-100"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
@@ -364,7 +364,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="revenue" fill="#8b5cf6" radius={[0, 6, 6, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -383,7 +383,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const data = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
@@ -391,7 +391,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="revenue" fill="#10b981" radius={[0, 6, 6, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -409,7 +409,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (reportType === 'category-sales') {
       const data = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={360}>
+        <div className="h-65 sm:h-80 lg:h-90"><ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={data} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="revenue" nameKey="category" strokeWidth={2} className="stroke-background">
               {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -417,7 +417,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Revenue']} contentStyle={chartTooltipStyle} />
             <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
           </PieChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return <ReportTable headers={['Category', 'Qty Sold', 'Revenue']} rows={data.map((r: any) => [r.category, r.qty, formatCurrency(r.revenue)])} />
     }
@@ -427,7 +427,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
@@ -435,7 +435,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="amount" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -454,7 +454,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const data = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ left: 30 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
@@ -462,7 +462,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="amount" fill="#f59e0b" radius={[0, 6, 6, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -480,7 +480,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (reportType === 'purchase-vs-sales') {
       const data = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
@@ -490,7 +490,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Bar dataKey="purchases" fill="#8b5cf6" radius={[6, 6, 0, 0]} name="purchases" />
             <Legend />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return <ReportTable headers={['Month', 'Sales', 'Purchases']} rows={data.map((r: any) => [r.month, formatCurrency(r.sales), formatCurrency(r.purchases)])} />
     }
@@ -500,7 +500,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const table = liveData.tableData ?? []
       const chart = liveData.chartData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={400}>
+        <div className="h-70 sm:h-85 lg:h-100"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart} layout="vertical" margin={{ left: 30 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 12 }} />
@@ -508,7 +508,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip contentStyle={chartTooltipStyle} />
             <Bar dataKey="stock" fill="#10b981" radius={[0, 6, 6, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <div className="space-y-4">
@@ -549,7 +549,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={chart} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="value" nameKey="category" strokeWidth={2} className="stroke-background">
               {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -557,7 +557,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Value']} contentStyle={chartTooltipStyle} />
             <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
           </PieChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -583,7 +583,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           { label: 'Purchase Returns', value: Number(kpiData[3]?.value ?? 0) },
         ]
         return (
-          <ResponsiveContainer width="100%" height={320}>
+          <div className="h-60 sm:h-72 lg:h-80"><ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
@@ -593,7 +593,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
                 {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div>
         )
       }
       return (
@@ -613,7 +613,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={340}>
+        <div className="h-60 sm:h-75 lg:h-85"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
@@ -623,7 +623,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
               {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
             </Bar>
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 
@@ -642,7 +642,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={340}>
+        <div className="h-60 sm:h-75 lg:h-85"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={chart}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="category" tick={{ fontSize: 12 }} />
@@ -653,7 +653,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Bar yAxisId="right" dataKey="count" fill="#10b981" radius={[6, 6, 0, 0]} name="count" />
             <Legend />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <div className="space-y-4">
@@ -690,7 +690,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const table = liveData.tableData ?? []
       const totals = liveData.totals ?? {}
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={340}>
+        <div className="h-60 sm:h-75 lg:h-85"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={table}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
             <XAxis dataKey="gstRate" tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 12 }} />
@@ -701,7 +701,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Bar dataKey="sgst" fill="#f59e0b" radius={[6, 6, 0, 0]} name="sgst" />
             <Legend />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <>
@@ -763,7 +763,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const table = liveData.tableData ?? []
       const totals = liveData.totals ?? {}
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={380}>
+        <div className="h-65 sm:h-80 lg:h-95"><ResponsiveContainer width="100%" height="100%">
           <BarChart data={table.slice(0, 12)} layout="vertical" margin={{ left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
@@ -771,7 +771,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Taxable']} contentStyle={chartTooltipStyle} />
             <Bar dataKey="taxable" fill="#f59e0b" radius={[0, 6, 6, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <>
@@ -806,7 +806,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           return acc
         }, [])
         return (
-          <ResponsiveContainer width="100%" height={360}>
+          <div className="h-65 sm:h-80 lg:h-90"><ResponsiveContainer width="100%" height="100%">
             <LineChart data={grouped}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} />
@@ -816,7 +816,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
               <Line type="monotone" dataKey="payments" stroke="#ef4444" strokeWidth={2} dot={false} name="payments" />
               <Legend />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div>
         )
       }
       return (
@@ -856,7 +856,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       if (viewMode === 'chart') {
         const bucketData = Object.entries(aging).map(([k, v]) => ({ bucket: k, amount: Number(v) }))
         return (
-          <ResponsiveContainer width="100%" height={340}>
+          <div className="h-60 sm:h-75 lg:h-85"><ResponsiveContainer width="100%" height="100%">
             <BarChart data={bucketData}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
               <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
@@ -866,7 +866,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
                 {bucketData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div>
         )
       }
       return (
@@ -914,7 +914,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       const chart = liveData.chartData ?? []
       const table = liveData.tableData ?? []
       if (viewMode === 'chart') return (
-        <ResponsiveContainer width="100%" height={360}>
+        <div className="h-65 sm:h-80 lg:h-90"><ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={chart} cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={3} dataKey="amount" nameKey="category" strokeWidth={2} className="stroke-background">
               {chart.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -922,7 +922,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             <Tooltip formatter={(v: any) => [formatCurrency(Number(v)), 'Amount']} contentStyle={chartTooltipStyle} />
             <Legend formatter={(v: string) => <span className="text-xs text-foreground">{v}</span>} />
           </PieChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></div>
       )
       return (
         <ReportTable 

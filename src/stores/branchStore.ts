@@ -60,8 +60,23 @@ export const useBranchStore = create<BranchState>()(
       setActiveBranch: (branchId) => {
         const branch = get().branches.find((b) => b.id === branchId) ?? null
         set({ activeBranchId: branchId, activeBranch: branch })
-        // Full reload so every page, store, and API call picks up the new branchId cleanly
-        window.location.href = '/'
+        // Soft switch: invalidate cached master data and route back to the
+        // dashboard so the user lands on a clean page that will re-fetch
+        // against the new branchId. Beats the previous full-page reload
+        // (which caused a visible flicker and re-ran auth bootstrap).
+        void Promise.all([
+          import('@/stores/masterDataStore').then(({ useMasterDataStore }) => {
+            useMasterDataStore.setState({
+              products: [], customers: [], suppliers: [], purchaseOrders: [],
+              batches: [], categories: [], hasLoaded: false,
+            })
+          }),
+          import('@/stores/notificationStore').then(({ useNotificationStore }) => {
+            useNotificationStore.setState({ notifications: [] })
+            useNotificationStore.getState().fetchNotifications()
+          }),
+          import('@/lib/router').then(({ navigate }) => navigate('/dashboard')),
+        ]).catch(() => { /* best-effort */ })
       },
     }),
     {

@@ -1,6 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Mail, MessageCircle, Phone } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 
 import { Badge } from '@/components/ui/badge'
 import { cn, formatCurrencyCompact, formatDate } from '@/lib/utils'
@@ -25,12 +38,12 @@ const stageTone: Record<
   LeadStage,
   {
     dot: string
-    accent: string // left border on card
-    softBg: string // column body background tint
-    headerBg: string // column header background tint
-    pill: string // count pill background
+    accent: string
+    softBg: string
+    headerBg: string
+    pill: string
     pillText: string
-    dropRing: string // outline shown while dragging over column
+    dropRing: string
   }
 > = {
   LEAD: {
@@ -89,8 +102,6 @@ const stageTone: Record<
   },
 }
 
-const DRAG_MIME = 'application/x-lead-id'
-
 export function LeadsKanbanView({
   data,
   loading,
@@ -101,11 +112,19 @@ export function LeadsKanbanView({
   // instantly. The mirror is rebuilt whenever the upstream `data` changes,
   // so a successful refetch flushes any temporary view.
   const [optimistic, setOptimistic] = useState<Record<string, LeadStage>>({})
+  const [draggingLead, setDraggingLead] = useState<Lead | null>(null)
 
-  // Lead-id of the card currently being dragged. Used to dim its source
-  // card and to suppress redundant drops onto the same column.
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [hoverStage, setHoverStage] = useState<LeadStage | null>(null)
+  // @dnd-kit sensors:
+  //  - PointerSensor for mouse and pen, with a small activation distance so a
+  //    click without movement isn't interpreted as a drag.
+  //  - TouchSensor for iOS/Android with a 200 ms hold so a tap on the card
+  //    still fires onClick instead of starting a drag.
+  // This is the migration from the previous HTML5-DnD implementation, which
+  // didn't fire on touch devices at all.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  )
 
   const grouped = useMemo(() => {
     const map: Record<LeadStage, Lead[]> = {
@@ -155,137 +174,165 @@ export function LeadsKanbanView({
     }
   }
 
+  const handleDragStart = (e: DragStartEvent) => {
+    const lead = data.find((l) => l.id === String(e.active.id))
+    setDraggingLead(lead ?? null)
+  }
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const lead = draggingLead
+    setDraggingLead(null)
+    if (!lead || !e.over) return
+    const targetStage = String(e.over.id) as LeadStage
+    if (!STAGES.some((s) => s.value === targetStage)) return
+    handleDrop(lead, targetStage)
+  }
+
   return (
-    // Horizontal scroll wrapper. min-h-0 + flex-1 lets the columns own
-    // their own vertical scroll while the page chrome stays pinned.
-    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-1">
-      {STAGES.map((s) => {
-        const tone = stageTone[s.value]
-        const column = grouped[s.value]
-        const totalValue = column.reduce((sum, l) => sum + Number(l.value || 0), 0)
-        const isHover = hoverStage === s.value && draggingId
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setDraggingLead(null)}
+    >
+      {/* Horizontal scroll wrapper. touch-action:pan-x lets the user scroll the
+          column row horizontally without triggering vertical-swipe gestures. */}
+      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-1 [touch-action:pan-x]">
+        {STAGES.map((s) => {
+          const tone = stageTone[s.value]
+          const column = grouped[s.value]
+          const totalValue = column.reduce((sum, l) => sum + Number(l.value || 0), 0)
+          return (
+            <KanbanColumn
+              key={s.value}
+              stage={s.value}
+              label={s.label}
+              tone={tone}
+              column={column}
+              totalValue={totalValue}
+              loading={loading}
+              draggingId={draggingLead?.id ?? null}
+              onCardClick={onCardClick}
+            />
+          )
+        })}
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {draggingLead ? (
+          <KanbanCardSurface
+            lead={draggingLead}
+            accent={stageTone[(optimistic[draggingLead.id] ?? draggingLead.stage)].accent}
+            isDragging
+          />
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  )
+}
 
-        return (
-          <div
-            key={s.value}
-            className={cn(
-              // Each column is a fixed-width vertical flex container that
-              // owns its own scroll. Header stays pinned; body scrolls.
-              'flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-background transition-shadow',
-              isHover && `ring-2 ring-offset-1 ring-offset-background ${tone.dropRing}`,
-            )}
-            onDragOver={(e) => {
-              // Allow drop only when a lead-id payload is present. Calling
-              // preventDefault is what actually enables the drop.
-              if (!e.dataTransfer.types.includes(DRAG_MIME)) return
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              if (hoverStage !== s.value) setHoverStage(s.value)
-            }}
-            onDragLeave={(e) => {
-              // Only clear hover when leaving the column entirely, not
-              // when dragging over a child element.
-              const next = e.relatedTarget as Node | null
-              if (next && (e.currentTarget as Node).contains(next)) return
-              setHoverStage((prev) => (prev === s.value ? null : prev))
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              const id = e.dataTransfer.getData(DRAG_MIME)
-              setHoverStage(null)
-              setDraggingId(null)
-              if (!id) return
-              const lead = data.find((l) => l.id === id)
-              if (!lead) return
-              handleDrop(lead, s.value)
-            }}
-          >
-            {/* ── Column header ─────────────────────────────────────── */}
-            <div className={cn('shrink-0 border-b border-border/40 px-3 py-2.5', tone.headerBg)}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className={cn('h-2 w-2 shrink-0 rounded-full', tone.dot)} />
-                  <span className="truncate text-xs font-semibold uppercase tracking-wide text-foreground">
-                    {s.label}
-                  </span>
-                  <Badge
-                    size="sm"
-                    className={cn(
-                      'h-4 shrink-0 px-1.5 text-[10px] font-bold',
-                      tone.pill,
-                      tone.pillText,
-                    )}
-                    variant="secondary"
-                  >
-                    {column.length}
-                  </Badge>
-                </div>
-                <span className="shrink-0 font-mono text-[11px] font-semibold text-muted-foreground">
-                  {formatCurrencyCompact(totalValue)}
-                </span>
-              </div>
-            </div>
+// ─────────────────────────────────────────────────────────────
+// Column (droppable)
+// ─────────────────────────────────────────────────────────────
 
-            {/* ── Column body ───────────────────────────────────────── */}
-            <div
+interface KanbanColumnProps {
+  stage: LeadStage
+  label: string
+  tone: (typeof stageTone)[LeadStage]
+  column: Lead[]
+  totalValue: number
+  loading: boolean
+  draggingId: string | null
+  onCardClick: (lead: Lead) => void
+}
+
+function KanbanColumn({
+  stage,
+  label,
+  tone,
+  column,
+  totalValue,
+  loading,
+  draggingId,
+  onCardClick,
+}: KanbanColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage })
+  const showHoverRing = isOver && !!draggingId
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-background transition-shadow',
+        showHoverRing && `ring-2 ring-offset-1 ring-offset-background ${tone.dropRing}`,
+      )}
+    >
+      {/* ── Column header ─────────────────────────────────────── */}
+      <div className={cn('shrink-0 border-b border-border/40 px-3 py-2.5', tone.headerBg)}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className={cn('h-2 w-2 shrink-0 rounded-full', tone.dot)} />
+            <span className="truncate text-xs font-semibold uppercase tracking-wide text-foreground">
+              {label}
+            </span>
+            <Badge
+              size="sm"
               className={cn(
-                'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2',
-                tone.softBg,
+                'h-4 shrink-0 px-1.5 text-[10px] font-bold',
+                tone.pill,
+                tone.pillText,
               )}
+              variant="secondary"
             >
-              {loading && column.length === 0 ? (
-                <>
-                  {[0, 1].map((i) => (
-                    <div
-                      key={i}
-                      className="h-24 animate-pulse rounded-lg border border-border/40 bg-muted/40"
-                    />
-                  ))}
-                </>
-              ) : column.length === 0 ? (
-                // Dashed drop-zone hint. Becomes the entire column body
-                // height so it's a forgiving drop target even when empty.
-                <div
-                  className={cn(
-                    'flex min-h-[140px] flex-1 flex-col items-center justify-center rounded-lg border border-dashed text-center text-[11px] text-muted-foreground/70 transition-colors',
-                    isHover
-                      ? `border-2 ${tone.accent.replace('border-l-', 'border-')} bg-background`
-                      : 'border-border/50',
-                  )}
-                >
-                  <span>No leads</span>
-                  <span className="text-muted-foreground/50">Drop a card here</span>
-                </div>
-              ) : (
-                column.map((lead) => (
-                  <KanbanCard
-                    key={lead.id}
-                    lead={lead}
-                    accent={tone.accent}
-                    isDragging={draggingId === lead.id}
-                    onClick={() => onCardClick(lead)}
-                    onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = 'move'
-                      e.dataTransfer.setData(DRAG_MIME, lead.id)
-                      setDraggingId(lead.id)
-                    }}
-                    onDragEnd={() => {
-                      setDraggingId(null)
-                      setHoverStage(null)
-                    }}
-                  />
-                ))
-              )}
-            </div>
+              {column.length}
+            </Badge>
           </div>
-        )
-      })}
+          <span className="shrink-0 font-mono text-[11px] font-semibold text-muted-foreground">
+            {formatCurrencyCompact(totalValue)}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Column body ───────────────────────────────────────── */}
+      <div className={cn('flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2', tone.softBg)}>
+        {loading && column.length === 0 ? (
+          <>
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="h-24 animate-pulse rounded-lg border border-border/40 bg-muted/40"
+              />
+            ))}
+          </>
+        ) : column.length === 0 ? (
+          <div
+            className={cn(
+              'flex min-h-35 flex-1 flex-col items-center justify-center rounded-lg border border-dashed text-center text-[11px] text-muted-foreground/70 transition-colors',
+              showHoverRing
+                ? `border-2 ${tone.accent.replace('border-l-', 'border-')} bg-background`
+                : 'border-border/50',
+            )}
+          >
+            <span>No leads</span>
+            <span className="text-muted-foreground/50">Drop a card here</span>
+          </div>
+        ) : (
+          column.map((lead) => (
+            <KanbanCard
+              key={lead.id}
+              lead={lead}
+              accent={tone.accent}
+              isDragging={draggingId === lead.id}
+              onClick={() => onCardClick(lead)}
+            />
+          ))
+        )}
+      </div>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────
-// Card
+// Card (draggable)
 // ─────────────────────────────────────────────────────────────
 
 interface KanbanCardProps {
@@ -293,44 +340,64 @@ interface KanbanCardProps {
   accent: string
   isDragging: boolean
   onClick: () => void
-  onDragStart: (e: React.DragEvent<HTMLButtonElement>) => void
-  onDragEnd: () => void
 }
 
-function KanbanCard({
-  lead,
-  accent,
-  isDragging,
-  onClick,
-  onDragStart,
-  onDragEnd,
-}: KanbanCardProps) {
+function KanbanCard({ lead, accent, isDragging, onClick }: KanbanCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging: dndDragging } = useDraggable({
+    id: lead.id,
+  })
+  const style = transform
+    ? { transform: CSS.Translate.toString(transform) }
+    : undefined
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      onClick={onClick}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        'group relative flex w-full flex-col gap-2 rounded-lg border border-border/60 border-l-[3px] bg-background p-2.5 text-left shadow-sm transition-all hover:border-border hover:shadow-md',
+        // Hide the source card while it's being represented by the overlay.
+        accent,
+        (isDragging || dndDragging) && 'opacity-40',
+        'touch-none',
+      )}
+    >
+      <KanbanCardBody lead={lead} />
+    </button>
+  )
+}
+
+// Surface used inside DragOverlay — same visual treatment, but plain div so
+// the overlay isn't itself a draggable.
+function KanbanCardSurface({ lead, accent, isDragging }: { lead: Lead; accent: string; isDragging: boolean }) {
+  return (
+    <div
+      className={cn(
+        'group relative flex w-72 flex-col gap-2 rounded-lg border border-border/60 border-l-[3px] bg-background p-2.5 text-left shadow-lg',
+        accent,
+        isDragging && 'cursor-grabbing',
+      )}
+    >
+      <KanbanCardBody lead={lead} />
+    </div>
+  )
+}
+
+function KanbanCardBody({ lead }: { lead: Lead }) {
   const fullName =
-    `${lead.contact.firstName ?? ''} ${lead.contact.lastName ?? ''}`.trim() ||
-    'Lead'
+    `${lead.contact.firstName ?? ''} ${lead.contact.lastName ?? ''}`.trim() || 'Lead'
   const initial = fullName.charAt(0).toUpperCase()
   const phone = lead.contact.phone
     ? `${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`
     : ''
   const waNumber = `${lead.contact.phoneCountryCode?.replace('+', '') ?? ''}${lead.contact.phone}`
   const assigneeInitial = (lead.assignedToUser?.name ?? '?').charAt(0).toUpperCase()
-
   return (
-    <button
-      type="button"
-      draggable
-      onClick={onClick}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      className={cn(
-        // The button itself is the draggable + clickable surface. cursor-grab
-        // signals draggability; the activestate flips to grabbing.
-        'group relative flex w-full flex-col gap-2 rounded-lg border border-border/60 border-l-[3px] bg-background p-2.5 text-left shadow-sm transition-all hover:border-border hover:shadow-md active:cursor-grabbing',
-        accent,
-        isDragging && 'opacity-40',
-      )}
-    >
-      {/* Top row — avatar + name + lead-id */}
+    <>
+      {/* Top row — avatar + name + value */}
       <div className="flex items-start gap-2">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
           {initial}
@@ -369,29 +436,16 @@ function KanbanCard({
           </Badge>
           {phone && (
             <>
-              <ContactIconLink
-                href={`tel:${phone}`}
-                tone="emerald"
-                ariaLabel="Call"
-              >
+              <ContactIconLink href={`tel:${phone}`} tone="emerald" ariaLabel="Call">
                 <Phone className="h-3 w-3" />
               </ContactIconLink>
-              <ContactIconLink
-                href={`https://wa.me/${waNumber}`}
-                tone="emerald"
-                ariaLabel="WhatsApp"
-                external
-              >
+              <ContactIconLink href={`https://wa.me/${waNumber}`} tone="emerald" ariaLabel="WhatsApp" external>
                 <MessageCircle className="h-3 w-3" />
               </ContactIconLink>
             </>
           )}
           {lead.contact.email && (
-            <ContactIconLink
-              href={`mailto:${lead.contact.email}`}
-              tone="violet"
-              ariaLabel="Email"
-            >
+            <ContactIconLink href={`mailto:${lead.contact.email}`} tone="violet" ariaLabel="Email">
               <Mail className="h-3 w-3" />
             </ContactIconLink>
           )}
@@ -408,7 +462,7 @@ function KanbanCard({
           </span>
         </div>
       </div>
-    </button>
+    </>
   )
 }
 
@@ -435,12 +489,8 @@ function ContactIconLink({
       target={external ? '_blank' : undefined}
       rel={external ? 'noreferrer' : undefined}
       aria-label={ariaLabel}
-      // stopPropagation so the card's onClick doesn't fire when the user
-      // taps a contact icon. The button's draggable handler is unaffected.
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      // Inline-block <a> inside a <button> is technically invalid HTML, but
-      // browsers tolerate it and React doesn't warn. Acceptable for the
-      // pragmatic gain: one click target per icon, no nested button.
       className={cn(
         'inline-flex h-5 w-5 items-center justify-center rounded transition-colors',
         toneClass,

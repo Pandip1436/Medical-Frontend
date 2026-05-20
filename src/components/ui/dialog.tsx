@@ -42,7 +42,9 @@ const DialogContent = React.forwardRef<
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
         // md+: EXACT original desktop layout — centered, rounded, max-w-lg, gap-4
-        "md:inset-auto md:h-auto md:left-1/2 md:top-1/2 md:grid md:max-w-lg md:w-full md:translate-x-[-50%] md:translate-y-[-50%] md:gap-4 md:border md:p-6 md:rounded-lg md:overflow-visible",
+        // Cap max-h on desktop so tall dialog bodies scroll internally instead of
+        // running off the viewport on shorter screens (e.g., 768px laptops).
+        "md:inset-auto md:h-auto md:max-h-[90vh] md:left-1/2 md:top-1/2 md:grid md:max-w-lg md:w-full md:translate-x-[-50%] md:translate-y-[-50%] md:gap-4 md:border md:p-6 md:rounded-lg md:overflow-y-auto",
         "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
         "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=open]:slide-in-from-left-1/2",
         "md:data-[state=closed]:slide-out-to-top-[48%] md:data-[state=open]:slide-in-from-top-[48%]",

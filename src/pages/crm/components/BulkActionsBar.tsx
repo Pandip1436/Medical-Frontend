@@ -99,8 +99,8 @@ export function BulkActionsBar({
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-5 z-40 flex justify-center px-4 pointer-events-none">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur">
+    <div className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.25rem))]">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur [-webkit-backdrop-filter:blur(8px)]">
         <span className="px-2 text-xs font-semibold">
           {selectedIds.length} selected
         </span>

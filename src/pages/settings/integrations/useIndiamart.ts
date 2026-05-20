@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '@/lib/api'
 import type { IndiamartStatus, IndiamartSyncJob } from './types'
 
@@ -46,11 +46,19 @@ export function useIndiamart() {
     setLoading(false)
   }, [fetchStatus, fetchJobs])
 
+  // Pin the latest fetchStatus in a ref so the polling interval is bound
+  // exactly once (otherwise the interval re-creates on every render and old
+  // intervals can stack up, hammering the API). Same pattern as
+  // useKeyboardShortcuts.
+  const fetchStatusRef = useRef(fetchStatus)
+  fetchStatusRef.current = fetchStatus
+
   useEffect(() => {
     refetch()
-    const id = setInterval(fetchStatus, STATUS_POLL_MS)
+    const id = setInterval(() => fetchStatusRef.current(), STATUS_POLL_MS)
     return () => clearInterval(id)
-  }, [refetch, fetchStatus])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Idempotent: returns existing webhook URL if already generated.
   const generateWebhook = useCallback(async () => {

@@ -117,7 +117,7 @@ export function LeadsSplitView({
     // h-full so we inherit from the page's flex-1 wrapper — no more
     // hard-coded viewport math that caused the outer page to scroll when
     // the panel was taller than the calculated height.
-    <div className="grid h-full min-h-0 grid-cols-[minmax(280px,35%)_1fr] overflow-hidden rounded-lg border border-border/60 bg-background">
+    <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[minmax(240px,32%)_1fr] overflow-hidden rounded-lg border border-border/60 bg-background">
       {/* ── Left rail ── */}
       <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/40">
         {/* Header strip — back arrow + total count */}

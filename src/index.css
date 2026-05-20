@@ -9,6 +9,17 @@
    ═══════════════════════════════════════════════════════════════ */
 
 @theme {
+  /* ─── Breakpoints ────────────────────────────────────────── */
+  /* xs:  480px — small phones / narrow drawers
+     sm:  640px — Tailwind default
+     md:  768px — Tailwind default (tablet portrait)
+     lg: 1024px — Tailwind default (tablet landscape)
+     xl: 1280px — Tailwind default (small desktop)
+     2xl:1536px — Tailwind default (desktop)
+     3xl:1920px — large desktop / ultra-wide */
+  --breakpoint-xs: 30rem;
+  --breakpoint-3xl: 120rem;
+
   /* ─── Typography ─────────────────────────────────────────── */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
@@ -309,8 +320,15 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SCROLLBAR — Minimal & Themed
+   SCROLLBAR — Minimal & Themed (WebKit + Firefox)
    ═══════════════════════════════════════════════════════════════ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(215 20% 65% / 0.4) transparent;
+}
+.dark * {
+  scrollbar-color: hsl(0 0% 100% / 0.14) transparent;
+}
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -333,6 +351,28 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   TOUCH — show hover-revealed actions by default on touch devices
+   ═══════════════════════════════════════════════════════════════ */
+@media (hover: none) {
+  .group:hover .opacity-0,
+  .group .group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+}
+
+/* Safe-area helpers for notched iOS devices */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+.px-safe {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+/* ═══════════════════════════════════════════════════════════════
    UTILITY CLASSES
    ═══════════════════════════════════════════════════════════════ */
 
@@ -343,18 +383,30 @@
   letter-spacing: -0.02em;
 }
 
-/* Glassmorphism — Light & Dark */
+/* Glassmorphism — Light & Dark (with -webkit- prefix for Safari < 15) */
 .glass {
   background: hsl(0 0% 100% / 0.65);
-  backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid hsl(0 0% 100% / 0.25);
 }
 .dark .glass {
   background: hsl(0 0% 100% / 0.03);
-  backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
   border: 1px solid hsl(0 0% 100% / 0.06);
+}
+
+/* Gradient text utility — with fallback for Firefox < 91 */
+.gradient-text {
+  color: var(--color-foreground);
+  background: linear-gradient(135deg, var(--color-blue-default), var(--color-purple-default));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .gradient-text { color: var(--color-blue-default); }
 }
 
 /* Active indicator glow for sidebar / nav */

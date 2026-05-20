@@ -832,7 +832,12 @@ export default function SupplierDetailPage() {
                       )
                     }
                   />
-                  {sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />}
+                  {sup.bankDetails && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] text-muted-foreground">Bank</span>
+                      <span className="text-xs font-mono font-medium wrap-break-word">{sup.bankDetails}</span>
+                    </div>
+                  )}
                 </OverviewSection>
               </>
             ) : null}
@@ -1571,9 +1576,8 @@ function ActivityTabContent({
         )}
       </div>
 
-      {/* Quick-log footer — 5 equal-width buttons pinned to the bottom of the
-          panel. shrink-0 keeps it visible while the timeline above scrolls. */}
-      <div className="shrink-0 grid grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-5 py-2.5">
+      {/* Quick-log footer — buttons wrap on narrow viewports; pinned to bottom. */}
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
         {types.map((t) => {
           const meta = ACTIVITY_META[t]
           const Icon = meta.icon

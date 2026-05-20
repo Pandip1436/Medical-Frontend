@@ -49,7 +49,13 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
-import { exportToExcel, importFromExcel } from '@/lib/excelUtils'
+import {
+  exportSuppliersToWorkbook,
+  type SupplierExportPayload,
+} from '@/lib/supplierImportTemplate'
+import { useBranchStore } from '@/stores/branchStore'
+import { useAuthStore } from '@/stores/authStore'
+import { ImportSuppliersDrawer } from '@/components/suppliers/ImportSuppliersDrawer'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
@@ -96,7 +102,6 @@ export default function SuppliersPage() {
   const {
     suppliers: directorySuppliers,
     fetchMasterData,
-    importSuppliers,
   } = useMasterDataStore()
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,8 +116,8 @@ export default function SuppliersPage() {
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [isImporting, setIsImporting] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Multi-sheet history import — handled in its own drawer.
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
   // ── Filters ──
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
@@ -192,70 +197,34 @@ export default function SuppliersPage() {
     setOutstandingMax('')
   }
 
+  // Round-trip-compatible export. Pulls the full nested data tree (suppliers
+  // + POs + GRNs + DNs + activities + batches) from the dedicated /export
+  // endpoint and builds a workbook matching the import template, so the
+  // operator can edit and re-upload via the Import drawer.
   const handleExport = async () => {
     try {
-      // Export ALL matching suppliers (apply filters, drop pagination).
       const params = buildQueryParams({ paginated: false })
-      const res = await api.get(`/suppliers?${params.toString()}`)
-      const payload = res.data
-      const allMatching = (payload?.data ?? payload ?? []) as Supplier[]
-      if (allMatching.length === 0) {
-        toast.info('No suppliers to export')
-        return
-      }
-      const exportData = allMatching.map((s) => ({
-        Name: s.name,
-        'Contact Person': s.contactPerson,
-        Phone: s.phone,
-        Email: s.email || '',
-        GSTIN: s.gstin,
-        'Drug License': s.drugLicense,
-        Address: s.address,
-        'Payment Terms': s.paymentTerms,
-        'Bank Details': s.bankDetails || '',
-        Outstanding: s.currentOutstanding,
-        Status: s.isActive ? 'Active' : 'Inactive',
-      }))
-      exportToExcel(exportData, 'suppliers')
+      const res = await api.get(`/suppliers/export?${params.toString()}`)
+      const data = res.data as SupplierExportPayload
+      const activeBranch = useBranchStore.getState().activeBranch
+      const user = useAuthStore.getState().user
+      exportSuppliersToWorkbook(data, {
+        branchName: activeBranch?.name ?? null,
+        exportedBy: user?.name ?? user?.email ?? null,
+        exportedAt: new Date().toISOString(),
+        schemaVersion: '1.0',
+      })
+      toast.success(
+        `Exported ${data.suppliers.length} supplier${data.suppliers.length === 1 ? '' : 's'} with full history.`,
+      )
     } catch {
       toast.error('Failed to export suppliers')
     }
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setIsImporting(true)
-    try {
-      const data = await importFromExcel<any>(file)
-      if (!data.length) throw new Error('File is empty')
-      const formattedData = data.map((row) => ({
-        name: row.Name || row.name,
-        contactPerson: row['Contact Person'] || row.contactPerson || row.ContactPerson || row.name || 'Admin',
-        phone: String(row.Phone || row.phone),
-        email: row.Email || row.email || '',
-        gstin: row.GSTIN || row.gstin || '',
-        drugLicense: row['Drug License'] || row.drugLicense || row.dlNumber || row.DrugLicense || '',
-        address: row.Address || row.address || '',
-        paymentTerms: row['Payment Terms'] || row.paymentTerms || row.PaymentTerms || 'NET_30',
-        bankDetails: row['Bank Details'] || row.bankDetails || row.BankDetails || '',
-      }))
-      const res = await importSuppliers(formattedData)
-      if (res.skippedCount > 0) {
-        toast.warning(`Imported ${res.createdCount} suppliers. Skipped ${res.skippedCount} rows.`)
-        if (res.errors?.length) {
-          console.warn('Import errors:', res.errors)
-        }
-      } else {
-        toast.success(`Successfully imported ${res.createdCount} suppliers`)
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to import suppliers')
-    } finally {
-      setIsImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
+  // Import is handled inside ImportSuppliersDrawer — it runs preview + commit
+  // against /suppliers/import/* endpoints and pulls in full supplier history
+  // (POs, GRNs, debit notes, activities, batches) in one go.
 
   // Filtering happens on the backend — `suppliers` is already the current page
   // of matching results. `totalSuppliers` is the matching-count across all pages.
@@ -344,15 +313,6 @@ export default function SuppliersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* Hidden file input — triggered by the Import button in the filter bar below */}
-      <input
-        type="file"
-        accept=".xlsx, .xls"
-        className="hidden"
-        ref={fileInputRef}
-        onChange={handleImport}
-      />
-
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -427,11 +387,10 @@ export default function SuppliersPage() {
               variant="outline"
               size="sm"
               className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-400 dark:border-amber-800/60 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 dark:hover:border-amber-700"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
+              onClick={() => setImportDrawerOpen(true)}
             >
               <Upload className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">{isImporting ? 'Importing…' : 'Import'}</span>
+              <span className="hidden sm:inline">Import</span>
             </Button>
             <Button
               size="sm"
@@ -772,6 +731,13 @@ export default function SuppliersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ─── Supplier + History Import Drawer ─── */}
+      <ImportSuppliersDrawer
+        open={importDrawerOpen}
+        onOpenChange={setImportDrawerOpen}
+        onImported={fetchMasterData}
+      />
     </motion.div>
   )
 }

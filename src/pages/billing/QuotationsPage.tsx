@@ -823,7 +823,7 @@ export default function QuotationsPage() {
     <Sheet open={!!detailQt} onOpenChange={(open) => !open && setDetailQt(null)}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
+        className="w-full sm:max-w-160 lg:max-w-190 p-0 gap-0 flex flex-col"
       >
         {detailQt && (() => {
           const canMarkSent = detailQt.status === 'DRAFT'

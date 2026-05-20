@@ -134,11 +134,12 @@ export function SalesHeroChart() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-[260px] w-full" />
+          <Skeleton className="h-55 sm:h-65 lg:h-70 w-full" />
         ) : data.length === 0 ? (
           <EmptyState />
         ) : (
-          <ResponsiveContainer width="100%" height={260}>
+          <div className="h-55 sm:h-65 lg:h-70">
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="hero-area" x1="0" y1="0" x2="0" y2="1">
@@ -183,6 +184,7 @@ export function SalesHeroChart() {
               />
             </AreaChart>
           </ResponsiveContainer>
+          </div>
         )}
       </CardContent>
     </Card>

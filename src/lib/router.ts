@@ -1,6 +1,6 @@
 import { useSyncExternalStore, useCallback } from 'react'
 
-// ─── Hash-based router store ───────────────────────────────────────────────
+// ─── History API router store ──────────────────────────────────────────────
 function getPath(): string {
   return window.location.pathname === '/' ? '/login' : window.location.pathname
 }
@@ -214,7 +214,7 @@ export const routes: Record<string, RouteConfig> = {
   },
   '/salespersons/report': {
     label: 'Sales Report',
-    breadcrumbs: [{ label: 'Salespersons', href: '#/salespersons' }, { label: 'Sales Report' }],
+    breadcrumbs: [{ label: 'Salespersons', href: '/salespersons' }, { label: 'Sales Report' }],
   },
   '/notifications': {
     label: 'Notifications',

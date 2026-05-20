@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { navigate } from '@/lib/router'
 
 interface ShortcutMap {
@@ -8,8 +8,15 @@ interface ShortcutMap {
 /**
  * Register global keyboard shortcuts.
  * Keys are formatted as "ctrl+k", "f1", "alt+n", etc.
+ *
+ * Callers commonly pass an inline object literal which would re-bind the
+ * keydown listener on every render. We stash the latest map in a ref and
+ * register a single stable handler so binding happens exactly once.
  */
 export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
+  const ref = useRef(shortcuts)
+  ref.current = shortcuts
+
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       // IME composition / synthetic events can fire keydown without `key`.
@@ -21,24 +28,27 @@ export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
       parts.push(e.key.toLowerCase())
       const combo = parts.join('+')
 
-      if (shortcuts[combo]) {
+      const fn = ref.current[combo]
+      if (fn) {
         e.preventDefault()
-        shortcuts[combo]()
+        fn()
       }
     }
 
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [shortcuts])
+  }, [])
 }
 
 /**
  * Pre-configured global shortcuts for the app.
  * F1 = New Sale, F2 = New Purchase, Ctrl+K = Command Palette, etc.
  */
+const GLOBAL_SHORTCUTS: ShortcutMap = {
+  f1: () => navigate('/billing/new'),
+  f2: () => navigate('/purchase/orders'),
+}
+
 export function useGlobalShortcuts() {
-  useKeyboardShortcuts({
-    f1: () => navigate('/billing/new'),
-    f2: () => navigate('/purchase/orders'),
-  })
+  useKeyboardShortcuts(GLOBAL_SHORTCUTS)
 }

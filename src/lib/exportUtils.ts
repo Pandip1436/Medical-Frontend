@@ -2,6 +2,18 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printHtmlInPage } from '@/lib/printUtils'
 
+// HTML-escape for safe interpolation into printable markup.
+// Customer/lead/product fields can contain `<`, `>`, `&`, `"`, `'` that would
+// otherwise break the table or, worse, execute inline scripts.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** Convert an array of plain objects to a CSV blob and trigger download */
 export function exportToCsv(rows: Record<string, unknown>[], filename: string) {
   if (!rows.length) return
@@ -70,16 +82,17 @@ export function printReport(rows: Record<string, unknown>[], title: string) {
   if (!rows.length) return
   const headers = Object.keys(rows[0])
   const headerRow = headers
-    .map((h) => `<th>${h.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}</th>`)
+    .map((h) => `<th>${escapeHtml(h.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()))}</th>`)
     .join('')
   const bodyRows = rows
     .map(
       (row) =>
-        `<tr>${headers.map((h) => `<td>${String(row[h] ?? '')}</td>`).join('')}</tr>`,
+        `<tr>${headers.map((h) => `<td>${escapeHtml(String(row[h] ?? ''))}</td>`).join('')}</tr>`,
     )
     .join('')
 
-  const html = `<!DOCTYPE html><html><head><title>${title}</title><style>
+  const safeTitle = escapeHtml(title)
+  const html = `<!DOCTYPE html><html><head><title>${safeTitle}</title><style>
     body{font-family:Arial,sans-serif;font-size:11px;padding:16px}
     h2{text-align:center;margin-bottom:8px;font-size:14px}
     table{width:100%;border-collapse:collapse}
@@ -87,10 +100,11 @@ export function printReport(rows: Record<string, unknown>[], title: string) {
     th{background:#2d3748;color:#fff}
     tr:nth-child(even){background:#f7f7f7}
     tr{page-break-inside:avoid}
-    @media print{body{padding:0}thead{display:table-header-group}}
+    @media print{body{padding:0;font-size:10px}thead{display:table-header-group}}
+    @media print and (max-width:480px){body{font-size:9px}}
   </style></head><body>
-  <h2>${title}</h2>
-  <p style="text-align:center;color:#666;font-size:10px">Generated on ${new Date().toLocaleDateString('en-IN')}</p>
+  <h2>${safeTitle}</h2>
+  <p style="text-align:center;color:#666;font-size:10px">Generated on ${escapeHtml(new Date().toLocaleDateString('en-IN'))}</p>
   <table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>
   </body></html>`
 

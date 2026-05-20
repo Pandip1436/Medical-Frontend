@@ -235,7 +235,16 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
   useEffect(() => {
     if (!user) return
+    // Only admins can ever see the approvals badge — don't poll for the
+    // other roles. Saves ~60 API calls/hour per non-admin user.
+    const role = (user.role ?? '').toUpperCase().replace(/[\s-]/g, '_')
+    if (role !== 'ADMIN') {
+      setPendingApprovals(0)
+      return
+    }
     const fetchCount = () => {
+      // Skip the round-trip when the tab is hidden.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       import('@/lib/api').then(({ default: api }) => {
         api.get('/approvals/pending-count').then(r => setPendingApprovals(r.data.count ?? 0)).catch(() => {})
       })
@@ -625,8 +634,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
           )}
         </AnimatePresence>
 
-        {/* Bottom tab bar */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-1 pb-[env(safe-area-inset-bottom)] h-16">
+        {/* Bottom tab bar — sized to include safe-area padding on notched devices */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-sidebar-border bg-sidebar px-1 pb-[max(0px,env(safe-area-inset-bottom))] min-h-16">
           {(mobileBottomItemsByRole[user?.role ?? ''] ?? mobileBottomItemsByRole.default).map((item) => {
             const active = isActive(item)
             const Icon = item.icon

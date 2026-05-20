@@ -43,6 +43,13 @@ import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
 import { importFromExcel } from '@/lib/excelUtils'
+import { ImportProductsDrawer } from '@/components/products/ImportProductsDrawer'
+import {
+  exportProductsToWorkbook,
+  type ProductExportPayload,
+} from '@/lib/productImportTemplate'
+import { useBranchStore } from '@/stores/branchStore'
+import { useAuthStore } from '@/stores/authStore'
 import type { Product, Category } from '@/types'
 
 // ─── Zod schema ───────────────────────────────────────────────
@@ -147,10 +154,15 @@ export default function ProductsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  // Legacy single-sheet Excel import dialog — kept for the Marg ERP HSN/SAC
+  // and Marg product paths. The NEW multi-sheet preview+commit drawer below
+  // is what the "Import" button now opens.
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ createdCount?: number; updatedCount?: number; skippedCount: number; errors: string[] } | null>(null)
+  // New multi-sheet preview/commit drawer.
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
   const PAGE_SIZE = 10
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
@@ -392,6 +404,38 @@ export default function ProductsPage() {
     URL.revokeObjectURL(url)
   }
 
+  // Round-trip-compatible Excel export. Pulls the full product + category
+  // tree from /products/export so the workbook matches the import template
+  // and can be edited + re-uploaded.
+  const handleExportExcel = async () => {
+    try {
+      const res = await api.get('/products/export')
+      const data = res.data as ProductExportPayload
+      const activeBranch = useBranchStore.getState().activeBranch
+      const user = useAuthStore.getState().user
+      exportProductsToWorkbook(data, {
+        branchName: activeBranch?.name ?? null,
+        exportedBy: user?.name ?? user?.email ?? null,
+        exportedAt: new Date().toISOString(),
+        schemaVersion: '1.0',
+      })
+      toast.success(
+        `Exported ${data.products.length} product${data.products.length === 1 ? '' : 's'} (${data.categories.length} categories).`,
+      )
+    } catch {
+      toast.error('Failed to export products')
+    }
+  }
+
+  // CSV / PDF exports fetch the full matching set (was previously a bug —
+  // only the current page was exported, which is destructive for filtered
+  // exports). Returns a flat array for simple non-round-trip use.
+  const fetchAllProductsForExport = async () => {
+    const res = await api.get('/products/export')
+    const data = res.data as ProductExportPayload
+    return data.products
+  }
+
   const handleImport = async () => {
     if (!importFile) { toast.error('Please select a file'); return }
     setImporting(true)
@@ -508,7 +552,7 @@ export default function ProductsPage() {
               variant="outline"
               size="sm"
               className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}
+              onClick={() => setImportDrawerOpen(true)}
             >
               <Upload className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Import</span>
@@ -525,21 +569,28 @@ export default function ProductsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => {
-                  const rows = paginatedProducts.map(p => ({
-                    Name: p.name, Generic: p.genericName,
-                    Category: getProductCategory(p)?.name ?? '',
+                <DropdownMenuItem onClick={handleExportExcel}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as Excel (round-trip)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={async () => {
+                  // Fetches all matching products (not just the current page)
+                  // — fixes the prior bug where filtered/paged exports lost rows.
+                  const all = await fetchAllProductsForExport()
+                  const rows = all.map(p => ({
+                    Name: p.name, Generic: p.genericName ?? '',
+                    Category: p.category?.name ?? '',
                     MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
-                    HSN: p.hsnCode, GST: p.gstRate,
+                    HSN: p.hsnCode ?? '', GST: p.gstRate,
                   }))
                   exportToCsv(rows, 'products')
                 }}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV (flat)
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => {
-                  const rows = paginatedProducts.map(p => ({
-                    Name: p.name, Generic: p.genericName,
-                    Category: getProductCategory(p)?.name ?? '',
+                <DropdownMenuItem onClick={async () => {
+                  const all = await fetchAllProductsForExport()
+                  const rows = all.map(p => ({
+                    Name: p.name, Generic: p.genericName ?? '',
+                    Category: p.category?.name ?? '',
                     MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
                   }))
                   exportToPdf(rows, 'Products List', 'products')
@@ -1141,6 +1192,13 @@ export default function ProductsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Product Import Drawer (multi-sheet preview + commit) ─── */}
+      <ImportProductsDrawer
+        open={importDrawerOpen}
+        onOpenChange={setImportDrawerOpen}
+        onImported={refreshPage}
+      />
     </motion.div>
   )
 }

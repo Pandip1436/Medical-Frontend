@@ -65,15 +65,17 @@ export function LeadTabs({
                   key={t.value}
                   type="button"
                   onClick={() => onChange(t.value)}
+                  aria-label={t.label}
+                  title={t.label}
                   className={cn(
-                    '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors',
+                    '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-2 sm:px-3 py-2.5 text-xs font-medium transition-colors',
                     isActive
                       ? 'border-primary text-foreground font-semibold'
                       : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{t.label}</span>
+                  <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+                  <span className="hidden sm:inline">{t.label}</span>
                 </button>
               )
             })}

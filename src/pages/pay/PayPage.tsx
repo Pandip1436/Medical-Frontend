@@ -32,8 +32,13 @@ interface PublicPayView {
   paymentLink: PaymentLinkView | null
 }
 
-const inr = (n: number) =>
-  n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
+const inr = (n: number | string | null | undefined) => {
+  // Coerce defensively — backend payloads can occasionally return amounts as
+  // strings ("1234.50") or omit them; we want a safe "₹0" rather than a crash.
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '₹0'
+  return num.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
+}
 
 interface Props {
   invoiceId: string
@@ -258,7 +263,7 @@ function Shell({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen bg-muted/30 px-4 py-6">
+    <div className="min-h-dvh bg-muted/30 px-4 py-6 pb-safe">
       <div className="mx-auto max-w-md">
         <header className="mb-5 text-center">
           <h1 className="text-xl font-semibold">{pharmacy ?? 'Pharmacy'}</h1>

@@ -36,11 +36,16 @@ export function DataTableRowActions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm">
+        <Button variant="ghost" size="icon-sm" className="h-9 w-9 sm:h-8 sm:w-8" aria-label="Row actions">
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        collisionPadding={8}
+        className="w-44 max-w-[calc(100vw-1rem)]"
+      >
         {onView && (
           <DropdownMenuItem onClick={onView}>
             <Eye className="mr-2 h-4 w-4" />

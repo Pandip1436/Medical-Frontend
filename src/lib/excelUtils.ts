@@ -20,14 +20,17 @@ export async function importFromExcel<T>(file: File): Promise<T[]> {
     reader.onload = (e) => {
       try {
         const data = e.target?.result
-        const workbook = XLSX.read(data, { type: 'binary' })
+        // Switched from deprecated readAsBinaryString to readAsArrayBuffer.
+        const workbook = XLSX.read(data, { type: 'array' })
         const firstSheetName = workbook.SheetNames[0]
         const worksheet = workbook.Sheets[firstSheetName]
-        
+
         // Read as 2D array to check for custom formats
         const rawRows = XLSX.utils.sheet_to_json<any[][]>(worksheet, { header: 1 })
-        console.log("=== EXCEL IMPORT DEBUG ===");
-        console.log("Raw Rows (first 20):", rawRows.slice(0, 20));
+        if (import.meta.env.DEV) {
+          console.log("=== EXCEL IMPORT DEBUG ===");
+          console.log("Raw Rows (first 20):", rawRows.slice(0, 20));
+        }
         
         // Detect Marg ERP format
         let isMargFormat = false
@@ -61,7 +64,9 @@ export async function importFromExcel<T>(file: File): Promise<T[]> {
           }
         }
         
-        console.log("Format Detection:", { isMargFormat, isMargHsnFormat, isMargProductFormat });
+        if (import.meta.env.DEV) {
+          console.log("Format Detection:", { isMargFormat, isMargHsnFormat, isMargProductFormat });
+        }
 
         let records: any[] = []
 
@@ -79,7 +84,9 @@ export async function importFromExcel<T>(file: File): Promise<T[]> {
           }
         }
 
-        console.log("Extracted Records:", records.length, records.slice(0, 5));
+        if (import.meta.env.DEV) {
+          console.log("Extracted Records:", records.length, records.slice(0, 5));
+        }
 
         if (records.length === 0) {
           if (rawRows.length === 0) {
@@ -96,7 +103,7 @@ export async function importFromExcel<T>(file: File): Promise<T[]> {
       }
     }
     reader.onerror = (err) => reject(err)
-    reader.readAsBinaryString(file)
+    reader.readAsArrayBuffer(file)
   })
 }
 

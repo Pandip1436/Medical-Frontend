@@ -53,7 +53,7 @@ const emptyCounts: LeadListCounts = {
  * the same payload so the top-bar pills can update in sync with the table.
  */
 export function useLeadsList(opts: UseLeadsListOptions = {}) {
-  const pageSize = opts.pageSize ?? 50
+  const pageSize = opts.pageSize ?? 20
 
   const [tab, setTab] = useState<LeadTab>(opts.tab ?? 'all')
   const [page, setPage] = useState(1)

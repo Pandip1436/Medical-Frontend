@@ -31,7 +31,7 @@ export function QuickActions() {
         - lg: 1 col (lives in narrow col-5 next to the sales chart; cards stack
               vertically and stretch with grid-rows-4 to match the chart's height)
       */}
-      <div className="grid h-full grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-1 lg:grid-rows-4">
+      <div className="grid h-full grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-1 lg:auto-rows-fr">
         {ACTIONS.map((action) => {
           const Icon = action.icon
           return (

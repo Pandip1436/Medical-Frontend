@@ -281,14 +281,35 @@ export function ImportLeadsDrawer({
       toast.error('File too large — maximum is 25 MB')
       return
     }
-    if (!/\.csv$/i.test(f.name)) {
-      toast.error('Please upload a .csv file')
+    const isXlsx = /\.xlsx$/i.test(f.name)
+    const isCsv = /\.csv$/i.test(f.name)
+    if (!isCsv && !isXlsx) {
+      toast.error('Please upload a .csv or .xlsx file')
       return
     }
-    const text = await f.text()
-    const parsed = parseCsv(text)
+    let parsed: string[][]
+    if (isXlsx) {
+      // Parse Excel with the same xlsx lib used for products/suppliers.
+      // First sheet, header: 1 → 2D array of strings to match the CSV path.
+      try {
+        const XLSX = await import('xlsx')
+        const buffer = await f.arrayBuffer()
+        const wb = XLSX.read(buffer, { type: 'array' })
+        const firstSheet = wb.Sheets[wb.SheetNames[0]]
+        const raw = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1, defval: '' })
+        parsed = raw
+          .map((row) => (row as unknown[]).map((c) => String(c ?? '').trim()))
+          .filter((row) => row.some((c) => c.length > 0))
+      } catch {
+        toast.error('Failed to parse the .xlsx file')
+        return
+      }
+    } else {
+      const text = await f.text()
+      parsed = parseCsv(text)
+    }
     if (parsed.length === 0) {
-      toast.error('CSV is empty')
+      toast.error(`${isXlsx ? 'Excel sheet' : 'CSV'} is empty`)
       return
     }
     const [hdr, ...rest] = parsed
@@ -721,7 +742,7 @@ function UploadBlock({
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
@@ -752,7 +773,7 @@ function MappingTable({
     // (say 30+) so the Options section below remains visible without
     // forcing the user to scroll the whole drawer. The table body
     // scrolls inside; the header row stays pinned via `position: sticky`.
-    <div className="max-h-[320px] overflow-y-auto rounded-lg border border-border/40">
+    <div className="max-h-[min(320px,60vh)] overflow-y-auto rounded-lg border border-border/40">
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10 bg-muted/95 text-left backdrop-blur-sm">
           <tr>

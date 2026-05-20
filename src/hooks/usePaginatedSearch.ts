@@ -52,8 +52,20 @@ export function usePaginatedSearch<T>(opts: UsePaginatedSearchOptions): UsePagin
   const [error, setError] = useState<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+  // Monotonic request id — only the most recent fetch is allowed to write
+  // back into state. Guards against the "rapid loadMore" race where two
+  // requests are in flight and the older one lands second.
+  const requestIdRef = useRef(0)
   // Stable key for extraParams to avoid re-renders re-fetching on every render.
-  const extraParamsKey = JSON.stringify(extraParams ?? {})
+  // Sort keys so { a:1, b:2 } and { b:2, a:1 } produce the same string.
+  const extraParamsKey = JSON.stringify(
+    Object.keys(extraParams ?? {})
+      .sort()
+      .reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = (extraParams as any)[k]
+        return acc
+      }, {})
+  )
 
   const fetchPage = useCallback(
     async (nextSkip: number, append: boolean) => {
@@ -61,6 +73,7 @@ export function usePaginatedSearch<T>(opts: UsePaginatedSearchOptions): UsePagin
       if (abortRef.current) abortRef.current.abort()
       const controller = new AbortController()
       abortRef.current = controller
+      const myId = ++requestIdRef.current
       setLoading(true)
       setError(null)
       try {
@@ -73,6 +86,8 @@ export function usePaginatedSearch<T>(opts: UsePaginatedSearchOptions): UsePagin
         // Drop undefined values to keep URL clean
         Object.keys(params).forEach((k) => params[k] === undefined && delete params[k])
         const res = await api.get<PaginatedResponse<T> | T[]>(endpoint, { params, signal: controller.signal })
+        // Stale response: a newer request has been issued — discard.
+        if (myId !== requestIdRef.current) return
         // Tolerate both paginated envelope and raw array (older endpoints)
         let data: T[] = []
         let totalCount = 0
@@ -96,9 +111,10 @@ export function usePaginatedSearch<T>(opts: UsePaginatedSearchOptions): UsePagin
         // Axios aborts surface as canceled errors — ignore silently
         const err = e as { name?: string; code?: string; message?: string }
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return
+        if (myId !== requestIdRef.current) return
         setError(err?.message ?? 'Failed to load')
       } finally {
-        setLoading(false)
+        if (myId === requestIdRef.current) setLoading(false)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

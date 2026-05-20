@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { parseISO } from 'date-fns'
 import {
   AlertTriangle,
   ArrowRight,
@@ -33,8 +34,12 @@ interface AttentionRow {
 }
 
 function daysUntil(date: string): number {
-  const diff = new Date(date).getTime() - Date.now()
-  return Math.max(0, Math.ceil(diff / 86_400_000))
+  // Use parseISO for cross-browser consistency — Safari fails on some
+  // non-ISO date strings the backend might return for expiry/due dates.
+  const parsed = parseISO(date)
+  const ms = Number.isNaN(parsed.getTime()) ? new Date(date).getTime() : parsed.getTime()
+  if (Number.isNaN(ms)) return 0
+  return Math.max(0, Math.ceil((ms - Date.now()) / 86_400_000))
 }
 
 function buildRows({
@@ -167,7 +172,7 @@ export function NeedsAttentionInbox({
 
   return (
     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="h-full">
-      <Card className="flex flex-col lg:h-[460px]">
+      <Card className="flex flex-col min-h-75 lg:max-h-115">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">

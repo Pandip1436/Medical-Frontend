@@ -36,6 +36,14 @@ const inFlight: Record<'products' | 'customers' | 'suppliers' | 'categories', Pr
   categories: null,
 }
 
+// Unwrap an API response that may be either `[ ... ]` (raw array) or
+// `{ data: [ ... ] }` (wrapped). Used everywhere so behavior is consistent.
+function unwrapList<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data as T[]
+  const wrapped = (data as { data?: unknown })?.data
+  return Array.isArray(wrapped) ? (wrapped as T[]) : []
+}
+
 export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   products: [],
   batches: [],
@@ -60,19 +68,19 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
       const [prodRes, custRes, suppRes, poRes] = results
 
       const products: Product[] = prodRes.status === 'fulfilled'
-        ? (prodRes.value.data?.data ?? prodRes.value.data ?? [])
+        ? unwrapList<Product>(prodRes.value.data)
         : get().products
 
       const customers: Customer[] = custRes.status === 'fulfilled'
-        ? (Array.isArray(custRes.value.data) ? custRes.value.data : [])
+        ? unwrapList<Customer>(custRes.value.data)
         : get().customers
 
       const suppliers: Supplier[] = suppRes.status === 'fulfilled'
-        ? (Array.isArray(suppRes.value.data) ? suppRes.value.data : [])
+        ? unwrapList<Supplier>(suppRes.value.data)
         : get().suppliers
 
       const purchaseOrders: PurchaseOrder[] = poRes.status === 'fulfilled'
-        ? (Array.isArray(poRes.value.data) ? poRes.value.data : (poRes.value.data?.data ?? []))
+        ? unwrapList<PurchaseOrder>(poRes.value.data)
         : get().purchaseOrders
 
       const batches: Batch[] = products.flatMap((p: any) =>
@@ -93,7 +101,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
       set({ isLoading: true })
       try {
         const res = await api.get('/products')
-        const products: Product[] = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+        const products: Product[] = unwrapList<Product>(res.data)
         const batches: Batch[] = products.flatMap((p: any) =>
           (p.batches || []).map((b: any) => ({ ...b, productName: p.name }))
         )
@@ -114,7 +122,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
       set({ isLoading: true })
       try {
         const res = await api.get('/customers')
-        const customers: Customer[] = Array.isArray(res.data) ? res.data : []
+        const customers: Customer[] = unwrapList<Customer>(res.data)
         set({ customers })
       } catch (error) {
         console.error('Failed to fetch customers', error)
@@ -132,7 +140,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
       set({ isLoading: true })
       try {
         const res = await api.get('/suppliers')
-        const suppliers: Supplier[] = Array.isArray(res.data) ? res.data : []
+        const suppliers: Supplier[] = unwrapList<Supplier>(res.data)
         set({ suppliers })
       } catch (error) {
         console.error('Failed to fetch suppliers', error)
@@ -149,7 +157,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     inFlight.categories = (async () => {
       try {
         const res = await api.get('/categories')
-        const categories: Category[] = Array.isArray(res.data) ? res.data : []
+        const categories: Category[] = unwrapList<Category>(res.data)
         set({ categories })
       } catch {
         // silently fail — categories are non-critical
@@ -268,10 +276,11 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
         return b;
       });
 
-      // Update parent product totalStock
+      // Update parent product totalStock. Guard with `?? 0` so an undefined
+      // totalStock can't turn into NaN.
       const newProducts = state.products.map(p => {
         if (p.id === productIdToUpdate) {
-          return { ...p, totalStock: p.totalStock + adjustmentQty }
+          return { ...p, totalStock: (p.totalStock ?? 0) + adjustmentQty }
         }
         return p;
       });

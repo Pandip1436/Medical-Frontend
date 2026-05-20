@@ -4,8 +4,12 @@ import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { printPdfInPage } from '@/lib/printUtils'
 import api from '@/lib/api'
+import { useSettingsStore } from '@/stores/settingsStore'
 
-export const COMPANY = {
+// Default company info — used only as fallback when the settings store
+// hasn't loaded a business profile yet. The real values come from
+// /settings/business via useSettingsStore.
+const DEFAULT_COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
   city: 'Madurai',
   address: 'Hospital Suppliers, Madurai, Tamil Nadu',
@@ -15,6 +19,23 @@ export const COMPANY = {
   dlNo: 'TN-MDU-20B-01234 / TN-MDU-21B-01234',
 }
 
+function getCompany() {
+  const profile = useSettingsStore.getState().businessProfile
+  if (!profile) return DEFAULT_COMPANY
+  return {
+    name: profile.name || DEFAULT_COMPANY.name,
+    city: DEFAULT_COMPANY.city,
+    address: profile.address || DEFAULT_COMPANY.address,
+    phone: profile.phone || DEFAULT_COMPANY.phone,
+    email: profile.email || DEFAULT_COMPANY.email,
+    gstin: profile.gstin || DEFAULT_COMPANY.gstin,
+    dlNo: profile.drugLicense || DEFAULT_COMPANY.dlNo,
+  }
+}
+
+// Backward-compat export: existing call sites reference COMPANY directly.
+export const COMPANY = DEFAULT_COMPANY
+
 export const fmtINR = (n: number) =>
   n.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })
 
@@ -23,22 +44,23 @@ const fmt = fmtINR
 export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
+  const company = getCompany()
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text(COMPANY.name, pageWidth / 2, 15, { align: 'center' })
+  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(COMPANY.address, pageWidth / 2, 21, { align: 'center' })
+  doc.text(company.address, pageWidth / 2, 21, { align: 'center' })
   doc.text(
-    `Phone: ${COMPANY.phone}  |  Email: ${COMPANY.email}`,
+    `Phone: ${company.phone}  |  Email: ${company.email}`,
     pageWidth / 2,
     26,
     { align: 'center' },
   )
   doc.text(
-    `GSTIN: ${COMPANY.gstin}  |  DL No: ${COMPANY.dlNo}`,
+    `GSTIN: ${company.gstin}  |  DL No: ${company.dlNo}`,
     pageWidth / 2,
     31,
     { align: 'center' },
@@ -80,8 +102,8 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
       it.quantity,
       Number(it.mrp).toFixed(2),
       Number(it.rate).toFixed(2),
-      Number(it.discountPercent).toFixed(1),
-      Number(it.gstPercent).toFixed(1),
+      Number(it.discountPercent).toFixed(2),
+      Number(it.gstPercent).toFixed(2),
       Number(it.amount).toFixed(2),
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },
@@ -220,6 +242,6 @@ export async function uploadAndShareUrl(
     toast.error('Could not prepare share link — please try again')
     throw err
   }
-  const message = `${headline}\n\nDownload: ${url}\n\nRegards,\n${COMPANY.name}`
+  const message = `${headline}\n\nDownload: ${url}\n\nRegards,\n${getCompany().name}`
   window.open(buildWaUrl(phone, message), '_blank', 'noopener,noreferrer')
 }

@@ -35,10 +35,17 @@ interface Bill extends CurrentBill {
 
 const MAX_HELD_BILLS = 10
 
+// Local YYYY-MM-DD (NOT UTC). The previous `toISOString().split('T')[0]`
+// returned UTC date — for IST users billing after 18:30 the bill was dated
+// the next calendar day, breaking daily-close reports.
+function todayLocalIso(): string {
+  return new Date().toLocaleDateString('en-CA') // 'en-CA' produces YYYY-MM-DD
+}
+
 function createEmptyBill(): CurrentBill {
   return {
     invoiceNumber: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocalIso(),
     billingType: 'RETAIL',
     customerName: '',
     items: [],
@@ -66,19 +73,28 @@ function calculateTotalsFromItems(items: InvoiceItem[], deliveryCharge = 0): {
   grandTotal: number
   roundOff: number
 } {
+  // Indian pharma billing convention used here:
+  //   - subtotal           = sum of MRP-based line totals (what customer sees as gross)
+  //   - taxableAmount      = sum of RATE-based post-discount line totals (GST base)
+  //   - productDiscount    = subtotal - taxableAmount (MRP-to-rate savings + line discount)
+  //   - cgst/sgst          = GST applied on the rate-based taxable amount
+  //   - grandTotal         = taxableAmount + cgst + sgst + delivery (then rounded)
+  // Previously productDiscount was computed on the MRP base while GST was on
+  // the rate base, so the printed totals didn't reconcile when MRP ≠ rate.
   const subtotal = items.reduce((sum, item) => sum + item.quantity * item.mrp, 0)
 
-  const productDiscount = items.reduce((sum, item) => {
-    const lineTotal = item.quantity * item.mrp
-    return sum + lineTotal * (item.discountPercent / 100)
+  const taxableAmount = items.reduce((sum, item) => {
+    const line = item.quantity * item.rate
+    const disc = line * (item.discountPercent / 100)
+    return sum + (line - disc)
   }, 0)
 
-  const taxableAmount = subtotal - productDiscount
+  const productDiscount = subtotal - taxableAmount
 
   const cgst = items.reduce((sum, item) => {
-    const lineTotal = item.quantity * item.rate
-    const discount = lineTotal * (item.discountPercent / 100)
-    const taxable = lineTotal - discount
+    const line = item.quantity * item.rate
+    const disc = line * (item.discountPercent / 100)
+    const taxable = line - disc
     return sum + taxable * (item.gstPercent / 2 / 100)
   }, 0)
 

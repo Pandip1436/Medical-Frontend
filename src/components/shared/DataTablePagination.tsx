@@ -53,34 +53,37 @@ export function DataTablePagination({
   const rangeEnd = totalItems ? Math.min(currentPage * (itemsPerPage || 10), totalItems) : 0
 
   return (
-    <div className={cn("flex flex-col sm:flex-row items-center justify-between gap-4 py-3 px-1", className)}>
+    <div className={cn("flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 py-3 px-1 flex-wrap", className)}>
       {totalItems !== undefined && (
-        <p className="text-[11px] text-muted-foreground whitespace-nowrap">
+        <p className="text-xs sm:text-[11px] text-muted-foreground whitespace-nowrap">
           Showing <span className="font-bold text-foreground">{rangeStart}-{rangeEnd}</span> of <span className="font-bold text-foreground">{totalItems}</span> results
         </p>
       )}
 
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
         <Button
           variant="outline"
           size="sm"
-          className="h-8 px-2"
+          className="h-9 sm:h-8 min-w-9 px-2"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(currentPage - 1)}
+          aria-label="Previous page"
         >
           <ChevronLeft className="h-4 w-4 sm:mr-1" />
           <span className="hidden sm:inline">Prev</span>
         </Button>
 
-        <div className="flex items-center gap-1.5 px-2">
+        <div className="flex items-center gap-1.5 px-1 sm:px-2">
           <Input
-            className="h-8 w-12 px-1 text-center text-xs font-bold tabular-nums"
+            className="h-9 sm:h-8 w-10 sm:w-12 px-1 text-center text-xs font-bold tabular-nums"
+            inputMode="numeric"
             value={inputValue}
             onChange={handleInputChange}
             onBlur={handleInputBlur}
             onKeyDown={handleKeyDown}
+            aria-label="Current page"
           />
-          <span className="text-xs text-muted-foreground font-medium">
+          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">
             / {totalPages || 1}
           </span>
         </div>
@@ -88,9 +91,10 @@ export function DataTablePagination({
         <Button
           variant="outline"
           size="sm"
-          className="h-8 px-2"
+          className="h-9 sm:h-8 min-w-9 px-2"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(currentPage + 1)}
+          aria-label="Next page"
         >
           <span className="hidden sm:inline mr-1">Next</span>
           <ChevronRight className="h-4 w-4" />

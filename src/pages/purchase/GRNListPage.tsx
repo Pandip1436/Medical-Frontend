@@ -318,7 +318,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
       <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-[1200px] p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-160 lg:max-w-225 xl:max-w-300 p-0 gap-0 flex flex-col"
         >
           {/* ── Sticky Header ── */}
           <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">

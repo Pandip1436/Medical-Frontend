@@ -1,9 +1,15 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { toast } from 'sonner';
 
 // Single source of truth for the API base URL.
 // Set VITE_API_URL in .env.production for deployment.
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+
+// Extension to AxiosRequestConfig: callers can suppress the global error
+// toast for a specific request when they want to render their own field-level
+// error (form validation, inline messages, etc.).
+//   api.post('/customers', body, { suppressGlobalToast: true } as any)
+type RequestMeta = InternalAxiosRequestConfig & { suppressGlobalToast?: boolean };
 
 // Derives the server root (strips /api/v1) for asset URLs like uploaded images.
 export const API_SERVER_URL = API_BASE_URL.replace(/\/api\/v\d+\/?$/, '');
@@ -72,21 +78,23 @@ api.interceptors.response.use(
     if (axios.isCancel(error) || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
       return Promise.reject(error);
     }
+    const suppress = (error.config as RequestMeta | undefined)?.suppressGlobalToast === true;
     if (error.response) {
       if (error.response.status === 401) {
         // Clear stored credentials
         localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
         localStorage.removeItem('pbims-auth-storage');
         // Dispatch a custom event — App.tsx listens and navigates without
         // triggering a full page reload (which caused the refresh loop)
         window.dispatchEvent(new CustomEvent('pbims:unauthorized'));
-      } else if (error.response.status >= 400 && error.response.status !== 404) {
+      } else if (!suppress && error.response.status >= 400 && error.response.status !== 404) {
         // Global error toasts for 400 Bad Request, 500 Internal Server Error, etc.
+        // Callers handling errors inline can pass `{ suppressGlobalToast: true }`
+        // in the request config to skip this.
         const message = error.response.data?.message || 'An unexpected error occurred';
         toast.error(Array.isArray(message) ? message[0] : message);
       }
-    } else {
+    } else if (!suppress) {
       toast.error('Network error. Please check your connection.');
     }
     return Promise.reject(error);

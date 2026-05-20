@@ -307,12 +307,12 @@ export default function LoginPage({
       `}</style>
 
       <div
-        className="ms-font-body fixed inset-0 w-screen h-screen overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row"
+        className="ms-font-body fixed inset-0 w-screen h-dvh overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row"
       >
 
         {/* ─── LEFT PANEL — FORM ──────────────────────────────────── */}
-        <aside className="relative w-full lg:w-[45%] h-full flex items-center justify-center px-6 py-6 lg:px-12 lg:py-8 overflow-y-auto">
-          <div className="w-full max-w-[440px]">
+        <aside className="relative w-full lg:w-[45%] h-full flex items-center justify-center px-4 sm:px-6 py-6 lg:px-12 lg:py-8 overflow-y-auto">
+          <div className="w-full max-w-full sm:max-w-110">
 
             {/* Brand row */}
             <div className="ms-reveal flex items-center gap-3" style={{ animationDelay: '0ms' }}>

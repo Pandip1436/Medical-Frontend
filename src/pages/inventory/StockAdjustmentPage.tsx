@@ -519,6 +519,11 @@ export default function StockAdjustmentPage() {
 
   const totalBatchesPages = Math.max(1, Math.ceil(availableTotal / BATCHES_PAGE_SIZE))
 
+  // The submit footer below the Card only renders when there are items in
+  // the cart (and we're not on History). When it's hidden, reclaim its slot
+  // so the Card isn't sitting on top of empty space.
+  const showSubmitFooter = items.length > 0 && folder !== 'history'
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
       <motion.div variants={itemVariants}>
@@ -555,7 +560,10 @@ export default function StockAdjustmentPage() {
             </Button>
           </div>
 
-          <div className="flex h-[calc(100vh-200px)] min-h-100 flex-col lg:flex-row">
+          <div className={cn(
+            'flex min-h-100 flex-col lg:flex-row',
+            showSubmitFooter ? 'h-[calc(100vh-200px)]' : 'h-[calc(100vh-120px)]',
+          )}>
             {/* ── Sidebar: folders ── */}
             <aside className={cn(
               'shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r',
@@ -747,7 +755,7 @@ export default function StockAdjustmentPage() {
       {/* Hidden in History view so the read-only context doesn't show a stray
           Confirm button — the cart is preserved and reappears when the user
           switches back to All Batches / In Adjustment / Available. */}
-      {items.length > 0 && folder !== 'history' && (
+      {showSubmitFooter && (
         <motion.div variants={itemVariants} className="space-y-3">
           {requiresApproval && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20">

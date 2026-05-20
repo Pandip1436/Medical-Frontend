@@ -1291,7 +1291,7 @@ function ActivityTabContent({
         )}
       </div>
 
-      <div className="shrink-0 grid grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-5 py-2.5">
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
         {types.map((t) => {
           const meta = ACTIVITY_META[t]
           const Icon = meta.icon

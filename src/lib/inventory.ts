@@ -1,4 +1,4 @@
-import { differenceInDays } from 'date-fns'
+import { differenceInDays, parseISO } from 'date-fns'
 
 // ─── Expiry helpers ───────────────────────────────────────────────────────
 // Shared by ExpiryManagementPage and StockOverviewPage so the date-to-bucket
@@ -6,8 +6,19 @@ import { differenceInDays } from 'date-fns'
 
 export type ExpiryBucket = 'expired' | '30d' | '60d' | '90d' | '180d'
 
+// Prefer parseISO for backend-issued strings (consistent across browsers,
+// Safari included). Fall back to native Date for already-Date inputs or
+// non-ISO strings; return null on anything unparseable.
 function parseDate(input: string | Date): Date | null {
-  const d = input instanceof Date ? input : new Date(input)
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input
+  }
+  if (typeof input !== 'string' || !input) return null
+  // ISO 8601 (YYYY-MM-DD or full ISO) — use date-fns for browser parity
+  const iso = parseISO(input)
+  if (!Number.isNaN(iso.getTime())) return iso
+  // Last-resort: native parser (lenient, browser-dependent)
+  const d = new Date(input)
   return Number.isNaN(d.getTime()) ? null : d
 }
 

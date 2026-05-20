@@ -119,13 +119,30 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
 
   startPolling: () => {
     const poll = () => {
+      // Skip the round-trip when the tab is hidden — saves bandwidth and
+      // avoids stacking requests on devices that throttle background timers.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       api.get('/notifications').then((res) => {
         const raw = Array.isArray(res.data) ? res.data : []
         set({ notifications: raw.map(mapRaw) })
       }).catch(() => { /* ignore background poll failures */ })
     }
 
+    // When the user returns to the tab after a long hide, do an immediate
+    // catch-up fetch so the bell badge isn't stale by up to ~60s.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') poll()
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility)
+    }
+
     const id = setInterval(poll, 60_000)
-    return () => clearInterval(id)
+    return () => {
+      clearInterval(id)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
+    }
   },
 }))

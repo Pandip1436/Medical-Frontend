@@ -70,8 +70,9 @@ export function DataTableFilterBar({
               <Button
                 variant={filtersOpen ? 'default' : 'outline'}
                 size="sm"
-                className="gap-1.5"
+                className="gap-1.5 whitespace-nowrap"
                 onClick={() => setFiltersOpen(!filtersOpen)}
+                aria-label="Toggle filters"
               >
                 <SlidersHorizontal className="h-4 w-4" />
                 <span className="hidden sm:inline">Filters</span>

@@ -315,7 +315,7 @@ export function ContactDetailsDrawer({
             </p>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <Field label="First Name" required>
                   <Input
                     value={draft.firstName}
@@ -387,7 +387,7 @@ export function ContactDetailsDrawer({
                 />
               </Field>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <Field label="City">
                   <Input
                     value={draft.city ?? ''}

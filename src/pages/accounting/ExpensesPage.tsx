@@ -52,13 +52,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import {
   Select,
   SelectContent,
@@ -852,7 +850,8 @@ export default function ExpensesPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={380}>
+              <div className="h-65 sm:h-80 lg:h-95">
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData}
                   margin={{ top: 24, right: 16, left: 8, bottom: 12 }}
@@ -924,6 +923,7 @@ export default function ExpensesPage() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         )
@@ -931,194 +931,260 @@ export default function ExpensesPage() {
 
       </>}
 
-      {/* ─── Add/Edit Expense Dialog ─── */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add Expense'}</DialogTitle>
-            <DialogDescription>
-              {editingExpense ? 'Update the expense details.' : 'Record a new expense.'}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="exp-date">Date</Label>
-              <Controller
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <DatePicker id="exp-date" value={field.value} onChange={field.onChange} className="rounded-xl" />
+      {/* ─── Add/Edit Expense Drawer ─── */}
+      <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-140 p-0 gap-0 flex flex-col"
+        >
+          <SheetHeader className="px-5 pt-5 pb-4 pr-12 border-b border-border/40 shrink-0 space-y-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={cn(
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                  editingExpense
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
                 )}
-              />
-              {form.formState.errors.date && (
-                <p className="text-xs text-destructive">{form.formState.errors.date.message}</p>
-              )}
+              >
+                <Receipt className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <SheetTitle>{editingExpense ? 'Edit Expense' : 'Add Expense'}</SheetTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {editingExpense ? 'Update the expense details.' : 'Record a new expense.'}
+                </p>
+              </div>
             </div>
+          </SheetHeader>
 
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <Controller
-                control={form.control}
-                name="category"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {expenseCategories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {form.formState.errors.category && (
-                <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="exp-desc">Description</Label>
-              <Input
-                id="exp-desc"
-                {...form.register('description')}
-                placeholder="Expense description"
-                className="rounded-xl"
-              />
-              {form.formState.errors.description && (
-                <p className="text-xs text-destructive">{form.formState.errors.description.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="exp-amount">Amount</Label>
-              <Input
-                id="exp-amount"
-                type="number"
-                {...form.register('amount')}
-                placeholder="0"
-                className="rounded-xl"
-              />
-              {form.formState.errors.amount && (
-                <p className="text-xs text-destructive">{form.formState.errors.amount.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Payment Mode</Label>
-              <Controller
-                control={form.control}
-                name="paymentMode"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentModes.map((mode) => (
-                        <SelectItem key={mode} value={mode}>
-                          {mode}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Receipt (optional)</Label>
-              {receiptFile ? (
-                <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
-                  <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-xs flex-1 truncate">{receiptFile.name}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => {
-                      setReceiptFile(null)
-                      if (receiptInputRef.current) receiptInputRef.current.value = ''
-                    }}
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="exp-date"
+                    className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+                    Date *
+                  </Label>
+                  <Controller
+                    control={form.control}
+                    name="date"
+                    render={({ field }) => (
+                      <DatePicker
+                        id="exp-date"
+                        value={field.value}
+                        onChange={field.onChange}
+                        className="rounded-xl"
+                      />
+                    )}
+                  />
+                  {form.formState.errors.date && (
+                    <p className="text-xs text-destructive">{form.formState.errors.date.message}</p>
+                  )}
                 </div>
-              ) : existingReceiptUrl && !removeReceipt ? (
-                <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
-                  <a
-                    href={existingReceiptUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 flex-1 min-w-0 hover:underline"
+
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Category *
+                  </Label>
+                  <Controller
+                    control={form.control}
+                    name="category"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {expenseCategories.map((cat) => (
+                            <SelectItem key={cat} value={cat}>
+                              {cat}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {form.formState.errors.category && (
+                    <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="exp-desc"
+                  className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  Description *
+                </Label>
+                <Input
+                  id="exp-desc"
+                  {...form.register('description')}
+                  placeholder="What was this expense for?"
+                  className="rounded-xl"
+                />
+                {form.formState.errors.description && (
+                  <p className="text-xs text-destructive">
+                    {form.formState.errors.description.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="exp-amount"
+                    className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                   >
+                    Amount *
+                  </Label>
+                  <Input
+                    id="exp-amount"
+                    type="number"
+                    {...form.register('amount')}
+                    placeholder="0"
+                    className="rounded-xl"
+                  />
+                  {form.formState.errors.amount && (
+                    <p className="text-xs text-destructive">
+                      {form.formState.errors.amount.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Payment Mode *
+                  </Label>
+                  <Controller
+                    control={form.control}
+                    name="paymentMode"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {paymentModes.map((mode) => (
+                            <SelectItem key={mode} value={mode}>
+                              {mode}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Receipt (optional)
+                </Label>
+                {receiptFile ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
                     <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-xs truncate">View current receipt</span>
-                  </a>
+                    <span className="text-xs flex-1 truncate">{receiptFile.name}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        setReceiptFile(null)
+                        if (receiptInputRef.current) receiptInputRef.current.value = ''
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ) : existingReceiptUrl && !removeReceipt ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
+                    <a
+                      href={existingReceiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 flex-1 min-w-0 hover:underline"
+                    >
+                      <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-xs truncate">View current receipt</span>
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7"
+                      onClick={() => receiptInputRef.current?.click()}
+                    >
+                      Replace
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-rose-600 hover:text-rose-700"
+                      onClick={() => setRemoveReceipt(true)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
+                    variant="outline"
+                    className="w-full justify-start rounded-xl"
                     onClick={() => receiptInputRef.current?.click()}
                   >
-                    Replace
+                    <Upload className="mr-2 h-4 w-4" />
+                    Attach receipt (image or PDF, max 5 MB)
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-rose-600 hover:text-rose-700"
-                    onClick={() => setRemoveReceipt(true)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-start rounded-xl"
-                  onClick={() => receiptInputRef.current?.click()}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Attach receipt (image or PDF, max 5 MB)
-                </Button>
-              )}
-              <input
-                ref={receiptInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (!f) return
-                  if (f.size > 5 * 1024 * 1024) {
-                    toast.error('File too large (max 5 MB)')
-                    e.target.value = ''
-                    return
-                  }
-                  setReceiptFile(f)
-                  setRemoveReceipt(false)
-                }}
-              />
+                )}
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    if (f.size > 5 * 1024 * 1024) {
+                      toast.error('File too large (max 5 MB)')
+                      e.target.value = ''
+                      return
+                    }
+                    setReceiptFile(f)
+                    setRemoveReceipt(false)
+                  }}
+                />
+              </div>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="rounded-xl">
+            <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+                disabled={form.formState.isSubmitting}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="rounded-xl">
-                {editingExpense ? 'Update' : 'Save'} Expense
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting
+                  ? 'Saving…'
+                  : editingExpense
+                    ? 'Update Expense'
+                    : 'Save Expense'}
               </Button>
-            </DialogFooter>
+            </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </motion.div>
   )
 }

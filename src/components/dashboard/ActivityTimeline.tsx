@@ -70,7 +70,7 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
   const groups = useMemo(() => groupByDate(activities), [activities])
 
   return (
-    <Card className="flex flex-col lg:h-[460px]">
+    <Card className="flex flex-col min-h-75 lg:max-h-115">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

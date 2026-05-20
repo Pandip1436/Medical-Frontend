@@ -567,7 +567,7 @@ export default function SalesReturnsPage() {
   const fmtInvoiceNum = (inv: Invoice) => inv.invoiceNumber
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden">
       {/* ── Fixed Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
         {/* Title on the left, step indicators on the right */}
@@ -845,7 +845,7 @@ export default function SalesReturnsPage() {
 
               {/* Mobile: Continue button when invoice selected (shown on small screens) */}
               {selectedInvoice && (
-                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-2 lg:hidden z-50">
+                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md [-webkit-backdrop-filter:blur(8px)] px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden z-50">
                   <Button
                     size="sm"
                     className="w-full text-xs"
@@ -1074,7 +1074,7 @@ export default function SalesReturnsPage() {
               </div>
 
               {/* Fixed bottom bar */}
-              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6 fixed bottom-0 left-0 right-0 md:relative md:z-auto z-50">
+              <div className="shrink-0 flex items-center justify-between border-t border-border/40 bg-background/95 backdrop-blur-md [-webkit-backdrop-filter:blur(8px)] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 fixed bottom-0 left-0 right-0 md:relative md:z-auto z-50">
                 <Button variant="outline" size="sm" onClick={() => goToStep(1)} className="h-9 px-4">
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Back

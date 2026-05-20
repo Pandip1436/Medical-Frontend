@@ -83,7 +83,9 @@ export const useSettingsStore = create<SettingsState>()(
             ...data,
             name: data.companyName || data.name || '',
           }
-          await api.put('/settings/business', payload)
+          // Suppress the global interceptor toast so we can render our own
+          // contextual one ("business profile") on failure without duplicating.
+          await api.put('/settings/business', payload, { suppressGlobalToast: true } as any)
 
           set((state) => ({
             businessProfile: state.businessProfile
@@ -92,7 +94,6 @@ export const useSettingsStore = create<SettingsState>()(
           }))
           toast.success('Business profile updated')
         } catch (error) {
-          console.error('Failed to update business profile:', error)
           toast.error('Failed to update business profile')
           throw error
         } finally {
@@ -111,7 +112,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       addDiscountRule: async (data) => {
         try {
-          const res = await api.post('/settings/discounts', data)
+          const res = await api.post('/settings/discounts', data, { suppressGlobalToast: true } as any)
           set((state) => ({
             discountRules: [...state.discountRules, res.data]
           }))
@@ -123,7 +124,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       updateDiscountRule: async (id, data) => {
         try {
-          await api.patch(`/settings/discounts/${id}`, data)
+          await api.patch(`/settings/discounts/${id}`, data, { suppressGlobalToast: true } as any)
           set((state) => ({
             discountRules: state.discountRules.map(r => r.id === id ? { ...r, ...data } : r)
           }))
@@ -135,7 +136,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       deleteDiscountRule: async (id) => {
         try {
-          await api.delete(`/settings/discounts/${id}`)
+          await api.delete(`/settings/discounts/${id}`, { suppressGlobalToast: true } as any)
           set((state) => ({
             discountRules: state.discountRules.filter(r => r.id !== id)
           }))
@@ -158,7 +159,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       updateSetting: async (key: string, value: SettingBag) => {
         try {
-          await api.put(`/settings/${key}`, value)
+          await api.put(`/settings/${key}`, value, { suppressGlobalToast: true } as any)
           toast.success('Settings saved')
         } catch {
           toast.error('Failed to save settings')

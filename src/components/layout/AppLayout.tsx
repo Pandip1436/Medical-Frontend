@@ -85,7 +85,7 @@ export default function AppLayout({
 
   if (!isAuthenticated) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-dvh items-center justify-center bg-background">
         <p className="text-muted-foreground">Redirecting to login...</p>
       </div>
     )
@@ -122,8 +122,8 @@ export default function AppLayout({
     <div
       className={
         isFullViewport || isCompactPage
-          ? 'flex h-screen overflow-hidden bg-background'
-          : 'flex min-h-screen bg-background'
+          ? 'flex h-dvh overflow-hidden bg-background'
+          : 'flex min-h-dvh bg-background'
       }
     >
       {/* Sidebar */}
@@ -136,7 +136,7 @@ export default function AppLayout({
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           isFullViewport || isCompactPage
-            ? 'flex flex-1 flex-col h-screen overflow-hidden'
+            ? 'flex flex-1 flex-col h-dvh overflow-hidden'
             : 'flex flex-1 flex-col'
         }
       >

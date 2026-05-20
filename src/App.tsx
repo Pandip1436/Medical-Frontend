@@ -6,6 +6,8 @@ import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CommandPalette } from '@/components/shared/CommandPalette'
 import AppLayout from '@/components/layout/AppLayout'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import NotFoundPage from '@/pages/NotFoundPage'
 import '@/i18n'
 
 // Lazy load pages
@@ -357,7 +359,7 @@ function App() {
       case '/crm/leads/analytics':
         return <LeadsAnalyticsPage />
       default:
-        return <DashboardPage />
+        return <NotFoundPage path={path} />
     }
   }
 
@@ -368,9 +370,11 @@ function App() {
         breadcrumbs={routeConfig.breadcrumbs}
         title={routeConfig.label}
       >
-        <Suspense key={path} fallback={<LoadingFallback />}>
-          {renderPage()}
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense key={path} fallback={<LoadingFallback />}>
+            {renderPage()}
+          </Suspense>
+        </ErrorBoundary>
       </AppLayout>
       <CommandPalette />
       <Toaster position="top-right" richColors closeButton />

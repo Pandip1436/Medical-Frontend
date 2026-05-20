@@ -23,7 +23,12 @@ import {
   Stethoscope,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
-import { exportToExcel, importFromExcel } from '@/lib/excelUtils'
+import {
+  exportCustomersToWorkbook,
+  type CustomerExportPayload,
+} from '@/lib/customerImportTemplate'
+import { useBranchStore } from '@/stores/branchStore'
+import { ImportCustomersDrawer } from '@/components/customers/ImportCustomersDrawer'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -204,13 +209,16 @@ export default function CustomersPage() {
   const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
   const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
   const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
-  const importCustomers = useMasterDataStore((s) => s.importCustomers)
   const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
 
   // Server-driven list state
   const [pageRows, setPageRows] = useState<Customer[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  // Bumped whenever an external mutation (import, delete, etc.) needs the
+  // list re-fetched. Drives the same effect that loads the initial page, so
+  // we don't duplicate fetch logic.
+  const [refreshToken, setRefreshToken] = useState(0)
 
   // Global summary (for the top stat cards — stable across filter changes)
   const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number }>({
@@ -233,8 +241,8 @@ export default function CustomersPage() {
   const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
-  const [isImporting, setIsImporting] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Multi-sheet history import — handled in its own drawer.
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
   // Multi-file upload state for address proof / prescription docs
   const [docFiles, setDocFiles] = useState<File[]>([])
@@ -323,7 +331,7 @@ export default function CustomersPage() {
       }
     }, delay)
     return () => clearTimeout(handle)
-  }, [buildQueryParams, searchQuery])
+  }, [buildQueryParams, searchQuery, refreshToken])
 
   // ── Global summary (does NOT depend on filters) ──
   const fetchSummary = useCallback(async () => {
@@ -354,81 +362,45 @@ export default function CustomersPage() {
   }
 
   // Refresh list + summary + the global master-data cache (used by other pages' dropdowns).
-  const refetchAll = useCallback(async () => {
+  // Bumping `refreshToken` re-triggers the main list-fetch effect — keeps a
+  // single source of truth for the fetch logic (loading state, abort, etc.).
+  const refetchAll = useCallback(() => {
     fetchSummary()
     fetchCustomers()
-    // Re-trigger the list fetch by aborting any in-flight and bumping a state.
-    // Easiest: just re-run a manual fetch with current params.
-    try {
-      const res = await api.get(`/customers?${buildQueryParams().toString()}`)
-      const payload = res.data
-      const items = (payload?.data ?? payload ?? []) as Customer[]
-      setPageRows(items)
-      setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
-    } catch { /* surface via toast where caller invoked */ }
-  }, [buildQueryParams, fetchSummary, fetchCustomers])
+    setRefreshToken((t) => t + 1)
+  }, [fetchSummary, fetchCustomers])
 
+  // Round-trip-compatible export. Mirrors the multi-sheet import template
+  // structure so the operator can edit and re-upload via the Import drawer.
+  // Fetches the full nested data tree (customers + all history) from the
+  // dedicated /customers/export endpoint, then builds the workbook on the
+  // client using the same column lists the parser uses.
   const handleExport = async () => {
-    // Fetch the full filtered list (no skip/take) so the export includes every match,
-    // not just the current page.
     const params = buildQueryParams()
     params.delete('skip')
     params.delete('take')
     try {
-      const res = await api.get(`/customers?${params.toString()}`)
-      const all = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as Customer[]
-      const exportData = all.map((c) => ({
-        Name: c.name,
-        Phone: c.phone,
-        Type: c.type,
-        Email: c.email || '',
-        Address: c.address || '',
-        GSTIN: c.gstin || '',
-        'DL Number': c.dlNumber || '',
-        'Credit Limit': c.creditLimit,
-        Outstanding: c.currentOutstanding,
-        'Loyalty Points': c.loyaltyPoints,
-      }))
-      exportToExcel(exportData, 'customers')
+      const res = await api.get(`/customers/export?${params.toString()}`)
+      const data = res.data as CustomerExportPayload
+      const activeBranch = useBranchStore.getState().activeBranch
+      const user = useAuthStore.getState().user
+      exportCustomersToWorkbook(data, {
+        branchName: activeBranch?.name ?? null,
+        exportedBy: user?.name ?? user?.email ?? null,
+        exportedAt: new Date().toISOString(),
+        schemaVersion: '1.0',
+      })
+      toast.success(
+        `Exported ${data.customers.length} customer${data.customers.length === 1 ? '' : 's'} with full history.`,
+      )
     } catch {
       toast.error('Failed to export customers')
     }
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setIsImporting(true)
-    try {
-      const data = await importFromExcel<Record<string, string | number | undefined>>(file)
-      if (!data.length) throw new Error('File is empty')
-      const formattedData = data.map((row) => ({
-        name: String(row.Name ?? row.name ?? ''),
-        phone: String(row.Phone ?? row.phone ?? ''),
-        type: String(row.Type ?? row.type ?? 'RETAIL').toUpperCase(),
-        email: String(row.Email ?? row.email ?? ''),
-        address: String(row.Address ?? row.address ?? ''),
-        gstin: String(row.GSTIN ?? row.gstin ?? ''),
-        dlNumber: String(row['DL Number'] ?? row.dlNumber ?? ''),
-      }))
-      const res = await importCustomers(formattedData)
-      if (res.skippedCount > 0) {
-        toast.warning(`Imported ${res.createdCount} customers. Skipped ${res.skippedCount} rows.`)
-        if (res.errors?.length) {
-          console.warn('Import errors:', res.errors)
-        }
-      } else {
-        toast.success(`Successfully imported ${res.createdCount} customers`)
-      }
-      refetchAll()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to import customers'
-      toast.error(message)
-    } finally {
-      setIsImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
+  // Import is handled inside ImportCustomersDrawer — it runs preview + commit
+  // against /customers/import/* endpoints and pulls in full customer history
+  // (invoices, payments, activities, prescriptions) in one transaction.
 
   // Salespersons for "Referred by" dropdown
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
@@ -605,15 +577,6 @@ export default function CustomersPage() {
       animate="visible"
       className="space-y-6"
     >
-      {/* Hidden file input used by the Import button in the filter bar */}
-      <input
-        type="file"
-        accept=".xlsx, .xls"
-        className="hidden"
-        ref={fileInputRef}
-        onChange={handleImport}
-      />
-
       {/* ─── Summary Cards ─── */}
       <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         {[
@@ -673,9 +636,9 @@ export default function CustomersPage() {
               <Download className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">{isImporting ? 'Importing…' : 'Import'}</span>
+              <span className="hidden sm:inline">Import</span>
             </Button>
             <Button size="sm" onClick={() => setAddDialogOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
@@ -754,8 +717,11 @@ export default function CustomersPage() {
                 {!isLoading && pageRows.map((customer) => (
                   <div
                     key={customer.id}
-                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:bg-muted/30"
                     onClick={() => handleViewDetails(customer)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleViewDetails(customer) } }}
                   >
                     {/* Avatar */}
                     <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white', typeAvatarColor[customer.type] || 'bg-gray-400')}>
@@ -934,7 +900,7 @@ export default function CustomersPage() {
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
               {/* Row 1: Name + Phone */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
                   <Input {...form.register('name')} placeholder="Customer name" error={!!form.formState.errors.name} />
@@ -948,6 +914,9 @@ export default function CustomersPage() {
                     {...form.register('phone')}
                     placeholder="10-digit number"
                     inputMode="numeric"
+                    pattern="[0-9]{10}"
+                    maxLength={10}
+                    autoComplete="tel"
                     error={!!form.formState.errors.phone || !!phoneCheckError}
                     onBlur={(e) => checkPhoneDuplicate(e.target.value)}
                   />
@@ -957,7 +926,7 @@ export default function CustomersPage() {
               </div>
 
               {/* Row 2: Type + Email (optional) */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
                   <Controller control={form.control} name="type" render={({ field }) => (
@@ -980,7 +949,7 @@ export default function CustomersPage() {
 
               {/* Row 3a: GSTIN + DL Number — WHOLESALE only */}
               {form.watch('type') === 'WHOLESALE' && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
                     <Input {...form.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!form.formState.errors.gstin} />
@@ -1007,7 +976,7 @@ export default function CustomersPage() {
               )}
 
               {/* Row 4: Referred By (half width) */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
                   <Controller control={form.control} name="referredBy" render={({ field }) => (
@@ -1192,6 +1161,13 @@ export default function CustomersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ─── Customer + History Import Drawer ─── */}
+      <ImportCustomersDrawer
+        open={importDrawerOpen}
+        onOpenChange={setImportDrawerOpen}
+        onImported={refetchAll}
+      />
     </motion.div>
   )
 }

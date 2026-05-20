@@ -11,7 +11,6 @@ interface AuthState {
   // Auth
   user: User | null
   isAuthenticated: boolean
-  sessionTimeout: number
 
   // Preferences
   theme: Theme
@@ -38,7 +37,6 @@ export const useAuthStore = create<AuthState>()(
       // Auth state
       user: null,
       isAuthenticated: false,
-      sessionTimeout: 30 * 60 * 1000, // 30 minutes in milliseconds
 
       // Preference state
       theme: 'system' as Theme,
@@ -51,34 +49,40 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string): Promise<boolean> => {
         try {
           const response = await api.post('/auth/login', { email, password });
-          if (response.data && response.data.data) {
-            const { user, accessToken } = response.data.data;
+          const payload = response.data?.data;
+          const user = payload?.user;
+          const token = payload?.accessToken?.token;
 
-            localStorage.setItem('auth_token', accessToken.token);
-
-            set({
-              user: {
-                ...user,
-                lastLogin: new Date().toISOString(),
-              },
-              isAuthenticated: true,
-            });
-
-            // If user has an assigned branch, lock the active branch to it
-            if (user.branchId) {
-              try {
-                const { useBranchStore } = await import('@/stores/branchStore');
-                const branchStore = useBranchStore.getState();
-                await branchStore.fetchBranches();
-                branchStore.setActiveBranch(user.branchId);
-              } catch { /* ignore */ }
-            }
-
-            return true;
+          // Defensive: the backend response shape must include a non-empty
+          // token + user. If it shifts (e.g. `accessToken` becomes a string),
+          // we want a clean false instead of storing the literal "undefined".
+          if (!user || !token || typeof token !== 'string') {
+            return false;
           }
-          return false;
-        } catch (error) {
-          console.error("Login failed:", error);
+
+          localStorage.setItem('auth_token', token);
+
+          set({
+            user: {
+              ...user,
+              lastLogin: new Date().toISOString(),
+            },
+            isAuthenticated: true,
+          });
+
+          // If user has an assigned branch, lock the active branch to it
+          if (user.branchId) {
+            try {
+              const { useBranchStore } = await import('@/stores/branchStore');
+              const branchStore = useBranchStore.getState();
+              await branchStore.fetchBranches();
+              branchStore.setActiveBranch(user.branchId);
+            } catch { /* ignore */ }
+          }
+
+          return true;
+        } catch {
+          // Global error toast already shown by the axios response interceptor.
           return false;
         }
       },
@@ -89,6 +93,19 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           isAuthenticated: false,
         })
+        // Best-effort: clear in-memory data from sibling stores so a fresh
+        // login doesn't briefly flash the previous user's data.
+        void Promise.all([
+          import('@/stores/notificationStore').then(({ useNotificationStore }) => {
+            useNotificationStore.setState({ notifications: [] })
+          }),
+          import('@/stores/masterDataStore').then(({ useMasterDataStore }) => {
+            useMasterDataStore.setState({
+              products: [], customers: [], suppliers: [], purchaseOrders: [],
+              batches: [], categories: [], hasLoaded: false,
+            })
+          }),
+        ]).catch(() => { /* sibling clear is best-effort */ })
       },
 
       // Preference actions

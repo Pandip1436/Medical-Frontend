@@ -987,7 +987,7 @@ export default function SalesListPage() {
       <Sheet open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-190 p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-160 lg:max-w-190 p-0 gap-0 flex flex-col"
         >
           {detailInvoice && (() => {
             const balanceDue = detailInvoice.grandTotal - detailInvoice.amountPaid

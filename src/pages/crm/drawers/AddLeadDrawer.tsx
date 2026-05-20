@@ -280,7 +280,7 @@ export function AddLeadDrawer({
                   {...form.register('description')}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Source</Label>
                   <Controller
@@ -345,7 +345,7 @@ export function AddLeadDrawer({
                   )}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Value</Label>
                   <Input
