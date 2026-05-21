@@ -28,6 +28,10 @@ interface UsePaginatedSearchResult<T> {
   loadMore: () => void
   reset: () => void
   total: number
+  /** Optimistically update the loaded items in place without refetching. Used
+   *  by consumers that mutate individual rows (mark read / delete / resolve)
+   *  so the visible list reflects the change before the API round-trip. */
+  mutate: (updater: (items: T[]) => T[]) => void
 }
 
 /**
@@ -148,5 +152,9 @@ export function usePaginatedSearch<T>(opts: UsePaginatedSearchOptions): UsePagin
     setError(null)
   }, [])
 
-  return { items, query, setQuery, hasMore, loading, error, loadMore, reset, total }
+  const mutate = useCallback((updater: (items: T[]) => T[]) => {
+    setItems((prev) => updater(prev))
+  }, [])
+
+  return { items, query, setQuery, hasMore, loading, error, loadMore, reset, total, mutate }
 }

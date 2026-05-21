@@ -575,7 +575,7 @@ export default function SalesListPage() {
               className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
               onClick={() => {
                 if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
-                exportToCsv(filteredInvoices.map((inv) => ({
+                const exported = exportToCsv(filteredInvoices.map((inv) => ({
                   Invoice: inv.invoiceNumber,
                   Date: formatDate(inv.date),
                   Customer: inv.customerName,
@@ -583,6 +583,11 @@ export default function SalesListPage() {
                   Paid: inv.amountPaid,
                   Status: inv.status,
                 })), 'sales-invoices')
+                // Bug #6: surface the row count so the user can reconcile
+                // the file vs the on-screen list. The list filter is whatever
+                // is currently active — if it's narrower than the dataset,
+                // make that visible rather than silently dropping rows.
+                toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
               }}
             >
               <Download className="mr-1.5 h-4 w-4" />

@@ -68,6 +68,13 @@ interface QuotationItem {
   name: string
   qty: number
   rate: number
+  // Backend persists per-line discount + GST + a computed amount. Drop those
+  // and the line label will be `qty * rate` (the gross), which won't agree
+  // with the quotation's `total` whenever a discount or per-line tax was
+  // applied — surfacing as a phantom mismatch between the line and the total.
+  discountPercent: number
+  gstPercent: number
+  amount: number
 }
 
 interface Quotation {
@@ -78,6 +85,9 @@ interface Quotation {
   customerName: string
   customerPhone?: string
   items: QuotationItem[]
+  subtotal: number
+  cgst: number
+  sgst: number
   deliveryCharge: number
   total: number
   status: QuotationStatus
@@ -179,7 +189,17 @@ export default function QuotationsPage() {
           name: it.productName ?? '',
           qty: Number(it.quantity) || 0,
           rate: Number(it.rate) || 0,
+          discountPercent: Number(it.discountPercent) || 0,
+          gstPercent: Number(it.gstPercent) || 0,
+          // `amount` is the backend's authoritative per-line value (already
+          // includes per-line discount + GST). Display it instead of
+          // recomputing qty*rate so the line total can never disagree with
+          // the quotation's grand total.
+          amount: Number(it.amount) || 0,
         })),
+        subtotal: Number(qt.subtotal) || 0,
+        cgst: Number(qt.cgst) || 0,
+        sgst: Number(qt.sgst) || 0,
         deliveryCharge: Number(qt.deliveryCharge) || 0,
         total: Number(qt.total) || 0,
         status: qt.status as QuotationStatus,
@@ -889,10 +909,24 @@ export default function QuotationsPage() {
                       {detailQt.items.map((item, idx) => (
                         <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
                           <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-sm font-medium">{item.name}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm font-medium">
+                            {item.name}
+                            {(item.discountPercent > 0 || item.gstPercent > 0) && (
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                                {item.discountPercent > 0 && <span>−{item.discountPercent}% disc</span>}
+                                {item.discountPercent > 0 && item.gstPercent > 0 && <span className="text-border">·</span>}
+                                {item.gstPercent > 0 && <span>+{item.gstPercent}% GST</span>}
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.qty}</TableCell>
                           <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.qty * item.rate)}</TableCell>
+                          {/* Use the backend-persisted `amount` (already includes
+                              per-line discount + GST) so the line totals add up
+                              to the quotation's grand total without phantom
+                              gaps. Bug #4 was displaying qty*rate here, which
+                              hid line-level discounts. */}
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -902,7 +936,22 @@ export default function QuotationsPage() {
 
               {/* ── Sticky Footer: total + actions ── */}
               <div className="shrink-0 border-t border-border/40 bg-background">
-                {/* Delivery / Packaging — only when > 0 */}
+                {/* Subtotal / tax / delivery breakdown — populated when the
+                    quotation has tax or delivery. Surfaces the same numbers
+                    the backend rolled into `total`, so a reviewer can audit
+                    the math without opening the row in DB. */}
+                {Number(detailQt.subtotal) > 0 && (
+                  <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
+                    <span>Subtotal</span>
+                    <span className="font-mono">{formatCurrency(Number(detailQt.subtotal))}</span>
+                  </div>
+                )}
+                {(Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) && (
+                  <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
+                    <span>CGST + SGST</span>
+                    <span className="font-mono">{formatCurrency(Number(detailQt.cgst) + Number(detailQt.sgst))}</span>
+                  </div>
+                )}
                 {Number(detailQt.deliveryCharge) > 0 && (
                   <div className="flex items-center justify-between border-b border-border/40 px-5 py-2 text-xs text-muted-foreground">
                     <span>Delivery / Packaging</span>

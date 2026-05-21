@@ -70,13 +70,17 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
           });
 
-          // If user has an assigned branch, lock the active branch to it
+          // If user has an assigned branch, lock the active branch to it.
+          // `skipNavigate` keeps the post-login redirect in App.tsx in charge
+          // of the landing route (role-aware) — without it, setActiveBranch's
+          // soft-switch redirect to /dashboard would race in and override the
+          // role-aware destination. See BUGS.md SEV-3.
           if (user.branchId) {
             try {
               const { useBranchStore } = await import('@/stores/branchStore');
               const branchStore = useBranchStore.getState();
               await branchStore.fetchBranches();
-              branchStore.setActiveBranch(user.branchId);
+              branchStore.setActiveBranch(user.branchId, { skipNavigate: true });
             } catch { /* ignore */ }
           }
 

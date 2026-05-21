@@ -89,10 +89,28 @@ export function generateId(prefix: string = ''): string {
   return prefix ? `${prefix}_${id}` : id
 }
 
+// Indian financial year runs April → March. April 2026 → "26-27".
+// Used as the FY segment in client-side preview invoice / quotation numbers
+// so the prefix matches what the backend's DocumentNumberingService will
+// stamp on save. Source of truth for the final number is the backend; this
+// helper just keeps the UI preview honest.
+export function currentFinancialYearShort(date: Date = new Date()): string {
+  const month = date.getMonth()
+  const year = date.getFullYear()
+  const fyStart = month >= 3 ? year : year - 1
+  const yy = (n: number) => String(n % 100).padStart(2, '0')
+  return `${yy(fyStart)}-${yy(fyStart + 1)}`
+}
+
 export function generateInvoiceNumber(type: 'INV' | 'QTN' | 'CN' | 'DN' | 'PO' | 'GRN' | 'RCT' | 'PV' | 'ADJ' | 'AUD' | 'TRF', seq: number): string {
   const profile = useSettingsStore.getState().businessProfile
-  const prefix = profile?.invoicePrefix || 'HS/25-26'
-  return `${prefix}/${type}/${String(seq).padStart(5, '0')}`
+  // The business-profile prefix (when an admin set one) wins. Otherwise
+  // mirror the backend default: `${type}/${FY}/${NN}` so we never display
+  // a hardcoded prior-FY label like "HS/25-26".
+  if (profile?.invoicePrefix) {
+    return `${profile.invoicePrefix}/${type}/${String(seq).padStart(5, '0')}`
+  }
+  return `${type}/${currentFinancialYearShort()}/${String(seq).padStart(5, '0')}`
 }
 
 export function getInitials(name: string): string {

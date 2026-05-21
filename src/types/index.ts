@@ -268,6 +268,11 @@ export interface Notification {
   snoozedUntil?: string | null
   resolvedAt?: string | null
   resolvedById?: string | null
+  // Per-type snapshot the backend stamps when generating the alert. Used by
+  // the table view to surface numeric detail (current/min stock, days
+  // outstanding, etc.) that isn't preserved in the free-text message.
+  // See NotificationsService.generate*Alerts.
+  entityState?: Record<string, unknown> | null
 }
 
 export type PaymentMode = 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'

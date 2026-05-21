@@ -15,9 +15,14 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;')
 }
 
-/** Convert an array of plain objects to a CSV blob and trigger download */
-export function exportToCsv(rows: Record<string, unknown>[], filename: string) {
-  if (!rows.length) return
+/** Convert an array of plain objects to a CSV blob and trigger download.
+ *  Returns the number of data rows written so the caller can surface a
+ *  "Exported N of M" confirmation — previously callers had no way to know
+ *  whether the file matched the on-screen count (Bug #6: list said 51,
+ *  file looked like 50, both because no trailing newline made wc -l
+ *  under-count by 1, and because the caller didn't confirm the row count). */
+export function exportToCsv(rows: Record<string, unknown>[], filename: string): number {
+  if (!rows.length) return 0
   const headers = Object.keys(rows[0])
   const lines = [
     headers.join(','),
@@ -34,13 +39,16 @@ export function exportToCsv(rows: Record<string, unknown>[], filename: string) {
         .join(','),
     ),
   ]
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  // Trailing `\r\n` so `wc -l` and most text-editor "line count" reports
+  // see N+1 lines (header + N rows) rather than N — matches RFC 4180.
+  const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename.endsWith('.csv') ? filename : `${filename}.csv`
   a.click()
   URL.revokeObjectURL(url)
+  return rows.length
 }
 
 /** Generate a PDF table from an array of plain objects and trigger download */

@@ -742,7 +742,7 @@ export default function SalesReturnsPage() {
                         <div className="text-right">
                           <p className="font-mono text-sm font-semibold">{formatCurrency(inv.grandTotal)}</p>
                           <p className="text-[11px] text-muted-foreground">
-                            {formatDate(inv.date)} &middot; {inv.items.length} items
+                            {formatDate(inv.date)} &middot; {inv.items.length} {inv.items.length === 1 ? 'item' : 'items'}
                           </p>
                         </div>
                       </div>

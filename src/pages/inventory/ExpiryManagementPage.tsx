@@ -132,6 +132,12 @@ export default function ExpiryManagementPage() {
 
   const { highlightId: highlightBatchId, highlight } = useDeepLinkHighlightState()
 
+  // Holds a `?batchId=…` value from the URL after we strip it, so a follow-up
+  // effect can pick the matching row out of the list (or fetch it directly
+  // if it's not on the current page) and auto-open the detail panel. Mirrors
+  // the Reminders / Approvals deep-link pattern.
+  const [pendingBatchId, setPendingBatchId] = useState<string | null>(null)
+
   // Map UI folder → API filter params (only meaningful for bucket folders).
   // 'Expiring Soon' aggregates everything within the 180-day window — server
   // returns batches with daysToExpiry ≤ 180 in one query instead of four.
@@ -305,17 +311,75 @@ export default function ExpiryManagementPage() {
     refreshStats()
   }
 
-  // Deep-link: highlight the deep-linked batch when the URL has ?batchId=...
-  // (existing behavior — kept for parity).
+  // Deep-link entry: when the URL has ?batchId=…, reset filters + switch to
+  // "All Batches" so the row is guaranteed to be in scope regardless of
+  // expiry bucket, then defer the actual row-select to a follow-up effect
+  // that has access to the loaded list (or fetches the single batch when
+  // it isn't on the current page).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const id = params.get('batchId')
     if (id) {
+      setPendingBatchId(id)
       highlight(id)
+      setSearch('')
+      setSelectedSupplier(null)
+      setFolder('all')
+      setBatchesPage(1)
       window.history.replaceState(null, '', '/inventory/expiry')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Once the All-Batches list arrives, find the deep-linked row and open the
+  // detail panel. If the batch isn't in the current page (server-paginated
+  // with `PAGE_SIZE` items), fall back to a single-batch GET so the panel
+  // opens regardless of pagination — important for the notification entry
+  // point where the user expects the click to "just work".
+  useEffect(() => {
+    if (!pendingBatchId || selectedRow) return
+
+    const inMemory = enrichedBatches.find((b) => b.batchId === pendingBatchId)
+    if (inMemory) {
+      setSelectedRow({ kind: 'batch', batch: inMemory })
+      setPendingBatchId(null)
+      return
+    }
+
+    // Wait for the in-flight list fetch to settle so we don't double-fetch.
+    if (fetchingBatches) return
+
+    let cancelled = false
+    api.get(`/batches/${pendingBatchId}`)
+      .then((res) => {
+        if (cancelled) return
+        const r = res.data
+        if (!r) { setPendingBatchId(null); return }
+        const days = computeDaysToExpiry(r.expiryDate) ?? Number.NaN
+        setSelectedRow({
+          kind: 'batch',
+          batch: {
+            batchId: r.id,
+            batchNumber: r.batchNumber,
+            productId: r.productId,
+            productName: r.productName ?? 'Unknown',
+            expiryDate: r.expiryDate,
+            mfgDate: r.mfgDate,
+            quantity: r.quantity,
+            mrp: Number(r.mrp),
+            stockValue: Number(r.quantity) * Number(r.mrp),
+            supplierName: r.supplierName ?? 'Unknown',
+            daysToExpiry: days,
+            bucket: assignExpiryBucket(r.expiryDate),
+          },
+        })
+        setPendingBatchId(null)
+      })
+      .catch(() => {
+        if (!cancelled) setPendingBatchId(null)
+      })
+    return () => { cancelled = true }
+  }, [pendingBatchId, enrichedBatches, fetchingBatches, selectedRow])
 
   const totalBatchesPages = Math.max(1, Math.ceil(batchesTotal / PAGE_SIZE))
   const currentDisposalTotal = folder === 'write-offs' ? writeOffsTotal ?? 0 : disposalsTotal ?? 0

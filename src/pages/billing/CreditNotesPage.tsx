@@ -698,7 +698,12 @@ export default function CreditNotesPage() {
         >
           {detailNote && (() => {
             const settlement = settlementConfig[detailNote.settlementMode]
-            const itemCount = (detailNote.items ?? []).length
+            // Bug #9: while the items query is still in flight, `detailNote.items`
+            // is undefined (the dialog opens immediately with list-data only).
+            // Show a placeholder instead of a hard "0 items" that contradicts
+            // the "Loading items…" row in the body and looks like a data error.
+            const itemsLoaded = Array.isArray(detailNote.items)
+            const itemCount = itemsLoaded ? detailNote.items!.length : null
             return (
               <>
                 {/* ── Sticky Header ── */}
@@ -715,7 +720,9 @@ export default function CreditNotesPage() {
                     </div>
                     <Badge variant="info" size="sm" className="gap-1">
                       <Package className="h-3 w-3" />
-                      {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                      {itemCount === null
+                        ? '— items'
+                        : `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
                     </Badge>
                   </div>
                 </SheetHeader>

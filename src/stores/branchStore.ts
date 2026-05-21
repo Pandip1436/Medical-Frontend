@@ -23,7 +23,10 @@ interface BranchState {
   isLoading: boolean
 
   fetchBranches: () => Promise<void>
-  setActiveBranch: (branchId: string | null) => void
+  // `opts.skipNavigate` lets callers (specifically the post-login bootstrap)
+  // pin the active branch without the soft-switch redirect to /dashboard,
+  // which would otherwise race with the role-aware redirect in App.tsx.
+  setActiveBranch: (branchId: string | null, opts?: { skipNavigate?: boolean }) => void
 }
 
 export const useBranchStore = create<BranchState>()(
@@ -57,7 +60,7 @@ export const useBranchStore = create<BranchState>()(
         }
       },
 
-      setActiveBranch: (branchId) => {
+      setActiveBranch: (branchId, opts) => {
         const branch = get().branches.find((b) => b.id === branchId) ?? null
         set({ activeBranchId: branchId, activeBranch: branch })
         // Soft switch: invalidate cached master data and route back to the
@@ -75,7 +78,9 @@ export const useBranchStore = create<BranchState>()(
             useNotificationStore.setState({ notifications: [] })
             useNotificationStore.getState().fetchNotifications()
           }),
-          import('@/lib/router').then(({ navigate }) => navigate('/dashboard')),
+          opts?.skipNavigate
+            ? Promise.resolve()
+            : import('@/lib/router').then(({ navigate }) => navigate('/dashboard')),
         ]).catch(() => { /* best-effort */ })
       },
     }),

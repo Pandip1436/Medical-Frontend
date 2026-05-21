@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Fragment } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useAuthStore } from '@/stores/authStore'
+import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import type { Notification } from '@/types'
 
 // ─── Category config ──────────────────────────────────────────
@@ -69,28 +70,40 @@ const SNOOZE_PRESETS: { label: string; hours: number }[] = [
 // as a query param so the destination page can deep-link straight to the row
 // or detail modal. Works for old notifications that pre-date the backend
 // embedding the id in actionUrl directly.
-// Legacy URL rewrites: old notifications stored generic paths; route them to
-// the new dedicated detail pages.
+//
+// Rewrite the stored `actionUrl` to today's canonical destination. The CRM
+// refactor replaced the standalone batch / reminder / approval detail pages
+// with inline panels on the list pages, opened via `?<entityId>` query params
+// (handled by each list page's `useDeepLinkParam` hook). Map both directions
+// (old detail-page → new inline-panel route, and the bare list path → the
+// same canonical path) so notifications created at any point in history
+// resolve to a working destination today.
 const URL_REWRITES: Record<string, string> = {
+  // Old detail-page / list routes → new Sheet/inline-panel destinations.
+  // PAYMENT_DUE goes to SalesListPage because it has a working Sheet
+  // (CustomerInvoicesPage's deep-link redirects to the old full-page detail).
+  '/customers/invoices/detail':  '/billing/sales',
+  '/customers/invoices':         '/billing/sales',
+  '/inventory/batches/detail':   '/inventory/expiry',
+  '/reminders/detail':           '/reminders',
+  '/admin/approvals/detail':     '/admin/approvals',
+  // Low Stock: ProductsPage has no detail Sheet, so /inventory/product-history
+  // remains the canonical destination (full-page history view).
   '/inventory/products':         '/inventory/product-history',
-  '/inventory/expiry':           '/inventory/batches/detail',
-  '/customers/invoices':         '/customers/invoices/detail',
-  '/reminders':                  '/reminders/detail',
-  '/admin/approvals':            '/admin/approvals/detail',
 }
 // For each base path (after rewrite), which marker in the message holds the
-// entity id and what query param name to use.
+// entity id and what query param name to use on the destination URL. Keys
+// are the POST-rewrite path; legacy paths fall through unchanged via the
+// fallback in resolveActionUrl().
 const MARKER_FOR_PATH: Record<string, { marker: string; param: string }> = {
   '/inventory/product-history':  { marker: 'productId',  param: 'productId' },
-  '/inventory/products':         { marker: 'productId',  param: 'productId' },
-  '/inventory/batches/detail':   { marker: 'batchId',    param: 'id' },
   '/inventory/expiry':           { marker: 'batchId',    param: 'batchId' },
-  '/customers/invoices/detail':  { marker: 'invoiceId',  param: 'id' },
-  '/customers/invoices':         { marker: 'invoiceId',  param: 'invoiceId' },
-  '/reminders/detail':           { marker: 'reminderId', param: 'id' },
+  '/billing/sales':              { marker: 'invoiceId',  param: 'invoiceId' },
   '/reminders':                  { marker: 'reminderId', param: 'reminderId' },
-  // Approvals don't have a message marker — the id lives only in the actionUrl
-  // emitted at create time. Legacy approval notifications can't be deep-linked.
+  // Approvals never had a message marker — the id was set on actionUrl only.
+  // We still register an entry so extractIdFromQuery can pick up the legacy
+  // `?id=` and emit the new canonical `?requestId=` for the inline panel.
+  '/admin/approvals':            { marker: 'requestId',  param: 'requestId' },
 }
 function extractMarker(message: string, marker: string): string | null {
   const m = message.match(new RegExp(`\\[${marker}:([^\\]]+)\\]`))
@@ -132,6 +145,125 @@ function cleanMessage(msg: string): string {
   return msg.replace(/\s*\[\w+Id:[^\]]+\](?:\[[^\]]+\])*/g, '').trim()
 }
 
+// ─── Per-type cluster row parsing ─────────────────────────────────
+// When a cluster expands we render its items in a real <table> with
+// type-specific columns instead of one merged prose string. The backend
+// generates notification messages with consistent shapes per type, so
+// regex extraction is reliable. When a message doesn't match (legacy
+// formats, freeform SYSTEM alerts), we fall back to a single "Detail"
+// column with the raw cleaned message — the row still renders cleanly,
+// just less structured.
+interface ColumnDef {
+  key: string
+  label: string
+  align?: 'left' | 'right'
+  className?: string
+  /** Tailwind width class applied to <th>. Omit for a flexible column
+   *  that absorbs leftover space in a `table-fixed` layout. */
+  width?: string
+}
+
+// Columns per cluster type. Order matters — the first column is treated as
+// the "primary" one (bolded when unread). Widths are explicit on numeric /
+// short columns so the flex column (product/customer name) absorbs the rest
+// instead of leaving an empty band in the middle of the row.
+const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
+  PAYMENT_DUE: [
+    { key: 'invoiceNo', label: 'Invoice',     className: 'font-mono text-[11px]', width: 'w-40' },
+    { key: 'customer',  label: 'Customer' },
+    { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-32' },
+    { key: 'aged',      label: 'Aged',        align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-24' },
+  ],
+  EXPIRY: [
+    { key: 'batch',     label: 'Batch',       className: 'font-mono text-[11px]', width: 'w-32' },
+    { key: 'product',   label: 'Product' },
+    { key: 'expiresIn', label: 'Expires in',  align: 'right', className: 'tabular-nums', width: 'w-28' },
+    { key: 'severity',  label: 'Severity',    align: 'left', width: 'w-32' },
+  ],
+  LOW_STOCK: [
+    { key: 'product',   label: 'Product' },
+    { key: 'current',   label: 'Stock',  align: 'right', className: 'font-medium tabular-nums', width: 'w-20' },
+    { key: 'min',       label: 'Min',    align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-20' },
+    { key: 'status',    label: 'Status', align: 'left',  width: 'w-32' },
+  ],
+}
+
+const DEFAULT_COLUMNS: ColumnDef[] = [{ key: 'detail', label: 'Detail' }]
+
+function parseClusterRow(n: Notification): Record<string, string> {
+  const message = cleanMessage(n.message)
+  if (isReminder(n)) return { detail: message }
+  // entityState is the structured snapshot the backend stamps when generating
+  // the alert. Prefer it over re-parsing the message when both are available
+  // — the message is for humans and may not carry every datum.
+  const state = (n.entityState ?? {}) as Record<string, unknown>
+  switch (n.type) {
+    case 'PAYMENT_DUE': {
+      // "Invoice <invNo> for <customer> has ₹<amount> outstanding."
+      const m = message.match(/^Invoice\s+(\S+)\s+for\s+(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      const aged =
+        typeof state.daysOutstanding === 'number' && state.daysOutstanding > 0
+          ? `${state.daysOutstanding}d`
+          : '—'
+      if (m) return { invoiceNo: m[1], customer: m[2], amount: `₹${m[3]}`, aged }
+      break
+    }
+    case 'EXPIRY': {
+      // "Batch <b#> of <product> expires in <N> day(s)."
+      const m = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+expires\s+in\s+(\d+)\s*day/i)
+      const daysLeft =
+        typeof state.daysLeft === 'number'
+          ? state.daysLeft
+          : m
+            ? parseInt(m[3], 10)
+            : null
+      const severity =
+        daysLeft === null ? '—'
+        : daysLeft <= 0   ? 'Expired'
+        : daysLeft <= 30  ? 'Critical'
+        : daysLeft <= 60  ? 'Soon'
+        : 'Upcoming'
+      if (m) return { batch: m[1], product: m[2], expiresIn: `${m[3]}d`, severity }
+      // Fallback for the "Expired Stock" message that doesn't carry days.
+      const exp = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+has already expired/i)
+      if (exp) return { batch: exp[1], product: exp[2], expiresIn: 'Expired', severity: 'Expired' }
+      break
+    }
+    case 'LOW_STOCK': {
+      // Backend variants:
+      //   "<product> is out of stock."
+      //   "<product> has only N units left (min: M)."
+      // entityState carries totalStock + minStock for both shapes.
+      const stateTotal = typeof state.totalStock === 'number' ? state.totalStock : null
+      const stateMin   = typeof state.minStock   === 'number' ? state.minStock   : null
+      const oos = message.match(/^(.+?)\s+is out of stock/i)
+      if (oos) {
+        return {
+          product: oos[1],
+          current: String(stateTotal ?? 0),
+          min: stateMin !== null ? String(stateMin) : '—',
+          status: 'Out of stock',
+        }
+      }
+      const low = message.match(/^(.+?)\s+has only\s+(\d+)\s+units left.*?min:\s*(\d+)/i)
+      if (low) {
+        return {
+          product: low[1],
+          current: low[2],
+          min: low[3],
+          status: 'Low',
+        }
+      }
+      break
+    }
+  }
+  return { detail: message }
+}
+
+function getClusterColumns(key: ClusterKey): ColumnDef[] {
+  return CLUSTER_COLUMNS[key] ?? DEFAULT_COLUMNS
+}
+
 // ─── Date grouping ──────────────────────────────────────────
 function groupByDate(notifications: Notification[]): { label: string; items: Notification[] }[] {
   const now = new Date()
@@ -156,26 +288,57 @@ function groupByDate(notifications: Notification[]): { label: string; items: Not
 }
 
 // ─── Smart grouping ──────────────────────────────────────────
-// Runs of `MIN_GROUP_SIZE` consecutive same-type rows collapse into one
-// expandable cluster so 400 Low Stock alerts don't drown out other categories.
+// When a date group contains MIN_GROUP_SIZE+ items of the same type
+// (regardless of position — they can be interleaved with other types), we
+// collapse them into a single expandable cluster panel. The cluster takes
+// the position of the FIRST occurrence in the group; other types between
+// them keep their original positions. This avoids the "wall of 30 payment-
+// due rows" problem while keeping mixed days readable.
 const MIN_GROUP_SIZE = 5
+
+// Use 'REMINDER' as a virtual cluster key so reminders (stored as SYSTEM
+// with a marker) cluster separately from real SYSTEM alerts.
+type ClusterKey = Notification['type'] | 'REMINDER'
+const clusterKeyOf = (n: Notification): ClusterKey =>
+  (isReminder(n) ? 'REMINDER' : n.type)
 
 type ListEntry =
   | { kind: 'single'; item: Notification }
-  | { kind: 'cluster'; type: Notification['type']; items: Notification[] }
+  | { kind: 'cluster'; key: ClusterKey; type: Notification['type']; items: Notification[] }
 
 function clusterSameType(items: Notification[]): ListEntry[] {
+  // Pass 1 — count each cluster key in this date group.
+  const counts = new Map<ClusterKey, number>()
+  for (const n of items) {
+    const key = clusterKeyOf(n)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  // Pass 2 — emit. First occurrence of a clusterable type emits the cluster
+  // with ALL of that type's items (in original order); subsequent items of
+  // the same type are absorbed (skipped). Other types stay where they are.
+  const shouldCluster = (key: ClusterKey) => (counts.get(key) ?? 0) >= MIN_GROUP_SIZE
+  const clusterBuckets = new Map<ClusterKey, Notification[]>()
+  for (const n of items) {
+    const key = clusterKeyOf(n)
+    if (shouldCluster(key)) {
+      if (!clusterBuckets.has(key)) clusterBuckets.set(key, [])
+      clusterBuckets.get(key)!.push(n)
+    }
+  }
+
   const out: ListEntry[] = []
-  let i = 0
-  while (i < items.length) {
-    const start = i
-    const t = items[i].type
-    while (i < items.length && items[i].type === t) i++
-    const run = items.slice(start, i)
-    if (run.length >= MIN_GROUP_SIZE) {
-      out.push({ kind: 'cluster', type: t, items: run })
+  const emitted = new Set<ClusterKey>()
+  for (const n of items) {
+    const key = clusterKeyOf(n)
+    if (shouldCluster(key)) {
+      if (!emitted.has(key)) {
+        emitted.add(key)
+        out.push({ kind: 'cluster', key, type: n.type, items: clusterBuckets.get(key)! })
+      }
+      // else: absorbed into the already-emitted cluster
     } else {
-      for (const item of run) out.push({ kind: 'single', item })
+      out.push({ kind: 'single', item: n })
     }
   }
   return out
@@ -206,9 +369,69 @@ export default function NotificationsPage() {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all')
+  // Folder view defaults to unread-only so the table size matches the sidebar
+  // badge (which counts unread per type). "All" flips this so already-read
+  // alerts are visible too.
+  const [folderShowAll, setFolderShowAll] = useState(false)
+  // Expanded cluster bundles in the All view. Each key is `${dateBucket}-${type}`
+  // (see AllTable). Collapsed by default so a long mixed-type day reads as a
+  // tight summary instead of a wall of rows.
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set())
 
   useEffect(() => { fetchNotifications() }, [fetchNotifications])
+
+  // ── Unified server-paginated infinite scroll ─────────────────
+  // One hook drives both views. Params change with activeCategory:
+  //   • All view: optional unread/read filter from the readFilter pill.
+  //   • Folder views: narrow by NotificationType (or reminders=only/exclude
+  //     for the REMINDER/SYSTEM split) + folderShowAll toggle.
+  // Mirrors the customer-dropdown pattern in NewSalePage: pageSize 50, fetch
+  // more on near-bottom scroll, returns { data, total, hasMore }.
+  const paginatedExtraParams = useMemo<Record<string, string | undefined>>(() => {
+    if (activeCategory === 'all') {
+      return {
+        unread: readFilter === 'unread' ? 'true' : undefined,
+        read:   readFilter === 'read'   ? 'true' : undefined,
+      }
+    }
+    const folderUnread = folderShowAll ? undefined : 'true'
+    if (activeCategory === 'REMINDER') return { reminders: 'only', unread: folderUnread }
+    if (activeCategory === 'SYSTEM')   return { type: 'SYSTEM', reminders: 'exclude', unread: folderUnread }
+    return { type: activeCategory, unread: folderUnread }
+  }, [activeCategory, readFilter, folderShowAll])
+
+  const paginated = usePaginatedSearch<any>({
+    endpoint: '/notifications',
+    pageSize: 50,
+    extraParams: paginatedExtraParams,
+  })
+
+  // Mirror the store's mapRaw: server returns `createdAt`, but render code
+  // (timeAgo, date grouping) reads `timestamp`. Normalize once at the edge.
+  const paginatedItems = useMemo<Notification[]>(
+    () =>
+      paginated.items.map((n: any) => ({
+        ...n,
+        timestamp: n.timestamp ?? n.createdAt ?? new Date().toISOString(),
+        message: n.message ?? '',
+      })) as Notification[],
+    [paginated.items],
+  )
+
+  // Sync the search input into the hook's debounced query.
+  const paginatedSetQuery = paginated.setQuery
+  useEffect(() => {
+    paginatedSetQuery(searchQuery)
+  }, [searchQuery, paginatedSetQuery])
+
+  // Reset "Show all", search, and expanded clusters when switching folders so
+  // each view starts from a clean state. Without this, leftover search text,
+  // the All toggle, or expanded-cluster state from the last view bleeds in.
+  useEffect(() => {
+    setFolderShowAll(false)
+    setSearchQuery('')
+    setExpandedClusters(new Set())
+  }, [activeCategory])
 
   // ── Per-category unread counts ────────────────────────────
   const categoryCounts = useMemo(() => {
@@ -226,48 +449,49 @@ export default function NotificationsPage() {
     return counts
   }, [notifications])
 
-  // ── Filtered list ──────────────────────────────────────────
-  const filtered = useMemo(() => {
-    let result = notifications
-    if (activeCategory === 'REMINDER') {
-      result = result.filter(isReminder)
-    } else if (activeCategory === 'SYSTEM') {
-      result = result.filter((n) => n.type === 'SYSTEM' && !isReminder(n))
-    } else if (activeCategory !== 'all') {
-      result = result.filter((n) => n.type === activeCategory)
-    }
-    if (readFilter === 'unread') result = result.filter((n) => !n.isRead)
-    if (readFilter === 'read') result = result.filter((n) => n.isRead)
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter((n) => n.title.toLowerCase().includes(q) || n.message.toLowerCase().includes(q))
-    }
-    return result
-  }, [notifications, activeCategory, readFilter, searchQuery])
-
-  const grouped = useMemo(() => groupByDate(filtered), [filtered])
-
   // ── Handlers ───────────────────────────────────────────────
+  // Both views read from the same `paginated` hook. Every per-row action:
+  //   1. Calls the store action (optimistic store update + API request — the
+  //      store still drives the sidebar badge counts and bell notification).
+  //   2. Optimistically mirrors the change into the paginated list via
+  //      mutate() so the visible table reflects the action without a refetch.
+  const paginatedMutate = paginated.mutate
+
   // Single click on a row: mark read + navigate to the deep-linked destination.
   // The row IS the action — no separate detail pane to fill in.
   const openNotification = (n: Notification) => {
-    if (!n.isRead) markAsRead(n.id)
+    if (!n.isRead) {
+      paginatedMutate((items: any[]) =>
+        items.map((x: any) => (x.id === n.id ? { ...x, isRead: true } : x)),
+      )
+      markAsRead(n.id)
+    }
     const url = resolveActionUrl(n)
     if (url) navigate(url)
   }
 
   const handleSnooze = async (id: string, hours: number) => {
     const until = new Date(Date.now() + hours * 3_600_000)
+    // Snoozed items are filtered out server-side on subsequent fetches; hide
+    // locally too so the row disappears immediately.
+    paginatedMutate((items: any[]) => items.filter((n: any) => n.id !== id))
     await snooze(id, until)
     toast.success(`Snoozed ${hours < 24 ? `for ${hours}h` : `for ${Math.round(hours / 24)}d`}`)
   }
 
   const handleResolve = async (id: string) => {
+    const nowIso = new Date().toISOString()
+    paginatedMutate((items: any[]) =>
+      items.map((n: any) =>
+        n.id === id ? { ...n, isRead: true, resolvedAt: nowIso } : n,
+      ),
+    )
     await resolve(id)
     toast.success('Marked as resolved')
   }
 
   const handleDelete = async (id: string) => {
+    paginatedMutate((items: any[]) => items.filter((n: any) => n.id !== id))
     await removeNotification(id)
     toast.success('Notification deleted')
   }
@@ -279,6 +503,15 @@ export default function NotificationsPage() {
       else next.add(key)
       return next
     })
+  }
+
+  // Bulk-resolve every unresolved item in a cluster. Backend has no
+  // dedicated bulk-resolve endpoint (only read-bulk + delete-bulk), so we
+  // fan out per-item calls — the store updates optimistically per item.
+  const handleResolveCluster = async (ids: string[]) => {
+    if (ids.length === 0) return
+    await Promise.all(ids.map((id) => resolve(id)))
+    toast.success(`Resolved ${ids.length} ${ids.length === 1 ? 'alert' : 'alerts'}`)
   }
 
   const activeCategoryLabel =
@@ -296,21 +529,27 @@ export default function NotificationsPage() {
                 : <>You&apos;re all caught up · {notifications.length} total</>}
             </p>
             <div className="flex items-center gap-2">
-              <div className="flex items-center rounded-md border border-border/60 bg-background p-0.5">
-                {(['all', 'unread', 'read'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setReadFilter(v)}
-                    className={cn(
-                      'rounded px-2 py-1 text-[11px] font-medium capitalize transition-colors',
-                      readFilter === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
+              {/* Global read filter — only meaningful in the date-grouped
+                  "All" view, which is driven by the in-memory store list.
+                  Folder views are server-paginated and have their own
+                  "Show all" toggle, so this pill is hidden there. */}
+              {activeCategory === 'all' && (
+                <div className="flex items-center rounded-md border border-border/60 bg-background p-0.5">
+                  {(['all', 'unread', 'read'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setReadFilter(v)}
+                      className={cn(
+                        'rounded px-2 py-1 text-[11px] font-medium capitalize transition-colors',
+                        readFilter === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              )}
               <Button variant="ghost" size="icon-sm" className="h-7 w-7" onClick={() => fetchNotifications()} disabled={isLoading} aria-label="Refresh">
                 <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
               </Button>
@@ -387,19 +626,59 @@ export default function NotificationsPage() {
                     className="h-8 border-border/60 pl-8 text-xs"
                   />
                 </div>
+                {/* Folder view: 2-state toggle controls whether read items
+                    are included in the server query. Default unread-only so
+                    the table size matches the sidebar badge. */}
+                {activeCategory !== 'all' && (
+                  <div className="flex shrink-0 items-center rounded-md border border-border/60 bg-background p-0.5">
+                    {[
+                      { key: false, label: 'Unread' },
+                      { key: true,  label: 'All' },
+                    ].map((opt) => (
+                      <button
+                        key={String(opt.key)}
+                        type="button"
+                        onClick={() => setFolderShowAll(opt.key)}
+                        className={cn(
+                          'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                          folderShowAll === opt.key
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                  {filtered.length} in {activeCategoryLabel}
+                  {paginatedItems.length} of {paginated.total}
+                  {activeCategory !== 'all' && !folderShowAll && ' unread'}
+                  {activeCategory === 'all' && readFilter !== 'all' && ` ${readFilter}`}
                 </span>
               </div>
 
-              {/* List body */}
-              <div className="flex-1 overflow-y-auto">
-                {isLoading ? (
+              {/* List body — one scroll container for both views. Near-bottom
+                  scroll triggers loadMore (NewSalePage customer-dropdown
+                  pattern, scaled up to full-page table). */}
+              <div
+                className="flex-1 overflow-y-auto"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  // Pre-emptive fire — start the next fetch before the user
+                  // hits the very bottom so new rows arrive without a
+                  // visible "loading" gap.
+                  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+                    paginated.loadMore()
+                  }
+                }}
+              >
+                {paginated.loading && paginatedItems.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-3 py-16">
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     <p className="text-xs text-muted-foreground">Loading…</p>
                   </div>
-                ) : filtered.length === 0 ? (
+                ) : paginatedItems.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
                       <FileX2 className="h-5 w-5 text-muted-foreground/50" />
@@ -407,82 +686,65 @@ export default function NotificationsPage() {
                     <div>
                       <p className="text-sm font-medium text-foreground">No notifications</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {searchQuery || readFilter !== 'all'
-                          ? 'Try clearing the filters'
-                          : 'Nothing in this folder'}
+                        {searchQuery
+                          ? `No matches in ${activeCategoryLabel}`
+                          : activeCategory === 'all' && readFilter !== 'all'
+                            ? `No ${readFilter} alerts`
+                            : activeCategory !== 'all' && !folderShowAll
+                              ? 'Nothing unread — switch to All to see resolved/read alerts'
+                              : 'Nothing in this folder'}
                       </p>
                     </div>
                   </div>
                 ) : (
-                  grouped.map((group) => {
-                    const entries = clusterSameType(group.items)
-                    return (
-                      <div key={group.label}>
-                        <div className="sticky top-0 z-10 bg-background/95 px-3 py-1 backdrop-blur-sm">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                            {group.label}
-                          </p>
-                        </div>
-                        {entries.map((entry, entryIdx) => {
-                          if (entry.kind === 'cluster') {
-                            const clusterKey = `${group.label}-${entry.type}-${entryIdx}`
-                            const isExpanded = expandedClusters.has(clusterKey)
-                            const sample = entry.items[0]
-                            const cfg = sample ? cfgFor(sample) : typeConfig[entry.type]
-                            const Icon = cfg.icon
-                            const unreadCount = entry.items.filter((n) => !n.isRead).length
-                            return (
-                              <div key={clusterKey}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleCluster(clusterKey)}
-                                  className="flex w-full items-center gap-2.5 border-b border-border/30 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
-                                >
-                                  <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
-                                    <Icon className="h-3.5 w-3.5" />
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-[13px] font-semibold leading-tight">
-                                      {cfg.label} · {entry.items.length} alerts
-                                    </p>
-                                    <p className="mt-0.5 text-xs text-muted-foreground">
-                                      {unreadCount > 0
-                                        ? `${unreadCount} unread · click to ${isExpanded ? 'collapse' : 'expand'}`
-                                        : `All read · click to ${isExpanded ? 'collapse' : 'expand'}`}
-                                    </p>
-                                  </div>
-                                  <ChevronDown
-                                    className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
-                                  />
-                                </button>
-                                {isExpanded && entry.items.map((n) => (
-                                  <NotificationRow
-                                    key={n.id}
-                                    notification={n}
-                                    indented
-                                    onOpen={openNotification}
-                                    onSnooze={handleSnooze}
-                                    onResolve={handleResolve}
-                                    onDelete={handleDelete}
-                                  />
-                                ))}
-                              </div>
-                            )
-                          }
-                          return (
-                            <NotificationRow
-                              key={entry.item.id}
-                              notification={entry.item}
-                              onOpen={openNotification}
-                              onSnooze={handleSnooze}
-                              onResolve={handleResolve}
-                              onDelete={handleDelete}
-                            />
-                          )
-                        })}
-                      </div>
-                    )
-                  })
+                  <>
+                    {activeCategory === 'all' ? (
+                      // All view also reads as one structured table, with
+                      // date-bucket separator rows (Yesterday / This week / …)
+                      // so mixed-type lists stay scannable. When a date bucket
+                      // has 5+ same-type items they collapse into a single
+                      // bundle row the user can click to expand into the table.
+                      <AllTable
+                        items={paginatedItems}
+                        expandedClusters={expandedClusters}
+                        onToggleCluster={toggleCluster}
+                        onResolveCluster={handleResolveCluster}
+                        onOpen={openNotification}
+                        onSnooze={handleSnooze}
+                        onResolve={handleResolve}
+                        onDelete={handleDelete}
+                      />
+                    ) : (
+                      <ClusterTable
+                        items={paginatedItems}
+                        clusterKey={activeCategory as ClusterKey}
+                        onOpen={openNotification}
+                        onSnooze={handleSnooze}
+                        onResolve={handleResolve}
+                        onDelete={handleDelete}
+                      />
+                    )}
+                    {/* Pagination footer — same in both views: loading-more
+                        spinner, click-to-load button, or "all caught up". */}
+                    <div className="flex items-center justify-center gap-2 border-t border-border/30 px-3 py-3 text-[11px] text-muted-foreground">
+                      {paginated.loading ? (
+                        <>
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
+                          Loading more…
+                        </>
+                      ) : paginated.hasMore ? (
+                        <button
+                          type="button"
+                          onClick={() => paginated.loadMore()}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          Load more · {paginated.total - paginatedItems.length} remaining
+                        </button>
+                      ) : (
+                        <span>All caught up · {paginatedItems.length} total</span>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             </section>
@@ -494,8 +756,11 @@ export default function NotificationsPage() {
 }
 
 // ─── List row ────────────────────────────────────────────────
-// Single notification row. Click anywhere (except action area) to open the
-// deep-linked destination. Hover reveals snooze/resolve/delete actions.
+// Single notification row in the compact table-style layout. Layout matches
+// ClusterItem (below) but adds a type icon as the first column since
+// standalone rows aren't grouped under a cluster header that already shows
+// the type. Click anywhere → deep-linked destination. Hover reveals
+// snooze/resolve/delete; resting state shows a chevron affordance.
 function NotificationRow({
   notification: n,
   indented,
@@ -528,83 +793,832 @@ function NotificationRow({
         }
       }}
       className={cn(
-        'group flex cursor-pointer items-start gap-2.5 border-b border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
+        // grid: icon · status · title+message · time · chevron/actions
+        'group grid cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] transition-colors hover:bg-muted/40',
+        'grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]',
         indented && 'pl-9',
         isResolved && 'opacity-70',
       )}
     >
+      {/* Type icon */}
       <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
         <Icon className="h-3.5 w-3.5" />
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className={cn(
-            'truncate text-[13px] leading-tight',
-            !n.isRead ? 'font-semibold text-foreground' : 'font-normal text-foreground/80',
-          )}>
-            {n.title}
-          </p>
-          {isResolved ? (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-              <Check className="h-2.5 w-2.5" /> Resolved
-            </span>
-          ) : !n.isRead ? (
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-          ) : null}
-        </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{message}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground/60">{timeAgo(n.timestamp)}</p>
-      </div>
-
-      {/* Action cluster — fades in on hover, taps stop propagation so the row click doesn't fire */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
-      >
-        {!isResolved && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" className="h-7 w-7" aria-label="Snooze">
-                <BellOff className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {SNOOZE_PRESETS.map((p) => (
-                <DropdownMenuItem key={p.label} onClick={() => onSnooze(n.id, p.hours)}>
-                  {p.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      {/* Unread / resolved indicator — same column-width as cluster items */}
+      <span className="flex h-3 w-3 shrink-0 items-center justify-center" aria-hidden>
+        {isResolved ? (
+          <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+        ) : !n.isRead ? (
+          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+        ) : (
+          <span className="h-1.5 w-1.5 rounded-full bg-transparent" />
         )}
-        {!isResolved && (
+      </span>
+
+      {/* Title + message merged on one line, truncated */}
+      <span className="min-w-0 truncate leading-tight">
+        <span className={cn(!n.isRead ? 'font-semibold text-foreground' : 'text-foreground/80')}>
+          {n.title}
+        </span>
+        {message && (
+          <span className="text-muted-foreground"> · {message}</span>
+        )}
+      </span>
+
+      {/* Time */}
+      <span className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground/70">
+        {timeAgo(n.timestamp)}
+      </span>
+
+      {/* Actions — hover-revealed; chevron is the resting affordance */}
+      <span className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+        <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:flex group-hover:opacity-100 focus-within:flex focus-within:opacity-100">
+          {!isResolved && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" className="h-7 w-7" aria-label="Snooze">
+                  <BellOff className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SNOOZE_PRESETS.map((p) => (
+                  <DropdownMenuItem key={p.label} onClick={() => onSnooze(n.id, p.hours)}>
+                    {p.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!isResolved && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="h-7 w-7 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+              onClick={() => onResolve(n.id)}
+              aria-label="Mark resolved"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button
             size="icon-sm"
             variant="ghost"
-            className="h-7 w-7 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
-            onClick={() => onResolve(n.id)}
-            aria-label="Mark resolved"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(n.id)}
+            aria-label="Delete"
           >
-            <Check className="h-3.5 w-3.5" />
+            <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        )}
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-          onClick={() => onDelete(n.id)}
-          aria-label="Delete"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      {/* Click affordance — only shown when hover actions aren't */}
-      <ChevronRight
-        className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-opacity group-hover:opacity-0"
-        aria-hidden
-      />
+        </span>
+        <ChevronRight
+          className="ml-0.5 h-3.5 w-3.5 text-muted-foreground/40 transition-opacity group-hover:opacity-0"
+          aria-hidden
+        />
+      </span>
     </div>
+  )
+}
+
+// ─── Cluster panel ───────────────────────────────────────────
+// Renders when a date group has MIN_GROUP_SIZE+ items of one type. Collapsed
+// shows a one-line summary; expanded shows the items in a tighter "table"
+// layout inside a type-tinted container so the user can see at a glance
+// "these all belong together". Differs from a plain expanded list by:
+//   1. Bordered + tinted container (visual grouping)
+//   2. Header strip with bulk "Resolve all" action
+//   3. Compact one-line rows (no separate message line)
+function ClusterPanel({
+  cluster,
+  isExpanded,
+  onToggle,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+  onResolveAll,
+}: {
+  cluster: { key: ClusterKey; type: Notification['type']; items: Notification[] }
+  isExpanded: boolean
+  onToggle: () => void
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+  onResolveAll: (ids: string[]) => void
+}) {
+  const sample = cluster.items[0]
+  const cfg = sample ? cfgFor(sample) : typeConfig[cluster.type]
+  const Icon = cfg.icon
+  const unreadCount = cluster.items.filter((n) => !n.isRead).length
+  const unresolvedIds = cluster.items.filter((n) => !n.resolvedAt).map((n) => n.id)
+
+  // Type-tinted container colors. Mirror the tone classes on typeConfig but
+  // expressed as border + background rather than icon background.
+  const containerStyle = clusterContainerColors(cluster.key)
+
+  return (
+    <div
+      className={cn(
+        'border-b border-border/30',
+        isExpanded && cn('border-l-2', containerStyle.borderLeft, containerStyle.bg),
+      )}
+    >
+      {/* Header — toggles expansion. Bulk action button is rendered when
+          expanded so it doesn't compete with the collapsed-state affordance. */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+      >
+        <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold leading-tight">
+            {cfg.label} · {cluster.items.length} alerts
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {unreadCount > 0
+              ? `${unreadCount} unread · click to ${isExpanded ? 'collapse' : 'expand'}`
+              : `All read · click to ${isExpanded ? 'collapse' : 'expand'}`}
+          </p>
+        </div>
+        {isExpanded && unresolvedIds.length > 0 && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation()
+              onResolveAll(unresolvedIds)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                onResolveAll(unresolvedIds)
+              }
+            }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-900/40"
+          >
+            <CheckCheck className="h-3 w-3" />
+            Resolve all
+          </span>
+        )}
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
+        />
+      </button>
+
+      {/* Expanded body — real <table> with type-specific column headers
+          (Invoice | Customer | Outstanding for PAYMENT_DUE; Batch | Product
+          | Expires in for EXPIRY; etc.). Falls back to a single "Detail"
+          column for types without a parsable shape (REMINDER / APPROVAL /
+          SYSTEM). Same component is reused for the folder-filter view. */}
+      {isExpanded && (
+        <ClusterTable
+          items={cluster.items}
+          clusterKey={cluster.key}
+          onOpen={onOpen}
+          onSnooze={onSnooze}
+          onResolve={onResolve}
+          onDelete={onDelete}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Cluster table ────────────────────────────────────────────
+// The actual <table> rendered when a cluster expands AND when the user
+// selects a non-"All" folder in the sidebar (so an entire filtered list
+// reads as one structured table instead of a flat feed). Columns are
+// resolved from `getClusterColumns(clusterKey)` so each type gets the
+// right schema; unknown types fall back to a one-column "Detail" view.
+//
+// Rows are bucketed by relative date (Yesterday / This week / Older …) and
+// each bucket gets a separator row so the user can tell at a glance which
+// alerts came in today vs last week without scanning the When column.
+function ClusterTable({
+  items,
+  clusterKey,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+}: {
+  items: Notification[]
+  clusterKey: ClusterKey
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const columns = getClusterColumns(clusterKey)
+  // Total cell count for the colSpan on date-separator rows
+  // (indicator + N data cols + when + actions).
+  const totalCols = 1 + columns.length + 2
+  // groupByDate keeps the source order (createdAt desc) and only emits
+  // buckets with items, so we never render an empty "This week" separator.
+  const groups = groupByDate(items)
+  return (
+    <div className="overflow-x-auto">
+      {/* table-auto (no table-fixed): columns size to content so short
+          values don't get stretched into wide empty bands. Explicit widths
+          on the numeric/short columns still apply via the `width` class. */}
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="sticky top-0 z-10 border-y border-border/40 bg-muted/40 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 backdrop-blur-sm">
+            <th className="w-6 px-3 py-2" aria-hidden></th>
+            {columns.map((c) => (
+              <th
+                key={c.key}
+                className={cn(
+                  'px-3 py-2 text-left',
+                  c.align === 'right' && 'text-right',
+                  c.width,
+                )}
+              >
+                {c.label}
+              </th>
+            ))}
+            <th className="w-28 px-3 py-2 text-right">When</th>
+            <th className="w-20 px-3 py-2" aria-hidden></th>
+          </tr>
+        </thead>
+        {groups.map((group) => (
+          <tbody key={group.label} className="divide-y divide-border/30">
+            <tr>
+              <th
+                colSpan={totalCols}
+                scope="colgroup"
+                className="border-y border-border/30 bg-muted/30 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70"
+              >
+                {group.label}
+              </th>
+            </tr>
+            {group.items.map((n) => (
+              <ClusterRow
+                key={n.id}
+                notification={n}
+                columns={columns}
+                onOpen={onOpen}
+                onSnooze={onSnooze}
+                onResolve={onResolve}
+                onDelete={onDelete}
+              />
+            ))}
+          </tbody>
+        ))}
+      </table>
+    </div>
+  )
+}
+
+// Status/Severity → pill colour. Centralised so the LOW_STOCK and EXPIRY
+// tables use the same palette. Defaults to a neutral grey for anything not
+// explicitly listed (e.g. "Upcoming" expiries are not yet urgent).
+function badgeToneFor(label: string): string {
+  switch (label) {
+    case 'Out of stock':
+    case 'Expired':
+      return 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+    case 'Critical':
+      return 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+    case 'Low':
+    case 'Soon':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+    case 'Upcoming':
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+    default:
+      return 'bg-muted text-muted-foreground'
+  }
+}
+
+// Per-cluster tint. Map ClusterKey → border + background tailwind classes.
+function clusterContainerColors(key: ClusterKey): { borderLeft: string; bg: string } {
+  switch (key) {
+    case 'LOW_STOCK':
+      return { borderLeft: 'border-l-amber-400 dark:border-l-amber-600', bg: 'bg-amber-50/40 dark:bg-amber-950/15' }
+    case 'EXPIRY':
+      return { borderLeft: 'border-l-red-400 dark:border-l-red-600',     bg: 'bg-red-50/40 dark:bg-red-950/15' }
+    case 'PAYMENT_DUE':
+      return { borderLeft: 'border-l-blue-400 dark:border-l-blue-600',   bg: 'bg-blue-50/40 dark:bg-blue-950/15' }
+    case 'APPROVAL':
+      return { borderLeft: 'border-l-emerald-400 dark:border-l-emerald-600', bg: 'bg-emerald-50/40 dark:bg-emerald-950/15' }
+    case 'REMINDER':
+      return { borderLeft: 'border-l-cyan-400 dark:border-l-cyan-600',   bg: 'bg-cyan-50/40 dark:bg-cyan-950/15' }
+    case 'SYSTEM':
+    default:
+      return { borderLeft: 'border-l-purple-400 dark:border-l-purple-600', bg: 'bg-purple-50/40 dark:bg-purple-950/15' }
+  }
+}
+
+// ─── Cluster table row ────────────────────────────────────────
+// A single <tr> inside the cluster table. Columns are passed in from the
+// parent ClusterPanel based on cluster type (PAYMENT_DUE has Invoice /
+// Customer / Outstanding; EXPIRY has Batch / Product / Expires in; etc.).
+// Click anywhere on the row → deep-link nav. Hover reveals snooze /
+// resolve / delete actions. Stays in the same density as the table head.
+function ClusterRow({
+  notification: n,
+  columns,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+}: {
+  notification: Notification
+  columns: ColumnDef[]
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const isResolved = !!n.resolvedAt
+  const parsed = parseClusterRow(n)
+  const primaryKey = columns[0]?.key
+
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(n)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(n)
+        }
+      }}
+      className={cn(
+        'group cursor-pointer transition-colors hover:bg-muted/40',
+        isResolved && 'opacity-70',
+      )}
+    >
+      {/* Unread / resolved indicator */}
+      <td className="w-6 px-3 py-1.5 align-middle">
+        {isResolved ? (
+          <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+        ) : !n.isRead ? (
+          <span className="block h-1.5 w-1.5 rounded-full bg-primary" aria-label="Unread" />
+        ) : null}
+      </td>
+
+      {/* Type-specific columns */}
+      {columns.map((c) => {
+        const value = parsed[c.key]
+        // Render status/severity as a coloured pill so urgency is scannable
+        // at a glance. Falls back to plain text for the rest.
+        const isBadge = c.key === 'status' || c.key === 'severity'
+        return (
+          <td
+            key={c.key}
+            className={cn(
+              'px-3 py-1.5 align-middle text-[12px]',
+              !isBadge && 'truncate',
+              c.align === 'right' && 'text-right',
+              // Bold the primary column when unread, so the eye lands on it.
+              !n.isRead && c.key === primaryKey && 'font-semibold text-foreground',
+              c.className,
+            )}
+          >
+            {value
+              ? isBadge
+                ? <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium', badgeToneFor(value))}>{value}</span>
+                : value
+              : <span className="text-muted-foreground/50">—</span>}
+          </td>
+        )
+      })}
+
+      {/* When */}
+      <td className="w-24 whitespace-nowrap px-3 py-1.5 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+        {timeAgo(n.timestamp)}
+      </td>
+
+      {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
+      <td
+        className="w-20 px-3 py-1.5 align-middle text-right"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {!isResolved && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" className="h-6 w-6" aria-label="Snooze">
+                  <BellOff className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SNOOZE_PRESETS.map((p) => (
+                  <DropdownMenuItem key={p.label} onClick={() => onSnooze(n.id, p.hours)}>
+                    {p.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!isResolved && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="h-6 w-6 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+              onClick={() => onResolve(n.id)}
+              aria-label="Mark resolved"
+            >
+              <Check className="h-3 w-3" />
+            </Button>
+          )}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(n.id)}
+            aria-label="Delete"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+// ─── All-view table ──────────────────────────────────────────
+// Renders the mixed-type "All" feed as one structured <table> with the same
+// look as the folder tables. Loses per-type columns (the rows can be any of
+// LOW_STOCK / EXPIRY / PAYMENT_DUE / APPROVAL / SYSTEM / REMINDER), so the
+// detail column shows the parsed primary info per type when we have a
+// schema for it (invoice no / batch / product), and falls back to the raw
+// title + message for types without one. Date-bucket separator rows
+// (Yesterday / This week / Older …) keep the timeline scannable.
+//
+// When a date bucket has MIN_GROUP_SIZE+ items of the same type, those rows
+// collapse into a single AllClusterRow bundle. Clicking the bundle expands
+// it into N indented rows below. Mixed-type buckets render flat.
+// Initial / step size for the inside-cluster "Show more" pagination — when a
+// cluster has more loaded items than this, we render only the first N and
+// surface a "Show 25 more" button to reveal the next page. Avoids rendering
+// 400 rows in the DOM the instant the user expands a large bundle.
+const CLUSTER_PAGE_SIZE = 25
+
+function AllTable({
+  items,
+  expandedClusters,
+  onToggleCluster,
+  onResolveCluster,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+}: {
+  items: Notification[]
+  expandedClusters: Set<string>
+  onToggleCluster: (key: string) => void
+  onResolveCluster: (ids: string[]) => void
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const groups = groupByDate(items)
+  // 5 cells: indicator + type + detail + when + actions.
+  const totalCols = 5
+  // Per-cluster row cap. Default to CLUSTER_PAGE_SIZE on first expand; a
+  // "Show N more" button below the expanded rows bumps this by another
+  // CLUSTER_PAGE_SIZE each click. Stored as state inside AllTable (not in
+  // the parent page) because the cap is purely a render-time concern for
+  // this component — no other code needs to read it.
+  const [clusterCaps, setClusterCaps] = useState<Record<string, number>>({})
+  const bumpClusterCap = (clusterId: string) => {
+    setClusterCaps((prev) => ({
+      ...prev,
+      [clusterId]: (prev[clusterId] ?? CLUSTER_PAGE_SIZE) + CLUSTER_PAGE_SIZE,
+    }))
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="sticky top-0 z-10 border-y border-border/40 bg-muted/40 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 backdrop-blur-sm">
+            <th className="w-6 px-3 py-2" aria-hidden></th>
+            <th className="w-36 px-3 py-2 text-left">Type</th>
+            <th className="px-3 py-2 text-left">Notification</th>
+            <th className="w-28 px-3 py-2 text-right">When</th>
+            <th className="w-20 px-3 py-2" aria-hidden></th>
+          </tr>
+        </thead>
+        {groups.map((group) => {
+          const entries = clusterSameType(group.items)
+          return (
+            <tbody key={group.label} className="divide-y divide-border/30">
+              <tr>
+                <th
+                  colSpan={totalCols}
+                  scope="colgroup"
+                  className="border-y border-border/30 bg-muted/30 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70"
+                >
+                  {group.label}
+                </th>
+              </tr>
+              {entries.map((entry) => {
+                if (entry.kind === 'cluster') {
+                  // Stable cluster id: bucket + type. We DON'T include the
+                  // entryIdx here so that as the page loads more items (and
+                  // the entry's position within entries could shift), the
+                  // expanded state survives.
+                  const clusterId = `${group.label}-${entry.key}`
+                  const isExpanded = expandedClusters.has(clusterId)
+                  const cap = clusterCaps[clusterId] ?? CLUSTER_PAGE_SIZE
+                  const visibleItems = entry.items.slice(0, cap)
+                  const hiddenCount = entry.items.length - visibleItems.length
+                  return (
+                    <Fragment key={clusterId}>
+                      <AllClusterRow
+                        cluster={entry}
+                        isExpanded={isExpanded}
+                        onToggle={() => onToggleCluster(clusterId)}
+                        onResolveAll={onResolveCluster}
+                      />
+                      {isExpanded && (
+                        <>
+                          {visibleItems.map((n) => (
+                            <AllRow
+                              key={n.id}
+                              notification={n}
+                              indented
+                              onOpen={onOpen}
+                              onSnooze={onSnooze}
+                              onResolve={onResolve}
+                              onDelete={onDelete}
+                            />
+                          ))}
+                          {hiddenCount > 0 && (
+                            <tr className="bg-muted/10">
+                              <td colSpan={totalCols} className="px-3 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => bumpClusterCap(clusterId)}
+                                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                                >
+                                  Show {Math.min(CLUSTER_PAGE_SIZE, hiddenCount)} more in this group
+                                  <span className="ml-1 text-muted-foreground/60">· {hiddenCount} remaining</span>
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      )}
+                    </Fragment>
+                  )
+                }
+                return (
+                  <AllRow
+                    key={entry.item.id}
+                    notification={entry.item}
+                    onOpen={onOpen}
+                    onSnooze={onSnooze}
+                    onResolve={onResolve}
+                    onDelete={onDelete}
+                  />
+                )
+              })}
+            </tbody>
+          )
+        })}
+      </table>
+    </div>
+  )
+}
+
+// ─── All-view cluster bundle row ─────────────────────────────
+// One row that stands in for N same-type notifications inside a date bucket.
+// Click anywhere to toggle expansion; on expand, a bulk "Resolve all" action
+// appears so the user can clear the whole bundle in one go. Visually
+// distinct (slightly tinted, chevron on the right) so it doesn't read as a
+// regular notification row.
+function AllClusterRow({
+  cluster,
+  isExpanded,
+  onToggle,
+  onResolveAll,
+}: {
+  cluster: { key: ClusterKey; type: Notification['type']; items: Notification[] }
+  isExpanded: boolean
+  onToggle: () => void
+  onResolveAll: (ids: string[]) => void
+}) {
+  const sample = cluster.items[0]
+  const cfg = sample ? cfgFor(sample) : typeConfig[cluster.type]
+  const Icon = cfg.icon
+  const unreadCount = cluster.items.filter((n) => !n.isRead).length
+  const unresolvedIds = cluster.items.filter((n) => !n.resolvedAt).map((n) => n.id)
+
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onToggle()
+        }
+      }}
+      className={cn(
+        // Slightly taller + a thicker top/bottom feel so the bundle row reads
+        // as a section heading inside the table rather than just another row.
+        // Type-tinted left accent bar to reinforce "this is N items of TYPE".
+        'cursor-pointer border-y border-border/40 bg-muted/30 transition-colors hover:bg-muted/50',
+        isExpanded && 'bg-muted/40',
+      )}
+    >
+      {/* Indicator — solid dot if any item is unread. Wider/taller cell to
+          match the bigger row height. */}
+      <td className="w-6 px-3 py-3 align-middle">
+        {unreadCount > 0 && <span className="block h-2 w-2 rounded-full bg-primary" aria-label="Unread alerts" />}
+      </td>
+
+      {/* Type icon + label, bigger + bolder so the bundle row reads as a
+          heading. Icon goes from h-5 → h-7 and label from text-[12px] → text-sm. */}
+      <td className="w-36 px-3 py-3 align-middle">
+        <span className="inline-flex items-center gap-2.5">
+          <span className={cn('flex h-7 w-7 items-center justify-center rounded-md', cfg.tone)}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="truncate text-sm font-semibold text-foreground">{cfg.label}</span>
+        </span>
+      </td>
+
+      {/* Summary — count + click-to-expand hint. Slightly bigger text and a
+          two-line layout so the count is visually prominent. */}
+      <td className="px-3 py-3 align-middle text-[13px]">
+        <span className="block font-semibold text-foreground">{cluster.items.length} alerts</span>
+        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+          {unreadCount > 0 && <><span className="font-medium text-primary">{unreadCount} unread</span> · </>}
+          click to {isExpanded ? 'collapse' : 'expand'}
+        </span>
+      </td>
+
+      {/* Bulk action — only shown when expanded so the collapsed row stays clean */}
+      <td className="w-28 px-3 py-3 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+        {isExpanded && unresolvedIds.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onResolveAll(unresolvedIds)}
+            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:border-emerald-900/40 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400"
+          >
+            <CheckCheck className="h-3 w-3" />
+            Resolve all
+          </button>
+        )}
+      </td>
+
+      {/* Chevron — bigger to match the new row height */}
+      <td className="w-20 px-3 py-3 align-middle text-right">
+        <ChevronDown
+          className={cn('inline-block h-4 w-4 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
+          aria-hidden
+        />
+      </td>
+    </tr>
+  )
+}
+
+// ─── All-view row ────────────────────────────────────────────
+// Single row in the unified All-view table. Compresses each notification
+// into Type (icon + label) + Detail (title + cleaned message, one line,
+// truncated) + When + hover-revealed actions.
+function AllRow({
+  notification: n,
+  indented,
+  onOpen,
+  onSnooze,
+  onResolve,
+  onDelete,
+}: {
+  notification: Notification
+  /** True when this row is rendered inside an expanded cluster bundle.
+   *  Adds a left tint + indent so child items visually nest under the
+   *  bundle header. */
+  indented?: boolean
+  onOpen: (n: Notification) => void
+  onSnooze: (id: string, hours: number) => void
+  onResolve: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const cfg = cfgFor(n)
+  const Icon = cfg.icon
+  const isResolved = !!n.resolvedAt
+  const message = cleanMessage(n.message)
+
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(n)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(n)
+        }
+      }}
+      className={cn(
+        'group cursor-pointer transition-colors hover:bg-muted/40',
+        isResolved && 'opacity-70',
+        // Subtle background tint when this row sits inside an expanded
+        // cluster bundle, so the parent/child relationship reads visually.
+        indented && 'bg-muted/10',
+      )}
+    >
+      {/* Unread / resolved indicator. When indented, swap the dot for a thin
+          vertical guide-line so the eye traces back to the bundle header. */}
+      <td className={cn('w-6 px-3 py-1.5 align-middle', indented && 'relative')}>
+        {indented && (
+          <span
+            className="pointer-events-none absolute inset-y-0 left-5 w-px bg-border/60"
+            aria-hidden
+          />
+        )}
+        {isResolved ? (
+          <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+        ) : !n.isRead ? (
+          <span className="block h-1.5 w-1.5 rounded-full bg-primary" aria-label="Unread" />
+        ) : null}
+      </td>
+
+      {/* Type — small icon + short label, fixed width so labels line up.
+          When indented, push right so child items visually nest. */}
+      <td className={cn('w-36 px-3 py-1.5 align-middle', indented && 'pl-8')}>
+        <span className="inline-flex items-center gap-2">
+          <span className={cn('flex h-5 w-5 items-center justify-center rounded-md', cfg.tone)}>
+            <Icon className="h-3 w-3" />
+          </span>
+          <span className="truncate text-[12px] text-foreground/80">{cfg.label}</span>
+        </span>
+      </td>
+
+      {/* Detail — title (bold when unread) + cleaned message on one line */}
+      <td className="px-3 py-1.5 align-middle text-[12px]">
+        <span className="block truncate">
+          <span className={cn(!n.isRead ? 'font-semibold text-foreground' : 'text-foreground/80')}>
+            {n.title}
+          </span>
+          {message && (
+            <span className="text-muted-foreground"> · {message}</span>
+          )}
+        </span>
+      </td>
+
+      {/* When */}
+      <td className="w-28 whitespace-nowrap px-3 py-1.5 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+        {timeAgo(n.timestamp)}
+      </td>
+
+      {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
+      <td
+        className="w-20 px-3 py-1.5 align-middle text-right"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {!isResolved && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" className="h-6 w-6" aria-label="Snooze">
+                  <BellOff className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SNOOZE_PRESETS.map((p) => (
+                  <DropdownMenuItem key={p.label} onClick={() => onSnooze(n.id, p.hours)}>
+                    {p.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!isResolved && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="h-6 w-6 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+              onClick={() => onResolve(n.id)}
+              aria-label="Mark resolved"
+            >
+              <Check className="h-3 w-3" />
+            </Button>
+          )}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(n.id)}
+            aria-label="Delete"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </span>
+      </td>
+    </tr>
   )
 }

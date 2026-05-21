@@ -2361,8 +2361,17 @@ export default function NewSalePage() {
   }, [])
 
   // ── Close dropdowns on outside click ──────────────────────
+  // Bug #5: outside-click handler fires on EVERY mousedown, including the
+  // one that opens the dropdown. With real-browser event ordering plus
+  // framer-motion's AnimatePresence mount, that could close the dropdown
+  // in the same tick it was opened. Guard with a ref so the handler is a
+  // pure closer — it only runs when the dropdown is already open, never
+  // when the click was the one trying to open it.
+  const showCustomerDropdownRef = useRef(false)
+  useEffect(() => { showCustomerDropdownRef.current = showCustomerDropdown }, [showCustomerDropdown])
   useEffect(() => {
     function handleClick(e: MouseEvent) {
+      if (!showCustomerDropdownRef.current) return
       if (customerRef.current && !customerRef.current.contains(e.target as Node)) {
         setShowCustomerDropdown(false)
       }
@@ -3472,7 +3481,30 @@ export default function NewSalePage() {
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <div className="text-sm font-semibold font-mono tabular-nums">{formatCurrency(billingType === 'wholesale' ? p.wholesaleRate : p.sellingRate)}</div>
+                            {(() => {
+                              // Mirror addProductFromSearch's rate resolution so the
+                              // picker shows the exact price the cart will charge.
+                              // Order: customer last-sale rate → tier (wholesale /
+                              // retail) → fallback to retail sellingRate. The badge
+                              // tells the user where the number came from so the
+                              // ₹25 → ₹30 swap stops looking like a phantom upsell.
+                              const tierRate = billingType === 'wholesale' ? Number(p.wholesaleRate) : Number(p.sellingRate)
+                              const lastRate = customerLastRates[p.id]
+                              const effectiveRate = lastRate ?? tierRate
+                              const source: 'last' | 'wholesale' | 'retail' =
+                                lastRate !== undefined ? 'last' : billingType === 'wholesale' ? 'wholesale' : 'retail'
+                              return (
+                                <>
+                                  <div className="text-sm font-semibold font-mono tabular-nums">{formatCurrency(effectiveRate)}</div>
+                                  <div className={cn(
+                                    "text-[9px] mt-0.5 uppercase tracking-wide font-semibold",
+                                    source === 'last' ? "text-amber-600 dark:text-amber-400" : source === 'wholesale' ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground/70"
+                                  )} title={source === 'last' ? `Last sold to this customer at ${formatCurrency(lastRate!)}` : source === 'wholesale' ? 'Wholesale tier rate' : 'Retail tier rate'}>
+                                    {source === 'last' ? 'Last sale' : source === 'wholesale' ? 'Wholesale' : 'Retail'}
+                                  </div>
+                                </>
+                              )
+                            })()}
                             <div className={cn(
                               "text-[10px] mt-0.5 tabular-nums",
                               p.totalStock === 0 ? "text-rose-600 dark:text-rose-400" : p.totalStock <= (p.minStock ?? 0) ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"

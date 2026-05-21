@@ -346,16 +346,50 @@ export default function CustomerInvoicesPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  // Legacy deep-link support: a few old notifications still emit
-  // `/customers/invoices?invoiceId=…` instead of the new detail-page URL.
-  // Redirect them so they land on the dedicated page.
+  // Deep-link entry: when the URL has ?invoiceId=…, open the row's detail
+  // Sheet inline instead of bouncing to the old full-page detail. Keep the
+  // pending id around until the invoice list arrives, then look it up and
+  // call setDetailInvoice. Falls back to a single-invoice GET if it isn't
+  // on the current page.
   const { targetId: deepLinkInvoiceId, clearParam: clearDeepLink } =
     useDeepLinkParam('invoiceId', '/customers/invoices')
+  const [pendingInvoiceId, setPendingInvoiceId] = useState<string | null>(null)
   useEffect(() => {
     if (!deepLinkInvoiceId) return
+    setPendingInvoiceId(deepLinkInvoiceId)
     clearDeepLink()
-    navigate(`/customers/invoices/detail?id=${deepLinkInvoiceId}`)
+    // Clear filters so the invoice isn't hidden — guarantees visibility
+    // alongside the Sheet open.
+    setSearchQuery('')
+    setStatusFilter('all')
+    setPaymentFilter('all')
+    setSalespersonFilter('all')
+    setPeriod('all')
+    setFromDate('')
+    setToDate('')
   }, [deepLinkInvoiceId, clearDeepLink])
+
+  useEffect(() => {
+    if (!pendingInvoiceId || detailInvoice) return
+    const inMemory = pageRows.find((i) => i.id === pendingInvoiceId)
+    if (inMemory) {
+      setDetailInvoice(inMemory)
+      setPendingInvoiceId(null)
+      return
+    }
+    // Not on current page — fetch directly so the Sheet opens regardless of pagination.
+    let cancelled = false
+    api.get(`/billing/${pendingInvoiceId}`)
+      .then((res) => {
+        if (cancelled) return
+        if (res.data) setDetailInvoice(res.data)
+        setPendingInvoiceId(null)
+      })
+      .catch(() => {
+        if (!cancelled) setPendingInvoiceId(null)
+      })
+    return () => { cancelled = true }
+  }, [pendingInvoiceId, pageRows, detailInvoice])
 
   const clearFilters = () => {
     setSearchQuery('')

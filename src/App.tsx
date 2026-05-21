@@ -150,6 +150,16 @@ function canAccess(role: string | undefined, path: string): boolean {
   return allowed.includes(path)
 }
 
+// Post-login landing destination. SALESPERSON lands on their dedicated
+// page rather than the company-wide /dashboard, since most dashboard tiles
+// (outstanding, low-stock, total products) are operational metrics they
+// don't drive day-to-day. See BUGS.md SEV-3 (salesperson landing).
+function defaultRouteForRole(role: string | undefined): string {
+  const normRole = (role ?? '').toUpperCase().replace(/[\s-]/g, '_')
+  if (normRole === 'SALESPERSON') return '/salespersons'
+  return '/dashboard'
+}
+
 // ─── Access Denied screen ─────────────────────────────────────────────────────
 function AccessDenied({ role }: { role?: string }) {
   return (
@@ -209,9 +219,9 @@ function App() {
       navigate('/login')
     }
     if (isAuthenticated && (path === '/login' || path === '/forgot-password')) {
-      navigate('/dashboard')
+      navigate(defaultRouteForRole(userRole))
     }
-  }, [isAuthenticated, path, isPublicPayRoute])
+  }, [isAuthenticated, path, isPublicPayRoute, userRole])
 
   // Handle global 401 from API interceptor — avoids page reload loop
   useEffect(() => {
@@ -253,7 +263,7 @@ function App() {
       <TooltipProvider>
         <Suspense fallback={<LoadingFallback />}>
           <LoginPage
-            onLoginSuccess={() => navigate('/dashboard')}
+            onLoginSuccess={() => navigate(defaultRouteForRole(useAuthStore.getState().user?.role))}
             onForgotPassword={() => navigate('/forgot-password')}
           />
         </Suspense>

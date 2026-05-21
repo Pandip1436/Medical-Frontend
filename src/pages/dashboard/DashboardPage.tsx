@@ -17,7 +17,6 @@ import {
   QuickActions,
   SalesHeroChart,
   type ActivityItem,
-  type KpiDelta,
   type KpiTileData,
 } from '@/components/dashboard'
 
@@ -26,26 +25,6 @@ const DASHBOARD_REFRESH_MS = 30_000
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
-}
-
-// ─── Mock helpers ──────────────────────────────────────────────────
-// Deltas aren't returned by the backend yet. The mock is deterministic
-// per KPI key so the design reads correctly without churn between renders;
-// swap to real fields when getDashboardKpis returns them.
-function seededRandom(seed: string): () => number {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0
-  return () => {
-    h = (h * 1103515245 + 12345) & 0x7fffffff
-    return h / 0x7fffffff
-  }
-}
-
-function mockDelta(key: string): KpiDelta {
-  const rng = seededRandom(key)
-  const isUp = rng() > 0.45
-  const pct = (rng() * 18 + 2) * (isUp ? 1 : -1)
-  return { pct, dir: Math.abs(pct) < 0.5 ? 'flat' : isUp ? 'up' : 'down' }
 }
 
 interface DashData {
@@ -64,7 +43,9 @@ interface DashData {
 }
 
 function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
-  const base = [
+  // No `delta` field: backend doesn't return period-over-period yet, so the
+  // chips stay off until /reports/dashboard exposes real history.
+  return [
     { key: 'todaysSales',  title: "Today's Sales",        value: dashData?.todaysSales ?? 0,        subtitle: 'invoices today',         icon: TrendingUp,    sparkColor: '#3b82f6', iconBg: 'bg-blue-500/15',    iconColor: 'text-blue-600 dark:text-blue-400',     href: '/billing/sales',        isCurrency: true  },
     { key: 'monthlySales', title: 'Monthly Sales',        value: dashData?.monthlySales ?? 0,       subtitle: 'this month',             icon: ShoppingCart,  sparkColor: '#a855f7', iconBg: 'bg-purple-500/15',  iconColor: 'text-purple-600 dark:text-purple-400', href: '/billing/sales',        isCurrency: true  },
     { key: 'outstanding',  title: 'Outstanding',          value: dashData?.totalOutstanding ?? 0,   subtitle: 'across all customers',   icon: IndianRupee,   sparkColor: '#f59e0b', iconBg: 'bg-amber-500/15',   iconColor: 'text-amber-600 dark:text-amber-400',   href: '/customers/outstanding', isCurrency: true  },
@@ -72,10 +53,6 @@ function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
     { key: 'expiring',     title: 'Near-Expiry (90d)',    value: dashData?.expiringBatchesCount ?? 0,subtitle: 'batches need attention',icon: Clock,         sparkColor: '#f97316', iconBg: 'bg-orange-500/15',  iconColor: 'text-orange-600 dark:text-orange-400', href: '/inventory/expiry',     isCurrency: false },
     { key: 'products',     title: 'Total Products',       value: dashData?.totalProducts ?? 0,      subtitle: 'in catalog',             icon: Package,       sparkColor: '#10b981', iconBg: 'bg-emerald-500/15', iconColor: 'text-emerald-600 dark:text-emerald-400', href: '/inventory/products', isCurrency: false },
   ]
-  return base.map((kpi) => ({
-    ...kpi,
-    delta: mockDelta(kpi.key),
-  })) as KpiTileData[]
 }
 
 function buildActivities(dashData: DashData | null): ActivityItem[] {
@@ -100,6 +77,10 @@ function DashboardBody() {
 
   const [dashData, setDashData] = useState<DashData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // `loadStatus` separates the "still fetching" state from the "fetch failed"
+  // state so the UI never renders ₹0 placeholders that look like real data when
+  // the call actually 403'd / errored. See BUGS.md SEV-2.
+  const [loadStatus, setLoadStatus] = useState<'idle' | 'forbidden' | 'error'>('idle')
 
   const fetchDashboard = async () => {
     setIsLoading(true)
@@ -107,11 +88,13 @@ function DashboardBody() {
       api.get('/reports/dashboard'),
       fetchProducts(),
     ])
-    const dashRes = results[0].status === 'fulfilled' ? (results[0] as PromiseFulfilledResult<{ data: DashData }>).value : null
-    if (dashRes) {
-      setDashData(dashRes.data)
+    const dashSettled = results[0]
+    if (dashSettled.status === 'fulfilled') {
+      setDashData((dashSettled.value as { data: DashData }).data)
+      setLoadStatus('idle')
     } else {
-      console.error('Core dashboard data failed to load')
+      const status = (dashSettled.reason as { response?: { status?: number } })?.response?.status
+      setLoadStatus(status === 403 ? 'forbidden' : 'error')
     }
     setIsLoading(false)
   }
@@ -131,6 +114,7 @@ function DashboardBody() {
 
   const kpiTiles = buildKpiTiles(dashData)
   const activities = buildActivities(dashData)
+  const hasLoadError = !isLoading && !dashData && loadStatus !== 'idle'
 
   return (
     <div className="space-y-6">
@@ -142,6 +126,20 @@ function DashboardBody() {
       />
 
       <div className="space-y-4">
+        {hasLoadError ? (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-6 text-center">
+            <AlertTriangle className="mx-auto h-8 w-8 text-amber-500" />
+            <h3 className="mt-3 text-base font-semibold">
+              {loadStatus === 'forbidden' ? 'Dashboard not available for your role' : 'Couldn’t load dashboard data'}
+            </h3>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              {loadStatus === 'forbidden'
+                ? 'Your account does not have permission to view these company-wide metrics. Use the sidebar to reach the pages your role can access.'
+                : 'The dashboard data failed to load. Check your connection and try refreshing.'}
+            </p>
+          </div>
+        ) : (
+        <>
         {/* Row 1: Compact KPI strip — single row of 6 on desktop, fits in viewport. */}
         <motion.div
           className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
@@ -183,6 +181,8 @@ function DashboardBody() {
             <ActivityTimeline activities={activities} />
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   )
