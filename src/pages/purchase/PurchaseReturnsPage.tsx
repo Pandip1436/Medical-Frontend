@@ -571,7 +571,7 @@ export default function PurchaseReturnsPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">Purchase Return Wizard</h1>
+            <h2 className="text-lg font-bold tracking-tight">Purchase Return Wizard</h2>
             <p className="text-[11px] text-muted-foreground">
               Return goods to suppliers and generate debit notes
             </p>
@@ -706,7 +706,7 @@ export default function PurchaseReturnsPage() {
                             <div className="text-right">
                               <p className="font-mono text-sm font-semibold">{formatCurrency(grn.totalAmount)}</p>
                               <p className="text-[11px] text-muted-foreground">
-                                {formatDate(grn.date)} &middot; {grn.items.length} items
+                                {formatDate(grn.date)} &middot; {grn.items.length} {grn.items.length === 1 ? 'item' : 'items'}
                               </p>
                             </div>
                           </div>

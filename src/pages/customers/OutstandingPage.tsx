@@ -720,7 +720,7 @@ export default function OutstandingPage() {
                     <div
                       key={cell.label}
                       className={cn(
-                        'flex flex-1 min-w-[80px] flex-col justify-center whitespace-nowrap px-3 py-2.5',
+                        'flex flex-1 min-w-20 flex-col justify-center whitespace-nowrap px-3 py-2.5',
                         i > 0 && 'border-l border-border/40',
                       )}
                     >

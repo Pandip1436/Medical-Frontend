@@ -318,6 +318,19 @@ export default function RemindersPage() {
   )
 
   const activeFolderLabel = TYPE_FOLDERS.find(f => f.key === typeFolder)?.label ?? 'All'
+  // Caption describing both filters so the list count never reads as a bare "0 in All"
+  // when a restrictive status filter (today / this-week / overdue) is active. The
+  // status filter is the typical defaulted-active filter on load, so describe it first.
+  const statusCaptionMap: Record<StatusKey, string> = {
+    all: 'reminders',
+    today: 'due today',
+    'this-week': 'this week',
+    overdue: 'overdue',
+  }
+  const statusCaption = statusCaptionMap[statusFilter]
+  const listCaption = typeFolder === 'all'
+    ? statusCaption
+    : `${statusCaption} · ${activeFolderLabel}`
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible">
@@ -349,7 +362,7 @@ export default function RemindersPage() {
                     )}
                   >
                     {s.label}
-                    {statusCounts[s.key] > 0 && (
+                    {(statusCounts[s.key] > 0 || statusFilter === s.key) && (
                       <span className={cn(
                         'ml-1 tabular-nums',
                         statusFilter === s.key ? 'opacity-90' : 'opacity-60',
@@ -444,7 +457,7 @@ export default function RemindersPage() {
                     />
                   </div>
                   <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    {filtered.length} in {activeFolderLabel}
+                    {filtered.length} {listCaption}
                   </span>
                 </div>
 

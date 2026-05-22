@@ -200,7 +200,7 @@ export default function ReportsHubPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-baseline gap-3">
-              <h1 className="text-lg font-bold tracking-tight">Reports & Analytics</h1>
+              <h2 className="text-lg font-bold tracking-tight">Reports & Analytics</h2>
               {filteredReports.length !== totalReports && (
                 <Badge variant="warning" className="px-1.5 py-0 text-[10px] font-medium text-muted-foreground animate-in fade-in slide-in-from-left-1">
                   {filteredReports.length} found

@@ -374,10 +374,10 @@ function BillingRow({
     if (!item.productId) return []
     const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
     for (const inv of customerInvoices) {
-      for (const it of (inv as any).items ?? []) {
+      for (const it of inv.items ?? []) {
         if (it.productId === item.productId) {
           hits.push({
-            date: (inv as any).date ?? inv.createdAt,
+            date: inv.date ?? inv.createdAt,
             invoiceNumber: inv.invoiceNumber,
             batchNumber: it.batchNumber ?? '—',
             qty: Number(it.quantity),
@@ -2321,7 +2321,7 @@ export default function NewSalePage() {
         // Build last-rate cache
         const rates: Record<string, number> = {}
         for (const inv of invoices) {
-          for (const it of ((inv as any).items ?? [])) {
+          for (const it of inv.items ?? []) {
             if (it.productId && rates[it.productId] === undefined) {
               rates[it.productId] = Number(it.rate)
             }
@@ -3172,19 +3172,16 @@ export default function NewSalePage() {
   // For each cart line that has a productId, gather up to 5 past purchase
   // records of that product across the customer's invoices. Used by the
   // "Product History" tab to show all histories at once.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cartItemHistories = useMemo(() => {
     return items
       .filter((it) => it.productId)
       .map((it) => {
         const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
         for (const inv of customerInvoices) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          for (const line of ((inv as any).items ?? []) as any[]) {
+          for (const line of inv.items ?? []) {
             if (line.productId === it.productId) {
               hits.push({
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                date: (inv as any).date ?? inv.createdAt,
+                date: inv.date ?? inv.createdAt,
                 invoiceNumber: inv.invoiceNumber,
                 batchNumber: line.batchNumber ?? '—',
                 qty: Number(line.quantity),

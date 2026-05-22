@@ -499,22 +499,30 @@ export default function PurchaseOrdersPage() {
 
   const stats = useMemo(() => {
     const all = purchaseOrders
+    // Bucket every PO into exactly one of {received, pending, partial} so the
+    // tile totals always reconcile back to "Total Orders". POStatus values:
+    //   DRAFT / SENT / ACKNOWLEDGED  → Pending
+    //   PARTIALLY_RECEIVED           → Partial
+    //   FULLY_RECEIVED / CLOSED      → Received
+    // Every status in the schema (see enum POStatus) is covered by one of the
+    // three buckets above, so totalCount = receivedCount + partialCount +
+    // pendingCount and totalAmount = receivedTotal + partialTotal + pendingTotal.
     const totalAmount = all.reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
-    const receivedTotal = all
-      .filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
-      .reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
-    const pendingTotal = all
-      .filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
-      .reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
-    const partialCount = all.filter((po) => po.status === 'PARTIALLY_RECEIVED').length
+    const received = all.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
+    const pending = all.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
+    const partial = all.filter((po) => po.status === 'PARTIALLY_RECEIVED')
+    const receivedTotal = received.reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
+    const pendingTotal = pending.reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
+    const partialTotal = partial.reduce((sum, po) => sum + Number(po.totalAmount || 0), 0)
     return {
       totalAmount,
       totalCount: all.length,
-      receivedCount: all.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED').length,
+      receivedCount: received.length,
       receivedTotal,
-      pendingCount: all.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED').length,
+      pendingCount: pending.length,
       pendingTotal,
-      partialCount,
+      partialCount: partial.length,
+      partialTotal,
     }
   }, [purchaseOrders])
 
@@ -766,8 +774,8 @@ export default function PurchaseOrdersPage() {
           },
           {
             label: 'Partial Delivery',
-            value: stats.partialCount.toString(),
-            subtitle: 'in progress',
+            value: formatCurrency(stats.partialTotal),
+            subtitle: `${stats.partialCount} in progress`,
             icon: Package,
             iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
             borderAccent: 'border-l-purple-500',

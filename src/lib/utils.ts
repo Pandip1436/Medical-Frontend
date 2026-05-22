@@ -89,17 +89,30 @@ export function generateId(prefix: string = ''): string {
   return prefix ? `${prefix}_${id}` : id
 }
 
-// Indian financial year runs April → March. April 2026 → "26-27".
-// Used as the FY segment in client-side preview invoice / quotation numbers
-// so the prefix matches what the backend's DocumentNumberingService will
-// stamp on save. Source of truth for the final number is the backend; this
-// helper just keeps the UI preview honest.
-export function currentFinancialYearShort(date: Date = new Date()): string {
+// Indian financial year runs April → March. April 2026 → FY starting 2026.
+function financialYearStart(date: Date): number {
   const month = date.getMonth()
   const year = date.getFullYear()
-  const fyStart = month >= 3 ? year : year - 1
+  return month >= 3 ? year : year - 1
+}
+
+// Short form (e.g. "26-27") — used as the FY segment in client-side preview
+// invoice / quotation numbers so the prefix matches what the backend's
+// DocumentNumberingService will stamp on save. Source of truth for the final
+// number is the backend; this helper just keeps the UI preview honest.
+export function currentFinancialYearShort(date: Date = new Date()): string {
+  const start = financialYearStart(date)
   const yy = (n: number) => String(n % 100).padStart(2, '0')
-  return `${yy(fyStart)}-${yy(fyStart + 1)}`
+  return `${yy(start)}-${yy(start + 1)}`
+}
+
+// Long form (e.g. "2026-27") — used in human-facing FY labels (P&L header,
+// future report headers, etc). Both forms share the same FY-start math so
+// they stay in lockstep.
+export function currentFinancialYearLong(date: Date = new Date()): string {
+  const start = financialYearStart(date)
+  const yy = (n: number) => String(n % 100).padStart(2, '0')
+  return `${start}-${yy(start + 1)}`
 }
 
 export function generateInvoiceNumber(type: 'INV' | 'QTN' | 'CN' | 'DN' | 'PO' | 'GRN' | 'RCT' | 'PV' | 'ADJ' | 'AUD' | 'TRF', seq: number): string {

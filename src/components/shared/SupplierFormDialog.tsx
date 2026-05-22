@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -52,6 +53,20 @@ export const supplierFormSchema = z.object({
     message: 'Select payment terms',
   }),
   bankDetails: z.string().optional(),
+  // Supplier-level consent for low-stock WhatsApp alerts. Defaults to true so
+  // existing suppliers participate as soon as the WHATSAPP_LOW_STOCK_ENABLED
+  // flag flips on. Toggle off for suppliers who prefer phone calls.
+  whatsappOptIn: z.boolean().optional(),
+  // Optional override of `phone` when the supplier's WhatsApp lives on a
+  // different number. Empty → backend falls back to `phone`.
+  whatsappNumber: z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (v) => !v || /^\d{10}$/.test(v),
+      'WhatsApp number must be 10 digits',
+    ),
 })
 
 export type SupplierFormValues = z.input<typeof supplierFormSchema>
@@ -66,6 +81,8 @@ const EMPTY_VALUES: SupplierFormValues = {
   address: '',
   paymentTerms: 'NET_30',
   bankDetails: '',
+  whatsappOptIn: true,
+  whatsappNumber: '',
 }
 
 interface SupplierFormDialogProps {
@@ -89,6 +106,7 @@ export function SupplierFormDialog({
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<SupplierFormValues>({
     resolver: zodResolver(supplierFormSchema),
@@ -110,6 +128,11 @@ export function SupplierFormDialog({
         address: editingSupplier.address,
         paymentTerms: editingSupplier.paymentTerms,
         bankDetails: editingSupplier.bankDetails || '',
+        // `whatsappOptIn` / `whatsappNumber` came in with the new low-stock
+        // WhatsApp pipeline. Older Supplier rows may not have them yet —
+        // default opt-in to true to match the DB default.
+        whatsappOptIn: (editingSupplier as any).whatsappOptIn ?? true,
+        whatsappNumber: (editingSupplier as any).whatsappNumber ?? '',
       })
     } else {
       reset(EMPTY_VALUES)
@@ -221,6 +244,51 @@ export function SupplierFormDialog({
             {errors.address && (
               <p className="text-xs text-destructive">{errors.address.message}</p>
             )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                WhatsApp Number
+              </Label>
+              <Input
+                placeholder="Leave blank to use the phone above"
+                {...register('whatsappNumber')}
+              />
+              {errors.whatsappNumber && (
+                <p className="text-xs text-destructive">{errors.whatsappNumber.message}</p>
+              )}
+            </div>
+            <div className="space-y-2 sm:invisible sm:pointer-events-none">
+              {/* Empty grid slot to keep the layout balanced; the opt-in
+                  toggle below spans the full width. */}
+            </div>
+          </div>
+
+          {/* WhatsApp opt-in — controls whether low-stock alerts auto-deliver
+              to this supplier's phone via Meta Cloud API. Defaults to on;
+              toggle off for suppliers who prefer phone calls or email. */}
+          <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
+            <Controller
+              control={control}
+              name="whatsappOptIn"
+              render={({ field }) => (
+                <Switch
+                  checked={field.value ?? true}
+                  onCheckedChange={field.onChange}
+                  className="mt-0.5"
+                />
+              )}
+            />
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium leading-none cursor-pointer">
+                Send WhatsApp messages to this supplier
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Low-stock alerts will be auto-delivered to the WhatsApp number above (or the phone
+                number if blank). Turn off for suppliers who prefer phone calls.
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

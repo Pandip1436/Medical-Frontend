@@ -316,13 +316,13 @@ export default function LoginPage({
 
             {/* Brand row */}
             <div className="ms-reveal flex items-center gap-3" style={{ animationDelay: '0ms' }}>
-              <div className="relative h-10 w-10 rounded-xl bg-[#0a1628] flex items-center justify-center rotate-[6deg] shadow-[0_8px_20px_-8px_rgba(10,22,40,0.5)]">
-                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] -rotate-[6deg]" fill="none" stroke="#22d3c5" strokeWidth="2.4" strokeLinecap="round">
+              <div className="relative h-10 w-10 rounded-xl bg-[#0a1628] flex items-center justify-center rotate-6 shadow-[0_8px_20px_-8px_rgba(10,22,40,0.5)]">
+                <svg viewBox="0 0 24 24" className="h-4.5 w-4.5 -rotate-6" fill="none" stroke="#22d3c5" strokeWidth="2.4" strokeLinecap="round">
                   <path d="M12 4v16M4 12h16" />
                 </svg>
               </div>
               <div className="flex items-center gap-2.5">
-                <span className="ms-font-display text-[20px] font-[500] tracking-tight text-[#0a1628]">Hospital Suppliers</span>
+                <span className="ms-font-display text-[20px] font-medium tracking-tight text-[#0a1628]">Hospital Suppliers</span>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#047857] border border-[#a7f3d0]">
                   <span className="ms-pulse-dot relative inline-block h-1.5 w-1.5 rounded-full bg-[#0fb5a8]" />
                   Network Online
@@ -332,7 +332,7 @@ export default function LoginPage({
 
             {/* Headline */}
             <h1
-              className="ms-reveal ms-font-display mt-9 text-[32px] leading-[1.05] font-[300] text-[#0a1628] tracking-[-0.02em]"
+              className="ms-reveal ms-font-display mt-9 text-[32px] leading-[1.05] font-light text-[#0a1628] tracking-[-0.02em]"
               style={{ animationDelay: '160ms' }}
             >
               Welcome <em className="italic text-[#0fb5a8]">back.</em>
@@ -342,7 +342,7 @@ export default function LoginPage({
 
             {/* Subtitle */}
             <p
-              className="ms-reveal mt-2.5 text-[13px] leading-relaxed text-[#64748b] max-w-[400px]"
+              className="ms-reveal mt-2.5 text-[13px] leading-relaxed text-[#64748b] max-w-100"
               style={{ animationDelay: '240ms' }}
             >
               Sign in to manage tenders, bid on hospital RFQs and track shipments in real time.
@@ -376,7 +376,7 @@ export default function LoginPage({
             >
               {/* Email field */}
               <div className="ms-field">
-                <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-4 transition-colors">
+                <div className="ms-field-wrap relative flex h-13 items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-4 transition-colors">
                   <Mail className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
                   <Input
                     id="email"
@@ -385,7 +385,7 @@ export default function LoginPage({
                     error={!!errors.email}
                     aria-invalid={!!errors.email}
                     aria-describedby={errors.email ? 'email-error' : undefined}
-                    className="h-[52px] md:h-[52px] w-full !border-0 !shadow-none !bg-transparent !rounded-none pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:!border-0 focus-visible:!shadow-none focus-visible:!ring-0 focus-visible:!outline-none"
+                    className="h-13 md:h-13 w-full border-0! shadow-none! bg-transparent! rounded-none! pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:border-0! focus-visible:shadow-none! focus-visible:ring-0! focus-visible:outline-none!"
                     {...register('email')}
                   />
                   <label
@@ -404,7 +404,7 @@ export default function LoginPage({
 
               {/* Password field */}
               <div className="ms-field">
-                <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-12 transition-colors">
+                <div className="ms-field-wrap relative flex h-13 items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-12 transition-colors">
                   <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
                   <Input
                     id="password"
@@ -413,7 +413,7 @@ export default function LoginPage({
                     error={!!errors.password}
                     aria-invalid={!!errors.password}
                     aria-describedby={errors.password ? 'password-error' : undefined}
-                    className="h-[52px] md:h-[52px] w-full !border-0 !shadow-none !bg-transparent !rounded-none pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:!border-0 focus-visible:!shadow-none focus-visible:!ring-0 focus-visible:!outline-none"
+                    className="h-13 md:h-13 w-full border-0! shadow-none! bg-transparent! rounded-none! pt-5 pb-1 px-0 text-[14px] text-[#0a1628] focus-visible:border-0! focus-visible:shadow-none! focus-visible:ring-0! focus-visible:outline-none!"
                     {...register('password')}
                   />
                   <label
@@ -466,7 +466,7 @@ export default function LoginPage({
               <button
                 type="submit"
                 disabled={isLoading || loginSucceeded}
-                className="ms-shine group relative flex h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-[#0f1e35] to-[#0a1628] text-[14px] font-medium tracking-wide text-white shadow-[0_10px_24px_-10px_rgba(10,22,40,0.6)] transition-all duration-200 hover:shadow-[0_16px_30px_-12px_rgba(10,22,40,0.7)] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+                className="ms-shine group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-linear-to-b from-[#0f1e35] to-[#0a1628] text-[14px] font-medium tracking-wide text-white shadow-[0_10px_24px_-10px_rgba(10,22,40,0.6)] transition-all duration-200 hover:shadow-[0_16px_30px_-12px_rgba(10,22,40,0.7)] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isLoading ? (
                   <>

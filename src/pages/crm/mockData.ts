@@ -24,8 +24,25 @@ import type {
  * When true, the leads-list and lead-detail hooks short-circuit their HTTP
  * calls and return data from this file instead. Flip to false to wire the
  * real API through.
+ *
+ * Kept off — the backend `/leads` endpoint is live and seeded with real
+ * IndiaMART data. With the flag on, every lead's id was a mock string like
+ * `mock-1`, which leaked into the URL (`/crm/leads?leadId=mock-1`) and made
+ * deep-links useless (Phase 3 bug #2).
  */
 export const USE_MOCK_DATA = false
+
+// Production safety net (Phase 6 SEV-4): if a future commit ever flips
+// USE_MOCK_DATA to true and that build reaches production, fail fast at
+// module load rather than silently serving mock leads to real customers.
+// Eventual target is to delete this file + its 17 import sites entirely,
+// but that is blocked on the IndiaMART connect/disconnect playtest passing.
+if (import.meta.env.PROD && USE_MOCK_DATA) {
+  throw new Error(
+    'CRM mock data (Medical-main/src/pages/crm/mockData.ts) is enabled in a ' +
+      'production build. Set USE_MOCK_DATA = false before shipping.',
+  )
+}
 
 // Helper so we can write ISO timestamps relative to "now" without a hardcoded date.
 function daysAgo(d: number): string {

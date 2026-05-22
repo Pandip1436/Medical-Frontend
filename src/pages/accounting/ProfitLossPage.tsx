@@ -44,7 +44,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, currentFinancialYearLong } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
@@ -606,7 +606,7 @@ export default function ProfitLossPage() {
               P&L Statement — {periodDisplay(selectedPeriod, selectedYear, selectedMonthIdx)}
             </span>
             <Badge variant="outline" size="sm" className="font-mono text-[10px]">
-              FY 2025-26
+              FY {currentFinancialYearLong(new Date(selectedYear, selectedPeriod === 'month' ? selectedMonthIdx : 6, 15))}
             </Badge>
           </div>
 

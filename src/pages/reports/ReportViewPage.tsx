@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '@/lib/api'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
+import { exportToPdf, printReport } from '@/lib/exportUtils'
+import { exportToExcel } from '@/lib/excelUtils'
 import { toast } from 'sonner'
 import { motion, type Variants } from 'framer-motion'
 import {
@@ -268,9 +269,9 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
     if (!exportRows.length) { toast.info('No data to export'); return }
     exportToPdf(exportRows, title, `${reportType}-report`)
   }
-  const handleExportCsv = () => {
+  const handleExportExcel = () => {
     if (!exportRows.length) { toast.info('No data to export'); return }
-    exportToCsv(exportRows, `${reportType}-report`)
+    exportToExcel(exportRows, `${reportType}-report`)
   }
   const handlePrint = () => {
     if (!exportRows.length) { toast.info('No data to print'); return }
@@ -966,7 +967,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
               <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportPdf}>
                 <FileDown className="h-3.5 w-3.5" />PDF
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportCsv}>
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportExcel}>
                 <FileSpreadsheet className="h-3.5 w-3.5" />Excel
               </Button>
               <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handlePrint}>

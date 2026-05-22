@@ -544,13 +544,14 @@ export default function SalesReturnsPage() {
 
     try {
       const res = await api.post('/credit-notes', payload)
-      if (res.data?.approvalRequested) {
-        toast.success('Approval request sent to admin. The sales return will be processed once approved.', { duration: 6000 })
-      } else {
-        toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} created successfully`, {
-          description: `${formatCurrency(creditSummary.total)} processed as ${settlementMode.toLowerCase()}.`,
-        })
-      }
+      // Every CN — admin or pharmacist — now lands in PENDING_REVIEW. The
+      // returned goods have to be physically inspected before any inventory
+      // or balance changes fire; the reviewer either approves (with optional
+      // settlement-method override) or rejects on the CN detail page.
+      toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} submitted — awaiting review`, {
+        description: `${formatCurrency(creditSummary.total)} held pending inspection. Reviewer will finalise the ${settlementMode.toLowerCase()} settlement.`,
+        duration: 6000,
+      })
       setCurrentStep(1)
       setDirection(-1)
       setSelectedInvoice(null)
@@ -581,8 +582,8 @@ export default function SalesReturnsPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-base font-bold tracking-tight leading-tight">Sales Returns</h1>
-            <p className="hidden sm:block text-[11px] text-muted-foreground">Create credit notes for returned goods</p>
+            <h2 className="text-base font-bold tracking-tight leading-tight">Sales Returns</h2>
+            <p className="hidden sm:block text-[11px] text-muted-foreground">Submit for inspection — reviewer finalises the credit after verifying the goods</p>
           </div>
 
           <div className="ml-auto hidden md:flex items-center gap-1">
@@ -1248,7 +1249,7 @@ export default function SalesReturnsPage() {
                       ? <ShieldCheck className="mr-1.5 h-4 w-4" />
                       : <RotateCcw className="mr-1.5 h-4 w-4" />
                     }
-                    {isPharmacist ? 'Request Approval' : 'Confirm Return & Create Credit Note'}
+                    {isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
                     <ChevronLeft className="mr-1.5 h-4 w-4" />
@@ -1362,7 +1363,7 @@ export default function SalesReturnsPage() {
                       ? <ShieldCheck className="mr-1.5 h-4 w-4" />
                       : <RotateCcw className="mr-1.5 h-4 w-4" />
                     }
-                    {isPharmacist ? 'Request Approval' : 'Confirm Return & Create Credit Note'}
+                    {isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
                   </Button>
                 </div>
               </div>

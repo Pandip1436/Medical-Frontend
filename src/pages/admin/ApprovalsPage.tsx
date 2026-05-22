@@ -43,7 +43,10 @@ const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; acce
   { key: 'all',             label: 'All',             icon: ListFilter, accent: 'text-foreground' },
   { key: 'NEW_CUSTOMER',    label: 'New Customer',    icon: UserPlus,   accent: 'text-blue-600 dark:text-blue-400' },
   { key: 'CREDIT_BILL',     label: 'Credit Bill',     icon: CreditCard, accent: 'text-amber-600 dark:text-amber-400' },
-  { key: 'SALES_RETURN',    label: 'Sales Return',    icon: RotateCcw,  accent: 'text-rose-600 dark:text-rose-400' },
+  // SALES_RETURN chip retired — credit notes now manage their own pending-review
+  // lifecycle on /billing/credit-notes. Historical SALES_RETURN rows still
+  // render in this list when present (typeMeta below still resolves them);
+  // the chip is just removed from the type-filter strip so no new ones get filed.
   { key: 'PURCHASE_RETURN', label: 'Purchase Return', icon: Truck,      accent: 'text-purple-600 dark:text-purple-400' },
 ]
 
@@ -237,6 +240,18 @@ export default function ApprovalsPage() {
   }
 
   const activeFolderLabel = TYPE_FOLDERS.find(f => f.key === typeFolder)?.label ?? 'All'
+  // Caption describing both filters so the list count never reads as a bare "0 in All"
+  // when the default PENDING status filter is active and pending is empty.
+  const statusCaptionMap: Record<StatusKey, string> = {
+    all: 'requests',
+    PENDING: 'pending',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+  }
+  const statusCaption = statusCaptionMap[statusFilter]
+  const listCaption = typeFolder === 'all'
+    ? statusCaption
+    : `${statusCaption} · ${activeFolderLabel}`
   const totalCount = allRequests.length
   const pendingCount = useMemo(() => allRequests.filter(r => r.status === 'PENDING').length, [allRequests])
   const staleCount = useMemo(() => allRequests.filter(isStale).length, [allRequests])
@@ -274,7 +289,7 @@ export default function ApprovalsPage() {
                     )}
                   >
                     {s.label}
-                    {statusCounts[s.key] > 0 && (
+                    {(statusCounts[s.key] > 0 || statusFilter === s.key) && (
                       <span className={cn(
                         'ml-1 tabular-nums',
                         statusFilter === s.key ? 'opacity-90' : 'opacity-60',
@@ -370,7 +385,7 @@ export default function ApprovalsPage() {
                     />
                   </div>
                   <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    {filtered.length} in {activeFolderLabel}
+                    {filtered.length} {listCaption}
                   </span>
                 </div>
 

@@ -529,7 +529,7 @@ export default function GRNPage() {
         }
       } else {
         toast.success('Purchase Entry created successfully!', {
-          description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} items.`,
+          description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} ${totalItems === 1 ? 'item' : 'items'}.`,
         })
       }
 
@@ -641,7 +641,7 @@ export default function GRNPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">Purchase Entry</h1>
+            <h2 className="text-lg font-bold tracking-tight">Purchase Entry</h2>
             <p className="text-[11px] text-muted-foreground">Receive and verify incoming goods</p>
           </div>
         </div>
@@ -892,7 +892,7 @@ export default function GRNPage() {
                                     <div>
                                       <p className="font-mono text-sm font-medium">{po.poNumber}</p>
                                       <p className="text-[11px] text-muted-foreground">
-                                        {po.supplierName} &middot; {po.items?.length ?? 0} items
+                                        {po.supplierName} &middot; {po.items?.length ?? 0} {(po.items?.length ?? 0) === 1 ? 'item' : 'items'}
                                         {po.status === 'PARTIALLY_RECEIVED' && (
                                           <span className="ml-1.5 text-amber-600 dark:text-amber-400 font-semibold">
                                             · Supplementary delivery
@@ -933,7 +933,7 @@ export default function GRNPage() {
                           )}
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                          {selectedPO.supplierName} &middot; {formatDate(selectedPO.date)} &middot; {selectedPO.items.length} items
+                          {selectedPO.supplierName} &middot; {formatDate(selectedPO.date)} &middot; {selectedPO.items.length} {selectedPO.items.length === 1 ? 'item' : 'items'}
                         </p>
                       </div>
                     </div>
