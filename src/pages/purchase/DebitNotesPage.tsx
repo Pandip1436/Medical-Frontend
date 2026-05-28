@@ -568,7 +568,7 @@ export default function DebitNotesPage() {
                         <TableHead className="w-30">Type</TableHead>
                         <TableHead className="w-27.5">Date</TableHead>
                         <TableHead>Supplier</TableHead>
-                        <TableHead className="whitespace-nowrap">GRN</TableHead>
+                        <TableHead className="whitespace-nowrap">PR</TableHead>
                         <TableHead className="text-right w-30">Amount</TableHead>
                         <TableHead className="w-25">Status</TableHead>
                         <TableHead className="w-12"></TableHead>
@@ -673,7 +673,7 @@ export default function DebitNotesPage() {
               : settlementMode === 'REFUND'
                 ? 'Pending Refund'
                 : settlementMode === 'REPLACEMENT'
-                  ? (hasReplacementGrn ? 'Replacement GRN Received' : 'Awaiting Replacement')
+                  ? (hasReplacementGrn ? 'Replacement PR Received' : 'Awaiting Replacement')
                   : settlementMode === 'ADJUST'
                     ? 'Pending Adjustment'
                     : 'Pending'
@@ -683,7 +683,7 @@ export default function DebitNotesPage() {
               date: d.date,
               partyLabel: 'Supplier',
               partyName: d.partyName,
-              referenceLabel: 'GRN No',
+              referenceLabel: 'PR No',
               referenceValue: d.referenceValue,
               reason: d.reason,
               items: (d.items || []).map((it) => ({
@@ -742,7 +742,7 @@ export default function DebitNotesPage() {
                       <p className="mt-0.5 text-sm font-medium truncate" title={d.partyName}>{d.partyName}</p>
                     </div>
                     <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GRN Reference</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">PR Reference</p>
                       <p className="mt-0.5 font-mono text-xs font-medium truncate" title={d.referenceValue}>{d.referenceValue}</p>
                     </div>
                     <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">

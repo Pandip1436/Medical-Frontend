@@ -68,7 +68,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
-  doc.text('GOODS RECEIPT NOTE', pageWidth / 2, 41, { align: 'center' })
+  doc.text('PURCHASE RECEIVED NOTE', pageWidth / 2, 41, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
@@ -76,7 +76,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
   const rightX = pageWidth / 2 + 5
   const dateStr = grn.date ? formatDate(grn.date) : formatDate(new Date())
   let y = 48
-  doc.text(`GRN No: ${grn.grnNumber}`, leftX, y)
+  doc.text(`PR No: ${grn.grnNumber}`, leftX, y)
   doc.text(`Date: ${dateStr}`, rightX, y)
   y += 5
   doc.text(`Supplier: ${grn.supplierName}`, leftX, y)

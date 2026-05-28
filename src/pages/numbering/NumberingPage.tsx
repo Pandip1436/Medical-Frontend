@@ -9,6 +9,7 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import {
   DOC_TYPES,
   DOC_TYPE_LABELS,
+  DOC_TYPE_BADGES,
   FY_FORMATS,
   type ConfigurableDocType,
   type FyFormat,
@@ -150,7 +151,7 @@ export default function NumberingPage() {
             <div>
               <CardTitle>Document Numbering</CardTitle>
               <CardDescription>
-                Configure how invoice, quotation, credit-note, debit-note, PO and GRN numbers are generated.
+                Configure how invoice, quotation, credit-note, debit-note, PO and PR (Purchase Received) numbers are generated.
                 Existing documents keep their numbers — changes only affect newly issued ones.
               </CardDescription>
             </div>
@@ -240,7 +241,7 @@ function NumberingRow({
       <div className="grid grid-cols-1 md:grid-cols-[100px_1fr_140px_90px_1fr_180px] gap-3 items-start">
         {/* Type */}
         <div>
-          <Badge variant="info" size="sm" className="font-mono">{row.docType}</Badge>
+          <Badge variant="info" size="sm" className="font-mono">{DOC_TYPE_BADGES[row.docType]}</Badge>
           <p className="mt-1 text-[10px] text-muted-foreground">{DOC_TYPE_LABELS[row.docType]}</p>
         </div>
 

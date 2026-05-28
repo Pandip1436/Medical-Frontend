@@ -21,6 +21,7 @@ import {
   Clock,
   SplitSquareHorizontal,
   Package,
+  PackagePlus,
   ChevronDown,
   Receipt,
   History,
@@ -64,7 +65,14 @@ import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Switch } from '@/components/ui/switch'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import {
+  productSchema,
+  productFormDefaults,
+  type ProductFormValues,
+} from '@/components/products/productFormSchema'
+import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
 import {
   Tooltip,
   TooltipContent,
@@ -302,6 +310,7 @@ function BillingRow({
   customerLastRates,
   customerInvoices,
   showInlineHistory = true,
+  onRequestAddProduct,
 }: {
   item: BillingItem
   index: number
@@ -312,6 +321,7 @@ function BillingRow({
   customerLastRates: Record<string, number>
   customerInvoices: Invoice[]
   showInlineHistory?: boolean
+  onRequestAddProduct?: (rowId: string, prefillName?: string) => void
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
@@ -694,8 +704,24 @@ function BillingRow({
                 }}
               >
                 {filteredProducts.length === 0 && !rowProductSearch.loading ? (
-                  <div className="p-4 text-center text-xs text-muted-foreground italic">
-                    {productSearch ? `No products match "${productSearch}"` : 'Start typing to search products'}
+                  <div className="p-4 text-center space-y-2">
+                    <div className="text-xs text-muted-foreground italic">
+                      {productSearch ? `No products match "${productSearch}"` : 'Start typing to search products'}
+                    </div>
+                    {invoiceType !== 'quotation' && onRequestAddProduct && productSearch && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          onRequestAddProduct(item.id, productSearch)
+                          setShowProductDropdown(false)
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 hover:bg-primary/15 px-3 py-1.5 text-[11px] font-semibold text-primary transition-colors"
+                      >
+                        <PackagePlus className="h-3.5 w-3.5" />
+                        Add "{productSearch}" as new product
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -772,6 +798,25 @@ function BillingRow({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+              {/* Inline "Add New Product" — parallels Add New Customer in the
+                  customer dropdown. Hidden on quotation mode (free-text name
+                  doesn't need a product master record). */}
+              {invoiceType !== 'quotation' && onRequestAddProduct && (
+                <div className="border-t border-border/60 p-1.5 bg-muted/20">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      onRequestAddProduct(item.id, productSearch)
+                      setShowProductDropdown(false)
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs text-primary hover:bg-primary/10 transition-colors font-semibold"
+                  >
+                    <PackagePlus className="h-3.5 w-3.5" />
+                    Add New Product
+                  </button>
                 </div>
               )}
             </div>,
@@ -1952,6 +1997,12 @@ export default function NewSalePage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
+  // Inline "Add New Product" — opens from the per-row product search dropdown
+  // (see BillingRow). After save, the new product is auto-filled into the row
+  // identified by `addProductTargetRowId` so the pharmacist returns to the
+  // exact row that triggered the create.
+  const [addProductDialogOpen, setAddProductDialogOpen] = useState(false)
+  const [addProductTargetRowId, setAddProductTargetRowId] = useState<string | null>(null)
   const [docFiles, setDocFiles] = useState<File[]>([])
   const [docPreviews, setDocPreviews] = useState<{ name: string; preview: string | null }[]>([])
   const multiDocInputRef = useRef<HTMLInputElement>(null)
@@ -2346,6 +2397,7 @@ export default function NewSalePage() {
 
   // ── Refs ──────────────────────────────────────────────────
   const heroSearchRef = useRef<HTMLInputElement>(null)
+  const heroSearchContainerRef = useRef<HTMLDivElement>(null)
   const customerRef = useRef<HTMLDivElement>(null)
   const lastKeypressTimeRef = useRef<number>(0)
   const barcodeCharCountRef = useRef<number>(0)
@@ -2374,6 +2426,22 @@ export default function NewSalePage() {
       if (!showCustomerDropdownRef.current) return
       if (customerRef.current && !customerRef.current.contains(e.target as Node)) {
         setShowCustomerDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  // Same outside-click pattern for the hero product search dropdown so it
+  // closes when the user clicks anywhere outside (including the rest of the
+  // page chrome). Mirrors the customer-dropdown closer above.
+  const showHeroResultsRef = useRef(false)
+  useEffect(() => { showHeroResultsRef.current = showHeroResults }, [showHeroResults])
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (!showHeroResultsRef.current) return
+      if (heroSearchContainerRef.current && !heroSearchContainerRef.current.contains(e.target as Node)) {
+        setShowHeroResults(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -3301,6 +3369,92 @@ export default function NewSalePage() {
     setAddCustomerDialogOpen(false)
   }
 
+  // ── Product Form ───────────────────────────────────────
+  // Mirrors the Add-Customer pattern: an inline form rendered in place of
+  // the items table when `addProductDialogOpen` is true. Saves a product
+  // master record only — no opening batch is created, so the new product
+  // appears in subsequent searches but is not immediately sellable until
+  // a GRN entry is made to add stock.
+  const productCategories = useMasterDataStore(s => s.categories)
+  const fetchCategories = useMasterDataStore(s => s.fetchCategories)
+  const productForm = useForm<ProductFormValues>({
+    resolver: zodResolver(productSchema),
+    defaultValues: productFormDefaults,
+  })
+
+  const openAddProductForm = useCallback((rowId: string, prefillName?: string) => {
+    productForm.reset({ ...productFormDefaults, name: prefillName ?? '' })
+    setAddProductTargetRowId(rowId)
+    setAddProductDialogOpen(true)
+    if (productCategories.length === 0) fetchCategories()
+  }, [productForm, productCategories.length, fetchCategories])
+
+  // Triggered by the "Add New Product" CTA inside the hero product search
+  // dropdown. Master-creation only — no customer required, no row synthesized,
+  // and the new product is NOT auto-added to the cart. (The per-row CTA still
+  // auto-fills its triggering row; that path goes through openAddProductForm
+  // directly with a real rowId.)
+  const openAddProductFormFromHero = useCallback((prefillName?: string) => {
+    productForm.reset({ ...productFormDefaults, name: prefillName ?? '' })
+    setAddProductTargetRowId(null)
+    setAddProductDialogOpen(true)
+    if (productCategories.length === 0) fetchCategories()
+  }, [productForm, productCategories.length, fetchCategories])
+
+  const handleAddProduct = async (values: ProductFormValues) => {
+    try {
+      const payload = {
+        ...values,
+        schedule: values.schedule.toUpperCase(),
+        storageCondition: values.storageCondition.toUpperCase(),
+        categoryId: values.categoryId || undefined,
+      }
+      const res = await api.post('/products', payload)
+      const newProduct: Product | undefined = res.data
+      toast.success(`Product "${values.name}" added — add stock via Purchase Received to bill this item`)
+      await fetchMasterData()
+      // Auto-fill the row that triggered the create. The new product has no
+      // batches yet, so we set the product reference + pricing only; the
+      // batch dropdown will stay empty until a GRN entry creates stock.
+      if (addProductTargetRowId && newProduct) {
+        const defaultRate = billingType === 'wholesale'
+          ? Number(newProduct.wholesaleRate) || 0
+          : Number(newProduct.sellingRate) || 0
+        updateItem(addProductTargetRowId, {
+          productId: newProduct.id,
+          productName: newProduct.name,
+          gstPercent: Number(newProduct.gstRate) || 0,
+          mrp: Number(newProduct.mrp) || 0,
+          rate: defaultRate,
+          schedule: String(newProduct.schedule || 'none').toLowerCase(),
+          batchId: '',
+          batchNumber: '',
+          expiryDate: '',
+        })
+      }
+      productForm.reset(productFormDefaults)
+      setAddProductDialogOpen(false)
+      setAddProductTargetRowId(null)
+    } catch (error: unknown) {
+      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add product')
+    }
+  }
+
+  const cancelAddProduct = () => {
+    productForm.reset(productFormDefaults)
+    setAddProductDialogOpen(false)
+    setAddProductTargetRowId(null)
+  }
+
+  // Manufacturer autocomplete: use suppliers + already-loaded product manufacturers.
+  const productManufacturers = useMemo(() => {
+    const fromSuppliers = useMasterDataStore.getState().suppliers.map(s => s.name)
+    const fromProducts = useMasterDataStore.getState().products.map(p => p.manufacturer).filter(Boolean)
+    return [...new Set([...fromSuppliers, ...fromProducts])].sort()
+  // Re-derive when the form opens (cheap; lists are small) and when master data refreshes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addProductDialogOpen])
+
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
@@ -3373,21 +3527,15 @@ export default function NewSalePage() {
             {/* Mobile row 1: search + add item button */}
             <div className="flex items-center gap-2 md:contents">
               {/* responsive: percentages only kick in at lg+; at md the search shares the row with customer 50/50 */}
-              <div className="flex-1 min-w-0 md:basis-1/2 md:min-w-0 lg:basis-auto lg:w-[42%] lg:flex-none relative">
+              <div ref={heroSearchContainerRef} className="flex-1 min-w-0 md:basis-1/2 md:min-w-0 lg:basis-auto lg:w-[42%] lg:flex-none relative">
               <div className="relative">
-                {!selectedCustomer ? (
-                  /* Locked state — no customer selected */
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomerDropdown(true)}
-                    className="flex w-full h-11 items-center gap-2.5 rounded-lg border border-dashed border-border bg-muted/30 px-4 text-sm text-muted-foreground font-medium transition-colors hover:border-border/80 hover:bg-muted/50"
-                  >
-                    <Search className="h-4 w-4 shrink-0 opacity-50" />
-                    <span className="flex-1 text-left text-xs">Select a customer first to search products</span>
-                    <kbd className="rounded border border-border/60 bg-background px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/70">Alt+S</kbd>
-                  </button>
-                ) : (
-                  <>
+                {/* Search input is always active so the dropdown (and its
+                    "Add New Product" CTA) is reachable even without a customer
+                    selected. The customer-required check still lives inside
+                    addProductFromSearch — clicking a product row when no
+                    customer is selected surfaces a toast and opens the
+                    customer dropdown. */}
+                <>
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
                     <input
                       ref={heroSearchRef}
@@ -3397,9 +3545,10 @@ export default function NewSalePage() {
                         setShowHeroResults(true)
                         setHeroSelectedIdx(0)
                       }}
-                      onFocus={() => heroSearch && setShowHeroResults(true)}
+                      onFocus={() => setShowHeroResults(true)}
+                      onClick={() => setShowHeroResults(true)}
                       onKeyDown={handleHeroKeyDown}
-                      placeholder="Scan barcode or search products..."
+                      placeholder="Search products..."
                       className={cn(
                         'w-full h-11 rounded-lg border border-border bg-background pl-10 pr-20 text-sm',
                         'placeholder:text-muted-foreground/50 font-medium',
@@ -3419,26 +3568,23 @@ export default function NewSalePage() {
                       <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/70 pointer-events-none">Alt+S</kbd>
                     )}
                   </>
-                )}
               </div>
 
-              {/* Hero search results dropdown */}
+              {/* Hero search results dropdown — styled to match the customer
+                  search dropdown (avatar circle + two-line item + footer CTA).
+                  Lazy-loads via heroSearchResults.loadMore() on scroll, same as
+                  the customer dropdown's pagination behavior. */}
               <AnimatePresence>
-                {showHeroResults && (heroResults.length > 0 || heroSearchResults.loading || heroSearch) && (
+                {showHeroResults && (
                   <motion.div
-                    initial={{ opacity: 0, y: -6 }}
+                    initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute z-50 mt-1.5 w-full rounded-lg border border-border bg-popover shadow-lg overflow-hidden"
-                    >
-                    <div className="px-3 py-2 border-b border-border/60 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {heroSearchResults.loading && heroResults.length === 0
-                        ? 'Searching…'
-                        : `${heroSearchResults.total || heroResults.length} product${(heroSearchResults.total || heroResults.length) !== 1 ? 's' : ''} ${heroSearchResults.total > heroResults.length ? `· showing ${heroResults.length}` : 'found'}`}
-                    </div>
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.1 }}
+                    className="absolute z-50 left-0 right-0 mt-1.5 rounded-lg border border-border bg-popover shadow-lg overflow-hidden"
+                  >
                     <div
-                      className="max-h-72 overflow-y-auto divide-y divide-border/40"
+                      className="h-64 overflow-y-auto"
                       onScroll={(e) => {
                         const el = e.currentTarget
                         if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
@@ -3446,73 +3592,114 @@ export default function NewSalePage() {
                         }
                       }}
                     >
-                      {heroResults.length === 0 && !heroSearchResults.loading && heroSearch && (
-                        <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                          No products match "{heroSearch}"
-                        </div>
-                      )}
-                      {heroResults.map((p, idx) => (
-                        <div
-                          key={p.id}
-                          className={cn(
-                            'cursor-pointer px-3 py-2.5 transition-colors flex items-center gap-3',
-                            idx === heroSelectedIdx ? 'bg-accent' : 'hover:bg-accent/50'
-                          )}
-                          onClick={() => addProductFromSearch(p)}
-                          onMouseEnter={() => setHeroSelectedIdx(idx)}
-                        >
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/60">
-                            <Package className="h-4 w-4 text-muted-foreground/60" />
+                      <div className="divide-y divide-border/40">
+                        {heroSearchResults.loading && heroResults.length === 0 && (
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</div>
+                        )}
+                        {!heroSearchResults.loading && heroResults.length === 0 && (
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                            {heroSearch ? `No products match "${heroSearch}"` : 'Start typing to search products'}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium truncate">{p.name}</span>
-                              {(p.schedule === 'H' || p.schedule === 'H1') && (
-                                <Badge variant="destructive" size="sm">{p.schedule}</Badge>
+                        )}
+                        {heroResults.map((p, idx) => {
+                          // Mirror addProductFromSearch's rate resolution so the
+                          // picker shows the exact price the cart will charge.
+                          // Order: customer last-sale rate → tier (wholesale /
+                          // retail) → fallback to retail sellingRate.
+                          const tierRate = billingType === 'wholesale' ? Number(p.wholesaleRate) : Number(p.sellingRate)
+                          const lastRate = customerLastRates[p.id]
+                          const effectiveRate = lastRate ?? tierRate
+                          const source: 'last' | 'wholesale' | 'retail' =
+                            lastRate !== undefined ? 'last' : billingType === 'wholesale' ? 'wholesale' : 'retail'
+                          return (
+                            <div
+                              key={p.id}
+                              className={cn(
+                                'cursor-pointer px-3 py-2.5 transition-colors',
+                                idx === heroSelectedIdx ? 'bg-accent' : 'hover:bg-accent/60'
                               )}
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
-                              <span className="truncate">{p.manufacturer}</span>
-                              <span className="text-border">·</span>
-                              <span className="truncate">{p.genericName}</span>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            {(() => {
-                              // Mirror addProductFromSearch's rate resolution so the
-                              // picker shows the exact price the cart will charge.
-                              // Order: customer last-sale rate → tier (wholesale /
-                              // retail) → fallback to retail sellingRate. The badge
-                              // tells the user where the number came from so the
-                              // ₹25 → ₹30 swap stops looking like a phantom upsell.
-                              const tierRate = billingType === 'wholesale' ? Number(p.wholesaleRate) : Number(p.sellingRate)
-                              const lastRate = customerLastRates[p.id]
-                              const effectiveRate = lastRate ?? tierRate
-                              const source: 'last' | 'wholesale' | 'retail' =
-                                lastRate !== undefined ? 'last' : billingType === 'wholesale' ? 'wholesale' : 'retail'
-                              return (
-                                <>
-                                  <div className="text-sm font-semibold font-mono tabular-nums">{formatCurrency(effectiveRate)}</div>
-                                  <div className={cn(
-                                    "text-[9px] mt-0.5 uppercase tracking-wide font-semibold",
-                                    source === 'last' ? "text-amber-600 dark:text-amber-400" : source === 'wholesale' ? "text-violet-600 dark:text-violet-400" : "text-muted-foreground/70"
-                                  )} title={source === 'last' ? `Last sold to this customer at ${formatCurrency(lastRate!)}` : source === 'wholesale' ? 'Wholesale tier rate' : 'Retail tier rate'}>
-                                    {source === 'last' ? 'Last sale' : source === 'wholesale' ? 'Wholesale' : 'Retail'}
+                              onClick={() => addProductFromSearch(p)}
+                              onMouseEnter={() => setHeroSelectedIdx(idx)}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary text-[11px] font-bold">
+                                  {p.name?.[0]?.toUpperCase() ?? <Package className="h-3.5 w-3.5" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold truncate">{p.name}</span>
+                                    {(p.schedule === 'H' || p.schedule === 'H1') && (
+                                      <Badge variant="destructive" size="sm" className="text-[9px] px-1 h-3.5">{p.schedule}</Badge>
+                                    )}
                                   </div>
-                                </>
-                              )
-                            })()}
-                            <div className={cn(
-                              "text-[10px] mt-0.5 tabular-nums",
-                              p.totalStock === 0 ? "text-rose-600 dark:text-rose-400" : p.totalStock <= (p.minStock ?? 0) ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
-                            )}>{p.totalStock === 0 ? 'Out of stock' : `Stk: ${p.totalStock}`}</div>
+                                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
+                                    {p.manufacturer && <span className="truncate">{p.manufacturer}</span>}
+                                    {p.manufacturer && p.genericName && <span className="text-border">·</span>}
+                                    {p.genericName && <span className="truncate">{p.genericName}</span>}
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5 shrink-0 ml-auto">
+                                  <div className="text-xs font-semibold font-mono tabular-nums">{formatCurrency(effectiveRate)}</div>
+                                  <div className="flex items-center gap-1">
+                                    <span
+                                      className={cn(
+                                        'inline-flex items-center rounded-full px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wide',
+                                        source === 'last' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                          : source === 'wholesale' ? 'bg-violet-500/10 text-violet-700 dark:text-violet-400'
+                                          : 'bg-muted text-muted-foreground'
+                                      )}
+                                      title={source === 'last' ? `Last sold to this customer at ${formatCurrency(lastRate!)}` : source === 'wholesale' ? 'Wholesale tier rate' : 'Retail tier rate'}
+                                    >
+                                      {source === 'last' ? 'Last sale' : source}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        'inline-flex items-center rounded-full px-1.5 py-0 text-[8px] font-semibold tabular-nums whitespace-nowrap',
+                                        p.totalStock === 0
+                                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                          : p.totalStock <= (p.minStock ?? 0)
+                                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                            : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                      )}
+                                    >
+                                      {p.totalStock === 0 ? 'Out' : `Stk ${p.totalStock}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {heroResults.length > 0 && heroSearchResults.loading && (
+                          <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
+                        )}
+                        {heroResults.length > 0 && !heroSearchResults.loading && !heroSearchResults.hasMore && (
+                          <div className="px-3 py-2 text-center text-[10px] text-muted-foreground/60">
+                            {heroSearchResults.total} product{heroSearchResults.total !== 1 ? 's' : ''}
                           </div>
-                        </div>
-                      ))}
-                      {heroResults.length > 0 && heroSearchResults.loading && (
-                        <div className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading more…</div>
-                      )}
+                        )}
+                      </div>
                     </div>
+                    {/* Footer CTA — opens the inline Add Product form. Hidden on
+                        quotation since free-text product names don't need a
+                        master record there. */}
+                    {invoiceType !== 'quotation' && (
+                      <div className="border-t border-border/60 p-1.5 bg-muted/20">
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            openAddProductFormFromHero(heroSearch)
+                            setShowHeroResults(false)
+                            setHeroSearch('')
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs text-primary hover:bg-primary/10 transition-colors font-semibold"
+                        >
+                          <PackagePlus className="h-3.5 w-3.5" />
+                          {heroSearch ? `Add "${heroSearch}" as new product` : 'Add New Product'}
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -4040,6 +4227,211 @@ export default function NewSalePage() {
                   </div>
                 </form>
               </div>
+            ) : addProductDialogOpen ? (
+              /* ═══════════════════════════════════════════════════
+                  INLINE ADD-PRODUCT VIEW (replaces tabs + tabbed content)
+                  Saves the product master record only — no opening batch.
+                  The new product auto-fills the row that triggered this form.
+              ═══════════════════════════════════════════════════ */
+              <div className="flex-1 flex flex-col min-h-0 border-t border-b border-border/40 bg-card overflow-hidden">
+                {/* Header strip: Back button + title */}
+                <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/40 bg-muted/20 shrink-0">
+                  <Button type="button" variant="ghost" size="sm" onClick={cancelAddProduct} className="gap-1.5 -ml-2 h-8 text-xs text-muted-foreground hover:text-foreground shrink-0">
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Back
+                  </Button>
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                      <PackagePlus className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-bold">Add New Product</h2>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        Saves to product master. Stock will be 0 until a Purchase Received entry is made — add stock to bill this item.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scrollable form body — uses tight 12-column grid so every row
+                    packs maximum useful fields without half-empty rows. The
+                    inner max-w-6xl + mx-auto keeps inputs readable on very wide
+                    screens where the left panel would otherwise stretch them. */}
+                <form onSubmit={productForm.handleSubmit(handleAddProduct)} className="flex-1 flex flex-col min-h-0">
+                  <div className="flex-1 overflow-y-auto px-4 py-3">
+                    <div className="mx-auto max-w-6xl space-y-3">
+
+                      {/* ── Identity ── */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Identity</p>
+                        <div className="grid grid-cols-12 gap-2.5">
+                          <div className="col-span-12 sm:col-span-5 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product Name *</Label>
+                            <Input className="h-9" {...productForm.register('name')} placeholder="e.g. Torsemide 20mg Tab" error={!!productForm.formState.errors.name} />
+                            {productForm.formState.errors.name && <p className="text-[11px] text-rose-500">{productForm.formState.errors.name.message}</p>}
+                          </div>
+                          <div className="col-span-12 sm:col-span-4 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Generic Name *</Label>
+                            <Input className="h-9" {...productForm.register('genericName')} placeholder="e.g. Torsemide" error={!!productForm.formState.errors.genericName} />
+                            {productForm.formState.errors.genericName && <p className="text-[11px] text-rose-500">{productForm.formState.errors.genericName.message}</p>}
+                          </div>
+                          <div className="col-span-12 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Manufacturer *</Label>
+                            <Input
+                              className="h-9"
+                              {...productForm.register('manufacturer')}
+                              list="ns-product-manufacturer-list"
+                              placeholder="Select or type..."
+                              autoComplete="off"
+                              error={!!productForm.formState.errors.manufacturer}
+                            />
+                            <datalist id="ns-product-manufacturer-list">
+                              {productManufacturers.map(m => <option key={m} value={m} />)}
+                            </datalist>
+                            {productForm.formState.errors.manufacturer && <p className="text-[11px] text-rose-500">{productForm.formState.errors.manufacturer.message}</p>}
+                          </div>
+                          <div className="col-span-12 sm:col-span-7 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Salt Composition</Label>
+                            <Input className="h-9" {...productForm.register('saltComposition')} placeholder="e.g. Paracetamol 500mg + Caffeine 65mg" />
+                          </div>
+                          <div className="col-span-12 sm:col-span-5 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category *</Label>
+                            <Controller control={productForm.control} name="categoryId" render={({ field }) => (
+                              <CategorySearchDropdown categories={productCategories} value={field.value ?? ''} onChange={field.onChange} hasError={!!productForm.formState.errors.categoryId} />
+                            )} />
+                            {productForm.formState.errors.categoryId && <p className="text-[11px] text-rose-500">{productForm.formState.errors.categoryId.message}</p>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ── Packaging & Regulatory ── */}
+                      <div className="space-y-2 border-t border-border/40 pt-2.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Packaging &amp; Regulatory</p>
+                        <div className="grid grid-cols-12 gap-2.5">
+                          <div className="col-span-6 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pack Size *</Label>
+                            <Input className="h-9" {...productForm.register('packSize')} placeholder="10x10" error={!!productForm.formState.errors.packSize} />
+                            {productForm.formState.errors.packSize && <p className="text-[11px] text-rose-500">{productForm.formState.errors.packSize.message}</p>}
+                          </div>
+                          <div className="col-span-6 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure *</Label>
+                            <Input className="h-9" {...productForm.register('unitOfMeasure')} placeholder="Strip, Vial" error={!!productForm.formState.errors.unitOfMeasure} />
+                            {productForm.formState.errors.unitOfMeasure && <p className="text-[11px] text-rose-500">{productForm.formState.errors.unitOfMeasure.message}</p>}
+                          </div>
+                          <div className="col-span-6 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">HSN Code *</Label>
+                            <Input className="h-9" {...productForm.register('hsnCode')} placeholder="30049099" error={!!productForm.formState.errors.hsnCode} />
+                            {productForm.formState.errors.hsnCode && <p className="text-[11px] text-rose-500">{productForm.formState.errors.hsnCode.message}</p>}
+                          </div>
+                          <div className="col-span-6 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Storage</Label>
+                            <Controller control={productForm.control} name="storageCondition" render={({ field }) => (
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="ROOM_TEMP">Room Temperature</SelectItem>
+                                  <SelectItem value="COOL_DRY">Cool & Dry</SelectItem>
+                                  <SelectItem value="REFRIGERATED">Refrigerated</SelectItem>
+                                  <SelectItem value="FROZEN">Frozen</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )} />
+                          </div>
+                          <div className="col-span-12 sm:col-span-8 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug Schedule</Label>
+                            <Controller control={productForm.control} name="schedule" render={({ field }) => (
+                              <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-4 h-9 items-center">
+                                {(['NONE', 'H', 'H1', 'X'] as const).map(s => (
+                                  <div key={s} className="flex items-center gap-1.5">
+                                    <RadioGroupItem value={s} id={`ns-schedule-${s}`} />
+                                    <Label htmlFor={`ns-schedule-${s}`} className="cursor-pointer font-normal text-xs">{s === 'NONE' ? 'None' : s}</Label>
+                                  </div>
+                                ))}
+                              </RadioGroup>
+                            )} />
+                          </div>
+                          <div className="col-span-12 sm:col-span-4 flex items-center justify-between rounded-md border border-border/60 px-3 h-9 self-end">
+                            <Label className="text-xs cursor-pointer">Is Narcotic</Label>
+                            <Controller control={productForm.control} name="isNarcotic" render={({ field }) => (
+                              <Switch checked={field.value} onCheckedChange={field.onChange} />
+                            )} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ── Pricing ── */}
+                      <div className="space-y-2 border-t border-border/40 pt-2.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pricing</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MRP (₹) *</Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('mrp')} error={!!productForm.formState.errors.mrp} />
+                            {productForm.formState.errors.mrp && <p className="text-[11px] text-rose-500">{productForm.formState.errors.mrp.message}</p>}
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹) *</Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('purchaseRate')} error={!!productForm.formState.errors.purchaseRate} />
+                            {productForm.formState.errors.purchaseRate && <p className="text-[11px] text-rose-500">{productForm.formState.errors.purchaseRate.message}</p>}
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling (₹)</Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('sellingRate')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹)</Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('wholesaleRate')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate</Label>
+                            <Controller control={productForm.control} name="gstRate" render={({ field }) => (
+                              <Select value={String(field.value)} onValueChange={v => field.onChange(Number(v))}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {[0, 5, 12, 18, 28].map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            )} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ── Stock Settings ── */}
+                      <div className="space-y-2 border-t border-border/40 pt-2.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stock Settings</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock</Label>
+                            <Input className="h-9" type="number" {...productForm.register('minStock')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock</Label>
+                            <Input className="h-9" type="number" {...productForm.register('maxStock')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty</Label>
+                            <Input className="h-9" type="number" {...productForm.register('reorderQty')} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location *</Label>
+                            <Input className="h-9" {...productForm.register('rackLocation')} placeholder="A1-01" error={!!productForm.formState.errors.rackLocation} />
+                            {productForm.formState.errors.rackLocation && <p className="text-[11px] text-rose-500">{productForm.formState.errors.rackLocation.message}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sticky footer */}
+                  <div className="flex items-center justify-end gap-2 border-t border-border/40 px-4 py-3 bg-muted/20 shrink-0">
+                    <Button type="button" variant="outline" onClick={cancelAddProduct}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={productForm.formState.isSubmitting}>
+                      {productForm.formState.isSubmitting ? 'Saving...' : 'Save Product'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
             ) : (
               <>
             {/* Tab strip — order: Customer History | Products | Reminders */}
@@ -4229,6 +4621,7 @@ export default function NewSalePage() {
                                   customerLastRates={customerLastRates}
                                   customerInvoices={customerInvoices}
                                   showInlineHistory={showInlineHistory}
+                                  onRequestAddProduct={openAddProductForm}
                                 />
                               ))}
                             </AnimatePresence>

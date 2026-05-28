@@ -209,7 +209,7 @@ export function ShortBillingDialog({ open, onOpenChange, grn, shortItems, onSucc
           {/* Reference */}
           <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Against GRN</span>
+              <span className="text-muted-foreground">Against PR</span>
               <span className="font-mono font-semibold">{grn.grnNumber}</span>
             </div>
             <div className="flex items-center justify-between mt-1">

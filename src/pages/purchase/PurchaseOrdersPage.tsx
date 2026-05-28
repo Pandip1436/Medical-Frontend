@@ -42,18 +42,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
 } from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -67,7 +60,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
@@ -624,8 +616,8 @@ export default function PurchaseOrdersPage() {
   // ── Create PO Form ──
 
   const {
-    register, control, handleSubmit, setValue, reset,
-    formState: { errors },
+    register, control, handleSubmit, setValue, reset, watch,
+    formState,
   } = useForm<CreatePOForm>({
     resolver: zodResolver(createPOSchema),
     defaultValues: {
@@ -635,6 +627,7 @@ export default function PurchaseOrdersPage() {
     },
   })
 
+  const { errors } = formState
   const { fields, append, remove } = useFieldArray({ control, name: 'items' })
   const watchedItems = useWatch({ control, name: 'items' })
 
@@ -1123,121 +1116,190 @@ export default function PurchaseOrdersPage() {
         />
       </Card>
 
-      {/* ── Create PO Dialog ── */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="md:max-w-4xl! md:max-h-[90vh]! md:overflow-y-auto! md:overflow-x-hidden rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              Create Purchase Order
-            </DialogTitle>
-            <DialogDescription>Create a new purchase order for a supplier.</DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</Label>
-                <Select onValueChange={(val) => setValue('supplierId', val)}>
-                  <SelectTrigger className={cn(errors.supplierId && 'border-destructive')}>
-                    <SelectValue placeholder="Select supplier..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suppliers.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.supplierId && <p className="text-xs text-destructive">{errors.supplierId.message}</p>}
+      {/* ── Create PO Drawer ──
+          Right-side Sheet to match the Add New Product form on ProductsPage:
+          fixed header with title + section progress pills, single scrollable
+          body with sticky section dividers, sticky footer with actions. */}
+      <Sheet open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <SheetContent
+          side="right"
+          className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
+        >
+          {/* Header — title on the left, section progress on the right. */}
+          <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
+            <div className="flex items-center gap-4 pr-8">
+              <div className="min-w-0 flex-1 space-y-1">
+                <SheetTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  Create Purchase Order
+                </SheetTitle>
+                <SheetDescription className="text-sm">
+                  Create a new purchase order for a supplier.
+                </SheetDescription>
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</Label>
-                <Controller
-                  control={control}
-                  name="expectedDelivery"
-                  render={({ field }) => (
-                    <DatePicker
-                      value={field.value}
-                      onChange={field.onChange}
-                      error={!!errors.expectedDelivery}
-                    />
-                  )}
-                />
-                {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
-              </div>
+              {(() => {
+                const sections = [
+                  { value: 'info', label: 'Order Info' },
+                  { value: 'items', label: 'Items' },
+                ]
+                const supplierFilled = !!watch('supplierId') && !errors.supplierId
+                const deliveryFilled = !!watch('expectedDelivery') && !errors.expectedDelivery
+                const infoFilled = supplierFilled && deliveryFilled
+                const itemsFilled = fields.length > 0 && !errors.items
+                const filledMap: Record<string, boolean> = { info: infoFilled, items: itemsFilled }
+                const errorMap: Record<string, boolean> = {
+                  info: !!(errors.supplierId || errors.expectedDelivery),
+                  items: !!errors.items,
+                }
+                const isSubmitted = formState.isSubmitted
+                return (
+                  <div className="hidden md:flex shrink-0 items-center gap-1.5 max-w-full overflow-x-auto">
+                    {sections.map((s, i) => {
+                      const showError = errorMap[s.value] && isSubmitted
+                      const isComplete = filledMap[s.value] && !errorMap[s.value]
+                      return (
+                        <div key={s.value} className="flex items-center gap-1.5 shrink-0">
+                          <span className={cn(
+                            'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition-all',
+                            showError ? 'bg-rose-500 text-white'
+                              : isComplete ? 'bg-emerald-500 text-white'
+                              : 'bg-muted text-muted-foreground',
+                          )}>
+                            {showError ? '!' : isComplete ? '✓' : i + 1}
+                          </span>
+                          <span className={cn(
+                            'text-xs font-medium',
+                            showError ? 'text-rose-500'
+                              : isComplete ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-muted-foreground',
+                          )}>{s.label}</span>
+                          {i < sections.length - 1 && (
+                            <span className="text-muted-foreground/30 mx-0.5">›</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
+          </SheetHeader>
 
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleAutoGenerate}>
-                <Zap className="h-3.5 w-3.5" />Auto-generate from Low Stock
-              </Button>
-            </div>
+          <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
 
-            <Separator className="bg-border/60" />
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Order Items</Label>
-                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
-                  <Plus className="h-3 w-3" />Add Row
-                </Button>
-              </div>
-
-              <div className="rounded-xl border border-border/60 overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="min-w-50">Product</TableHead>
-                      <TableHead className="w-25">Req. Qty</TableHead>
-                      <TableHead className="w-27.5">Last Rate</TableHead>
-                      <TableHead className="w-30">Expected Rate</TableHead>
-                      <TableHead className="min-w-30">Remarks</TableHead>
-                      <TableHead className="w-15" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {fields.map((field, index) => (
-                      <POItemRow
-                        key={field.id}
-                        index={index}
-                        register={register}
-                        onSelectProduct={handleSelectProduct}
+              {/* ── Order Info ── */}
+              <div className="scroll-mt-2">
+                <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                  <h3 className="text-sm font-semibold">Order Info</h3>
+                </div>
+                <div className="p-6 pb-8 space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier <span className="text-rose-500">*</span></Label>
+                      <Select value={watch('supplierId') || undefined} onValueChange={(val) => setValue('supplierId', val, { shouldValidate: true })}>
+                        <SelectTrigger className={cn(errors.supplierId && 'border-destructive')}>
+                          <SelectValue placeholder="Select supplier..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {suppliers.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {errors.supplierId && <p className="text-xs text-destructive">{errors.supplierId.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery <span className="text-rose-500">*</span></Label>
+                      <Controller
                         control={control}
-                        remove={remove}
-                        errors={errors}
-                        products={products}
-                        isRemovable={fields.length > 1}
+                        name="expectedDelivery"
+                        render={({ field }) => (
+                          <DatePicker
+                            value={field.value}
+                            onChange={field.onChange}
+                            error={!!errors.expectedDelivery}
+                          />
+                        )}
                       />
-                    ))}
-                  </TableBody>
-                </Table>
+                      {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleAutoGenerate}>
+                      <Zap className="h-3.5 w-3.5" />Auto-generate from Low Stock
+                    </Button>
+                  </div>
+                </div>
               </div>
 
-              {errors.items && (
-                <p className="text-xs text-destructive">
-                  {typeof errors.items.message === 'string' ? errors.items.message : 'Please add valid items'}
-                </p>
-              )}
-            </div>
+              {/* ── Items ── */}
+              <div className="scroll-mt-2 border-t border-border/40">
+                <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Order Items</h3>
+                  <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
+                    <Plus className="h-3 w-3" />Add Row
+                  </Button>
+                </div>
+                <div className="p-6 pb-8 space-y-3">
+                  <div className="rounded-xl border border-border/60 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="min-w-50">Product</TableHead>
+                          <TableHead className="w-25">Req. Qty</TableHead>
+                          <TableHead className="w-27.5">Last Rate</TableHead>
+                          <TableHead className="w-30">Expected Rate</TableHead>
+                          <TableHead className="min-w-30">Remarks</TableHead>
+                          <TableHead className="w-15" />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {fields.map((field, index) => (
+                          <POItemRow
+                            key={field.id}
+                            index={index}
+                            register={register}
+                            onSelectProduct={handleSelectProduct}
+                            control={control}
+                            remove={remove}
+                            errors={errors}
+                            products={products}
+                            isRemovable={fields.length > 1}
+                          />
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
 
-            <Separator className="bg-border/60" />
+                  {errors.items && (
+                    <p className="text-xs text-destructive">
+                      {typeof errors.items.message === 'string' ? errors.items.message : 'Please add valid items'}
+                    </p>
+                  )}
 
-            <div className="flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PO Total</span>
-              <span className="text-lg font-bold font-mono">{formatCurrency(poTotal)}</span>
-            </div>
+                  <div className="flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PO Total</span>
+                    <span className="text-lg font-bold font-mono">{formatCurrency(poTotal)}</span>
+                  </div>
+                </div>
+              </div>
 
-            <DialogFooter>
+            </div>{/* end scrollable body */}
+
+            {/* Sticky footer */}
+            <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
               <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()}>
                 Save as Draft
               </Button>
               <Button type="submit" className="gap-1.5">
                 <Send className="h-3.5 w-3.5" />Send to Supplier
               </Button>
-            </DialogFooter>
+            </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       {/* ── PO Detail Drawer ── */}
       <Sheet open={!!detailPO} onOpenChange={(open) => !open && setDetailPO(null)}>

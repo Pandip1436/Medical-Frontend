@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
-import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
@@ -51,31 +50,12 @@ import {
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import type { Product, Category } from '@/types'
-
-// ─── Zod schema ───────────────────────────────────────────────
-const productSchema = z.object({
-  name: z.string().min(1, 'Product name is required'),
-  genericName: z.string().min(1, 'Generic name is required'),
-  saltComposition: z.string().optional().default(''),
-  manufacturer: z.string().min(1, 'Manufacturer is required'),
-  categoryId: z.string().min(1, 'Category is required'),
-  packSize: z.string().min(1, 'Pack size is required'),
-  unitOfMeasure: z.string().min(1, 'Unit of measure is required'),
-  schedule: z.enum(['NONE', 'H', 'H1', 'X']),
-  hsnCode: z.string().min(1, 'HSN code is required'),
-  isNarcotic: z.boolean().default(false),
-  storageCondition: z.enum(['ROOM_TEMP', 'COOL_DRY', 'REFRIGERATED', 'FROZEN']),
-  mrp: z.coerce.number().min(0.01, 'MRP is required'),
-  purchaseRate: z.coerce.number().min(0.01, 'Purchase rate is required'),
-  sellingRate: z.coerce.number().min(0),
-  wholesaleRate: z.coerce.number().min(0),
-  gstRate: z.coerce.number(),
-  minStock: z.coerce.number().min(0).default(0),
-  maxStock: z.coerce.number().min(0).default(0),
-  reorderQty: z.coerce.number().min(0).default(0),
-  rackLocation: z.string().min(1, 'Rack location is required'),
-})
-type ProductFormValues = z.input<typeof productSchema>
+import {
+  productSchema,
+  productFormDefaults,
+  type ProductFormValues,
+} from '@/components/products/productFormSchema'
+import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
 
 // ─── Schedule badge ────────────────────────────────────────────
 const scheduleBadgeConfig: Record<string, { label: string; variant: 'destructive' | 'warning' } | null> = {
@@ -83,37 +63,6 @@ const scheduleBadgeConfig: Record<string, { label: string; variant: 'destructive
   H: { label: 'H', variant: 'destructive' },
   H1: { label: 'H1', variant: 'destructive' },
   X: { label: 'X', variant: 'warning' },
-}
-
-// ─── Category search dropdown ──────────────────────────────────
-function CategorySearchDropdown({
-  categories,
-  value,
-  onChange,
-  hasError,
-}: {
-  categories: Category[]
-  value: string
-  onChange: (v: string) => void
-  hasError?: boolean
-}) {
-  const selected = categories.find(c => c.id === value)
-
-  return (
-    <Select value={value || '__placeholder__'} onValueChange={v => onChange(v === '__placeholder__' ? '' : v)}>
-      <SelectTrigger className={hasError ? 'border-rose-500 focus:ring-rose-500' : ''}>
-        {selected ? selected.name : <span className="text-muted-foreground">Select category…</span>}
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__placeholder__" disabled className="hidden">
-          Select category…
-        </SelectItem>
-        {categories.map(c => (
-          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
 }
 
 // ─── Main Page ─────────────────────────────────────────────────
@@ -224,13 +173,7 @@ export default function ProductsPage() {
   // Form
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: {
-      name: '', genericName: '', saltComposition: '', manufacturer: '',
-      categoryId: '', packSize: '', unitOfMeasure: '', schedule: 'NONE',
-      hsnCode: '', isNarcotic: false, storageCondition: 'ROOM_TEMP',
-      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 5,
-      minStock: 0, maxStock: 0, reorderQty: 0, rackLocation: '',
-    },
+    defaultValues: productFormDefaults,
   })
 
   const mrpVal = Number(form.watch('mrp')) || 0
@@ -279,13 +222,7 @@ export default function ProductsPage() {
 
   const openAddDialog = () => {
     setEditingProduct(null)
-    form.reset({
-      name: '', genericName: '', saltComposition: '', manufacturer: '',
-      categoryId: '', packSize: '', unitOfMeasure: '', schedule: 'NONE',
-      hsnCode: '', isNarcotic: false, storageCondition: 'ROOM_TEMP',
-      mrp: 0, purchaseRate: 0, sellingRate: 0, wholesaleRate: 0, gstRate: 5,
-      minStock: 0, maxStock: 0, reorderQty: 0, rackLocation: '',
-    })
+    form.reset(productFormDefaults)
     setActiveSection('basic')
     setDialogOpen(true)
   }

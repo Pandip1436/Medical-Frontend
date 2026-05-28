@@ -663,7 +663,7 @@ export default function ProductHistoryPage() {
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
-                          <TableHead>GRN #</TableHead>
+                          <TableHead>PR #</TableHead>
                           <TableHead>Supplier</TableHead>
                           <TableHead>Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
@@ -754,7 +754,7 @@ export default function ProductHistoryPage() {
                         <TableRow>
                           <TableHead className="w-40 min-w-40">Type</TableHead>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
-                          <TableHead>Invoice # / GRN #</TableHead>
+                          <TableHead>Invoice # / PR #</TableHead>
                           <TableHead>Party</TableHead>
                           <TableHead className="w-32">Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>

@@ -59,6 +59,7 @@ const allItems: CommandItem[] = [
   { id: 'goods-receipt', label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn', section: 'Navigation', keywords: 'grn receive goods receipt purchase entry' },
   { id: 'purchase-returns', label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns', section: 'Navigation', keywords: 'debit note' },
   { id: 'suppliers', label: 'Suppliers', icon: Truck, href: '/purchase/suppliers', section: 'Navigation', keywords: 'vendors distributors' },
+  { id: 'supplier-outstanding', label: 'Supplier Outstanding', icon: IndianRupee, href: '/purchase/suppliers/outstanding', section: 'Navigation', keywords: 'supplier dues payable pending pay vendor' },
   { id: 'products', label: 'Products', icon: Package, href: '/inventory/products', section: 'Navigation', keywords: 'inventory medicines drugs' },
   { id: 'stock-overview', label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock', section: 'Navigation', keywords: 'quantity levels' },
   { id: 'expiry-management', label: 'Expiry Management', icon: Clock, href: '/inventory/expiry', section: 'Navigation', keywords: 'expired near expiry date' },

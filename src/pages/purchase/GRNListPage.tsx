@@ -5,7 +5,7 @@ import {
   AlertTriangle, Printer, RefreshCw,
   ClipboardList, TrendingUp, Truck, Calendar,
   FileText, CheckCircle2, XCircle, ShieldAlert,
-  RotateCcw,
+  RotateCcw, Pencil, Wallet,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -13,12 +13,21 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
@@ -31,12 +40,208 @@ function daysUntilExpiry(expiryDate: string) {
   return Math.floor((new Date(expiryDate).getTime() - Date.now()) / 86400000)
 }
 
+// Unpaid balance owed to the supplier for this GRN's invoice.
+function grnBalance(grn: GRN) {
+  return Math.max(0, Number(grn.supplierInvoiceAmount || 0) - Number(grn.amountPaid || 0))
+}
+
+// ─── Record Payment Dialog ────────────────────────────────────
+// Records a payment against a single GRN's invoice (POST /suppliers/:id/payment
+// with grnIds). Mirrors the customer collect-payment form.
+function GRNPaymentDialog({
+  grn,
+  onClose,
+  onSuccess,
+}: {
+  grn: GRN
+  onClose: () => void
+  onSuccess: () => void | Promise<void>
+}) {
+  const balance = grnBalance(grn)
+  const invoiceAmount = Number(grn.supplierInvoiceAmount || 0)
+  const paidAmount = Number(grn.amountPaid || 0)
+  const [mode, setMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('CASH')
+  const [amount, setAmount] = useState(balance ? String(balance) : '')
+  const [reference, setReference] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const amt = parseFloat(amount)
+  const validAmt = Number.isFinite(amt) && amt > 0 && amt <= balance + 0.01
+  const remainingAfter = Math.max(0, balance - (Number.isFinite(amt) ? amt : 0))
+  const settlesInFull = validAmt && remainingAfter <= 0.01
+
+  const submit = async () => {
+    if (!Number.isFinite(amt) || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (amt > balance + 0.01) {
+      toast.error(`Amount exceeds balance (${formatCurrency(balance)})`)
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await api.post(`/suppliers/${grn.supplierId}/payment`, {
+        amount: amt,
+        paymentMode: mode,
+        referenceNumber: reference || undefined,
+        grnIds: [grn.id],
+      })
+      toast.success(`Payment recorded · ${res.data?.paymentNumber ?? ''}`)
+      await onSuccess()
+      onClose()
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Failed to record payment'
+      toast.error(Array.isArray(msg) ? msg.join(', ') : msg)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-md gap-0 overflow-hidden p-0">
+        {/* Header — emerald wallet badge matches the drawer's Record Payment action */}
+        <DialogHeader className="space-y-0 border-b border-border/40 px-5 py-4 text-left">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
+              <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="min-w-0">
+              <DialogTitle className="text-base">Record Payment</DialogTitle>
+              <DialogDescription className="truncate font-mono text-xs">
+                {grn.grnNumber} · {grn.supplierName}
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-4 px-5 py-4">
+          {/* Balance hero — mirrors the GRN drawer's Balance Due panel. Balance
+              takes its own full-width row so large (lakh) amounts never collide
+              with the sub-cells at the dialog's narrow width. */}
+          <div className={cn(
+            'overflow-hidden rounded-xl border',
+            balance > 0.01
+              ? 'border-amber-300/40 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-950/20'
+              : 'border-emerald-300/40 bg-emerald-50/60 dark:border-emerald-800/40 dark:bg-emerald-950/20',
+          )}>
+            <div className="px-4 py-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">Balance Due</p>
+              <p className={cn(
+                'mt-0.5 font-mono text-2xl font-bold tabular-nums',
+                balance > 0.01 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400',
+              )}>
+                {formatCurrency(balance)}
+              </p>
+            </div>
+            <div className="flex items-stretch border-t border-border/30">
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice</p>
+                <p className="mt-0.5 truncate font-mono text-sm font-semibold tabular-nums">{formatCurrency(invoiceAmount)}</p>
+              </div>
+              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Paid</p>
+                <p className="mt-0.5 truncate font-mono text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(paidAmount)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment mode + amount */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Payment Mode</Label>
+              <Select value={mode} onValueChange={(v) => setMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                  <SelectItem value="NEFT_UPI">NEFT / UPI</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</Label>
+                {balance > 0.01 && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount(String(balance))}
+                    className="text-[10px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                  >
+                    Pay full
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground/40">₹</span>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="h-9 pl-6 font-mono text-sm font-semibold"
+                  value={amount}
+                  max={balance}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Reference */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {mode === 'CHEQUE' ? 'Cheque Number' : mode === 'NEFT_UPI' ? 'UPI / Transaction Ref' : 'Reference'}
+              {mode === 'CASH' && <span className="ml-1 font-normal normal-case text-muted-foreground/60">(optional)</span>}
+            </Label>
+            <Input
+              type="text"
+              placeholder={mode === 'CHEQUE' ? 'e.g. 004521' : mode === 'NEFT_UPI' ? 'UPI ref / UTR number' : 'Optional note'}
+              className="h-9 text-sm"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+          </div>
+
+          {/* Balance-after hint */}
+          {validAmt && (
+            <p className="text-[11px] text-muted-foreground">
+              Balance after this payment:{' '}
+              <span className="font-mono font-semibold text-foreground">{formatCurrency(remainingAfter)}</span>
+              {settlesInFull && (
+                <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400">· settles in full</span>
+              )}
+            </p>
+          )}
+        </div>
+
+        <DialogFooter className="border-t border-border/40 px-5 py-3">
+          <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button
+            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+            onClick={submit}
+            disabled={submitting || !validAmt || balance <= 0}
+          >
+            <Wallet className="h-4 w-4" />
+            {submitting ? 'Saving…' : 'Record Payment'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── GRN Detail Dialog ────────────────────────────────────────
-function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; onClose: () => void }) {
+function GRNDetailDialog({ grn, allGrns, onClose, onRefresh }: { grn: GRN; allGrns: GRN[]; onClose: () => void; onRefresh: () => void | Promise<void> }) {
   const businessProfile = useSettingsStore(s => s.businessProfile)
   const orgName = businessProfile?.name || 'Hospital Suppliers'
   const orgSub = businessProfile?.address?.split(',').slice(-2).join(',').trim() || ''
   const [shortBillingOpen, setShortBillingOpen] = useState(false)
+  const [payOpen, setPayOpen] = useState(false)
+  const paidAmount = Number(grn.amountPaid || 0)
+  const balanceDue = grnBalance(grn)
+  // Derive the display status from the live balance so a settled GRN never
+  // shows "Unpaid" even on legacy rows that pre-date the paymentStatus column.
+  const paymentStatus = balanceDue <= 0.01 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'
   const totalOrdered   = grn.items.reduce((s, i) => s + i.orderedQty, 0)
   const totalReceived  = grn.items.reduce((s, i) => s + i.receivedQty, 0)
   const totalFree      = grn.items.reduce((s, i) => s + (i.freeQty ?? 0), 0)
@@ -137,7 +342,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>GRN — ${grn.grnNumber}</title>
+  <title>PR — ${grn.grnNumber}</title>
   <style>
     @page { size: A4 landscape; margin: 15mm 14mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -221,11 +426,11 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   <!-- Info row -->
   <div class="info-row">
     <div class="info-cell"><div class="info-label">Supplier</div><div class="info-value">${grn.supplierName}</div></div>
-    <div class="info-cell"><div class="info-label">GRN Date</div><div class="info-value">${formatDate(grn.date)}</div></div>
+    <div class="info-cell"><div class="info-label">PR Date</div><div class="info-value">${formatDate(grn.date)}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Number</div><div class="info-value">${grn.supplierInvoiceNo || '—'}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Date</div><div class="info-value">${grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—'}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Amount</div><div class="info-value">₹${(grn.supplierInvoiceAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
-    <div class="info-cell"><div class="info-label">GRN Total</div><div class="info-value" style="color:#1d4ed8">₹${(grn.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
+    <div class="info-cell"><div class="info-label">PR Total</div><div class="info-value" style="color:#1d4ed8">₹${(grn.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
   </div>
 
   <!-- Stats -->
@@ -253,7 +458,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
     <div class="stat" style="border-color:#bfdbfe">
       <div class="stat-label">Invoice Value</div>
       <div class="stat-value" style="color:#1d4ed8;font-size:20px">₹${(grn.supplierInvoiceAmount || grn.totalAmount || 0).toLocaleString('en-IN')}</div>
-      <div class="stat-sub">GRN: ₹${(grn.totalAmount || 0).toLocaleString('en-IN')}</div>
+      <div class="stat-sub">PR Total: ₹${(grn.totalAmount || 0).toLocaleString('en-IN')}</div>
     </div>
   </div>
 
@@ -298,7 +503,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
   <div class="doc-footer">
     <div class="footer-left">
       <b>${orgName}</b><br/>
-      GRN: ${grn.grnNumber} &nbsp;·&nbsp; Date: ${formatDate(grn.date)}<br/>
+      PR: ${grn.grnNumber} &nbsp;·&nbsp; Date: ${formatDate(grn.date)}<br/>
       This is a system-generated document.
     </div>
     <div class="footer-sig">
@@ -335,11 +540,31 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
               <div className="flex items-center gap-2 flex-wrap justify-end">
                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
                   <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct Entry'}</Badge>
+                  {!grn.isReplacement && <StatusBadge status={paymentStatus} />}
                   {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
                   {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
                   {totalShort > 0 && resolvedShortages.length < shortItems.length && <Badge variant="warning" size="sm">{totalShort} Short</Badge>}
                   {resolvedShortages.length > 0 && resolvedShortages.length === shortItems.length && <Badge variant="success" size="sm">Resolved</Badge>}
                 </div>
+                {!grn.isReplacement && balanceDue > 0.01 && (
+                  <Button
+                    size="sm"
+                    className="gap-1.5 shrink-0 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                    onClick={() => setPayOpen(true)}
+                  >
+                    <Wallet className="h-3.5 w-3.5" />
+                    Record Payment
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 shrink-0"
+                  onClick={() => { onClose(); navigate(`/purchase/grn?grnId=${grn.id}`) }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
                 <Button
                   size="sm"
                   className="gap-1.5 shrink-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500"
@@ -358,7 +583,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
             <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
               {[
                 { label: 'Supplier', value: grn.supplierName, icon: <Truck className="h-3 w-3 text-muted-foreground/60" /> },
-                { label: 'GRN Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
+                { label: 'PR Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
                 { label: 'Invoice #', value: grn.supplierInvoiceNo || '—', icon: <FileText className="h-3 w-3 text-muted-foreground/60" /> },
                 { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
                 { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
@@ -373,28 +598,45 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
               ))}
             </div>
 
-            {/* Payment highlight panel */}
-            <div className="flex items-stretch overflow-x-auto rounded-xl border border-emerald-300/40 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-800/40">
-              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">We Paid</p>
-                <p className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">
-                  {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount || 0)}
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">Supplier invoice amount</p>
+            {/* Payment panel — invoice / paid / balance / status */}
+            {grn.isReplacement ? (
+              <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+                <PackageCheck className="h-4 w-4 shrink-0" />
+                Replacement PR — stock-back, no payable to the supplier.
               </div>
-              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GRN Total</p>
-                <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.totalAmount || 0)}</p>
+            ) : (
+              <div className={cn(
+                'flex items-stretch overflow-x-auto rounded-xl border',
+                balanceDue > 0.01
+                  ? 'border-amber-300/40 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800/40'
+                  : 'border-emerald-300/40 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-800/40',
+              )}>
+                <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Balance Due</p>
+                  <p className={cn(
+                    'text-2xl font-bold font-mono mt-0.5',
+                    balanceDue > 0.01 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400',
+                  )}>
+                    {formatCurrency(balanceDue)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">
+                    {balanceDue > 0.01 ? 'still owed to supplier' : 'fully settled'}
+                  </p>
+                </div>
+                <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Invoice Amount</p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.supplierInvoiceAmount || 0)}</p>
+                </div>
+                <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Paid</p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700 dark:text-emerald-400">{formatCurrency(paidAmount)}</p>
+                </div>
+                <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">PR Total</p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.totalAmount || 0)}</p>
+                </div>
               </div>
-              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Line Total</p>
-                <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(totalLineValue)}</p>
-              </div>
-              <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-emerald-300/40 dark:border-emerald-800/40 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Inv. Date</p>
-                <p className="mt-0.5 text-sm font-medium whitespace-nowrap">{grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—'}</p>
-              </div>
-            </div>
+            )}
 
             {/* Alert banners — conditional */}
             {(shortItems.length > 0 || damagedItems.length > 0 || resolvedShortages.length > 0) && (
@@ -409,7 +651,7 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
                           {r.item.productName}: {r.missingQty} short → {
                             r.resolvedBy === 'debit'
                               ? `debit note ${r.resolvingDebitNotes.map(n => n.split('-').slice(-1)[0]).join(', ')}`
-                              : `GRN ${r.resolvingGrns.map(n => n.split('-').slice(-1)[0]).join(', ')}`
+                              : `PR ${r.resolvingGrns.map(n => n.split('-').slice(-1)[0]).join(', ')}`
                           }
                         </span>
                       ))}
@@ -604,6 +846,14 @@ function GRNDetailDialog({ grn, allGrns, onClose }: { grn: GRN; allGrns: GRN[]; 
         }))}
         onSuccess={() => onClose()}
       />
+
+      {payOpen && (
+        <GRNPaymentDialog
+          grn={grn}
+          onClose={() => setPayOpen(false)}
+          onSuccess={onRefresh}
+        />
+      )}
     </>
   )
 }
@@ -623,8 +873,12 @@ export default function GRNListPage() {
     try {
       const res = await api.get('/grn')
       setGrns(res.data)
+      // Keep an open detail drawer in sync after a payment is recorded.
+      setSelectedGrn((prev) =>
+        prev ? (res.data.find((g: GRN) => g.id === prev.id) ?? prev) : prev,
+      )
     } catch {
-      toast.error('Failed to load GRN list')
+      toast.error('Failed to load Purchase Received list')
     } finally {
       setLoading(false)
     }
@@ -676,7 +930,7 @@ export default function GRNListPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: 'Total GRNs',    value: grns.length,        icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary' },
+          { label: 'Total PRs',     value: grns.length,        icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary' },
           { label: 'Units Received',value: stats.totalReceived, icon: TrendingUp,    color: 'text-emerald-600 dark:text-emerald-400',    bg: 'bg-emerald-500/10',     border: 'border-l-emerald-500' },
           { label: 'Short Items',   value: stats.totalShort,    icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400',         bg: 'bg-amber-500/10',       border: 'border-l-amber-500' },
           { label: 'Damaged Units', value: stats.totalDamaged,  icon: ShieldAlert,   color: 'text-rose-600 dark:text-rose-400',           bg: 'bg-rose-500/10',        border: 'border-l-rose-500' },
@@ -699,7 +953,7 @@ export default function GRNListPage() {
       <DataTableFilterBar
         searchQuery={search}
         onSearchChange={(val) => { setSearch(val); setCurrentPage(1) }}
-        searchPlaceholder="Search GRN #, supplier or invoice..."
+        searchPlaceholder="Search PR #, supplier or invoice..."
         resultsCount={filtered.length}
         actionNode={
           <div className="flex items-center gap-1.5">
@@ -719,7 +973,7 @@ export default function GRNListPage() {
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New GRN</span>
+              <span className="hidden sm:inline">New PR</span>
               <span className="sm:hidden">New</span>
             </Button>
           </div>
@@ -748,8 +1002,7 @@ export default function GRNListPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30">
-                    <TableHead className="pl-5">GRN #</TableHead>
-                    <TableHead>Date</TableHead>
+                    <TableHead className="pl-5">Date</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Source</TableHead>
@@ -757,7 +1010,8 @@ export default function GRNListPage() {
                     <TableHead className="text-right">Received</TableHead>
                     <TableHead className="text-center">Damaged</TableHead>
                     <TableHead className="text-center">Short</TableHead>
-                    <TableHead className="text-right pr-5">Value</TableHead>
+                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-center pr-5">Payment</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -798,12 +1052,7 @@ export default function GRNListPage() {
                         )}
                         onClick={() => setSelectedGrn(grn)}
                       >
-                        <TableCell className="pl-5">
-                          <span className="font-mono text-xs font-semibold text-primary">
-                            {grn.grnNumber}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        <TableCell className="pl-5 text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(grn.date)}
                         </TableCell>
                         <TableCell>
@@ -811,7 +1060,10 @@ export default function GRNListPage() {
                             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
                               {grn.supplierName.charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-sm font-medium">{grn.supplierName}</span>
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium">{grn.supplierName}</span>
+                              <span className="block font-mono text-[10px] text-muted-foreground/70">{grn.grnNumber}</span>
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
@@ -851,8 +1103,28 @@ export default function GRNListPage() {
                               </span>
                           }
                         </TableCell>
-                        <TableCell className="text-right pr-5">
+                        <TableCell className="text-right">
                           <span className="text-sm font-semibold font-mono">{formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount)}</span>
+                        </TableCell>
+                        <TableCell className="text-center pr-5">
+                          {grn.isReplacement ? (
+                            <span className="text-muted-foreground/40 text-xs">—</span>
+                          ) : (
+                            (() => {
+                              const bal = grnBalance(grn)
+                              const status = bal <= 0.01 ? 'PAID' : Number(grn.amountPaid || 0) > 0 ? 'PARTIAL' : 'UNPAID'
+                              return (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <StatusBadge status={status} />
+                                  {bal > 0.01 && (
+                                    <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                                      {formatCurrency(bal)}
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()
+                          )}
                         </TableCell>
                       </TableRow>
                     )
@@ -873,7 +1145,7 @@ export default function GRNListPage() {
         )}
       </Card>
 
-      {selectedGrn && <GRNDetailDialog grn={selectedGrn} allGrns={grns} onClose={() => setSelectedGrn(null)} />}
+      {selectedGrn && <GRNDetailDialog grn={selectedGrn} allGrns={grns} onClose={() => setSelectedGrn(null)} onRefresh={load} />}
     </motion.div>
   )
 }

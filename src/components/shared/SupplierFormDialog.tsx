@@ -3,15 +3,15 @@ import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
+import { Truck } from 'lucide-react'
 
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import api from '@/lib/api'
 import type { Supplier } from '@/types'
 
@@ -107,11 +108,12 @@ export function SupplierFormDialog({
     setValue,
     watch,
     control,
-    formState: { errors, isSubmitting },
+    formState,
   } = useForm<SupplierFormValues>({
     resolver: zodResolver(supplierFormSchema),
     defaultValues: EMPTY_VALUES,
   })
+  const { errors, isSubmitting } = formState
 
   // Whenever the dialog opens or the editing target changes, reset the form
   // with the right values. Keeps create- and edit-modes from leaking state.
@@ -158,174 +160,249 @@ export function SupplierFormDialog({
     }
   }
 
+  // Section-progress pill state. Mirrors the PO / Product drawers so the
+  // header gives a quick scannable view of which sections still need input.
+  const isSubmitted = formState.isSubmitted
+  const identityFilled = !!watch('name') && !!watch('contactPerson') && !!watch('phone') && !!watch('email') && !!watch('address')
+  const identityError = !!(errors.name || errors.contactPerson || errors.phone || errors.email || errors.address)
+  const regulatoryFilled = !!watch('gstin') && !!watch('drugLicense')
+  const regulatoryError = !!(errors.gstin || errors.drugLicense)
+  const paymentFilled = !!watch('paymentTerms')
+  const paymentError = !!(errors.paymentTerms || errors.whatsappNumber)
+
+  const sections = [
+    { value: 'identity', label: 'Identity', filled: identityFilled, error: identityError },
+    { value: 'regulatory', label: 'Regulatory', filled: regulatoryFilled, error: regulatoryError },
+    { value: 'payment', label: 'Payment', filled: paymentFilled, error: paymentError },
+  ]
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
-          </DialogTitle>
-          <DialogDescription>
-            {editingSupplier
-              ? 'Update supplier information below.'
-              : 'Fill in the supplier details to add them to your directory.'}
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Company Name
-              </Label>
-              <Input placeholder="e.g. Cipla Ltd" {...register('name')} />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
+      >
+        {/* Header — title on the left, section progress on the right. */}
+        <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
+          <div className="flex items-center gap-4 pr-8">
+            <div className="min-w-0 flex-1 space-y-1">
+              <SheetTitle className="text-lg flex items-center gap-2">
+                <Truck className="h-5 w-5 text-primary" />
+                {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
+              </SheetTitle>
+              <SheetDescription className="text-sm">
+                {editingSupplier
+                  ? 'Update supplier information below.'
+                  : 'Fill in the supplier details to add them to your directory.'}
+              </SheetDescription>
             </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Contact Person
-              </Label>
-              <Input placeholder="e.g. Arun Menon" {...register('contactPerson')} />
-              {errors.contactPerson && (
-                <p className="text-xs text-destructive">{errors.contactPerson.message}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Phone
-              </Label>
-              <Input placeholder="10-digit phone number" {...register('phone')} />
-              {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Email
-              </Label>
-              <Input type="email" placeholder="supplier@company.com" {...register('email')} />
-              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+            <div className="hidden md:flex shrink-0 items-center gap-1.5 max-w-full overflow-x-auto">
+              {sections.map((s, i) => {
+                const showError = s.error && isSubmitted
+                const isComplete = s.filled && !s.error
+                return (
+                  <div key={s.value} className="flex items-center gap-1.5 shrink-0">
+                    <span className={cn(
+                      'flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold transition-all',
+                      showError ? 'bg-rose-500 text-white'
+                        : isComplete ? 'bg-emerald-500 text-white'
+                        : 'bg-muted text-muted-foreground',
+                    )}>
+                      {showError ? '!' : isComplete ? '✓' : i + 1}
+                    </span>
+                    <span className={cn(
+                      'text-xs font-medium',
+                      showError ? 'text-rose-500'
+                        : isComplete ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-muted-foreground',
+                    )}>{s.label}</span>
+                    {i < sections.length - 1 && (
+                      <span className="text-muted-foreground/30 mx-0.5">›</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
+        </SheetHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                GSTIN
-              </Label>
-              <Input
-                placeholder="15-character GSTIN"
-                className="font-mono"
-                {...register('gstin')}
-              />
-              {errors.gstin && <p className="text-xs text-destructive">{errors.gstin.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Drug License #
-              </Label>
-              <Input
-                placeholder="Drug license number"
-                className="font-mono"
-                {...register('drugLicense')}
-              />
-              {errors.drugLicense && (
-                <p className="text-xs text-destructive">{errors.drugLicense.message}</p>
-              )}
-            </div>
-          </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto">
 
-          <div className="space-y-2">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Address
-            </Label>
-            <Textarea placeholder="Full address" {...register('address')} />
-            {errors.address && (
-              <p className="text-xs text-destructive">{errors.address.message}</p>
-            )}
-          </div>
+            {/* ── Identity & Contact ── */}
+            <div className="scroll-mt-2">
+              <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                <h3 className="text-sm font-semibold">Identity & Contact</h3>
+              </div>
+              <div className="p-6 pb-8 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Company Name <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input placeholder="e.g. Cipla Ltd" {...register('name')} />
+                    {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Contact Person <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input placeholder="e.g. Arun Menon" {...register('contactPerson')} />
+                    {errors.contactPerson && (
+                      <p className="text-xs text-destructive">{errors.contactPerson.message}</p>
+                    )}
+                  </div>
+                </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                WhatsApp Number
-              </Label>
-              <Input
-                placeholder="Leave blank to use the phone above"
-                {...register('whatsappNumber')}
-              />
-              {errors.whatsappNumber && (
-                <p className="text-xs text-destructive">{errors.whatsappNumber.message}</p>
-              )}
-            </div>
-            <div className="space-y-2 sm:invisible sm:pointer-events-none">
-              {/* Empty grid slot to keep the layout balanced; the opt-in
-                  toggle below spans the full width. */}
-            </div>
-          </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Phone <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input placeholder="10-digit phone number" {...register('phone')} />
+                    {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Email <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input type="email" placeholder="supplier@company.com" {...register('email')} />
+                    {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+                  </div>
+                </div>
 
-          {/* WhatsApp opt-in — controls whether low-stock alerts auto-deliver
-              to this supplier's phone via Meta Cloud API. Defaults to on;
-              toggle off for suppliers who prefer phone calls or email. */}
-          <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
-            <Controller
-              control={control}
-              name="whatsappOptIn"
-              render={({ field }) => (
-                <Switch
-                  checked={field.value ?? true}
-                  onCheckedChange={field.onChange}
-                  className="mt-0.5"
-                />
-              )}
-            />
-            <div className="space-y-0.5">
-              <Label className="text-sm font-medium leading-none cursor-pointer">
-                Send WhatsApp messages to this supplier
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Low-stock alerts will be auto-delivered to the WhatsApp number above (or the phone
-                number if blank). Turn off for suppliers who prefer phone calls.
-              </p>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Address <span className="text-rose-500">*</span>
+                  </Label>
+                  <Textarea placeholder="Full address" rows={2} {...register('address')} />
+                  {errors.address && (
+                    <p className="text-xs text-destructive">{errors.address.message}</p>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Payment Terms
-              </Label>
-              <Select
-                value={paymentTermsValue}
-                onValueChange={(val) =>
-                  setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60', {
-                    shouldValidate: true,
-                  })
-                }
-              >
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue placeholder="Select payment terms" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NET_30">Net 30</SelectItem>
-                  <SelectItem value="NET_45">Net 45</SelectItem>
-                  <SelectItem value="NET_60">Net 60</SelectItem>
-                </SelectContent>
-              </Select>
-              {errors.paymentTerms && (
-                <p className="text-xs text-destructive">{errors.paymentTerms.message}</p>
-              )}
+            {/* ── Regulatory ── */}
+            <div className="scroll-mt-2 border-t border-border/40">
+              <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                <h3 className="text-sm font-semibold">Regulatory</h3>
+              </div>
+              <div className="p-6 pb-8 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      GSTIN <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input
+                      placeholder="15-character GSTIN"
+                      className="font-mono"
+                      {...register('gstin')}
+                    />
+                    {errors.gstin && <p className="text-xs text-destructive">{errors.gstin.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Drug License # <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input
+                      placeholder="Drug license number"
+                      className="font-mono"
+                      {...register('drugLicense')}
+                    />
+                    {errors.drugLicense && (
+                      <p className="text-xs text-destructive">{errors.drugLicense.message}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Bank Details
-              </Label>
-              <Input placeholder="Bank, A/c, IFSC (optional)" {...register('bankDetails')} />
-            </div>
-          </div>
 
-          <DialogFooter>
+            {/* ── Payment & Messaging ── */}
+            <div className="scroll-mt-2 border-t border-border/40">
+              <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                <h3 className="text-sm font-semibold">Payment & Messaging</h3>
+              </div>
+              <div className="p-6 pb-8 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Payment Terms <span className="text-rose-500">*</span>
+                    </Label>
+                    <Select
+                      value={paymentTermsValue}
+                      onValueChange={(val) =>
+                        setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60', {
+                          shouldValidate: true,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="rounded-xl">
+                        <SelectValue placeholder="Select payment terms" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NET_30">Net 30</SelectItem>
+                        <SelectItem value="NET_45">Net 45</SelectItem>
+                        <SelectItem value="NET_60">Net 60</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {errors.paymentTerms && (
+                      <p className="text-xs text-destructive">{errors.paymentTerms.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Bank Details
+                    </Label>
+                    <Input placeholder="Bank, A/c, IFSC (optional)" {...register('bankDetails')} />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    WhatsApp Number
+                  </Label>
+                  <Input
+                    placeholder="Leave blank to use the phone number above"
+                    {...register('whatsappNumber')}
+                  />
+                  {errors.whatsappNumber && (
+                    <p className="text-xs text-destructive">{errors.whatsappNumber.message}</p>
+                  )}
+                </div>
+
+                {/* WhatsApp opt-in — controls whether low-stock alerts auto-deliver
+                    to this supplier's phone via Meta Cloud API. Defaults to on;
+                    toggle off for suppliers who prefer phone calls or email. */}
+                <div className="flex items-start gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3">
+                  <Controller
+                    control={control}
+                    name="whatsappOptIn"
+                    render={({ field }) => (
+                      <Switch
+                        checked={field.value ?? true}
+                        onCheckedChange={field.onChange}
+                        className="mt-0.5"
+                      />
+                    )}
+                  />
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium leading-none cursor-pointer">
+                      Send WhatsApp messages to this supplier
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Low-stock alerts will be auto-delivered to the WhatsApp number above (or the phone
+                      number if blank). Turn off for suppliers who prefer phone calls.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>{/* end scrollable body */}
+
+          {/* Sticky footer */}
+          <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
@@ -336,9 +413,9 @@ export function SupplierFormDialog({
                   ? 'Update Supplier'
                   : 'Add Supplier'}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }

@@ -112,6 +112,14 @@ export const routes: Record<string, RouteConfig> = {
       { label: 'Detail' },
     ],
   },
+  '/purchase/suppliers/outstanding': {
+    label: 'Supplier Outstanding',
+    breadcrumbs: [
+      { label: 'Purchase' },
+      { label: 'Suppliers', href: '/purchase/suppliers' },
+      { label: 'Outstanding' },
+    ],
+  },
   '/inventory/products': {
     label: 'Products',
     breadcrumbs: [{ label: 'Inventory' }, { label: 'Products' }],

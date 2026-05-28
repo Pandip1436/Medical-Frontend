@@ -216,6 +216,9 @@ export interface GRN {
   items: GRNItem[]
   totalAmount: number
   status: 'DRAFT' | 'RECEIVED' | 'VERIFIED'
+  isReplacement?: boolean
+  amountPaid?: number
+  paymentStatus?: 'UNPAID' | 'PARTIAL' | 'PAID'
   purchaseReturns?: Array<{
     id: string
     debitNoteNo: string

@@ -440,7 +440,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       )
       return (
         <ReportTable 
-          headers={['Date', 'GRN #', 'Supplier', 'Items', 'Amount']} 
+          headers={['Date', 'PR #', 'Supplier', 'Items', 'Amount']}
           rows={paginate(table).map((r: any) => [formatDate(r.date), r.grnNumber, r.supplier, r.items, formatCurrency(r.amount)])} 
           totalItems={table.length}
           currentPage={currentPage}
@@ -467,7 +467,7 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
       )
       return (
         <ReportTable 
-          headers={['Supplier', 'GRNs', 'Total Amount']} 
+          headers={['Supplier', 'PRs', 'Total Amount']}
           rows={paginate(table).map((r: any) => [r.supplier, r.grns, formatCurrency(r.amount)])} 
           totalItems={table.length}
           currentPage={currentPage}

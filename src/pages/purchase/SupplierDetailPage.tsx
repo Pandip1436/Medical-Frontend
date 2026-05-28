@@ -267,7 +267,7 @@ function useSupplierDetail(supplierId: string | null) {
       })
     } catch (err: any) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setGrns({ data: null, loading: false, error: err?.message ?? 'Failed to load GRNs', attempted: true })
+      setGrns({ data: null, loading: false, error: err?.message ?? 'Failed to load Purchase Received records', attempted: true })
     }
   }, [supplierId, grns.attempted])
 
@@ -858,7 +858,7 @@ export default function SupplierDetailPage() {
                   { value: 'ledger', label: 'Ledger', icon: FileText },
                   { value: 'activity', label: 'Activity', icon: MessageSquare },
                   { value: 'pos', label: 'POs', icon: ClipboardList },
-                  { value: 'grns', label: 'GRNs', icon: Receipt },
+                  { value: 'grns', label: 'PRs', icon: Receipt },
                   { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                   { value: 'batches', label: 'Batches', icon: Layers },
                 ].map((t) => (
@@ -1142,7 +1142,7 @@ export default function SupplierDetailPage() {
                     <TableCell className="px-3 py-2"><StatusPill status={g.status} /></TableCell>
                   </TableRow>
                 )}
-                columns={['GRN #', 'Date', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
+                columns={['PR #', 'Date', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
               />
             </div>
             {grnsFiltered.length > PAGE_SIZE && (
@@ -1311,7 +1311,7 @@ function currentTabCountLabel(
   switch (activeTab) {
     case 'ledger':   return d.ledger.loading     ? 'Loading…' : `${ledgerCount} transaction${ledgerCount !== 1 ? 's' : ''}`
     case 'pos':      return d.pos.loading        ? 'Loading…' : `${posCount} PO${posCount !== 1 ? 's' : ''}`
-    case 'grns':     return d.grns.loading       ? 'Loading…' : `${grnsCount} GRN${grnsCount !== 1 ? 's' : ''}`
+    case 'grns':     return d.grns.loading       ? 'Loading…' : `${grnsCount} PR${grnsCount !== 1 ? 's' : ''}`
     case 'dns':      return d.dns.loading        ? 'Loading…' : `${dnsCount} debit note${dnsCount !== 1 ? 's' : ''}`
     case 'activity': return d.activities.loading ? 'Loading…' : `${activityCount} activit${activityCount !== 1 ? 'ies' : 'y'}`
     default: return ''

@@ -41,7 +41,7 @@ export function LeadCompactCard({ lead, selected, onClick }: LeadCompactCardProp
       className={cn(
         'group relative flex w-full gap-2.5 border-b border-border/40 px-3 py-3 text-left transition-colors',
         selected
-          ? 'bg-primary/[0.06] hover:bg-primary/[0.08]'
+          ? 'bg-primary/6 hover:bg-primary/8'
           : 'hover:bg-muted/40',
       )}
     >

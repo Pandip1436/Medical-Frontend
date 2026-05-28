@@ -92,6 +92,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns' },
       { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers' },
+      { label: 'Supplier Outstanding', icon: IndianRupee, href: '/purchase/suppliers/outstanding' },
     ],
   },
   {

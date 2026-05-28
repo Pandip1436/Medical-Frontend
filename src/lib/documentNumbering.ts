@@ -17,7 +17,19 @@ export const DOC_TYPE_LABELS: Record<ConfigurableDocType, string> = {
   CN: 'Credit Note',
   DN: 'Debit Note',
   PO: 'Purchase Order',
-  GRN: 'Goods Receipt',
+  GRN: 'Purchase Received',
+}
+
+// Short code shown on the numbering-settings badge. Mostly identity, but the
+// GRN doc-type is displayed as "PR" (Purchase Received) even though its internal
+// sequence key remains "GRN".
+export const DOC_TYPE_BADGES: Record<ConfigurableDocType, string> = {
+  INV: 'INV',
+  QTN: 'QTN',
+  CN: 'CN',
+  DN: 'DN',
+  PO: 'PO',
+  GRN: 'PR',
 }
 
 /** Indian financial year (April → March). April 2026 → fyStart=2026, fyEnd=2027. */

@@ -21,14 +21,19 @@ import {
   XCircle,
   ChevronLeft,
   Plus,
+  Wallet,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
+import { ProductFormDialog } from '@/components/shared/ProductFormDialog'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -105,6 +110,12 @@ export default function GRNPage() {
   const prefilledSupplierId = urlParams.get('supplierId') ?? ''
   const prefilledSupplierName = urlParams.get('supplierName') ?? ''
   const prefilledPoId = urlParams.get('poId') ?? ''
+  // Edit mode: `?grnId=<id>` loads an existing GRN to amend in place. Supplier /
+  // PO linkage stay locked; line items, batch, expiry, qty and invoice are editable.
+  const grnId = urlParams.get('grnId') ?? ''
+  const editMode = !!grnId
+  const [editGrnNumber, setEditGrnNumber] = useState('')
+  const editPrefilled = useRef(false)
 
   // Source selection
   const [sourceType, setSourceType] = useState<'po' | 'direct'>('po')
@@ -118,6 +129,7 @@ export default function GRNPage() {
   const [supplierSearch, setSupplierSearch] = useState('')
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
   const [supplierFormOpen, setSupplierFormOpen] = useState(false)
+  const [productFormOpen, setProductFormOpen] = useState(false)
 
   // Backend-paginated supplier search for the Direct Entry picker.
   // Loads 10 at a time, fetches next 10 on scroll-to-bottom, debounces typing.
@@ -192,6 +204,13 @@ export default function GRNPage() {
   const [invoiceNo, setInvoiceNo] = useState('')
   const [invoiceDate, setInvoiceDate] = useState('')
   const [invoiceAmount, setInvoiceAmount] = useState<number>(0)
+
+  // Receive-time payment (create-only, non-replacement). CREDIT = pay nothing now
+  // → whole invoice goes to supplier outstanding. PAID = settle in full now.
+  // PARTIAL = pay a portion now; the rest goes to outstanding.
+  const [payChoice, setPayChoice] = useState<'CREDIT' | 'PAID' | 'PARTIAL'>('CREDIT')
+  const [paidAmount, setPaidAmount] = useState<number>(0)
+  const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('CASH')
 
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
@@ -268,11 +287,62 @@ export default function GRNPage() {
     // We deliberately fire only when prefilledPoId changes; the other deps
     // would re-trigger unwanted reloads of the fresh PO.
   }, [prefilledPoId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Edit mode: load the existing GRN once and prefill the form.
+  useEffect(() => {
+    if (!editMode || editPrefilled.current) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get(`/grn/${grnId}`)
+        if (cancelled) return
+        const grn = res.data
+        editPrefilled.current = true
+        setEditGrnNumber(grn.grnNumber ?? '')
+        setSourceType(grn.poId ? 'po' : 'direct')
+        setSelectedPOId(grn.poId ?? null)
+        if (!grn.poId) {
+          setDirectSupplierId(grn.supplierId)
+          setDirectSupplierName(grn.supplierName)
+        }
+        setInvoiceNo(grn.supplierInvoiceNo ?? '')
+        setInvoiceDate(grn.supplierInvoiceDate ? String(grn.supplierInvoiceDate).slice(0, 10) : '')
+        setInvoiceAmount(Number(grn.supplierInvoiceAmount) || 0)
+        setGrnItems(
+          ((grn.items ?? []) as GRNItem[]).map((it, i) => {
+            const received = Number(it.receivedQty) || 0
+            const ordered = Number(it.orderedQty) || 0
+            return {
+              id: it.id ?? `GRN-ITEM-${i}`,
+              productId: it.productId,
+              productName: it.productName,
+              orderedQty: ordered,
+              receivedQty: received,
+              freeQty: Number(it.freeQty) || 0,
+              batchNumber: it.batchNumber ?? '',
+              mfgDate: it.mfgDate ? String(it.mfgDate).slice(0, 10) : '',
+              expiryDate: it.expiryDate ? String(it.expiryDate).slice(0, 10) : '',
+              purchaseRate: Number(it.purchaseRate) || 0,
+              mrp: Number(it.mrp) || 0,
+              shortSupply: ordered > 0 && received < ordered,
+            } as GRNFormItem
+          })
+        )
+      } catch {
+        toast.error('Failed to load Purchase Received for editing')
+        navigate('/purchase/grn-list')
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, grnId])
+
   useBranchRefresh(fetchData)
 
   // Placeholder shown until the GRN is saved — the authoritative number is
   // generated atomically on the server and returned in the create response.
-  const grnNumber = 'GRN / pending'
+  // In edit mode we already know the real number.
+  const grnNumber = editMode ? editGrnNumber || 'PR' : 'PR / pending'
 
   // ── Selectable POs ──
   const selectablePOs = useMemo(() => {
@@ -357,6 +427,9 @@ export default function GRNPage() {
     setInvoiceNo('')
     setInvoiceDate('')
     setInvoiceAmount(0)
+    setPayChoice('CREDIT')
+    setPaidAmount(0)
+    setPayMode('CASH')
     setDirectSupplierId('')
     setDirectSupplierName('')
     setSupplierSearch('')
@@ -430,6 +503,15 @@ export default function GRNPage() {
 
   const canConfirm = receivedItems.length > 0
 
+  // Amount actually paid to the supplier at receive time (drives outstanding).
+  const effectivePaid = replacementReturnId
+    ? 0
+    : payChoice === 'PAID'
+      ? Number(invoiceAmount) || 0
+      : payChoice === 'PARTIAL'
+        ? Math.min(Number(paidAmount) || 0, Number(invoiceAmount) || 0)
+        : 0
+
   async function handleConfirm() {
     if (sourceType === 'direct' && !directSupplierId) {
       toast.error('Please select a supplier for direct entry')
@@ -439,6 +521,10 @@ export default function GRNPage() {
     const isReplacementFlow = !!replacementReturnId
     if (!isReplacementFlow && (!invoiceNo || !invoiceDate)) {
       toast.error('Supplier invoice number and date are required')
+      return
+    }
+    if (!editMode && !isReplacementFlow && payChoice === 'PARTIAL' && (Number(paidAmount) || 0) > (Number(invoiceAmount) || 0) + 0.01) {
+      toast.error('Amount paid cannot exceed the invoice amount')
       return
     }
 
@@ -468,8 +554,9 @@ export default function GRNPage() {
         return
       }
       // PO-linked: don't let user over-receive (server also enforces this, but
-      // we want instant feedback before the round-trip)
-      if (selectedPOId && (i._remaining ?? i.orderedQty) > 0) {
+      // we want instant feedback before the round-trip). Skipped in edit mode —
+      // the server re-validates against the PO excluding this GRN's old qty.
+      if (!editMode && selectedPOId && (i._remaining ?? i.orderedQty) > 0) {
         const cap = i._remaining ?? i.orderedQty
         const incoming = Number(i.receivedQty || 0) + Number(i.freeQty || 0)
         if (incoming > cap) {
@@ -497,6 +584,9 @@ export default function GRNPage() {
         totalAmount: Number(gstBreakdown.total) || 0,
         status: 'RECEIVED',
         isReplacement: isReplacementFlow,
+        // Receive-time payment (ignored by the edit path, which preserves amountPaid).
+        amountPaid: isReplacementFlow ? 0 : effectivePaid,
+        paymentMode: payMode,
         items: receivedItems.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -510,6 +600,18 @@ export default function GRNPage() {
           mrp: Number(i.mrp),
         })),
       }
+      // Edit mode: PATCH the existing GRN and return to the list. The server
+      // reverses the old stock/payables and reapplies the new values atomically.
+      if (editMode) {
+        await api.patch(`/grn/${grnId}`, payload)
+        toast.success('Purchase Entry updated', {
+          description: `${editGrnNumber} — stock, payables and PO reconciled.`,
+        })
+        setShowConfirm(false)
+        navigate('/purchase/grn-list')
+        return
+      }
+
       const grnRes = await api.post('/grn', payload)
       const savedGrn = grnRes.data
 
@@ -520,16 +622,16 @@ export default function GRNPage() {
             replacementGrnId: savedGrn.id,
           })
           toast.success('Replacement goods received and debit note settled!', {
-            description: `GRN ${grnNumber} linked to purchase return. Stock updated.`,
+            description: `${grnNumber} linked to purchase return. Stock updated.`,
           })
         } catch {
-          toast.success('GRN created. Note: could not auto-settle the debit note — please update it manually.', {
+          toast.success('Purchase Received created. Note: could not auto-settle the debit note — please update it manually.', {
             duration: 6000,
           })
         }
       } else {
         toast.success('Purchase Entry created successfully!', {
-          description: `GRN ${grnNumber} — Stock has been updated for ${totalItems} ${totalItems === 1 ? 'item' : 'items'}.`,
+          description: `${grnNumber} — Stock has been updated for ${totalItems} ${totalItems === 1 ? 'item' : 'items'}.`,
         })
       }
 
@@ -567,10 +669,13 @@ export default function GRNPage() {
       setInvoiceNo('')
       setInvoiceDate('')
       setInvoiceAmount(0)
+      setPayChoice('CREDIT')
+      setPaidAmount(0)
+      setPayMode('CASH')
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
-      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save GRN. Please try again.'));
+      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save Purchase Received. Please try again.'));
     } finally {
       setIsSubmitting(false)
     }
@@ -623,6 +728,9 @@ export default function GRNPage() {
     setInvoiceNo('')
     setInvoiceDate('')
     setInvoiceAmount(0)
+    setPayChoice('CREDIT')
+    setPaidAmount(0)
+    setPayMode('CASH')
   }
 
   return (
@@ -635,14 +743,16 @@ export default function GRNPage() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => navigate('/purchase/orders')}
+            onClick={() => navigate(editMode ? '/purchase/grn-list' : '/purchase/orders')}
             className="text-muted-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-lg font-bold tracking-tight">Purchase Entry</h2>
-            <p className="text-[11px] text-muted-foreground">Receive and verify incoming goods</p>
+            <h2 className="text-lg font-bold tracking-tight">{editMode ? 'Edit Purchase Entry' : 'Purchase Entry'}</h2>
+            <p className="text-[11px] text-muted-foreground">
+              {editMode ? 'Amend a received PR — stock is reconciled on save' : 'Receive and verify incoming goods'}
+            </p>
           </div>
         </div>
 
@@ -651,17 +761,20 @@ export default function GRNPage() {
           <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
             <RotateCcw className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              Receiving replacement goods — this GRN will be auto-linked to the debit note and marked Settled.
+              Receiving replacement goods — this PR will be auto-linked to the debit note and marked Settled.
             </span>
           </div>
         )}
 
-        {/* Source toggle — segmented control */}
-        <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
+        {/* Source toggle — segmented control. Locked in edit mode: a received
+            GRN's source (PO vs direct) and supplier can't be re-pointed. */}
+        <div className={cn('flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5', editMode && 'opacity-60')}>
           <button
             onClick={() => handleSourceChange('po')}
+            disabled={editMode}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+              editMode && 'cursor-not-allowed',
               sourceType === 'po'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -672,8 +785,10 @@ export default function GRNPage() {
           </button>
           <button
             onClick={() => handleSourceChange('direct')}
+            disabled={editMode}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
+              editMode && 'cursor-not-allowed',
               sourceType === 'direct'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -807,6 +922,7 @@ export default function GRNPage() {
                         <TableHead className="h-9 w-10 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
                         <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
                         <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
                         <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
                         <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Free</TableHead>
                         <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
@@ -822,6 +938,30 @@ export default function GRNPage() {
                             {item.batchNumber ? (
                               <span className="font-mono text-xs bg-muted/60 rounded px-2 py-1 whitespace-nowrap">{item.batchNumber}</span>
                             ) : (
+                              <span className="text-muted-foreground/40 text-xs">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="px-3 py-2.5">
+                            {item.expiryDate ? (() => {
+                              // Color-coded by recency: red = already expired, amber = within 90 days,
+                              // emerald = healthy. Mirrors the chips used on the sale-row picker.
+                              const exp = new Date(item.expiryDate)
+                              exp.setHours(23, 59, 59, 999)
+                              const now = new Date()
+                              const expired = exp < now
+                              const ninetyDays = 90 * 24 * 60 * 60 * 1000
+                              const nearExpiry = !expired && (exp.getTime() - now.getTime()) < ninetyDays
+                              return (
+                                <span className={cn(
+                                  'font-mono text-xs whitespace-nowrap tabular-nums',
+                                  expired ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                                    : nearExpiry ? 'text-amber-600 dark:text-amber-400 font-semibold'
+                                    : 'text-foreground/80',
+                                )}>
+                                  {expired && '⚠ '}{formatDate(item.expiryDate)}
+                                </span>
+                              )
+                            })() : (
                               <span className="text-muted-foreground/40 text-xs">—</span>
                             )}
                           </TableCell>
@@ -937,13 +1077,15 @@ export default function GRNPage() {
                         </p>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setSelectedPOId(null); setGrnItems([]) }}
-                    >
-                      Change PO
-                    </Button>
+                    {!editMode && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setSelectedPOId(null); setGrnItems([]) }}
+                      >
+                        Change PO
+                      </Button>
+                    )}
                   </div>
                   {(selectedPO.status === 'PARTIALLY_RECEIVED' || isSupplementary) && (
                     <div className="flex items-start gap-2 rounded-lg border border-blue-200/60 bg-blue-50/50 px-3 py-2 dark:border-blue-800/30 dark:bg-blue-900/10">
@@ -963,6 +1105,44 @@ export default function GRNPage() {
             </div>
           )}
 
+          {/* Edit mode (PO source): allow adding extra lines. Direct source
+              already has its own product search below. */}
+          {editMode && sourceType === 'po' && (
+            <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 dark:bg-muted/5">
+              <div className="relative">
+                <Input
+                  icon={<Search />}
+                  placeholder="Search products to add a line..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                />
+                {productSearch && filteredProducts.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
+                  >
+                    {filteredProducts.map((p) => (
+                      <button
+                        key={p.id}
+                        className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
+                        onClick={() => addDirectItem(p)}
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{p.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {[p.manufacturer, p.genericName].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        <span className="font-mono text-sm text-muted-foreground">{formatCurrency(p.purchaseRate)}</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Direct entry: product search */}
           {sourceType === 'direct' && (
             <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 space-y-3 dark:bg-muted/5">
@@ -973,13 +1153,15 @@ export default function GRNPage() {
                     <p className="text-xs font-semibold text-foreground">{directSupplierName}</p>
                     <p className="text-[10px] text-muted-foreground">Selected supplier</p>
                   </div>
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
-                  >
-                    ✕ Change
-                  </button>
+                  {!editMode && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
+                    >
+                      ✕ Change
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-start gap-2">
@@ -1035,8 +1217,11 @@ export default function GRNPage() {
                   </Button>
                 </div>
               )}
-              {/* Product search */}
-              <div className="relative">
+              {/* Product search + Add Product. Mirrors the supplier row above —
+                  Add Product opens the shared ProductFormDialog drawer so users
+                  can create a master record without leaving the GRN flow. */}
+              <div className="flex items-start gap-2">
+                <div className="relative flex-1">
                 <Input
                   icon={<Search />}
                   placeholder="Search products to add..."
@@ -1066,6 +1251,16 @@ export default function GRNPage() {
                     ))}
                   </motion.div>
                 )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => setProductFormOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Product
+                </Button>
               </div>
             </div>
           )}
@@ -1148,7 +1343,7 @@ export default function GRNPage() {
                             </Badge>
                           )
                         )}
-                        {sourceType === 'direct' && (
+                        {(sourceType === 'direct' || editMode) && (
                           <Button
                             variant="ghost"
                             size="icon-sm"
@@ -1315,6 +1510,79 @@ export default function GRNPage() {
                 </div>
               </div>
 
+              {/* ── Payment at receipt ── (create-only, not for replacements) */}
+              {!editMode && !replacementReturnId && (
+                <>
+                  <Separator className="bg-border/50" />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
+                        <Wallet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Payment
+                      </p>
+                    </div>
+                    <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5 mb-2.5">
+                      {([['CREDIT', 'Credit'], ['PARTIAL', 'Partial'], ['PAID', 'Paid in full']] as const).map(([val, label]) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setPayChoice(val)}
+                          className={cn(
+                            'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all',
+                            payChoice === val
+                              ? 'bg-background text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {payChoice === 'CREDIT' ? (
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Full invoice amount will be added to the supplier's outstanding.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Paid</Label>
+                            <Input
+                              type="number"
+                              className="h-8 font-mono text-xs"
+                              placeholder="0.00"
+                              value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
+                              disabled={payChoice === 'PAID'}
+                              max={invoiceAmount || undefined}
+                              onChange={(e) => setPaidAmount(Number(e.target.value))}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Mode</Label>
+                            <Select value={payMode} onValueChange={(v) => setPayMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="CASH">Cash</SelectItem>
+                                <SelectItem value="CHEQUE">Cheque</SelectItem>
+                                <SelectItem value="NEFT_UPI">NEFT / UPI</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-muted-foreground">Balance to outstanding</span>
+                          <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                            {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
               <Separator className="bg-border/50" />
 
               {/* ── Live Summary ── */}
@@ -1437,7 +1705,7 @@ export default function GRNPage() {
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handlePrintGrn}>
                     <Printer className="mr-1.5 h-3.5 w-3.5" />
-                    Print GRN
+                    Print PR
                   </Button>
                   <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handleDownloadGrn}>
                     <Download className="mr-1.5 h-3.5 w-3.5" />
@@ -1461,8 +1729,8 @@ export default function GRNPage() {
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
               )}
               {showConfirm
-                ? (isSubmitting ? 'Saving…' : 'Confirm & Create GRN')
-                : 'Review & Confirm GRN'}
+                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update PR' : 'Confirm & Create PR')
+                : editMode ? 'Review & Update PR' : 'Review & Confirm PR'}
             </Button>
             {showConfirm ? (
               <Button
@@ -1473,6 +1741,10 @@ export default function GRNPage() {
               >
                 <ChevronLeft className="mr-1.5 h-4 w-4" />
                 Back to Edit
+              </Button>
+            ) : editMode ? (
+              <Button variant="outline" className="w-full text-muted-foreground" onClick={() => navigate('/purchase/grn-list')}>
+                Cancel
               </Button>
             ) : grnItems.length > 0 ? (
               <Button variant="outline" className="w-full text-muted-foreground" onClick={handleDiscard}>
@@ -1510,7 +1782,7 @@ export default function GRNPage() {
                 <div>
                   <h2 className="text-base font-bold">Short Delivery Detected</h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    GRN saved. {shortActionDialog.shortItems.length} product(s) received less than ordered.
+                    Purchase Received saved. {shortActionDialog.shortItems.length} product(s) received less than ordered.
                   </p>
                 </div>
               </div>
@@ -1551,7 +1823,7 @@ export default function GRNPage() {
                 <button
                   onClick={() => {
                     setShortActionDialog(null)
-                    toast.info('PO marked as Partially Received. You can raise another GRN against this PO when the remaining items arrive.', { duration: 6000 })
+                    toast.info('PO marked as Partially Received. You can raise another PR against this PO when the remaining items arrive.', { duration: 6000 })
                     navigate('/purchase/grn-list')
                   }}
                   className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
@@ -1561,7 +1833,7 @@ export default function GRNPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold">Expect Supplementary Delivery</p>
-                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another GRN when goods arrive.</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another PR when goods arrive.</p>
                   </div>
                 </button>
 
@@ -1643,6 +1915,19 @@ export default function GRNPage() {
           } catch {
             // master data refresh still happened; user can pick manually
           }
+        }}
+      />
+
+      <ProductFormDialog
+        open={productFormOpen}
+        onOpenChange={setProductFormOpen}
+        prefillName={productSearch}
+        onSaved={async (newProduct) => {
+          await fetchMasterData()
+          // Auto-add to the GRN items table so the pharmacist can immediately
+          // enter batch/qty for the just-created product — same convenience
+          // the customer-add / supplier-add flows provide elsewhere.
+          addDirectItem(newProduct)
         }}
       />
     </div>

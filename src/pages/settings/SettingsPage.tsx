@@ -77,7 +77,7 @@ interface SettingsSection {
 
 const settingsSections: SettingsSection[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, description: 'Company details & invoicing' },
-  { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / GRN formats' },
+  { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PR formats' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
