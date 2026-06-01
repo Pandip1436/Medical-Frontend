@@ -307,7 +307,7 @@ export default function LoginPage({
       `}</style>
 
       <div
-        className="ms-font-body fixed inset-0 w-screen h-dvh overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row"
+        className="ms-font-body fixed inset-0 w-screen-z h-screen-z overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row"
       >
 
         {/* ─── LEFT PANEL — FORM ──────────────────────────────────── */}

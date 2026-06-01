@@ -276,6 +276,10 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     scroll-behavior: smooth;
+    /* Display-scale is applied as a root font-size by src/hooks/useUiScale.ts
+       (and the pre-paint script in index.html). Because the app is rem-based,
+       that scales the whole UI without transforms — so nothing else here needs
+       to compensate. */
   }
 
   body {
@@ -563,6 +567,26 @@
   .animate-slide-in-right {
     animation: none !important;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FULL-HEIGHT/WIDTH UTILITIES
+   Semantic aliases used by the app shell and full-screen pages. (They were
+   introduced during the display-scale work; with font-size scaling they're
+   just plain viewport-fill utilities.)
+   ═══════════════════════════════════════════════════════════════ */
+.h-screen-z {
+  height: 100dvh;
+}
+.min-h-screen-z {
+  min-height: 100dvh;
+}
+.w-screen-z {
+  width: 100vw;
+}
+/* Page body that fills the viewport below the 3.5rem (h-14) app header. */
+.h-content-viewport {
+  height: calc(100dvh - 3.5rem);
 }
 
 /* ═══════════════════════════════════════════════════════════════

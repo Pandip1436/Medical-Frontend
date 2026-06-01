@@ -7,6 +7,19 @@ import api from '@/lib/api'
 type Theme = 'light' | 'dark' | 'system'
 type Language = 'en' | 'ta' | 'hi'
 
+// Display-scale factor, applied as a root font-size multiplier (see
+// src/hooks/useUiScale.ts). 'auto' partially counteracts OS display-scaling;
+// a number is a fixed factor (e.g. 0.8 = 80%). Per-device — see resolvedUiScale.
+type UiScale = 'auto' | number
+
+// Lower bound for auto mode. Auto only PARTIALLY counteracts OS scaling:
+// fully cancelling it (e.g. 1/1.5 = 0.667 at Windows 150%) renders the app at
+// 100%-density, which is too small to read comfortably — 150% exists so text
+// is a comfortable size. The 0.8 floor relieves the "oversized/congested"
+// feeling (≈120% effective at 150% scaling) while staying readable. Users who
+// want larger/smaller pick a fixed value in Settings → General → Display Scale.
+const UI_SCALE_AUTO_MIN = 0.8
+
 interface AuthState {
   // Auth
   user: User | null
@@ -17,6 +30,7 @@ interface AuthState {
   sidebarCollapsed: boolean
   mobileSidebarOpen: boolean
   language: Language
+  uiScale: UiScale
   hasCompletedOnboarding: boolean
 
   // Actions
@@ -28,6 +42,8 @@ interface AuthState {
   toggleMobileSidebar: () => void
   setMobileSidebarOpen: (open: boolean) => void
   setLanguage: (language: Language) => void
+  setUiScale: (scale: UiScale) => void
+  resolvedUiScale: () => number
   setOnboardingComplete: () => void
 }
 
@@ -43,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
       sidebarCollapsed: false,
       mobileSidebarOpen: false,
       language: 'en' as Language,
+      uiScale: 'auto' as UiScale,
       hasCompletedOnboarding: false,
 
       // Auth actions
@@ -144,6 +161,27 @@ export const useAuthStore = create<AuthState>()(
         set({ language })
       },
 
+      setUiScale: (scale: UiScale) => {
+        set({ uiScale: scale })
+      },
+
+      resolvedUiScale: (): number => {
+        const { uiScale } = get()
+        if (uiScale === 'auto') {
+          if (typeof window === 'undefined') return 1
+          // Only counteract on desktop. On touch/mobile a high devicePixelRatio
+          // is genuine screen density (retina), NOT Windows oversizing — scaling
+          // it down would shrink the UI (e.g. the customer-facing pay page).
+          const isDesktop =
+            window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 1024
+          if (!isDesktop) return 1
+          const dpr = window.devicePixelRatio || 1
+          // Counteract OS scaling; clamp so it never drops below the floor.
+          return Math.min(1, Math.max(UI_SCALE_AUTO_MIN, 1 / dpr))
+        }
+        return uiScale
+      },
+
       setOnboardingComplete: () => {
         set({ hasCompletedOnboarding: true })
       },
@@ -156,6 +194,7 @@ export const useAuthStore = create<AuthState>()(
         theme: state.theme,
         language: state.language,
         sidebarCollapsed: state.sidebarCollapsed,
+        uiScale: state.uiScale,
         hasCompletedOnboarding: state.hasCompletedOnboarding,
       }),
     }

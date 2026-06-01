@@ -2,6 +2,7 @@ import { useEffect, lazy, Suspense } from 'react'
 import { useRoute, navigate, getRouteConfig } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { useUiScale } from '@/hooks/useUiScale'
 import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import AppLayout from '@/components/layout/AppLayout'
@@ -208,6 +209,10 @@ function App() {
 
   // Register global keyboard shortcuts
   useGlobalShortcuts()
+
+  // Apply the display-scale preference (counteracts OS scaling). Mounted here
+  // so it covers the login screen too, not just the authenticated app.
+  useUiScale()
 
   // Public routes that bypass auth entirely — customer-facing pages linked
   // from WhatsApp messages. The user reaching these has no JWT and shouldn't

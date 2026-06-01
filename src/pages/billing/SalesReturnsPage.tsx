@@ -656,7 +656,7 @@ export default function SalesReturnsPage() {
   }
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ── Fixed Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-4 py-3 sm:px-6">
         {/* Title on the left, step indicators on the right */}

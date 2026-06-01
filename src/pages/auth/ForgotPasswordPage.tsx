@@ -440,7 +440,7 @@ export default function ForgotPasswordPage({
         }
       `}</style>
 
-      <div className="ms-font-body fixed inset-0 w-screen h-dvh overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row">
+      <div className="ms-font-body fixed inset-0 w-screen-z h-screen-z overflow-hidden bg-[#f8fafc] text-[#0a1628] flex flex-col-reverse lg:flex-row">
 
         {/* ─── LEFT PANEL — FORM ──────────────────────────────────── */}
         <aside className="relative w-full lg:w-[45%] h-full flex items-center justify-center px-6 py-6 lg:px-12 lg:py-8 overflow-y-auto">

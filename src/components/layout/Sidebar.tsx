@@ -313,7 +313,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
       .filter((group) => group.items.length > 0)
   }, [user?.role])
 
-  const sidebarWidth = sidebarCollapsed ? 64 : 260
+  // rem (not px) so the sidebar scales with the display-scale font-size.
+  const sidebarWidth = sidebarCollapsed ? '4rem' : '16.25rem'
 
   const isActive = (item: NavItem) =>
     currentPath === item.href ||
@@ -676,7 +677,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
         initial={false}
         animate={{ width: sidebarWidth }}
         transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-        className="fixed left-0 top-0 z-40 flex h-screen flex-col bg-sidebar text-sidebar-foreground"
+        className="fixed left-0 top-0 z-40 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground"
       >
         {/* Subtle gradient overlay - barely visible */}
         <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/2 via-transparent to-black/2" />

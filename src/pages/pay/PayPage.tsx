@@ -263,7 +263,7 @@ function Shell({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-dvh bg-muted/30 px-4 py-6 pb-safe">
+    <div className="min-h-screen-z bg-muted/30 px-4 py-6 pb-safe">
       <div className="mx-auto max-w-md">
         <header className="mb-5 text-center">
           <h1 className="text-xl font-semibold">{pharmacy ?? 'Pharmacy'}</h1>

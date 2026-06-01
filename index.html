@@ -5,6 +5,26 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PBIMS - Hospital Suppliers</title>
+    <script>
+      // Scale the root font-size BEFORE first paint to avoid a visible snap.
+      // Mirrors src/hooks/useUiScale.ts + authStore.resolvedUiScale. Keep the
+      // 'auto' formula and 0.8 floor in sync with authStore.
+      (function () {
+        try {
+          var saved = localStorage.getItem('pbims-auth-storage');
+          var scale = saved ? JSON.parse(saved).state.uiScale : 'auto';
+          var factor;
+          if (scale === 'auto' || scale == null) {
+            var isDesktop = window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 1024;
+            var dpr = window.devicePixelRatio || 1;
+            factor = isDesktop ? Math.min(1, Math.max(0.8, 1 / dpr)) : 1;
+          } else {
+            factor = scale;
+          }
+          if (factor !== 1) document.documentElement.style.fontSize = (factor * 100) + '%';
+        } catch (e) { /* no-op: React will apply it on mount */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

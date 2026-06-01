@@ -3551,7 +3551,7 @@ export default function NewSalePage() {
   return (
     <TooltipProvider>
       {/* responsive: h-dvh handles mobile viewport collapse; outer scrolls horizontally on lower-resolution desktops where the lg+ side-by-side layout can't fit (~1208px minimum: 920px table + 288px sidebar). Inner enforces lg:min-w-[1280px] so columns keep their proper desktop dimensions instead of compressing. */}
-      <div className="h-dvh w-full overflow-x-auto overflow-y-hidden bg-background">
+      <div className="h-screen-z w-full overflow-x-auto overflow-y-hidden bg-background">
       <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6 lg:min-w-7xl">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip

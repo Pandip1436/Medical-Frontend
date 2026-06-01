@@ -7,7 +7,7 @@ interface AuthLayoutProps {
 export default function AuthLayout({ children }: AuthLayoutProps) {
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center bg-cover bg-center bg-no-repeat px-4 py-8"
+      className="relative flex min-h-screen-z items-center justify-center bg-cover bg-center bg-no-repeat px-4 py-8"
       style={{ backgroundImage: "url('/login-bg.png')" }}
     >
       {/* Subtle overlay to ensure form readability while keeping image visible */}

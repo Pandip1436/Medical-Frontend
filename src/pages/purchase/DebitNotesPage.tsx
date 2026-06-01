@@ -318,7 +318,7 @@ export default function DebitNotesPage() {
   }
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
 
       {/* ── Content ── */}
       <div className="flex-1 overflow-hidden bg-muted/20">

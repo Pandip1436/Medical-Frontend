@@ -91,13 +91,14 @@ export default function AppLayout({
 
   if (!isAuthenticated) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-background">
+      <div className="flex h-screen-z items-center justify-center bg-background">
         <p className="text-muted-foreground">Redirecting to login...</p>
       </div>
     )
   }
 
-  const sidebarWidth = sidebarCollapsed ? 64 : 256
+  // rem (not px) so the sidebar scales with the display-scale font-size.
+  const sidebarWidth = sidebarCollapsed ? '4rem' : '16rem'
 
   // POS-style routes use full viewport with no global header/padding
   const isFullViewport = currentPath === '/billing/new'
@@ -128,8 +129,8 @@ export default function AppLayout({
     <div
       className={
         isFullViewport || isCompactPage
-          ? 'flex h-dvh overflow-hidden bg-background'
-          : 'flex min-h-dvh bg-background'
+          ? 'flex h-screen-z overflow-hidden bg-background'
+          : 'flex min-h-screen-z bg-background'
       }
     >
       {/* Sidebar */}
@@ -142,7 +143,7 @@ export default function AppLayout({
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           isFullViewport || isCompactPage
-            ? 'flex flex-1 flex-col h-dvh overflow-hidden'
+            ? 'flex flex-1 flex-col h-screen-z overflow-hidden'
             : 'flex flex-1 flex-col'
         }
       >

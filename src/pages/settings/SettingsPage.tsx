@@ -157,7 +157,7 @@ export default function SettingsPage() {
   const ActiveIcon = activeConfig?.icon || Settings
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
@@ -716,6 +716,11 @@ function GeneralSettingsSection() {
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
   const updateGeneralSettings = useSettingsStore((s) => s.updateGeneralSettings)
 
+  // Display scale is a per-device preference (authStore, local-only) and applies
+  // live — not part of the batched "Save General Settings" below.
+  const uiScale = useAuthStore((s) => s.uiScale)
+  const setUiScale = useAuthStore((s) => s.setUiScale)
+
   // Local draft state so toggles feel responsive; saved as a batch on Save click.
   const [dateFormat, setDateFormat] = useState<DateFormat>(storeSettings.dateFormat)
   const [autoPrint, setAutoPrint] = useState(storeSettings.autoPrint)
@@ -773,25 +778,55 @@ function GeneralSettingsSection() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* Date Format */}
+          {/* Display */}
           <div>
             <SectionLabel>Display</SectionLabel>
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium text-foreground">Date Format</p>
-                <p className="text-xs text-muted-foreground">How dates are displayed across the app</p>
+            <div className="mt-3 space-y-2">
+              {/* Display Scale — applies live, per-device (authStore) */}
+              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
+                <div className="space-y-0.5 pr-4">
+                  <p className="text-sm font-medium text-foreground">Display Scale</p>
+                  <p className="text-xs text-muted-foreground">
+                    Auto adjusts to your screen so the app isn't oversized at high Windows
+                    scaling. Pick a fixed size to override.
+                  </p>
+                </div>
+                <Select
+                  value={uiScale === 'auto' ? 'auto' : String(uiScale)}
+                  onValueChange={(v) => setUiScale(v === 'auto' ? 'auto' : Number(v))}
+                >
+                  <SelectTrigger className="w-44 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (fit screen)</SelectItem>
+                    <SelectItem value="1.1">Larger (110%)</SelectItem>
+                    <SelectItem value="1">Default (100%)</SelectItem>
+                    <SelectItem value="0.9">Compact (90%)</SelectItem>
+                    <SelectItem value="0.8">Smaller (80%)</SelectItem>
+                    <SelectItem value="0.75">Smallest (75%)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Select value={dateFormat} onValueChange={(v) => setDateFormat(v as DateFormat)}>
-                <SelectTrigger className="w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="dd/mm/yyyy">DD/MM/YYYY</SelectItem>
-                  <SelectItem value="mm/dd/yyyy">MM/DD/YYYY</SelectItem>
-                  <SelectItem value="yyyy-mm-dd">YYYY-MM-DD</SelectItem>
-                  <SelectItem value="dd-mmm-yyyy">DD-MMM-YYYY</SelectItem>
-                </SelectContent>
-              </Select>
+
+              {/* Date Format */}
+              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">Date Format</p>
+                  <p className="text-xs text-muted-foreground">How dates are displayed across the app</p>
+                </div>
+                <Select value={dateFormat} onValueChange={(v) => setDateFormat(v as DateFormat)}>
+                  <SelectTrigger className="w-44 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dd/mm/yyyy">DD/MM/YYYY</SelectItem>
+                    <SelectItem value="mm/dd/yyyy">MM/DD/YYYY</SelectItem>
+                    <SelectItem value="yyyy-mm-dd">YYYY-MM-DD</SelectItem>
+                    <SelectItem value="dd-mmm-yyyy">DD-MMM-YYYY</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 

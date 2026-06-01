@@ -350,7 +350,7 @@ export default function CustomerDetailPage() {
   // ── Render guards ──────────────────────────────────────────
   if (!customerId) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
+      <div className="flex h-content-viewport items-center justify-center">
         <div className="text-center">
           <AlertTriangle className="mx-auto h-8 w-8 text-amber-500" />
           <p className="mt-2 text-sm">No customer ID provided</p>
@@ -392,7 +392,7 @@ export default function CustomerDetailPage() {
   }
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ── Sticky Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-5 py-3">
         <div className="flex items-start justify-between gap-3">
