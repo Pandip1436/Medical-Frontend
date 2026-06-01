@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { parseISO } from 'date-fns'
 import {
@@ -7,16 +7,18 @@ import {
   ArrowUpRight,
   Clock,
   IndianRupee,
+  Loader2,
   Package,
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrencyCompact } from '@/lib/utils'
 import type { ExpiringBatch, LowStockItem, OverdueCustomer } from './types'
 
-type FilterTag = 'all' | 'due' | 'low' | 'exp'
+export type FilterTag = 'all' | 'due' | 'low' | 'exp'
 
 type Severity = 'critical' | 'high' | 'medium'
 
@@ -27,6 +29,9 @@ interface AttentionRow {
   tagColor: string
   icon: LucideIcon
   title: string
+  // Optional second identity line shown directly under the title (used by
+  // overdue customer rows to surface phone for disambiguation).
+  titleSub?: string
   meta: string
   actionLabel: string
   onAction: () => void
@@ -89,6 +94,7 @@ function buildRows({
   })
 
   overdueCustomers.forEach((cust) => {
+    const phone = cust.customerPhone && cust.customerPhone !== '0000000000' ? cust.customerPhone : undefined
     rows.push({
       id: `due-${cust.customerId || cust.customerName}`,
       severity: cust.daysOverdue > 90 ? 'critical' : cust.daysOverdue > 60 ? 'high' : 'medium',
@@ -96,6 +102,7 @@ function buildRows({
       tagColor: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
       icon: IndianRupee,
       title: cust.customerName,
+      titleSub: phone,
       meta: `${formatCurrencyCompact(cust.overdueAmount)} · ${cust.daysOverdue} ${cust.daysOverdue === 1 ? 'day' : 'days'} overdue · ${cust.invoiceCount} ${cust.invoiceCount === 1 ? 'invoice' : 'invoices'}`,
       actionLabel: 'Remind',
       onAction: () =>
@@ -134,6 +141,11 @@ interface NeedsAttentionInboxProps {
   lowStockTotal: number
   expiringTotal: number
   overdueTotal: number
+  isLoadingMore?: boolean
+  // Lazy-load the next page for the active filter's source(s). For 'all' the
+  // parent extends whichever sources still have rows; for a single-type tab it
+  // pages just that source.
+  onLoadMore?: (filter: FilterTag) => void
 }
 
 export function NeedsAttentionInbox({
@@ -143,6 +155,8 @@ export function NeedsAttentionInbox({
   lowStockTotal,
   expiringTotal,
   overdueTotal,
+  isLoadingMore = false,
+  onLoadMore,
 }: NeedsAttentionInboxProps) {
   const rows = useMemo(
     () => buildRows({ lowStockItems, expiringBatches, overdueCustomers }),
@@ -151,7 +165,7 @@ export function NeedsAttentionInbox({
   const [filter, setFilter] = useState<FilterTag>('all')
 
   // Tab totals use BACKEND counts so users see true magnitudes (the row list
-  // is only the top-N samples per type).
+  // grows as pages are lazy-loaded on scroll).
   const tabs: Array<{ value: FilterTag; label: string; count: number }> = [
     { value: 'all', label: 'All', count: lowStockTotal + expiringTotal + overdueTotal },
     { value: 'due', label: 'Due', count: overdueTotal },
@@ -169,10 +183,22 @@ export function NeedsAttentionInbox({
   }, [rows, filter])
 
   const totalCount = lowStockTotal + expiringTotal + overdueTotal
+  const activeTotal = tabs.find((t) => t.value === filter)?.count ?? 0
+  const hasMore = Boolean(onLoadMore) && filteredRows.length < activeTotal
+
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useInfiniteScroll({
+    root: viewportRef,
+    sentinel: sentinelRef,
+    hasMore,
+    isLoading: isLoadingMore,
+    onLoadMore: () => onLoadMore?.(filter),
+  })
 
   return (
     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="h-full">
-      <Card className="flex flex-col min-h-75 lg:max-h-115">
+      <Card className="flex flex-col min-h-75 lg:h-115">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -182,28 +208,39 @@ export function NeedsAttentionInbox({
             <FilterTabs tabs={tabs} active={filter} onChange={setFilter} />
           </div>
         </CardHeader>
-        <CardContent className="flex-1 overflow-hidden">
+        <CardContent className="flex-1 min-h-0 overflow-hidden">
           {totalCount === 0 ? (
             <EmptyState />
           ) : filteredRows.length === 0 ? (
             <FilterEmptyState />
           ) : (
-            <ScrollArea className="h-full pr-3">
+            <ScrollArea className="h-full pr-3" viewportRef={viewportRef}>
               <div className="space-y-1.5">
                 {filteredRows.map((row, idx) => (
                   <AttentionItem key={row.id} row={row} index={idx} />
                 ))}
               </div>
+              {hasMore && <div ref={sentinelRef} className="h-px" aria-hidden />}
+              {isLoadingMore && <LoadMoreRow />}
             </ScrollArea>
           )}
         </CardContent>
         <ViewAllFooter
           filter={filter}
           visibleCount={filteredRows.length}
-          totalCount={tabs.find((t) => t.value === filter)?.count ?? 0}
+          totalCount={activeTotal}
         />
       </Card>
     </motion.div>
+  )
+}
+
+function LoadMoreRow() {
+  return (
+    <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      Loading more…
+    </div>
   )
 }
 
@@ -332,6 +369,9 @@ function AttentionItem({ row, index }: { row: AttentionRow; index: number }) {
           </span>
           <p className="truncate text-sm font-medium leading-snug text-foreground">{row.title}</p>
         </div>
+        {row.titleSub && (
+          <p className="font-mono text-[11px] text-muted-foreground tabular-nums leading-tight">{row.titleSub}</p>
+        )}
         <p className="mt-0.5 text-[11px] text-muted-foreground/80">{row.meta}</p>
       </div>
 

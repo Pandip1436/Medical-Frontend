@@ -190,7 +190,6 @@ export function ImportCustomersDrawer({
         referredBy: c.referredBy,
         creditLimit: c.creditLimit,
         openingBalance: c.openingBalance,
-        loyaltyPoints: c.loyaltyPoints,
         gstin: c.gstin,
         dlNumber: c.dlNumber,
         registrationNumber: c.registrationNumber,

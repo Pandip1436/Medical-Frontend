@@ -635,13 +635,13 @@ export default function LedgerPage() {
     },
     {
       key: 'net',
-      title: 'Net Balance',
+      title: 'Closing Balance',
       value: Math.abs(summary.netBalance),
       subtitle:
         summary.netBalance > 0
-          ? 'Dr — receivable'
+          ? 'Dr — receivable (end of period)'
           : summary.netBalance < 0
-            ? 'Cr — payable'
+            ? 'Cr — payable (end of period)'
             : 'Settled',
       icon: Wallet,
       iconBg:

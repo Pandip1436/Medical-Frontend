@@ -174,6 +174,8 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'secondary',
   SETTLED: 'success',
   PENDING: 'warning',
+  PENDING_REVIEW: 'warning',
+  APPROVED: 'success',
 }
 
 const TYPE_BADGE_VARIANT: Record<string, 'success' | 'purple' | 'warning' | 'secondary'> = {
@@ -233,15 +235,55 @@ export default function CustomerDetailPage() {
     return null
   })()
 
-  // Trigger lazy loads when their tab becomes active
+  // Stable refetch handles. The wrapper objects (d.creditNotes etc.) are
+  // rebuilt every render via spread, but the .refetch functions inside are
+  // now useCallback'd in useCustomerDetail keyed on customerId. Pulling them
+  // into locals keeps the effect deps stable so we don't re-fetch on every
+  // render.
+  const refetchLedger = d.ledger.refetch
+  const refetchInvoices = d.invoices.refetch
+  const refetchCreditNotes = d.creditNotes.refetch
+  const refetchPayments = d.payments.refetch
+  const ensureQuotationsLoaded = d.quotations.ensureLoaded
+  const ensurePrescriptionsLoaded = d.prescriptions.ensureLoaded
+  const ensureActivitiesLoaded = d.activities.ensureLoaded
+
+  // Trigger fetches when their tab becomes active. Server-mutable tabs (CN
+  // status, invoice payment state, payments, ledger) call `refetch` so a
+  // tab click always pulls fresh rows — the user can approve/reject a CN on
+  // /billing/credit-notes, collect a payment on /customers/outstanding, and
+  // the change shows up the moment they switch back to that tab here.
+  // Static-ish tabs (quotations, prescriptions, activity) keep the cheaper
+  // ensureLoaded behaviour.
   useEffect(() => {
-    if (activeTab === 'invoices') void d.invoices.ensureLoaded()
-    if (activeTab === 'creditNotes') void d.creditNotes.ensureLoaded()
-    if (activeTab === 'payments') void d.payments.ensureLoaded()
-    if (activeTab === 'quotations') void d.quotations.ensureLoaded()
-    if (activeTab === 'rx') void d.prescriptions.ensureLoaded()
-    if (activeTab === 'activity') void d.activities.ensureLoaded()
-  }, [activeTab, d.invoices, d.creditNotes, d.payments, d.quotations, d.prescriptions, d.activities])
+    if (activeTab === 'ledger') void refetchLedger()
+    if (activeTab === 'invoices') void refetchInvoices()
+    if (activeTab === 'creditNotes') void refetchCreditNotes()
+    if (activeTab === 'payments') void refetchPayments()
+    if (activeTab === 'quotations') void ensureQuotationsLoaded()
+    if (activeTab === 'rx') void ensurePrescriptionsLoaded()
+    if (activeTab === 'activity') void ensureActivitiesLoaded()
+  }, [activeTab, refetchLedger, refetchInvoices, refetchCreditNotes, refetchPayments, ensureQuotationsLoaded, ensurePrescriptionsLoaded, ensureActivitiesLoaded])
+
+  // Belt-and-braces: also refresh whenever the browser tab regains focus
+  // (alt-tabbing back from another window or tab).
+  useEffect(() => {
+    const refetchActive = () => {
+      void refetchLedger()
+      if (activeTab === 'invoices') void refetchInvoices()
+      if (activeTab === 'creditNotes') void refetchCreditNotes()
+      if (activeTab === 'payments') void refetchPayments()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refetchActive()
+    }
+    window.addEventListener('focus', refetchActive)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', refetchActive)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [activeTab, refetchLedger, refetchInvoices, refetchCreditNotes, refetchPayments])
 
   const cust = d.customer.data
   const kpis = d.ledger.data?.kpis ?? []
@@ -522,10 +564,6 @@ export default function CustomerDetailPage() {
                         <span className="text-muted-foreground/60">₹0</span>
                       )
                     }
-                  />
-                  <Row
-                    label="Loyalty"
-                    value={<span className="font-mono">{cust.loyaltyPoints ?? 0} pts</span>}
                   />
                   {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
                   {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
@@ -849,7 +887,7 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2 text-xs">{cn.reason || '—'}</TableCell>
                       <TableCell className="px-3 py-2 text-xs"><Badge variant="secondary" size="sm">{cn.settlementMode || '—'}</Badge></TableCell>
                       <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(cn.totalAmount ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2"><StatusPill status={cn.settledAt ? 'SETTLED' : 'PENDING'} /></TableCell>
+                      <TableCell className="px-3 py-2"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></TableCell>
                     </TableRow>
                   )}
                   columns={['CN #', 'Date', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}

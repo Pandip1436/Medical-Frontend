@@ -37,6 +37,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
@@ -73,6 +74,7 @@ import {
   type ProductFormValues,
 } from '@/components/products/productFormSchema'
 import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
+import { UNIT_OF_MEASURE_OPTIONS } from '@/lib/unitOfMeasureOptions'
 import {
   Tooltip,
   TooltipContent,
@@ -212,7 +214,7 @@ function isNearExpiry(expiryDate: string): boolean {
 
 function formatExpiryShort(dateStr: string): string {
   const d = new Date(dateStr)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
 }
 
 
@@ -308,7 +310,7 @@ function BillingRow({
   onUpdate,
   onRemove,
   customerLastRates,
-  customerInvoices,
+  productPurchases,
   showInlineHistory = true,
   onRequestAddProduct,
 }: {
@@ -319,7 +321,9 @@ function BillingRow({
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
   customerLastRates: Record<string, number>
-  customerInvoices: Invoice[]
+  // Pre-fetched purchase history keyed by productId. Sourced from the
+  // /billing/product-purchases endpoint which bypasses the 200-invoice cap.
+  productPurchases: Record<string, Array<{ date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }>>
   showInlineHistory?: boolean
   onRequestAddProduct?: (rowId: string, prefillName?: string) => void
 }) {
@@ -330,7 +334,26 @@ function BillingRow({
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 400 })
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, bottom: 0, left: 0, width: 400, openUp: false, maxHeight: 320 })
+
+  // Position the product dropdown: anchor to the input, widen to a readable
+  // minimum (the PRODUCT column is too narrow and truncated names), and flip
+  // upward + cap the height when there isn't room below — otherwise on a low
+  // row the list runs off-screen and the "Add new product" footer is unreachable.
+  const computeDropdownPos = (rect: DOMRect) => {
+    const margin = 12
+    const spaceBelow = window.innerHeight - rect.bottom - margin
+    const spaceAbove = rect.top - margin
+    const openUp = spaceBelow < 340 && spaceAbove > spaceBelow
+    return {
+      top: rect.bottom + 4,
+      bottom: window.innerHeight - rect.top + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 440),
+      openUp,
+      maxHeight: Math.max(200, openUp ? spaceAbove : spaceBelow),
+    }
+  }
   const [historyOpen, setHistoryOpen] = useState(true)
 
   const productRef = useRef<HTMLTableCellElement>(null)
@@ -379,26 +402,14 @@ function BillingRow({
     return products.find((p) => p.id === item.productId)
   }, [item.productId])
 
-  // Product-specific purchase history for the selected customer
+  // Product-specific purchase history for the selected customer. Pulled
+  // from the parent-managed productPurchases map (sourced from the dedicated
+  // /billing/product-purchases endpoint), so it is NOT capped by the 200
+  // customer-invoice ceiling and shows every past sale of this product.
   const productHistory = useMemo(() => {
     if (!item.productId) return []
-    const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
-    for (const inv of customerInvoices) {
-      for (const it of inv.items ?? []) {
-        if (it.productId === item.productId) {
-          hits.push({
-            date: inv.date ?? inv.createdAt,
-            invoiceNumber: inv.invoiceNumber,
-            batchNumber: it.batchNumber ?? '—',
-            qty: Number(it.quantity),
-            rate: Number(it.rate),
-            status: inv.status,
-          })
-        }
-      }
-    }
-    return hits.slice(0, 5)
-  }, [item.productId, customerInvoices])
+    return productPurchases[item.productId] ?? []
+  }, [item.productId, productPurchases])
 
   // Auto-open history when product first gets history entries
   useEffect(() => {
@@ -628,15 +639,13 @@ function BillingRow({
                   onUpdate(item.id, { productName: e.target.value })
                 }
                 if (inputRef.current) {
-                  const rect = inputRef.current.getBoundingClientRect()
-                  setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+                  setDropdownPos(computeDropdownPos(inputRef.current.getBoundingClientRect()))
                 }
                 setShowProductDropdown(true)
               }}
               onFocus={() => {
                 if (inputRef.current) {
-                  const rect = inputRef.current.getBoundingClientRect()
-                  setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+                  setDropdownPos(computeDropdownPos(inputRef.current.getBoundingClientRect()))
                 }
                 setShowProductDropdown(true)
               }}
@@ -671,15 +680,16 @@ function BillingRow({
           </div>
           {showProductDropdown && createPortal(
             <div
-              style={{ 
-                position: 'fixed', 
-                top: dropdownPos.top, 
-                width: Math.min(dropdownPos.width, window.innerWidth - 32), 
+              style={{
+                position: 'fixed',
+                ...(dropdownPos.openUp ? { bottom: dropdownPos.bottom } : { top: dropdownPos.top }),
+                width: Math.min(dropdownPos.width, window.innerWidth - 32),
+                maxHeight: dropdownPos.maxHeight,
                 zIndex: 9999,
                 maxWidth: 'calc(100vw - 32px)',
                 left: Math.max(16, Math.min(dropdownPos.left, window.innerWidth - (dropdownPos.width || 400) - 16))
               }}
-              className="rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
+              className="flex flex-col rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
             >
               <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30">
                 {rowProductSearch.loading && filteredProducts.length === 0 ? (
@@ -695,7 +705,7 @@ function BillingRow({
                 )}
               </div>
               <div
-                className="max-h-70 overflow-y-auto"
+                className="flex-1 min-h-0 overflow-y-auto"
                 onScroll={(e) => {
                   const el = e.currentTarget
                   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
@@ -1632,31 +1642,43 @@ function PaymentPanel({
       {/* Credit */}
       {mode === 'CREDIT' && (
         <div className="space-y-2.5">
-          {customer && (
-            <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5 text-[11px] space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Outstanding</span>
-                <span className="font-semibold font-mono tabular-nums text-foreground">
-                  {formatCurrency(Number(customer.currentOutstanding) || 0)}
-                </span>
+          {customer && (() => {
+            const outstanding = Number(customer.currentOutstanding) || 0
+            const hasCredit = outstanding < 0
+            return (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5 text-[11px] space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">{hasCredit ? 'Available Credit' : 'Outstanding'}</span>
+                  <span className={cn(
+                    'font-semibold font-mono tabular-nums',
+                    hasCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
+                  )}>
+                    {formatCurrency(Math.abs(outstanding))}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Pending Invoices</span>
+                  <span className={cn(
+                    'font-semibold font-mono tabular-nums',
+                    (customer.pendingCreditCount ?? 0) >= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'
+                  )}>
+                    {customer.pendingCreditCount ?? 0} / 3
+                  </span>
+                </div>
+                {hasCredit && (
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 border-t border-emerald-500/20 pt-1.5">
+                    This credit will auto-apply to the unpaid balance on save.
+                  </p>
+                )}
+                {(customer.pendingCreditCount ?? 0) >= 3 && (
+                  <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center gap-1.5">
+                    <ShieldAlert className="h-3 w-3" />
+                    Credit blocked — clear pending invoices first
+                  </p>
+                )}
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Pending Invoices</span>
-                <span className={cn(
-                  'font-semibold font-mono tabular-nums',
-                  (customer.pendingCreditCount ?? 0) >= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'
-                )}>
-                  {customer.pendingCreditCount ?? 0} / 3
-                </span>
-              </div>
-              {(customer.pendingCreditCount ?? 0) >= 3 && (
-                <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center gap-1.5">
-                  <ShieldAlert className="h-3 w-3" />
-                  Credit blocked — clear pending invoices first
-                </p>
-              )}
-            </div>
-          )}
+            )
+          })()}
           <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date
@@ -1807,7 +1829,6 @@ export default function NewSalePage() {
               type: 'RETAIL' as const,
               creditLimit: 0,
               currentOutstanding: 0,
-              loyaltyPoints: 0,
               createdAt: new Date().toISOString(),
             }
             setSelectedCustomer(stub)
@@ -2299,12 +2320,41 @@ export default function NewSalePage() {
   // Toggle: show inline purchase-history sub-rows under each product row in the
   // Products tab. Off by default — Product History tab provides the same view.
   const [showInlineHistory, setShowInlineHistory] = useState(false)
+  // Product History tab: per-product expand state. By default each product
+  // shows its 5 most recent purchases; expanding reveals all entries. Keyed by
+  // cart-item id (not productId) so two rows with the same product can be
+  // expanded independently, and the state is cleared when a row is removed.
+  const [expandedHistoryItemIds, setExpandedHistoryItemIds] = useState<Set<string>>(new Set())
+  const toggleHistoryExpanded = useCallback((itemId: string) => {
+    setExpandedHistoryItemIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }, [])
+  const PRODUCT_HISTORY_PREVIEW_COUNT = 5
 
   // ── Customer invoice history ──────────────────────────────
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([])
   const [customerInvoicesLoading, setCustomerInvoicesLoading] = useState(false)
   const [selectedHistoryInvoice, setSelectedHistoryInvoice] = useState<Invoice | null>(null)
   const [historyInvoiceOpen, setHistoryInvoiceOpen] = useState(false)
+
+  // ── Per-product purchase history for the current cart ─────
+  // Fed by GET /billing/product-purchases — that endpoint queries InvoiceItem
+  // directly so it is NOT bound by the 200-invoice cap that customerInvoices
+  // hits. A customer with 500 invoices but who has bought a given product 80
+  // times will still get all 80 past purchases here. Keyed by productId.
+  type ProductHistoryEntry = {
+    date: string
+    invoiceNumber: string
+    batchNumber: string
+    qty: number
+    rate: number
+    status: string
+  }
+  const [productPurchases, setProductPurchases] = useState<Record<string, ProductHistoryEntry[]>>({})
 
   // ── Quotations tab ─────────────────────────────────────────
   // Lazy-loaded: only fires when the user opens the Quotations tab, and refetches
@@ -2343,11 +2393,16 @@ export default function NewSalePage() {
       return
     }
     setCustomerRemindersLoading(true)
-    api.get('/reminders', { params: { branchId: activeBranchId || undefined } })
-      .then(res => {
-        const all: any[] = Array.isArray(res.data) ? res.data : []
-        setCustomerReminders(all.filter((r: any) => r.customerId === selectedCustomer.id))
-      })
+    // Server-side customer filter — the previous implementation fetched every
+    // reminder in the branch and discarded all but this customer's, which got
+    // expensive once the branch accumulated thousands of reminders.
+    api.get('/reminders', {
+      params: {
+        branchId: activeBranchId || undefined,
+        customerId: selectedCustomer.id,
+      },
+    })
+      .then(res => setCustomerReminders(Array.isArray(res.data) ? res.data : []))
       .catch(() => setCustomerReminders([]))
       .finally(() => setCustomerRemindersLoading(false))
   }, [tableView, selectedCustomer, activeBranchId])
@@ -2394,6 +2449,41 @@ export default function NewSalePage() {
         .finally(() => setCustomerInvoicesLoading(false))
     }
   }, [tableView, selectedCustomer])
+
+  // Stable key for the set of productIds currently in the cart. Sorting +
+  // dedupe means quantity/rate edits don't trigger a refetch — only adding
+  // or removing a product line does.
+  const cartProductIdsKey = useMemo(() => {
+    const ids = items.map((i) => i.productId).filter(Boolean) as string[]
+    return Array.from(new Set(ids)).sort().join(',')
+  }, [items])
+
+  // Fetch uncapped product purchase history whenever the cart's product set
+  // changes (or the customer changes). Skips the network when there's no real
+  // customer (id='') or no products yet.
+  useEffect(() => {
+    if (!selectedCustomer?.id || !cartProductIdsKey) {
+      setProductPurchases({})
+      return
+    }
+    let cancelled = false
+    api.get('/billing/product-purchases', {
+      params: {
+        customerId: selectedCustomer.id,
+        productIds: cartProductIdsKey,
+        perProductLimit: 100,
+      },
+    })
+      .then((res) => {
+        if (cancelled) return
+        const data = res.data && typeof res.data === 'object' ? res.data : {}
+        setProductPurchases(data as Record<string, ProductHistoryEntry[]>)
+      })
+      .catch(() => {
+        if (!cancelled) setProductPurchases({})
+      })
+    return () => { cancelled = true }
+  }, [selectedCustomer?.id, cartProductIdsKey])
 
   // ── Refs ──────────────────────────────────────────────────
   const heroSearchRef = useRef<HTMLInputElement>(null)
@@ -2550,6 +2640,12 @@ export default function NewSalePage() {
           return [...nonEmpty, newItem]
         })
       }
+
+      // Switch to Products tab so the newly added/incremented row is visible.
+      // Users picking a product from the hero dropdown while on Customer
+      // History (or any other tab) expect to land on the cart — otherwise
+      // there's no visual confirmation that the item was added.
+      setTableView('products')
 
       // Clear search and re-focus
       setHeroSearch('')
@@ -2776,7 +2872,7 @@ export default function NewSalePage() {
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null)
   // When editing an existing UNPAID / PARTIAL invoice (?editId=…), this holds
   // the id so the save call routes to PATCH /billing/:id/edit-invoice (which
-  // reverses the original stock/ledger/loyalty and re-applies the new figures)
+  // reverses the original stock/ledger and re-applies the new figures)
   // instead of POSTing a brand-new invoice.
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
   const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
@@ -2860,12 +2956,12 @@ export default function NewSalePage() {
     }
   }
   // Save the current bill as a server-side draft (no stock movement, no
-  // payment, no loyalty). New draft → POST; resuming an existing one → PATCH.
+  // payment). New draft → POST; resuming an existing one → PATCH.
   // User can come back later (different device, different session) and finish.
   const saveAsDraft = async () => {
     if (editingInvoiceId) {
-      // You can't demote a real invoice back to DRAFT — it already has stock,
-      // ledger, and loyalty side effects in place. The only way out is the
+      // You can't demote a real invoice back to DRAFT — it already has stock
+      // and ledger side effects in place. The only way out is the
       // regular Save & Print, which routes through the edit-invoice endpoint.
       toast.info('This is an existing invoice — use Save & Print to apply your changes.')
       return
@@ -3086,7 +3182,7 @@ export default function NewSalePage() {
       let endpoint: string
       let finalPayload: Record<string, unknown>
       // Route: brand-new quotation → /quotations. Finalizing a server-side
-      // draft → PATCH /billing/:id/finalize (runs the stock+ledger+loyalty
+      // draft → PATCH /billing/:id/finalize (runs the stock+ledger
       // side effects that POST skipped). Everything else → POST /billing.
       let method: 'post' | 'patch' = 'post'
 
@@ -3236,32 +3332,20 @@ export default function NewSalePage() {
 
   const activeItemCount = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length
 
-  // ── Per-cart-item purchase history — derived from customer invoices ──
-  // For each cart line that has a productId, gather up to 5 past purchase
-  // records of that product across the customer's invoices. Used by the
-  // "Product History" tab to show all histories at once.
+  // ── Per-cart-item purchase history — backed by /billing/product-purchases ──
+  // The dedicated endpoint queries InvoiceItem directly so each product's
+  // history is uncapped by the customer's overall invoice count (the general
+  // customerInvoices fetch is capped at 200 by the backend). Per-product
+  // limit is 100 entries — enough for a frequent buyer; users who hit it
+  // see "Show top 5 only / Show all N" with the most-recent slice on top.
   const cartItemHistories = useMemo(() => {
     return items
       .filter((it) => it.productId)
-      .map((it) => {
-        const hits: { date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }[] = []
-        for (const inv of customerInvoices) {
-          for (const line of inv.items ?? []) {
-            if (line.productId === it.productId) {
-              hits.push({
-                date: inv.date ?? inv.createdAt,
-                invoiceNumber: inv.invoiceNumber,
-                batchNumber: line.batchNumber ?? '—',
-                qty: Number(line.quantity),
-                rate: Number(line.rate),
-                status: inv.status,
-              })
-            }
-          }
-        }
-        return { item: it, history: hits.slice(0, 5) }
-      })
-  }, [items, customerInvoices])
+      .map((it) => ({
+        item: it,
+        history: productPurchases[it.productId!] ?? [],
+      }))
+  }, [items, productPurchases])
 
   const productHistoryCount = cartItemHistories.filter((e) => e.history.length > 0).length
 
@@ -3320,7 +3404,6 @@ export default function NewSalePage() {
         notes: values.notes || undefined,
         creditLimit: 0,
         currentOutstanding: 0,
-        loyaltyPoints: 0,
         createdAt: new Date().toISOString(),
       }
       setSelectedCustomer(stub)
@@ -3380,6 +3463,10 @@ export default function NewSalePage() {
   const productForm = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: productFormDefaults,
+    // Validate on blur so cross-field rules (Selling Price ≤ MRP) surface
+    // as soon as the user leaves the offending field — instead of staying
+    // silent until they click Save.
+    mode: 'onBlur',
   })
 
   const openAddProductForm = useCallback((rowId: string, prefillName?: string) => {
@@ -3406,7 +3493,6 @@ export default function NewSalePage() {
       const payload = {
         ...values,
         schedule: values.schedule.toUpperCase(),
-        storageCondition: values.storageCondition.toUpperCase(),
         categoryId: values.categoryId || undefined,
       }
       const res = await api.post('/products', payload)
@@ -3435,6 +3521,12 @@ export default function NewSalePage() {
       productForm.reset(productFormDefaults)
       setAddProductDialogOpen(false)
       setAddProductTargetRowId(null)
+      // Return to the Items tab so the user can see the row that was just
+      // filled (per-row path) or confirm they're back in the cart view
+      // (hero path). Without this, a user who opened Add Product while on
+      // Customer History stays on History and can't tell whether the new
+      // product was added to the bill.
+      setTableView('products')
     } catch (error: unknown) {
       toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add product')
     }
@@ -3510,7 +3602,7 @@ export default function NewSalePage() {
           <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             <Pencil className="h-3.5 w-3.5 shrink-0" />
             <span>
-              Editing invoice <span className="font-semibold font-mono">{editingInvoiceNumber ?? '…'}</span>. Stock, customer outstanding, and loyalty points will be re-calculated on save. Already-collected payments are preserved.
+              Editing invoice <span className="font-semibold font-mono">{editingInvoiceNumber ?? '…'}</span>. Stock and customer outstanding will be re-calculated on save. Already-collected payments are preserved.
             </span>
           </div>
         )}
@@ -3748,9 +3840,14 @@ export default function NewSalePage() {
                     Quotation only
                   </Badge>
                 )}
-                {selectedCustomer && (selectedCustomer.loyaltyPoints ?? 0) > 0 && (
-                  <Badge variant="warning" size="sm" className="text-[9px] px-1.5 shrink-0 gap-0.5 tabular-nums">
-                    {selectedCustomer.loyaltyPoints} pts
+                {/* Credit balance pill — visible whenever customer has a
+                    negative currentOutstanding (from prior CN-Adjust whose
+                    cascade couldn't fully consume the credit). Auto-applies
+                    on credit/split sales; shown here so the user knows
+                    before they pick a payment mode. */}
+                {selectedCustomer && Number(selectedCustomer.currentOutstanding ?? 0) < 0 && (
+                  <Badge variant="success" size="sm" className="text-[9px] px-1.5 shrink-0 gap-0.5 tabular-nums">
+                    {formatCurrency(Math.abs(Number(selectedCustomer.currentOutstanding)))} credit
                   </Badge>
                 )}
                 {selectedCustomer && (
@@ -4290,16 +4387,11 @@ export default function NewSalePage() {
                             </datalist>
                             {productForm.formState.errors.manufacturer && <p className="text-[11px] text-rose-500">{productForm.formState.errors.manufacturer.message}</p>}
                           </div>
-                          <div className="col-span-12 sm:col-span-7 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Salt Composition</Label>
-                            <Input className="h-9" {...productForm.register('saltComposition')} placeholder="e.g. Paracetamol 500mg + Caffeine 65mg" />
-                          </div>
-                          <div className="col-span-12 sm:col-span-5 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category *</Label>
+                          <div className="col-span-12 sm:col-span-6 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
                             <Controller control={productForm.control} name="categoryId" render={({ field }) => (
-                              <CategorySearchDropdown categories={productCategories} value={field.value ?? ''} onChange={field.onChange} hasError={!!productForm.formState.errors.categoryId} />
+                              <CategorySearchDropdown categories={productCategories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                             )} />
-                            {productForm.formState.errors.categoryId && <p className="text-[11px] text-rose-500">{productForm.formState.errors.categoryId.message}</p>}
                           </div>
                         </div>
                       </div>
@@ -4309,38 +4401,31 @@ export default function NewSalePage() {
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Packaging &amp; Regulatory</p>
                         <div className="grid grid-cols-12 gap-2.5">
                           <div className="col-span-6 sm:col-span-3 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pack Size *</Label>
-                            <Input className="h-9" {...productForm.register('packSize')} placeholder="10x10" error={!!productForm.formState.errors.packSize} />
-                            {productForm.formState.errors.packSize && <p className="text-[11px] text-rose-500">{productForm.formState.errors.packSize.message}</p>}
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pack Size <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
+                            <Input className="h-9" {...productForm.register('packSize')} placeholder="10x10" />
                           </div>
                           <div className="col-span-6 sm:col-span-3 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure *</Label>
-                            <Input className="h-9" {...productForm.register('unitOfMeasure')} placeholder="Strip, Vial" error={!!productForm.formState.errors.unitOfMeasure} />
-                            {productForm.formState.errors.unitOfMeasure && <p className="text-[11px] text-rose-500">{productForm.formState.errors.unitOfMeasure.message}</p>}
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
+                            <Input
+                              className="h-9"
+                              {...productForm.register('unitOfMeasure')}
+                              list="ns-uom-list"
+                              placeholder="Select or type..."
+                              autoComplete="off"
+                            />
+                            <datalist id="ns-uom-list">
+                              {UNIT_OF_MEASURE_OPTIONS.map(u => <option key={u} value={u} />)}
+                            </datalist>
                           </div>
                           <div className="col-span-6 sm:col-span-3 space-y-1">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">HSN Code *</Label>
                             <Input className="h-9" {...productForm.register('hsnCode')} placeholder="30049099" error={!!productForm.formState.errors.hsnCode} />
                             {productForm.formState.errors.hsnCode && <p className="text-[11px] text-rose-500">{productForm.formState.errors.hsnCode.message}</p>}
                           </div>
-                          <div className="col-span-6 sm:col-span-3 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Storage</Label>
-                            <Controller control={productForm.control} name="storageCondition" render={({ field }) => (
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="ROOM_TEMP">Room Temperature</SelectItem>
-                                  <SelectItem value="COOL_DRY">Cool & Dry</SelectItem>
-                                  <SelectItem value="REFRIGERATED">Refrigerated</SelectItem>
-                                  <SelectItem value="FROZEN">Frozen</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            )} />
-                          </div>
-                          <div className="col-span-12 sm:col-span-8 space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug Schedule</Label>
+                          <div className="col-span-12 sm:col-span-3 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug Schedule *</Label>
                             <Controller control={productForm.control} name="schedule" render={({ field }) => (
-                              <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-4 h-9 items-center">
+                              <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-3 h-9 items-center">
                                 {(['NONE', 'H', 'H1', 'X'] as const).map(s => (
                                   <div key={s} className="flex items-center gap-1.5">
                                     <RadioGroupItem value={s} id={`ns-schedule-${s}`} />
@@ -4348,12 +4433,6 @@ export default function NewSalePage() {
                                   </div>
                                 ))}
                               </RadioGroup>
-                            )} />
-                          </div>
-                          <div className="col-span-12 sm:col-span-4 flex items-center justify-between rounded-md border border-border/60 px-3 h-9 self-end">
-                            <Label className="text-xs cursor-pointer">Is Narcotic</Label>
-                            <Controller control={productForm.control} name="isNarcotic" render={({ field }) => (
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
                             )} />
                           </div>
                         </div>
@@ -4369,20 +4448,20 @@ export default function NewSalePage() {
                             {productForm.formState.errors.mrp && <p className="text-[11px] text-rose-500">{productForm.formState.errors.mrp.message}</p>}
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹) *</Label>
-                            <Input className="h-9" type="number" step="0.01" {...productForm.register('purchaseRate')} error={!!productForm.formState.errors.purchaseRate} />
-                            {productForm.formState.errors.purchaseRate && <p className="text-[11px] text-rose-500">{productForm.formState.errors.purchaseRate.message}</p>}
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling Price (₹) *</Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('sellingRate')} error={!!productForm.formState.errors.sellingRate} />
+                            {productForm.formState.errors.sellingRate && <p className="text-[11px] text-rose-500">{productForm.formState.errors.sellingRate.message}</p>}
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling (₹)</Label>
-                            <Input className="h-9" type="number" step="0.01" {...productForm.register('sellingRate')} />
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹) <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('purchaseRate')} />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹)</Label>
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹) <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
                             <Input className="h-9" type="number" step="0.01" {...productForm.register('wholesaleRate')} />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate</Label>
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate *</Label>
                             <Controller control={productForm.control} name="gstRate" render={({ field }) => (
                               <Select value={String(field.value)} onValueChange={v => field.onChange(Number(v))}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -4400,21 +4479,21 @@ export default function NewSalePage() {
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stock Settings</p>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock</Label>
-                            <Input className="h-9" type="number" {...productForm.register('minStock')} />
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock *</Label>
+                            <Input className="h-9" type="number" {...productForm.register('minStock')} error={!!productForm.formState.errors.minStock} />
+                            {productForm.formState.errors.minStock && <p className="text-[11px] text-rose-500">{productForm.formState.errors.minStock.message}</p>}
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock</Label>
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
                             <Input className="h-9" type="number" {...productForm.register('maxStock')} />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty</Label>
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
                             <Input className="h-9" type="number" {...productForm.register('reorderQty')} />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location *</Label>
-                            <Input className="h-9" {...productForm.register('rackLocation')} placeholder="A1-01" error={!!productForm.formState.errors.rackLocation} />
-                            {productForm.formState.errors.rackLocation && <p className="text-[11px] text-rose-500">{productForm.formState.errors.rackLocation.message}</p>}
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
+                            <Input className="h-9" {...productForm.register('rackLocation')} placeholder="A1-01" />
                           </div>
                         </div>
                       </div>
@@ -4619,7 +4698,7 @@ export default function NewSalePage() {
                                   onUpdate={updateItem}
                                   onRemove={removeItem}
                                   customerLastRates={customerLastRates}
-                                  customerInvoices={customerInvoices}
+                                  productPurchases={productPurchases}
                                   showInlineHistory={showInlineHistory}
                                   onRequestAddProduct={openAddProductForm}
                                 />
@@ -4700,6 +4779,15 @@ export default function NewSalePage() {
                           <div className="divide-y divide-border/40">
                             {cartItemHistories.map((entry) => {
                               const product = products.find((p) => p.id === entry.item.productId)
+                              // Only the most-recent N entries render until the user expands. Keeps
+                              // the DOM compact when a customer has dozens of past purchases of the
+                              // same product. Source list is already sorted newest-first because
+                              // customerInvoices is fetched ordered by date desc.
+                              const isExpanded = expandedHistoryItemIds.has(entry.item.id)
+                              const visibleHistory = isExpanded
+                                ? entry.history
+                                : entry.history.slice(0, PRODUCT_HISTORY_PREVIEW_COUNT)
+                              const hiddenCount = entry.history.length - visibleHistory.length
                               return (
                                 <div key={entry.item.id} className="px-3 py-3">
                                   {/* Product header */}
@@ -4726,40 +4814,53 @@ export default function NewSalePage() {
                                   </div>
                                   {/* History mini-table — flat, blends with parent card */}
                                   {entry.history.length > 0 && (
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:bg-transparent border-b border-border/40">
-                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Date</TableHead>
-                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Invoice #</TableHead>
-                                          <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Batch</TableHead>
-                                          <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Qty</TableHead>
-                                          <TableHead className="px-3 py-1.5 h-auto text-right whitespace-nowrap">Rate</TableHead>
-                                          <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Status</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {entry.history.map((h, i) => (
-                                          <TableRow key={i} className="border-b-0 hover:bg-muted/20">
-                                            <TableCell className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                                              {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                                            </TableCell>
-                                            <TableCell className="px-3 py-2 font-mono text-[11px] font-semibold text-primary/80 truncate">{h.invoiceNumber}</TableCell>
-                                            <TableCell className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{h.batchNumber}</TableCell>
-                                            <TableCell className="px-3 py-2 text-center font-mono text-xs font-semibold tabular-nums">{h.qty}</TableCell>
-                                            <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold tabular-nums">{formatCurrency(h.rate)}</TableCell>
-                                            <TableCell className="px-3 py-2 text-center">
-                                              <Badge
-                                                variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' || h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
-                                                size="sm"
-                                                className="text-[9px]"
-                                              >
-                                                {h.status}
-                                              </Badge>
-                                            </TableCell>
+                                    <>
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:bg-transparent border-b border-border/40">
+                                            <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Date</TableHead>
+                                            <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Invoice #</TableHead>
+                                            <TableHead className="px-3 py-1.5 h-auto text-left whitespace-nowrap">Batch</TableHead>
+                                            <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Qty</TableHead>
+                                            <TableHead className="px-3 py-1.5 h-auto text-right whitespace-nowrap">Rate</TableHead>
+                                            <TableHead className="px-3 py-1.5 h-auto text-center whitespace-nowrap">Status</TableHead>
                                           </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {visibleHistory.map((h, i) => (
+                                            <TableRow key={i} className="border-b-0 hover:bg-muted/20">
+                                              <TableCell className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                                                {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                              </TableCell>
+                                              <TableCell className="px-3 py-2 font-mono text-[11px] font-semibold text-primary/80 truncate">{h.invoiceNumber}</TableCell>
+                                              <TableCell className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{h.batchNumber}</TableCell>
+                                              <TableCell className="px-3 py-2 text-center font-mono text-xs font-semibold tabular-nums">{h.qty}</TableCell>
+                                              <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold tabular-nums">{formatCurrency(h.rate)}</TableCell>
+                                              <TableCell className="px-3 py-2 text-center">
+                                                <Badge
+                                                  variant={h.status === 'PAID' ? 'success' : h.status === 'CREDIT' || h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                                                  size="sm"
+                                                  className="text-[9px]"
+                                                >
+                                                  {h.status}
+                                                </Badge>
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                      {entry.history.length > PRODUCT_HISTORY_PREVIEW_COUNT && (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleHistoryExpanded(entry.item.id)}
+                                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-primary/80 hover:text-primary hover:bg-primary/5 rounded transition-colors"
+                                        >
+                                          {isExpanded
+                                            ? `Show top ${PRODUCT_HISTORY_PREVIEW_COUNT} only`
+                                            : `Show all ${entry.history.length} (${hiddenCount} more)`}
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )
@@ -4921,7 +5022,7 @@ export default function NewSalePage() {
                                     {formatDate(qt.date)}
                                   </TableCell>
                                   <TableCell className="px-3 py-2.5 align-middle text-sm">
-                                    <span className="truncate">{qt.customerName}</span>
+                                    <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
                                   </TableCell>
                                   <TableCell className="px-3 py-2.5 align-middle text-center">
                                     <span className="inline-flex items-center justify-center min-w-6 h-5 px-2 rounded-full bg-muted text-[11px] font-semibold tabular-nums">{itemsCount}</span>
@@ -5697,7 +5798,7 @@ export default function NewSalePage() {
                             </td>
                             <td className="px-4 py-3.5 text-center text-xs font-mono text-zinc-500">{it.batchNumber || '—'}</td>
                             <td className="px-4 py-3.5 text-center text-xs text-zinc-500 whitespace-nowrap">
-                              {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }) : '—'}
+                              {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—'}
                             </td>
                             <td className="px-4 py-3.5 text-right font-bold text-sm text-zinc-900 dark:text-zinc-100">{it.quantity}</td>
                             <td className="px-4 py-3.5 text-right text-xs font-mono text-zinc-400">{Number(it.mrp).toFixed(2)}</td>

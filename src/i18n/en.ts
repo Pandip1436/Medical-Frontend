@@ -44,7 +44,7 @@ export default {
     dashboard: 'Dashboard',
     billing: 'Billing',
     newSale: 'New Sale',
-    salesList: 'Sales List',
+    salesList: 'Invoice List',
     quotations: 'Quotations',
     salesReturns: 'Sales Returns',
     purchase: 'Purchase',

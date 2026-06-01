@@ -782,14 +782,13 @@ export default function CustomersPage() {
                   <TableHead>Phone</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Outstanding</TableHead>
-                  <TableHead className="text-right">Loyalty</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!isLoading && pageRows.length === 0 && (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={6} className="p-0">
+                    <TableCell colSpan={5} className="p-0">
                       <EmptyState
                         icon={Users}
                         title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
@@ -848,9 +847,6 @@ export default function CustomersPage() {
                       )}
                     >
                       {formatCurrency(customer.currentOutstanding)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {(customer.loyaltyPoints || 0).toLocaleString('en-IN')}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>

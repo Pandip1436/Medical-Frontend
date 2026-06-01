@@ -77,7 +77,7 @@ const navigationGroups: NavGroup[] = [
     title: 'BILLING',
     items: [
       { label: 'New Sale', icon: PlusCircle, href: '/billing/new' },
-      { label: 'Sales List', icon: FileText, href: '/billing/sales' },
+      { label: 'Invoice List', icon: FileText, href: '/billing/sales' },
       { label: 'Quotations', icon: FileCheck, href: '/billing/quotations' },
       { label: 'Sales Returns', icon: RotateCcw, href: '/billing/returns' },
       { label: 'Credit Notes', icon: FileCheck2, href: '/billing/credit-notes' },

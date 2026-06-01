@@ -14,7 +14,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -32,6 +31,7 @@ import {
   type ProductFormValues,
 } from '@/components/products/productFormSchema'
 import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
+import { UNIT_OF_MEASURE_OPTIONS } from '@/lib/unitOfMeasureOptions'
 import type { Product } from '@/types'
 
 interface ProductFormDialogProps {
@@ -43,6 +43,10 @@ interface ProductFormDialogProps {
    *  refresh master data, auto-add to a row, etc. */
   onSaved?: (product: Product) => void
 }
+
+// Small inline label suffix to mark an optional field. Mirrors the wording
+// pattern from other forms across the app so the visual cue is consistent.
+const OPTIONAL = <span className="text-muted-foreground/60 font-normal normal-case"> (optional)</span>
 
 export function ProductFormDialog({
   open,
@@ -58,6 +62,9 @@ export function ProductFormDialog({
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: productFormDefaults,
+    // Validate on blur so the Selling Price ≤ MRP refine surfaces as soon
+    // as the user leaves the offending field — not silent until Save.
+    mode: 'onBlur',
   })
   const { register, handleSubmit, reset, watch, control, formState } = form
   const { errors, isSubmitting } = formState
@@ -82,7 +89,6 @@ export function ProductFormDialog({
       const payload = {
         ...values,
         schedule: values.schedule.toUpperCase(),
-        storageCondition: values.storageCondition.toUpperCase(),
         categoryId: values.categoryId || undefined,
       }
       const res = await api.post('/products', payload)
@@ -95,16 +101,17 @@ export function ProductFormDialog({
     }
   }
 
-  // Section-progress pill state — mirrors PO / Supplier drawers.
+  // Section-progress pills track which required fields each section still
+  // needs. Optional fields don't count toward "filled" — they're nice-to-have.
   const isSubmitted = formState.isSubmitted
-  const identityFilled = !!watch('name') && !!watch('genericName') && !!watch('manufacturer') && !!watch('categoryId')
-  const identityError = !!(errors.name || errors.genericName || errors.manufacturer || errors.categoryId)
-  const packagingFilled = !!watch('packSize') && !!watch('unitOfMeasure') && !!watch('hsnCode')
-  const packagingError = !!(errors.packSize || errors.unitOfMeasure || errors.hsnCode)
-  const pricingFilled = Number(watch('mrp')) > 0 && Number(watch('purchaseRate')) > 0
-  const pricingError = !!(errors.mrp || errors.purchaseRate)
-  const stockFilled = !!watch('rackLocation')
-  const stockError = !!errors.rackLocation
+  const identityFilled = !!watch('name') && !!watch('genericName') && !!watch('manufacturer')
+  const identityError = !!(errors.name || errors.genericName || errors.manufacturer)
+  const packagingFilled = !!watch('hsnCode')
+  const packagingError = !!(errors.hsnCode)
+  const pricingFilled = Number(watch('mrp')) > 0 && Number(watch('sellingRate')) > 0
+  const pricingError = !!(errors.mrp || errors.sellingRate)
+  const stockFilled = watch('minStock') !== undefined && watch('minStock') !== null
+  const stockError = !!errors.minStock
 
   const sections = [
     { value: 'identity', label: 'Identity', filled: identityFilled, error: identityError },
@@ -117,7 +124,7 @@ export function ProductFormDialog({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
+        className="p-0 gap-0 w-full sm:w-3/5 sm:max-w-[60vw] flex flex-col h-dvh overflow-hidden"
       >
         <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
           <div className="flex items-center gap-4 pr-8">
@@ -195,16 +202,11 @@ export function ProductFormDialog({
                     </datalist>
                     {errors.manufacturer && <p className="text-[11px] text-rose-500">{errors.manufacturer.message}</p>}
                   </div>
-                  <div className="col-span-12 sm:col-span-7 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Salt Composition</Label>
-                    <Input className="h-9" {...register('saltComposition')} placeholder="e.g. Paracetamol 500mg + Caffeine 65mg" />
-                  </div>
                   <div className="col-span-12 sm:col-span-5 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category *</Label>
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category{OPTIONAL}</Label>
                     <Controller control={control} name="categoryId" render={({ field }) => (
-                      <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={!!errors.categoryId} />
+                      <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                     )} />
-                    {errors.categoryId && <p className="text-[11px] text-rose-500">{errors.categoryId.message}</p>}
                   </div>
                 </div>
               </div>
@@ -218,36 +220,29 @@ export function ProductFormDialog({
               <div className="p-6 pb-8 space-y-3">
                 <div className="grid grid-cols-12 gap-2.5">
                   <div className="col-span-6 sm:col-span-3 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pack Size *</Label>
-                    <Input className="h-9" {...register('packSize')} placeholder="10x10" error={!!errors.packSize} />
-                    {errors.packSize && <p className="text-[11px] text-rose-500">{errors.packSize.message}</p>}
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pack Size{OPTIONAL}</Label>
+                    <Input className="h-9" {...register('packSize')} placeholder="10x10" />
                   </div>
                   <div className="col-span-6 sm:col-span-3 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure *</Label>
-                    <Input className="h-9" {...register('unitOfMeasure')} placeholder="Strip, Vial" error={!!errors.unitOfMeasure} />
-                    {errors.unitOfMeasure && <p className="text-[11px] text-rose-500">{errors.unitOfMeasure.message}</p>}
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure{OPTIONAL}</Label>
+                    <Input
+                      className="h-9"
+                      {...register('unitOfMeasure')}
+                      list="pfd-uom-list"
+                      placeholder="Select or type..."
+                      autoComplete="off"
+                    />
+                    <datalist id="pfd-uom-list">
+                      {UNIT_OF_MEASURE_OPTIONS.map(u => <option key={u} value={u} />)}
+                    </datalist>
                   </div>
                   <div className="col-span-6 sm:col-span-3 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">HSN Code *</Label>
                     <Input className="h-9" {...register('hsnCode')} placeholder="30049099" error={!!errors.hsnCode} />
                     {errors.hsnCode && <p className="text-[11px] text-rose-500">{errors.hsnCode.message}</p>}
                   </div>
-                  <div className="col-span-6 sm:col-span-3 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Storage</Label>
-                    <Controller control={control} name="storageCondition" render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ROOM_TEMP">Room Temperature</SelectItem>
-                          <SelectItem value="COOL_DRY">Cool & Dry</SelectItem>
-                          <SelectItem value="REFRIGERATED">Refrigerated</SelectItem>
-                          <SelectItem value="FROZEN">Frozen</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )} />
-                  </div>
-                  <div className="col-span-12 sm:col-span-8 space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug Schedule</Label>
+                  <div className="col-span-12 sm:col-span-3 space-y-1">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Drug Schedule *</Label>
                     <Controller control={control} name="schedule" render={({ field }) => (
                       <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-4 h-9 items-center">
                         {(['NONE', 'H', 'H1', 'X'] as const).map(s => (
@@ -257,12 +252,6 @@ export function ProductFormDialog({
                           </div>
                         ))}
                       </RadioGroup>
-                    )} />
-                  </div>
-                  <div className="col-span-12 sm:col-span-4 flex items-center justify-between rounded-md border border-border/60 px-3 h-9 self-end">
-                    <Label className="text-xs cursor-pointer">Is Narcotic</Label>
-                    <Controller control={control} name="isNarcotic" render={({ field }) => (
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
                     )} />
                   </div>
                 </div>
@@ -275,27 +264,36 @@ export function ProductFormDialog({
                 <h3 className="text-sm font-semibold">Pricing</h3>
               </div>
               <div className="p-6 pb-8 space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                {/* Two rows of three columns. Top row groups the rupee
+                    figures most relevant when pricing a new product (what
+                    you bill the customer + what you paid the supplier).
+                    Bottom row carries the wholesale rate and the GST
+                    bracket — both reference values you'd rarely change
+                    once set on the master. Same 3-col grid on both rows
+                    keeps the inputs vertically aligned. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MRP (₹) *</Label>
                     <Input className="h-9" type="number" step="0.01" {...register('mrp')} error={!!errors.mrp} />
                     {errors.mrp && <p className="text-[11px] text-rose-500">{errors.mrp.message}</p>}
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹) *</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('purchaseRate')} error={!!errors.purchaseRate} />
-                    {errors.purchaseRate && <p className="text-[11px] text-rose-500">{errors.purchaseRate.message}</p>}
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling Price (₹) *</Label>
+                    <Input className="h-9" type="number" step="0.01" {...register('sellingRate')} error={!!errors.sellingRate} />
+                    {errors.sellingRate && <p className="text-[11px] text-rose-500">{errors.sellingRate.message}</p>}
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling (₹)</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('sellingRate')} />
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹){OPTIONAL}</Label>
+                    <Input className="h-9" type="number" step="0.01" {...register('purchaseRate')} />
                   </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹)</Label>
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹){OPTIONAL}</Label>
                     <Input className="h-9" type="number" step="0.01" {...register('wholesaleRate')} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate</Label>
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate *</Label>
                     <Controller control={control} name="gstRate" render={({ field }) => (
                       <Select value={String(field.value)} onValueChange={v => field.onChange(Number(v))}>
                         <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -315,23 +313,23 @@ export function ProductFormDialog({
                 <h3 className="text-sm font-semibold">Stock Settings</h3>
               </div>
               <div className="p-6 pb-8 space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock</Label>
-                    <Input className="h-9" type="number" {...register('minStock')} />
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock *</Label>
+                    <Input className="h-9" type="number" {...register('minStock')} error={!!errors.minStock} />
+                    {errors.minStock && <p className="text-[11px] text-rose-500">{errors.minStock.message}</p>}
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock</Label>
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock{OPTIONAL}</Label>
                     <Input className="h-9" type="number" {...register('maxStock')} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty</Label>
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty{OPTIONAL}</Label>
                     <Input className="h-9" type="number" {...register('reorderQty')} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location *</Label>
-                    <Input className="h-9" {...register('rackLocation')} placeholder="A1-01" error={!!errors.rackLocation} />
-                    {errors.rackLocation && <p className="text-[11px] text-rose-500">{errors.rackLocation.message}</p>}
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location{OPTIONAL}</Label>
+                    <Input className="h-9" {...register('rackLocation')} placeholder="A1-01" />
                   </div>
                 </div>
               </div>

@@ -17,10 +17,17 @@ import {
   QuickActions,
   SalesHeroChart,
   type ActivityItem,
+  type ExpiringBatch,
+  type FilterTag,
   type KpiTileData,
+  type LowStockItem,
+  type OverdueCustomer,
 } from '@/components/dashboard'
 
 const DASHBOARD_REFRESH_MS = 30_000
+// Page size for the inbox / activity cards. The first page arrives inside
+// /reports/dashboard; later pages are fetched lazily on scroll.
+const DASH_PAGE = 20
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -34,12 +41,22 @@ interface DashData {
   lowStockAlertsCount?: number
   expiringBatchesCount?: number
   totalProducts?: number
-  recentInvoices?: Array<{ id?: string; invoiceNumber: string; customerName: string; date?: string }>
-  lowStockItems?: Array<{ id: string; name: string; packSize: string; totalStock: number; minStock: number }>
-  expiringBatches?: Array<{ id: string; batchNumber: string; expiryDate: string; quantity: number; product: { name: string; packSize: string } }>
-  overdueCustomers?: Array<{ customerId: string; customerName: string; overdueAmount: number; daysOverdue: number; invoiceCount: number }>
+  recentInvoices?: RecentInvoice[]
+  recentInvoicesCount?: number
+  lowStockItems?: LowStockItem[]
+  expiringBatches?: ExpiringBatch[]
+  overdueCustomers?: OverdueCustomer[]
   overdueCustomersCount?: number
   overdueTotal?: number
+}
+
+type RecentInvoice = { id?: string; invoiceNumber: string; customerName: string; customerPhone?: string | null; date?: string }
+
+// Drop duplicates by key when appending a lazily-loaded page — a defensive
+// guard in case a page is fetched twice (e.g. rapid scroll).
+function appendUnique<T>(prev: T[], next: T[], key: (x: T) => string): T[] {
+  const seen = new Set(prev.map(key))
+  return [...prev, ...next.filter((x) => !seen.has(key(x)))]
 }
 
 function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
@@ -55,18 +72,23 @@ function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
   ]
 }
 
-function buildActivities(dashData: DashData | null): ActivityItem[] {
-  const recentInvoices = dashData?.recentInvoices ?? []
-  return recentInvoices.map((inv) => ({
-    id: inv.id ?? inv.invoiceNumber,
-    type: 'SALE' as const,
-    // Row shows just the invoice number; the customer surfaces on hover via tooltip.
-    action: inv.invoiceNumber,
-    detail: inv.customerName,
-    timestamp: inv.date ?? new Date().toISOString(),
-    // Deep-link to the dedicated invoice detail page (same destination notifications use).
-    href: inv.id ? `/customers/invoices/detail?id=${inv.id}` : undefined,
-  }))
+function buildActivities(recentInvoices: RecentInvoice[]): ActivityItem[] {
+  return recentInvoices.map((inv) => {
+    // Append phone to the customer detail line so duplicate customer names
+    // are distinguishable in the activity timeline. Sentinel placeholder
+    // numbers are skipped — see CustomerNameLine for the same rule.
+    const phone = inv.customerPhone && inv.customerPhone !== '0000000000' ? inv.customerPhone : null
+    return {
+      id: inv.id ?? inv.invoiceNumber,
+      type: 'SALE' as const,
+      // Row shows just the invoice number; the customer surfaces on hover via tooltip.
+      action: inv.invoiceNumber,
+      detail: phone ? `${inv.customerName} · ${phone}` : inv.customerName,
+      timestamp: inv.date ?? new Date().toISOString(),
+      // Deep-link to the dedicated invoice detail page (same destination notifications use).
+      href: inv.id ? `/customers/invoices/detail?id=${inv.id}` : undefined,
+    }
+  })
 }
 
 function DashboardBody() {
@@ -82,7 +104,19 @@ function DashboardBody() {
   // the call actually 403'd / errored. See BUGS.md SEV-2.
   const [loadStatus, setLoadStatus] = useState<'idle' | 'forbidden' | 'error'>('idle')
 
-  const fetchDashboard = async () => {
+  // Accumulator state for the lazy-loaded cards. Seeded from /reports/dashboard
+  // (page 1) and grown by the per-source paginated endpoints as the user
+  // scrolls. Counts/totals stay on `dashData` and keep refreshing every 30s.
+  const [activities, setActivities] = useState<ActivityItem[]>([])
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([])
+  const [expiringBatches, setExpiringBatches] = useState<ExpiringBatch[]>([])
+  const [overdueCustomers, setOverdueCustomers] = useState<OverdueCustomer[]>([])
+  const [loadingActivity, setLoadingActivity] = useState(false)
+  const [loadingLow, setLoadingLow] = useState(false)
+  const [loadingExp, setLoadingExp] = useState(false)
+  const [loadingOverdue, setLoadingOverdue] = useState(false)
+
+  const fetchDashboard = async ({ reset = true }: { reset?: boolean } = {}) => {
     setIsLoading(true)
     const results = await Promise.allSettled([
       api.get('/reports/dashboard'),
@@ -90,8 +124,16 @@ function DashboardBody() {
     ])
     const dashSettled = results[0]
     if (dashSettled.status === 'fulfilled') {
-      setDashData((dashSettled.value as { data: DashData }).data)
+      const data = (dashSettled.value as { data: DashData }).data
+      setDashData(data)
       setLoadStatus('idle')
+      // On a forced refresh (initial load, manual, branch switch) re-seed every
+      // list. On the silent 30s tick, only re-seed lists the user hasn't paged
+      // past page 1 — so scrolled-in rows aren't yanked away mid-read.
+      setActivities((prev) => (reset || prev.length <= DASH_PAGE ? buildActivities(data.recentInvoices ?? []) : prev))
+      setLowStockItems((prev) => (reset || prev.length <= DASH_PAGE ? (data.lowStockItems ?? []) : prev))
+      setExpiringBatches((prev) => (reset || prev.length <= DASH_PAGE ? (data.expiringBatches ?? []) : prev))
+      setOverdueCustomers((prev) => (reset || prev.length <= DASH_PAGE ? (data.overdueCustomers ?? []) : prev))
     } else {
       const status = (dashSettled.reason as { response?: { status?: number } })?.response?.status
       setLoadStatus(status === 403 ? 'forbidden' : 'error')
@@ -100,20 +142,78 @@ function DashboardBody() {
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fetchDashboardCb = useCallback(() => { fetchDashboard() }, [])
+  const fetchDashboardCb = useCallback(() => { fetchDashboard({ reset: true }) }, [])
   useBranchRefresh(fetchDashboardCb)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    fetchDashboard()
+    fetchDashboard({ reset: true })
     const interval = window.setInterval(() => {
-      if (!document.hidden) fetchDashboard()
+      if (!document.hidden) fetchDashboard({ reset: false })
     }, DASHBOARD_REFRESH_MS)
     return () => window.clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Lazy-load handlers — fetch the next page and append ────────
+  const activityTotal = dashData?.recentInvoicesCount ?? activities.length
+  const lowStockTotal = dashData?.lowStockAlertsCount ?? 0
+  const expiringTotal = dashData?.expiringBatchesCount ?? 0
+  const overdueTotal = dashData?.overdueCustomersCount ?? 0
+
+  const loadMoreActivity = useCallback(async () => {
+    if (loadingActivity || activities.length >= activityTotal) return
+    setLoadingActivity(true)
+    try {
+      const { data } = await api.get('/reports/dashboard/activity', { params: { skip: activities.length, take: DASH_PAGE } })
+      const more = buildActivities((data?.items ?? []) as RecentInvoice[])
+      setActivities((prev) => appendUnique(prev, more, (a) => a.id))
+    } catch { /* error already surfaced by the global toast interceptor */ } finally {
+      setLoadingActivity(false)
+    }
+  }, [activities.length, activityTotal, loadingActivity])
+
+  const loadMoreLow = useCallback(async () => {
+    if (loadingLow || lowStockItems.length >= lowStockTotal) return
+    setLoadingLow(true)
+    try {
+      const { data } = await api.get('/reports/dashboard/low-stock', { params: { skip: lowStockItems.length, take: DASH_PAGE } })
+      setLowStockItems((prev) => appendUnique(prev, (data?.items ?? []) as LowStockItem[], (x) => x.id))
+    } catch { /* noop */ } finally {
+      setLoadingLow(false)
+    }
+  }, [lowStockItems.length, lowStockTotal, loadingLow])
+
+  const loadMoreExp = useCallback(async () => {
+    if (loadingExp || expiringBatches.length >= expiringTotal) return
+    setLoadingExp(true)
+    try {
+      const { data } = await api.get('/reports/dashboard/expiring', { params: { skip: expiringBatches.length, take: DASH_PAGE } })
+      setExpiringBatches((prev) => appendUnique(prev, (data?.items ?? []) as ExpiringBatch[], (x) => x.id))
+    } catch { /* noop */ } finally {
+      setLoadingExp(false)
+    }
+  }, [expiringBatches.length, expiringTotal, loadingExp])
+
+  const loadMoreOverdue = useCallback(async () => {
+    if (loadingOverdue || overdueCustomers.length >= overdueTotal) return
+    setLoadingOverdue(true)
+    try {
+      const { data } = await api.get('/reports/dashboard/overdue', { params: { skip: overdueCustomers.length, take: DASH_PAGE } })
+      setOverdueCustomers((prev) => appendUnique(prev, (data?.items ?? []) as OverdueCustomer[], (x) => x.customerId || x.customerName))
+    } catch { /* noop */ } finally {
+      setLoadingOverdue(false)
+    }
+  }, [overdueCustomers.length, overdueTotal, loadingOverdue])
+
+  // The inbox calls this with its active filter; 'all' extends every source
+  // that still has rows, single-type tabs page just that source.
+  const loadMoreAttention = useCallback((filter: FilterTag) => {
+    if (filter === 'due' || filter === 'all') loadMoreOverdue()
+    if (filter === 'low' || filter === 'all') loadMoreLow()
+    if (filter === 'exp' || filter === 'all') loadMoreExp()
+  }, [loadMoreOverdue, loadMoreLow, loadMoreExp])
+
   const kpiTiles = buildKpiTiles(dashData)
-  const activities = buildActivities(dashData)
   const hasLoadError = !isLoading && !dashData && loadStatus !== 'idle'
 
   return (
@@ -122,7 +222,7 @@ function DashboardBody() {
         userName={userName}
         businessName={businessProfile?.name || 'Hospital Suppliers'}
         isRefreshing={isLoading}
-        onRefresh={fetchDashboard}
+        onRefresh={() => fetchDashboard({ reset: true })}
       />
 
       <div className="space-y-4">
@@ -169,16 +269,23 @@ function DashboardBody() {
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12 lg:col-span-7">
             <NeedsAttentionInbox
-              lowStockItems={dashData?.lowStockItems ?? []}
-              expiringBatches={dashData?.expiringBatches ?? []}
-              overdueCustomers={dashData?.overdueCustomers ?? []}
-              lowStockTotal={dashData?.lowStockAlertsCount ?? 0}
-              expiringTotal={dashData?.expiringBatchesCount ?? 0}
-              overdueTotal={dashData?.overdueCustomersCount ?? 0}
+              lowStockItems={lowStockItems}
+              expiringBatches={expiringBatches}
+              overdueCustomers={overdueCustomers}
+              lowStockTotal={lowStockTotal}
+              expiringTotal={expiringTotal}
+              overdueTotal={overdueTotal}
+              isLoadingMore={loadingLow || loadingExp || loadingOverdue}
+              onLoadMore={loadMoreAttention}
             />
           </div>
           <div className="col-span-12 lg:col-span-5">
-            <ActivityTimeline activities={activities} />
+            <ActivityTimeline
+              activities={activities}
+              total={activityTotal}
+              isLoadingMore={loadingActivity}
+              onLoadMore={loadMoreActivity}
+            />
           </div>
         </div>
         </>

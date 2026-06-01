@@ -48,6 +48,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -80,6 +81,7 @@ interface CreditNote {
   invoiceNumber: string
   customerId?: string
   customerName: string
+  customerPhone?: string | null
   reason: string
   items: CreditNoteItem[]
   subtotal: number
@@ -696,7 +698,7 @@ export default function CreditNotesPage() {
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</p>
-                    <p className="text-sm font-medium truncate">{cn.customerName}</p>
+                    <CustomerNameLine name={cn.customerName} phone={cn.customerPhone} />
                     <div className="mt-0.5 flex items-center gap-2 flex-wrap">
                       <Badge variant={status?.variant ?? 'secondary'} size="sm" dot>
                         {status?.label ?? cn.status}
@@ -790,7 +792,7 @@ export default function CreditNotesPage() {
                         <span className="text-[11px] text-muted-foreground">{formatDate(cn.date)}</span>
                       </TableCell>
                       <TableCell className="max-w-40">
-                        <p className="truncate text-sm font-medium">{cn.customerName}</p>
+                        <CustomerNameLine name={cn.customerName} phone={cn.customerPhone} />
                       </TableCell>
                       <TableCell>
                         <span className="font-mono text-[11px] text-muted-foreground">{cn.invoiceNumber}</span>
@@ -895,7 +897,7 @@ export default function CreditNotesPage() {
                   <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
                     <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
-                      <p className="mt-0.5 text-sm font-medium truncate" title={detailNote.customerName}>{detailNote.customerName}</p>
+                      <CustomerNameLine name={detailNote.customerName} phone={detailNote.customerPhone} className="mt-0.5" />
                     </div>
                     <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Against Invoice</p>
@@ -1102,11 +1104,15 @@ export default function CreditNotesPage() {
                   {/* Action buttons */}
                   {canReview ? (
                     <div className="px-5 py-3 flex flex-col sm:flex-row gap-2">
+                      {/* Keep the button enabled even when the inspection
+                          note is empty — handleReject toasts a friendly
+                          "describe what you found" message instead, so the
+                          user gets feedback rather than a dead click. */}
                       <Button
                         variant="destructive"
                         className="flex-1 gap-2"
                         onClick={handleReject}
-                        disabled={reviewSubmitting || !reviewNote.trim()}
+                        disabled={reviewSubmitting}
                       >
                         <CircleSlash className="h-4 w-4" />
                         Reject Return

@@ -20,7 +20,7 @@ import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import type { Notification } from '@/types'
 
 // ─── Category config ──────────────────────────────────────────
-type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL' | 'REMINDER' | 'SYSTEM'
+type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL' | 'REMINDER'
 
 const CATEGORIES: {
   key: CategoryKey
@@ -33,9 +33,8 @@ const CATEGORIES: {
   { key: 'LOW_STOCK',   label: 'Low Stock',   icon: Package,       accent: 'text-amber-600 dark:text-amber-400',    roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'EXPIRY',      label: 'Expiry',      icon: Clock,         accent: 'text-red-600 dark:text-red-400',        roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'PAYMENT_DUE', label: 'Payment Due', icon: IndianRupee,   accent: 'text-blue-600 dark:text-blue-400',      roles: ['ADMIN', 'PHARMACIST', 'ACCOUNTANT'] },
-  { key: 'APPROVAL',    label: 'Approvals',   icon: ShieldCheck,   accent: 'text-emerald-600 dark:text-emerald-400', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
-  { key: 'REMINDER',    label: 'Reminders',   icon: CalendarClock, accent: 'text-cyan-600 dark:text-cyan-400',      roles: null },
-  { key: 'SYSTEM',      label: 'System',      icon: AlertTriangle, accent: 'text-purple-600 dark:text-purple-400',  roles: null },
+  { key: 'APPROVAL',    label: 'Requests',    icon: ShieldCheck,   accent: 'text-emerald-600 dark:text-emerald-400', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
+  { key: 'REMINDER',    label: 'Follow-ups',  icon: CalendarClock, accent: 'text-cyan-600 dark:text-cyan-400',      roles: null },
 ]
 
 const typeConfig: Record<Notification['type'], { label: string; icon: typeof Package; tone: string }> = {
@@ -383,8 +382,8 @@ export default function NotificationsPage() {
   // ── Unified server-paginated infinite scroll ─────────────────
   // One hook drives both views. Params change with activeCategory:
   //   • All view: optional unread/read filter from the readFilter pill.
-  //   • Folder views: narrow by NotificationType (or reminders=only/exclude
-  //     for the REMINDER/SYSTEM split) + folderShowAll toggle.
+  //   • Folder views: narrow by NotificationType (or reminders=only for the
+  //     REMINDER/Follow-ups folder) + folderShowAll toggle.
   // Mirrors the customer-dropdown pattern in NewSalePage: pageSize 50, fetch
   // more on near-bottom scroll, returns { data, total, hasMore }.
   const paginatedExtraParams = useMemo<Record<string, string | undefined>>(() => {
@@ -396,7 +395,6 @@ export default function NotificationsPage() {
     }
     const folderUnread = folderShowAll ? undefined : 'true'
     if (activeCategory === 'REMINDER') return { reminders: 'only', unread: folderUnread }
-    if (activeCategory === 'SYSTEM')   return { type: 'SYSTEM', reminders: 'exclude', unread: folderUnread }
     return { type: activeCategory, unread: folderUnread }
   }, [activeCategory, readFilter, folderShowAll])
 
@@ -435,13 +433,14 @@ export default function NotificationsPage() {
 
   // ── Per-category unread counts ────────────────────────────
   const categoryCounts = useMemo(() => {
-    const counts: Record<CategoryKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, APPROVAL: 0, REMINDER: 0, SYSTEM: 0 }
+    const counts: Record<CategoryKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, APPROVAL: 0, REMINDER: 0 }
     for (const n of notifications) {
       if (n.isRead) continue
       counts.all++
       if (n.type === 'SYSTEM') {
+        // Reminders live under Follow-ups; non-reminder system alerts have no
+        // dedicated folder and surface only in the All view (counted above).
         if (isReminder(n)) counts.REMINDER++
-        else counts.SYSTEM++
       } else if (n.type in counts) {
         counts[n.type as CategoryKey]++
       }

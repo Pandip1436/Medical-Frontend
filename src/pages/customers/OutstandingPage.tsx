@@ -18,6 +18,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
 
@@ -59,6 +60,7 @@ import { navigate } from '@/lib/router'
 type OutstandingRow = {
   customerId: string | null
   customer: string
+  customerPhone?: string | null
   outstanding: number
   current: number
   '0-30': number
@@ -129,10 +131,12 @@ export default function OutstandingPage() {
   const [collectAmount, setCollectAmount] = useState('')
   const [collectReference, setCollectReference] = useState('')
   const [collectSubmitting, setCollectSubmitting] = useState(false)
-  // Payment allocation strategy: FIFO across all open invoices, or only the ones the user picked.
-  const [allocationMode, setAllocationMode] = useState<'fifo' | 'specific'>('fifo')
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set())
-  // True while the amount input mirrors the selected-invoices sum, so we keep it in sync.
+  // Pharmacy-floor workflow: one payment is always recorded against exactly
+  // one open invoice. Whole-balance / FIFO collection is intentionally not
+  // offered — accountants reconcile receipts against specific invoice numbers.
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
+  // While true, the amount input mirrors the selected invoice's balance. Flips
+  // to false once the user manually edits the amount (e.g. partial payment).
   const [amountAutoFilled, setAmountAutoFilled] = useState(true)
 
   // ── Query builder ──
@@ -278,60 +282,30 @@ export default function OutstandingPage() {
     setCollectAmount('')
     setCollectReference('')
     setCollectMode('cash')
-    setAllocationMode('fifo')
-    setSelectedInvoiceIds(new Set())
+    setSelectedInvoiceId(null)
     setAmountAutoFilled(true)
   }
 
-  // Sum of balances for invoices the user has ticked.
-  const selectedInvoicesSum = useMemo(() => {
-    if (selectedInvoiceIds.size === 0) return 0
-    return drawerInvoices
-      .filter((inv) => selectedInvoiceIds.has(inv.id))
-      .reduce((s, inv) => s + inv.balance, 0)
-  }, [drawerInvoices, selectedInvoiceIds])
+  // Balance of the currently selected invoice, used to auto-fill / cap the
+  // amount input.
+  const selectedInvoiceBalance = useMemo(() => {
+    if (!selectedInvoiceId) return 0
+    return drawerInvoices.find((inv) => inv.id === selectedInvoiceId)?.balance ?? 0
+  }, [drawerInvoices, selectedInvoiceId])
 
-  const toggleInvoiceSelection = (invoiceId: string) => {
-    setSelectedInvoiceIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(invoiceId)) next.delete(invoiceId)
-      else next.add(invoiceId)
-      return next
-    })
+  const selectInvoice = (invoiceId: string) => {
+    setSelectedInvoiceId(invoiceId)
+    // Re-arm auto-fill so the amount snaps to the newly-picked invoice's
+    // balance even if the user had previously typed a partial amount.
     setAmountAutoFilled(true)
   }
 
-  const allInvoicesSelected =
-    drawerInvoices.length > 0 && drawerInvoices.every((inv) => selectedInvoiceIds.has(inv.id))
-
-  const toggleAllInvoices = () => {
-    setSelectedInvoiceIds((prev) => {
-      if (drawerInvoices.length > 0 && drawerInvoices.every((inv) => prev.has(inv.id))) {
-        return new Set()
-      }
-      return new Set(drawerInvoices.map((inv) => inv.id))
-    })
-    setAmountAutoFilled(true)
-  }
-
-  // Keep the amount input mirroring the selected-invoice total while the user
-  // is in "specific" mode and hasn't manually edited the amount yet.
+  // Keep the amount input mirroring the selected invoice's balance until the
+  // user manually edits it (partial payment).
   useEffect(() => {
-    if (allocationMode !== 'specific') return
     if (!amountAutoFilled) return
-    setCollectAmount(selectedInvoicesSum > 0 ? selectedInvoicesSum.toFixed(2) : '')
-  }, [allocationMode, amountAutoFilled, selectedInvoicesSum])
-
-  const switchAllocationMode = (mode: 'fifo' | 'specific') => {
-    setAllocationMode(mode)
-    setAmountAutoFilled(true)
-    if (mode === 'fifo') {
-      setSelectedInvoiceIds(new Set())
-      setCollectAmount('')
-    } else {
-      setCollectAmount('')
-    }
-  }
+    setCollectAmount(selectedInvoiceBalance > 0 ? selectedInvoiceBalance.toFixed(2) : '')
+  }, [amountAutoFilled, selectedInvoiceBalance])
 
   const fetchDrawerInvoices = useCallback(async (customerId: string) => {
     setDrawerInvoicesLoading(true)
@@ -360,17 +334,12 @@ export default function OutstandingPage() {
       toast.error('Enter a valid amount')
       return
     }
-    if (allocationMode === 'specific') {
-      if (selectedInvoiceIds.size === 0) {
-        toast.error('Pick at least one invoice')
-        return
-      }
-      if (amount > selectedInvoicesSum + 0.01) {
-        toast.error(`Amount exceeds selected invoices (${formatCurrency(selectedInvoicesSum)})`)
-        return
-      }
-    } else if (amount > selectedRow.outstanding) {
-      toast.error(`Amount exceeds outstanding (${formatCurrency(selectedRow.outstanding)})`)
+    if (!selectedInvoiceId) {
+      toast.error('Pick an invoice to collect against')
+      return
+    }
+    if (amount > selectedInvoiceBalance + 0.01) {
+      toast.error(`Amount exceeds invoice balance (${formatCurrency(selectedInvoiceBalance)})`)
       return
     }
     setCollectSubmitting(true)
@@ -379,14 +348,12 @@ export default function OutstandingPage() {
         amount,
         paymentMode: collectMode,
         referenceNumber: collectReference || undefined,
-        ...(allocationMode === 'specific'
-          ? { invoiceIds: Array.from(selectedInvoiceIds) }
-          : {}),
+        invoiceIds: [selectedInvoiceId],
       })
       toast.success(`Payment recorded · Receipt ${res.data?.receiptNumber ?? '—'}`)
       setCollectAmount('')
       setCollectReference('')
-      setSelectedInvoiceIds(new Set())
+      setSelectedInvoiceId(null)
       setAmountAutoFilled(true)
       // Refresh list + the drawer's invoice table; row may now be settled.
       await fetchRows()
@@ -560,7 +527,7 @@ export default function OutstandingPage() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{row.customer}</p>
+                    <CustomerNameLine name={row.customer} phone={row.customerPhone} />
                     <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
                     {overdue60 > 0 && (
                       <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(overdue60)}</p>
@@ -614,7 +581,9 @@ export default function OutstandingPage() {
                           />
                         )}
                       </TableCell>
-                      <TableCell className="font-medium">{row.customer}</TableCell>
+                      <TableCell>
+                        <CustomerNameLine name={row.customer} phone={row.customerPhone} />
+                      </TableCell>
                       <TableCell className="text-center text-sm text-muted-foreground">
                         {row.invoiceCount}
                       </TableCell>
@@ -685,6 +654,11 @@ export default function OutstandingPage() {
                 <div className="flex items-start justify-between gap-3 pr-8">
                   <div className="min-w-0">
                     <SheetTitle className="text-base font-semibold truncate">{selectedRow.customer}</SheetTitle>
+                    {selectedRow.customerPhone && selectedRow.customerPhone !== '0000000000' && (
+                      <p className="font-mono text-[11px] text-muted-foreground tabular-nums mt-0.5 leading-tight">
+                        {selectedRow.customerPhone}
+                      </p>
+                    )}
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       {selectedRow.invoiceCount} unpaid invoice{selectedRow.invoiceCount !== 1 ? 's' : ''}
                     </p>
@@ -736,15 +710,15 @@ export default function OutstandingPage() {
                   ))}
                 </div>
 
-                {/* Overdue invoices */}
+                {/* Open invoices — click a row to pick the one you're collecting against */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Open Invoices ({drawerInvoices.length})
                     </p>
-                    {allocationMode === 'specific' && drawerInvoices.length > 0 && (
+                    {selectedInvoiceId && (
                       <p className="text-[10px] text-muted-foreground">
-                        {selectedInvoiceIds.size} selected · {formatCurrency(selectedInvoicesSum)}
+                        1 selected · {formatCurrency(selectedInvoiceBalance)}
                       </p>
                     )}
                   </div>
@@ -752,15 +726,7 @@ export default function OutstandingPage() {
                     <Table>
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
-                          {allocationMode === 'specific' && (
-                            <TableHead className="h-9 w-9 px-3">
-                              <Checkbox
-                                checked={allInvoicesSelected}
-                                onCheckedChange={toggleAllInvoices}
-                                aria-label="Select all invoices"
-                              />
-                            </TableHead>
-                          )}
+                          <TableHead className="h-9 w-9 px-3" aria-label="Pick" />
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice #</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Age</TableHead>
@@ -772,39 +738,30 @@ export default function OutstandingPage() {
                       </TableHeader>
                       <TableBody>
                         {drawerInvoicesLoading ? (
-                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</TableCell></TableRow>
                         ) : drawerInvoices.length === 0 ? (
-                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground">No open invoices.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground">No open invoices.</TableCell></TableRow>
                         ) : drawerInvoices.map((inv) => {
-                          const isInvSelected = selectedInvoiceIds.has(inv.id)
-                          const rowClickable = allocationMode !== 'specific'
+                          const isInvSelected = selectedInvoiceId === inv.id
                           return (
                             <TableRow
                               key={inv.id}
                               className={cn(
-                                'border-b border-border/30 last:border-b-0 hover:bg-muted/20',
-                                rowClickable && 'cursor-pointer',
-                                allocationMode === 'specific' && isInvSelected && 'bg-primary/5',
+                                'border-b border-border/30 last:border-b-0 hover:bg-muted/20 cursor-pointer',
+                                isInvSelected && 'bg-primary/5',
                               )}
-                              onClick={() => {
-                                if (allocationMode === 'specific') {
-                                  toggleInvoiceSelection(inv.id)
-                                  return
-                                }
-                                if (!selectedRow?.customerId) return
-                                navigate(`/customers/invoices?customerId=${selectedRow.customerId}&customerName=${encodeURIComponent(selectedRow.customer)}`)
-                                setSelectedRow(null)
-                              }}
+                              onClick={() => selectInvoice(inv.id)}
                             >
-                              {allocationMode === 'specific' && (
-                                <TableCell className="px-3 py-2.5 w-9" onClick={(e) => e.stopPropagation()}>
-                                  <Checkbox
-                                    checked={isInvSelected}
-                                    onCheckedChange={() => toggleInvoiceSelection(inv.id)}
-                                    aria-label={`Select invoice ${inv.invoiceNumber}`}
-                                  />
-                                </TableCell>
-                              )}
+                              <TableCell className="px-3 py-2.5 w-9" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="radio"
+                                  name="payment-invoice"
+                                  className="h-3.5 w-3.5 accent-primary"
+                                  checked={isInvSelected}
+                                  onChange={() => selectInvoice(inv.id)}
+                                  aria-label={`Select invoice ${inv.invoiceNumber}`}
+                                />
+                              </TableCell>
                               <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
                               <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
                               <TableCell className={cn('px-3 py-2.5 text-xs font-mono whitespace-nowrap', inv.daysOverdue > 60 && 'text-rose-600 dark:text-rose-400 font-semibold')}>
@@ -826,44 +783,35 @@ export default function OutstandingPage() {
                   </div>
                 </div>
 
-                {/* Inline Record Payment form — FIFO or invoice-specific */}
+                {/* Record Payment — one invoice at a time, no FIFO / multi-select */}
                 <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                        Record Payment
-                      </p>
-                    </div>
-                    <div className="inline-flex rounded-md border border-amber-300/60 bg-white/60 p-0.5 dark:border-amber-900/60 dark:bg-amber-950/40">
-                      <button
-                        type="button"
-                        onClick={() => switchAllocationMode('fifo')}
-                        className={cn(
-                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
-                          allocationMode === 'fifo'
-                            ? 'bg-amber-600 text-white shadow-sm'
-                            : 'text-amber-800 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/30',
-                        )}
-                      >
-                        FIFO (oldest first)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => switchAllocationMode('specific')}
-                        className={cn(
-                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
-                          allocationMode === 'specific'
-                            ? 'bg-amber-600 text-white shadow-sm'
-                            : 'text-amber-800 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/30',
-                        )}
-                      >
-                        Specific invoice(s)
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                      Record Payment
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr_180px_auto] gap-2">
-                    <Select value={collectMode} onValueChange={(v) => setCollectMode(v as 'cash' | 'cheque' | 'neft_upi')}>
+                  <div className={cn(
+                    'grid grid-cols-1 gap-2',
+                    // Cash receipts don't carry a txn reference, so we collapse
+                    // the grid to 3 cols and drop the reference input entirely
+                    // for that mode. Cheque needs the cheque #, NEFT/UPI needs
+                    // the UTR — both are required-feeling for reconciliation.
+                    collectMode === 'cash'
+                      ? 'sm:grid-cols-[160px_1fr_auto]'
+                      : 'sm:grid-cols-[160px_1fr_180px_auto]',
+                  )}>
+                    <Select
+                      value={collectMode}
+                      onValueChange={(v) => {
+                        const next = v as 'cash' | 'cheque' | 'neft_upi'
+                        setCollectMode(next)
+                        // Clear a stale reference when switching to cash so we
+                        // don't accidentally send a leftover cheque # to the
+                        // backend.
+                        if (next === 'cash') setCollectReference('')
+                      }}
+                    >
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>
@@ -878,25 +826,39 @@ export default function OutstandingPage() {
                       placeholder="Amount"
                       className="h-9 font-mono text-sm"
                       value={collectAmount}
-                      onChange={(e) => { setCollectAmount(e.target.value); setAmountAutoFilled(false) }}
-                      max={allocationMode === 'specific' ? selectedInvoicesSum : selectedRow.outstanding}
-                      disabled={allocationMode === 'specific' && selectedInvoiceIds.size === 0}
+                      onChange={(e) => {
+                        const raw = e.target.value
+                        // Hard-cap the input at the selected invoice's balance —
+                        // backend rejects overpayment, but bouncing it on submit
+                        // is poor UX. Allow empty string so the user can clear.
+                        if (raw === '' || !selectedInvoiceId) {
+                          setCollectAmount(raw)
+                        } else {
+                          const num = parseFloat(raw)
+                          if (Number.isFinite(num) && num > selectedInvoiceBalance) {
+                            setCollectAmount(selectedInvoiceBalance.toFixed(2))
+                          } else {
+                            setCollectAmount(raw)
+                          }
+                        }
+                        setAmountAutoFilled(false)
+                      }}
+                      max={selectedInvoiceBalance}
+                      disabled={!selectedInvoiceId}
                     />
-                    <Input
-                      type="text"
-                      placeholder={collectMode === 'cheque' ? 'Cheque #' : collectMode === 'neft_upi' ? 'UPI / Txn ref' : 'Reference (optional)'}
-                      className="h-9 text-sm"
-                      value={collectReference}
-                      onChange={(e) => setCollectReference(e.target.value)}
-                    />
+                    {collectMode !== 'cash' && (
+                      <Input
+                        type="text"
+                        placeholder={collectMode === 'cheque' ? 'Cheque #' : 'UPI / Txn ref'}
+                        className="h-9 text-sm"
+                        value={collectReference}
+                        onChange={(e) => setCollectReference(e.target.value)}
+                      />
+                    )}
                     <Button
                       size="sm"
                       className="gap-1.5 h-9"
-                      disabled={
-                        collectSubmitting ||
-                        !collectAmount ||
-                        (allocationMode === 'specific' && selectedInvoiceIds.size === 0)
-                      }
+                      disabled={collectSubmitting || !collectAmount || !selectedInvoiceId}
                       onClick={handleCollectPayment}
                     >
                       <Wallet className="h-4 w-4" />
@@ -904,11 +866,9 @@ export default function OutstandingPage() {
                     </Button>
                   </div>
                   <p className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
-                    {allocationMode === 'fifo'
-                      ? 'Payment will be allocated to oldest unpaid invoice(s) first.'
-                      : selectedInvoiceIds.size === 0
-                        ? 'Tick one or more invoices above to collect against them.'
-                        : `Payment will be allocated to the ${selectedInvoiceIds.size} selected invoice${selectedInvoiceIds.size !== 1 ? 's' : ''} (oldest-first within selection).`}
+                    {selectedInvoiceId
+                      ? `Payment will be recorded against the selected invoice (balance ${formatCurrency(selectedInvoiceBalance)}).`
+                      : 'Pick one invoice above to collect against. Each receipt is recorded against exactly one invoice.'}
                   </p>
                 </div>
               </div>

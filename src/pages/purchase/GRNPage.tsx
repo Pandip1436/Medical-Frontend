@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import type { Product } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Package,
@@ -117,8 +119,11 @@ export default function GRNPage() {
   const [editGrnNumber, setEditGrnNumber] = useState('')
   const editPrefilled = useRef(false)
 
-  // Source selection
-  const [sourceType, setSourceType] = useState<'po' | 'direct'>('po')
+  // Source selection — defaults to Direct Entry because most pharmacies
+  // receive stock without a pre-existing PO (over-the-counter restocks,
+  // walk-in distributors). Users with a PO workflow can switch to the
+  // "Against PO" tab.
+  const [sourceType, setSourceType] = useState<'po' | 'direct'>('direct')
   const [selectedPOId, setSelectedPOId] = useState<string | null>(null)
   const [poSearchOpen, setPoSearchOpen] = useState(false)
   const [poSearch, setPoSearch] = useState('')
@@ -197,7 +202,10 @@ export default function GRNPage() {
   }, [supplierResults.length, supplierResultsLoading, supplierResultsHasMore, supplierSearch])
 
   // Items
-  const [grnItems, setGrnItems] = useState<GRNFormItem[]>([])
+  // Direct Entry is the default source type — seed one empty row so the
+  // user sees an editable line immediately. Other paths (PO selection,
+  // existing-GRN edit) overwrite this array later.
+  const [grnItems, setGrnItems] = useState<GRNFormItem[]>(() => [createEmptyItem()])
   const [productSearch, setProductSearch] = useState('')
 
   // Supplier invoice
@@ -368,19 +376,40 @@ export default function GRNPage() {
     return purchaseOrders.find((po) => po.id === selectedPOId)
   }, [purchaseOrders, selectedPOId])
 
-  // ── Product search for direct entry ──
+  // ── Product search for direct entry — server-paginated ──
+  // Backend filters by q across name / genericName / manufacturer / hsnCode /
+  // barcode and supports skip/take. Mirrors the supplier picker pattern in
+  // this same file so the user gets fast incremental loading on shops with
+  // 1000+ SKUs instead of the legacy "load all products into the store, then
+  // .filter() client-side" approach.
+  const productSearchPaged = usePaginatedSearch<Product>({
+    endpoint: '/products',
+    pageSize: 10,
+    debounceMs: 250,
+  })
+  useEffect(() => {
+    productSearchPaged.setQuery(productSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productSearch])
+
+  // Hide products already in the cart so the user doesn't double-add.
+  // No client-side cap — scroll-to-load-more keeps the list growing only
+  // when the user actually scrolls to the bottom, so the DOM only carries
+  // what they've requested to see.
   const filteredProducts = useMemo(() => {
     if (!productSearch.trim()) return []
     const existingIds = new Set(grnItems.map((i) => i.productId))
-    return products
-      .filter(
-        (p) =>
-          !existingIds.has(p.id) &&
-          (p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-            (p.genericName ?? '').toLowerCase().includes(productSearch.toLowerCase()))
-      )
-      .slice(0, 6)
-  }, [productSearch, grnItems, products])
+    return productSearchPaged.items.filter((p) => !existingIds.has(p.id))
+  }, [productSearch, grnItems, productSearchPaged.items])
+
+  // Scroll-to-load-more handler for the product dropdown — same pattern as
+  // the supplier dropdown above.
+  const handleProductDropdownScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    if (productSearchPaged.loading || !productSearchPaged.hasMore) return
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 60) return
+    productSearchPaged.loadMore()
+  }, [productSearchPaged.loading, productSearchPaged.hasMore, productSearchPaged.loadMore])
 
   // ── Select PO ──
   function handleSelectPO(poId: string) {
@@ -1116,10 +1145,11 @@ export default function GRNPage() {
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                 />
-                {productSearch && filteredProducts.length > 0 && (
+                {productSearch.trim() && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
+                    onScroll={handleProductDropdownScroll}
                     className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
                     {filteredProducts.map((p) => (
@@ -1137,6 +1167,15 @@ export default function GRNPage() {
                         <span className="font-mono text-sm text-muted-foreground">{formatCurrency(p.purchaseRate)}</span>
                       </button>
                     ))}
+                    {productSearchPaged.loading && (
+                      <div className="flex items-center justify-center gap-2 px-4 py-3 text-[11px] text-muted-foreground">
+                        <div className="h-3 w-3 rounded-full border-b-2 border-current animate-spin" />
+                        Loading products…
+                      </div>
+                    )}
+                    {!productSearchPaged.loading && filteredProducts.length === 0 && (
+                      <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
+                    )}
                   </motion.div>
                 )}
               </div>
@@ -1228,10 +1267,11 @@ export default function GRNPage() {
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                 />
-                {productSearch && filteredProducts.length > 0 && (
+                {productSearch.trim() && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
+                    onScroll={handleProductDropdownScroll}
                     className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
                     {filteredProducts.map((p) => (
@@ -1249,6 +1289,15 @@ export default function GRNPage() {
                         <span className="font-mono text-sm text-muted-foreground">{formatCurrency(p.purchaseRate)}</span>
                       </button>
                     ))}
+                    {productSearchPaged.loading && (
+                      <div className="flex items-center justify-center gap-2 px-4 py-3 text-[11px] text-muted-foreground">
+                        <div className="h-3 w-3 rounded-full border-b-2 border-current animate-spin" />
+                        Loading products…
+                      </div>
+                    )}
+                    {!productSearchPaged.loading && filteredProducts.length === 0 && (
+                      <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
+                    )}
                   </motion.div>
                 )}
                 </div>

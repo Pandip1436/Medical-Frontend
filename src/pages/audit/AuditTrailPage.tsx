@@ -764,7 +764,7 @@ function AuditDetailSheet({ row, onClose }: { row: AuditLogRow | null; onClose: 
     // (the keys present in newValue). Comparing against the captured
     // oldValue snapshot, keep just the ones whose value genuinely changed.
     // Iterating newValue (not the union with oldValue) avoids flagging
-    // server-only columns (loyaltyPoints, currentOutstanding, …) that the
+    // server-only columns (currentOutstanding, …) that the
     // form never sent. Hidden/system keys are skipped entirely.
     return Object.keys(newVal)
       .filter((k) => !isHiddenKey(k))

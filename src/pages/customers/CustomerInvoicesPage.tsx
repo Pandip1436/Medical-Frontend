@@ -796,6 +796,27 @@ export default function CustomerInvoicesPage() {
 
                 {/* Sticky Footer: totals strip + actions */}
                 <div className="shrink-0 border-t border-border/40 bg-background">
+                  {/* Balance Due hero strip — only when there's outstanding.
+                      Rendered ABOVE the totals breakdown so it's the first
+                      thing a customer's eye lands on when reviewing what
+                      they still owe. Amber-tinted, large currency, takes
+                      the full width. */}
+                  {balanceDue > 0.01 && (
+                    <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">
+                          Balance Due
+                        </span>
+                        <span className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
+                          {formatCurrency(Number(detailInvoice.amountPaid))} paid of {formatCurrency(Number(detailInvoice.grandTotal))}
+                        </span>
+                      </div>
+                      <span className="font-mono text-2xl font-black tabular-nums text-amber-700 dark:text-amber-400">
+                        {formatCurrency(balanceDue)}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
                     {([
                       { label: 'Subtotal', value: Number(detailInvoice.subtotal) },

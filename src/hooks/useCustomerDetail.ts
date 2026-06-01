@@ -185,12 +185,16 @@ export function useCustomerDetail(customerId: string | null) {
   }, [customerId, ledgerFrom, ledgerTo, fetchLedger])
 
   // ── Lazy fetchers (one shot, cached) ──────────────────────
-  const ensureInvoicesLoaded = useCallback(async () => {
-    if (!customerId || invoices.attempted) return
+  // Unconditional fetcher — always runs, regardless of `attempted`. The
+  // `ensureLoaded` wrappers below are thin gates on top of these so the
+  // first-tab-click semantics are preserved. `refetch*` reuses these directly
+  // so external mutation (CN approve, payment record) shows up on tab click.
+  const fetchInvoices = useCallback(async () => {
+    if (!customerId) return
     invoicesAbortRef.current?.abort()
     const controller = new AbortController()
     invoicesAbortRef.current = controller
-    setInvoices({ data: null, loading: true, error: null, attempted: true })
+    setInvoices((s) => ({ ...s, loading: true, error: null, attempted: true }))
     try {
       const res = await api.get(`/billing?customerId=${customerId}`, { signal: controller.signal })
       const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
@@ -199,14 +203,19 @@ export function useCustomerDetail(customerId: string | null) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
       setInvoices({ data: null, loading: false, error: err?.message ?? 'Failed to load invoices', attempted: true })
     }
-  }, [customerId, invoices.attempted])
+  }, [customerId])
 
-  const ensureCreditNotesLoaded = useCallback(async () => {
-    if (!customerId || creditNotes.attempted) return
+  const ensureInvoicesLoaded = useCallback(async () => {
+    if (!customerId || invoices.attempted) return
+    await fetchInvoices()
+  }, [customerId, invoices.attempted, fetchInvoices])
+
+  const fetchCreditNotes = useCallback(async () => {
+    if (!customerId) return
     creditNotesAbortRef.current?.abort()
     const controller = new AbortController()
     creditNotesAbortRef.current = controller
-    setCreditNotes({ data: null, loading: true, error: null, attempted: true })
+    setCreditNotes((s) => ({ ...s, loading: true, error: null, attempted: true }))
     try {
       const res = await api.get(`/credit-notes?customerId=${customerId}`, { signal: controller.signal })
       const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
@@ -215,14 +224,19 @@ export function useCustomerDetail(customerId: string | null) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
       setCreditNotes({ data: null, loading: false, error: err?.message ?? 'Failed to load credit notes', attempted: true })
     }
-  }, [customerId, creditNotes.attempted])
+  }, [customerId])
 
-  const ensurePaymentsLoaded = useCallback(async () => {
-    if (!customerId || payments.attempted) return
+  const ensureCreditNotesLoaded = useCallback(async () => {
+    if (!customerId || creditNotes.attempted) return
+    await fetchCreditNotes()
+  }, [customerId, creditNotes.attempted, fetchCreditNotes])
+
+  const fetchPayments = useCallback(async () => {
+    if (!customerId) return
     paymentsAbortRef.current?.abort()
     const controller = new AbortController()
     paymentsAbortRef.current = controller
-    setPayments({ data: null, loading: true, error: null, attempted: true })
+    setPayments((s) => ({ ...s, loading: true, error: null, attempted: true }))
     try {
       const res = await api.get(`/customers/${customerId}/payments`, { signal: controller.signal })
       const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
@@ -231,7 +245,12 @@ export function useCustomerDetail(customerId: string | null) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
       setPayments({ data: null, loading: false, error: err?.message ?? 'Failed to load payments', attempted: true })
     }
-  }, [customerId, payments.attempted])
+  }, [customerId])
+
+  const ensurePaymentsLoaded = useCallback(async () => {
+    if (!customerId || payments.attempted) return
+    await fetchPayments()
+  }, [customerId, payments.attempted, fetchPayments])
 
   const ensureQuotationsLoaded = useCallback(async () => {
     if (!customerId || quotations.attempted) return
@@ -381,9 +400,9 @@ export function useCustomerDetail(customerId: string | null) {
       setFrom: setLedgerFrom,
       setTo: setLedgerTo,
     },
-    invoices: { ...invoices, ensureLoaded: ensureInvoicesLoaded, refetch: () => { setInvoices((s) => ({ ...s, attempted: false })); void ensureInvoicesLoaded() } },
-    creditNotes: { ...creditNotes, ensureLoaded: ensureCreditNotesLoaded, refetch: () => { setCreditNotes((s) => ({ ...s, attempted: false })); void ensureCreditNotesLoaded() } },
-    payments: { ...payments, ensureLoaded: ensurePaymentsLoaded, refetch: () => { setPayments((s) => ({ ...s, attempted: false })); void ensurePaymentsLoaded() } },
+    invoices: { ...invoices, ensureLoaded: ensureInvoicesLoaded, refetch: fetchInvoices },
+    creditNotes: { ...creditNotes, ensureLoaded: ensureCreditNotesLoaded, refetch: fetchCreditNotes },
+    payments: { ...payments, ensureLoaded: ensurePaymentsLoaded, refetch: fetchPayments },
     quotations: { ...quotations, ensureLoaded: ensureQuotationsLoaded, refetch: () => { setQuotations((s) => ({ ...s, attempted: false })); void ensureQuotationsLoaded() } },
     prescriptions: { ...prescriptions, ensureLoaded: ensurePrescriptionsLoaded, refetch: refetchPrescriptions },
     activities: {

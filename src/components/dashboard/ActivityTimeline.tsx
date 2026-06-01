@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Activity, ArrowUpRight, IndianRupee, Package, RotateCcw, ShoppingCart, UserPlus, type LucideIcon } from 'lucide-react'
+import { Activity, ArrowUpRight, IndianRupee, Loader2, Package, RotateCcw, ShoppingCart, UserPlus, type LucideIcon } from 'lucide-react'
 import dayjs from 'dayjs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import { navigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import type { ActivityItem } from './types'
@@ -64,32 +65,49 @@ function groupByDate(activities: ActivityItem[]): Group[] {
 
 interface ActivityTimelineProps {
   activities: ActivityItem[]
+  // Total available across all pages — drives the header count and whether
+  // more rows can be lazy-loaded on scroll.
+  total?: number
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
-export function ActivityTimeline({ activities }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, total, isLoadingMore = false, onLoadMore }: ActivityTimelineProps) {
   const groups = useMemo(() => groupByDate(activities), [activities])
+  const totalCount = total ?? activities.length
+  const hasMore = Boolean(onLoadMore) && activities.length < totalCount
+
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useInfiniteScroll({
+    root: viewportRef,
+    sentinel: sentinelRef,
+    hasMore,
+    isLoading: isLoadingMore,
+    onLoadMore: onLoadMore ?? (() => {}),
+  })
 
   return (
-    <Card className="flex flex-col min-h-75 lg:max-h-115">
+    <Card className="flex flex-col min-h-75 lg:h-115">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <CardTitle className="text-base">Recent activity</CardTitle>
           </div>
-          {activities.length > 0 && (
+          {totalCount > 0 && (
             <span className="rounded-md bg-muted/60 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
-              {activities.length}
+              {totalCount}
             </span>
           )}
         </div>
         <CardDescription>Latest actions across the system</CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">
+      <CardContent className="flex-1 min-h-0 overflow-hidden">
         {activities.length === 0 ? (
           <EmptyState />
         ) : (
-          <ScrollArea className="h-full pr-3">
+          <ScrollArea className="h-full pr-3" viewportRef={viewportRef}>
             <div className="space-y-4">
               {groups.map((g) => (
                 <section key={g.label}>
@@ -102,10 +120,21 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
                 </section>
               ))}
             </div>
+            {hasMore && <div ref={sentinelRef} className="h-px" aria-hidden />}
+            {isLoadingMore && <LoadMoreRow />}
           </ScrollArea>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function LoadMoreRow() {
+  return (
+    <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      Loading more…
+    </div>
   )
 }
 

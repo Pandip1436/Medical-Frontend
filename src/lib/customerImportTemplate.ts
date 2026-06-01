@@ -49,7 +49,6 @@ export interface ParsedCustomer {
   referredBy?: string
   creditLimit?: number
   openingBalance?: number
-  loyaltyPoints?: number
   gstin?: string
   dlNumber?: string
   registrationNumber?: string
@@ -233,7 +232,6 @@ const CUSTOMER_COLUMNS = [
   'referred_by',
   'credit_limit',
   'opening_balance',
-  'loyalty_points',
   'whatsapp_opt_in',
   'whatsapp_number',
   'notes',
@@ -371,7 +369,6 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   referred_by: '',
   credit_limit: 50000,
   opening_balance: 12500,
-  loyalty_points: 0,
   whatsapp_opt_in: 'TRUE',
   whatsapp_number: '',
   notes: 'Imported from legacy system',
@@ -721,7 +718,6 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       referredBy: toOptionalStr(raw.referred_by),
       creditLimit: toOptionalNumber(raw.credit_limit),
       openingBalance: toOptionalNumber(raw.opening_balance),
-      loyaltyPoints: toOptionalNumber(raw.loyalty_points),
       gstin: toOptionalStr(raw.gstin),
       dlNumber: toOptionalStr(raw.dl_number),
       registrationNumber: toOptionalStr(raw.registration_number),
@@ -1198,7 +1194,6 @@ interface ExportCustomerInput {
   referredBy?: string | null
   creditLimit?: number | string | null
   currentOutstanding?: number | string | null
-  loyaltyPoints?: number | null
   gstin?: string | null
   dlNumber?: string | null
   registrationNumber?: string | null
@@ -1395,7 +1390,6 @@ export function exportCustomersToWorkbook(
     referred_by: c.referredBy ?? '',
     credit_limit: num(c.creditLimit),
     opening_balance: num(c.currentOutstanding),
-    loyalty_points: c.loyaltyPoints ?? 0,
     whatsapp_opt_in: c.whatsappOptIn === false ? 'FALSE' : 'TRUE',
     whatsapp_number: c.whatsappNumber ?? '',
     notes: c.notes ?? '',

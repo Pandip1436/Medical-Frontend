@@ -4,7 +4,6 @@ import { useAuthStore } from '@/stores/authStore'
 import { useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { CommandPalette } from '@/components/shared/CommandPalette'
 import AppLayout from '@/components/layout/AppLayout'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -391,7 +390,6 @@ function App() {
           </Suspense>
         </ErrorBoundary>
       </AppLayout>
-      <CommandPalette />
       <Toaster position="top-right" richColors closeButton />
     </TooltipProvider>
   )

@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -56,6 +55,7 @@ import {
   type ProductFormValues,
 } from '@/components/products/productFormSchema'
 import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
+import { UNIT_OF_MEASURE_OPTIONS } from '@/lib/unitOfMeasureOptions'
 
 // ─── Schedule badge ────────────────────────────────────────────
 const scheduleBadgeConfig: Record<string, { label: string; variant: 'destructive' | 'warning' } | null> = {
@@ -174,6 +174,9 @@ export default function ProductsPage() {
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: productFormDefaults,
+    // Validate on blur so the Selling Price ≤ MRP refine surfaces as soon
+    // as the user leaves the offending field — not silent until Save.
+    mode: 'onBlur',
   })
 
   const mrpVal = Number(form.watch('mrp')) || 0
@@ -183,11 +186,14 @@ export default function ProductsPage() {
   // Fields per section — used for the header progress indicator (error
   // detection + "filled" check). Sections render together in one scroll,
   // so this is no longer a navigation gate, just a status map.
+  // Only the required-field set per section — drives the "complete"
+  // checkmark in the section pill. Optional fields don't count toward
+  // completeness (they're nice-to-have, not blocking the form).
   const sectionFields: Record<string, (keyof ProductFormValues)[]> = {
-    basic: ['name', 'genericName', 'manufacturer', 'categoryId', 'packSize', 'unitOfMeasure'],
+    basic: ['name', 'genericName', 'manufacturer'],
     regulatory: ['hsnCode'],
-    pricing: ['mrp', 'purchaseRate'],
-    stock: ['rackLocation'],
+    pricing: ['mrp', 'sellingRate'],
+    stock: ['minStock'],
   }
 
   const scrollToSection = (id: string) => {
@@ -252,24 +258,21 @@ export default function ProductsPage() {
     form.reset({
       name: product.name,
       genericName: product.genericName,
-      saltComposition: product.saltComposition ?? '',
       manufacturer: product.manufacturer,
       categoryId: catId,
-      packSize: product.packSize,
-      unitOfMeasure: product.unitOfMeasure,
+      packSize: product.packSize ?? '',
+      unitOfMeasure: product.unitOfMeasure ?? '',
       schedule: product.schedule as ProductFormValues['schedule'],
       hsnCode: product.hsnCode,
-      isNarcotic: product.isNarcotic,
-      storageCondition: product.storageCondition as ProductFormValues['storageCondition'],
       mrp: product.mrp,
-      purchaseRate: product.purchaseRate,
+      purchaseRate: product.purchaseRate ?? 0,
       sellingRate: product.sellingRate,
-      wholesaleRate: product.wholesaleRate,
+      wholesaleRate: product.wholesaleRate ?? 0,
       gstRate: product.gstRate,
       minStock: product.minStock,
-      maxStock: product.maxStock,
-      reorderQty: product.reorderQty,
-      rackLocation: product.rackLocation,
+      maxStock: product.maxStock ?? 0,
+      reorderQty: product.reorderQty ?? 0,
+      rackLocation: product.rackLocation ?? '',
     } as ProductFormValues)
     setActiveSection('basic')
     setDialogOpen(true)
@@ -279,7 +282,6 @@ export default function ProductsPage() {
     const payload = {
       ...values,
       schedule: values.schedule.toUpperCase(),
-      storageCondition: values.storageCondition.toUpperCase(),
       categoryId: values.categoryId || undefined,
     }
     try {
@@ -897,31 +899,33 @@ export default function ProductsPage() {
                           </div>
                           {form.formState.errors.manufacturer && <p className="text-xs text-rose-500">{form.formState.errors.manufacturer.message}</p>}
                         </div>
-                        <div className="sm:col-span-2 grid gap-2">
-                          <Label htmlFor="saltComposition">Salt Composition</Label>
-                          <Input id="saltComposition" placeholder="e.g. Paracetamol 500mg + Caffeine 65mg" {...form.register('saltComposition')} />
-                        </div>
                       </div>
                     </div>
                     <div className="border-t border-border/40 pt-5">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Classification</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="grid gap-2">
-                          <Label>Category <span className="text-rose-500">*</span></Label>
+                          <Label>Category <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Controller control={form.control} name="categoryId" render={({ field }) => (
-                            <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={!!form.formState.errors.categoryId} />
+                            <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                           )} />
-                          {form.formState.errors.categoryId && <p className="text-xs text-rose-500">{form.formState.errors.categoryId.message}</p>}
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="packSize">Pack Size <span className="text-rose-500">*</span></Label>
-                          <Input id="packSize" placeholder="e.g. 10x10" {...form.register('packSize')} error={!!form.formState.errors.packSize} />
-                          {form.formState.errors.packSize && <p className="text-xs text-rose-500">{form.formState.errors.packSize.message}</p>}
+                          <Label htmlFor="packSize">Pack Size <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
+                          <Input id="packSize" placeholder="e.g. 10x10" {...form.register('packSize')} />
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="unitOfMeasure">Unit of Measure <span className="text-rose-500">*</span></Label>
-                          <Input id="unitOfMeasure" placeholder="e.g. Strip, Vial" {...form.register('unitOfMeasure')} error={!!form.formState.errors.unitOfMeasure} />
-                          {form.formState.errors.unitOfMeasure && <p className="text-xs text-rose-500">{form.formState.errors.unitOfMeasure.message}</p>}
+                          <Label htmlFor="unitOfMeasure">Unit of Measure <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
+                          <Input
+                            id="unitOfMeasure"
+                            list="pp-uom-list"
+                            placeholder="Select or type..."
+                            autoComplete="off"
+                            {...form.register('unitOfMeasure')}
+                          />
+                          <datalist id="pp-uom-list">
+                            {UNIT_OF_MEASURE_OPTIONS.map(u => <option key={u} value={u} />)}
+                          </datalist>
                         </div>
                       </div>
                     </div>
@@ -938,7 +942,7 @@ export default function ProductsPage() {
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Scheduling & Compliance</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                          <Label>Drug Schedule</Label>
+                          <Label>Drug Schedule <span className="text-rose-500">*</span></Label>
                           <Controller control={form.control} name="schedule" render={({ field }) => (
                             <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-4 pt-1">
                               {(['NONE', 'H', 'H1', 'X'] as const).map(s => (
@@ -954,29 +958,6 @@ export default function ProductsPage() {
                           <Label htmlFor="hsnCode">HSN Code <span className="text-rose-500">*</span></Label>
                           <Input id="hsnCode" placeholder="e.g. 30049099" {...form.register('hsnCode')} error={!!form.formState.errors.hsnCode} />
                           {form.formState.errors.hsnCode && <p className="text-xs text-rose-500">{form.formState.errors.hsnCode.message}</p>}
-                        </div>
-                        <div className="grid gap-2">
-                          <Label>Storage Condition</Label>
-                          <Controller control={form.control} name="storageCondition" render={({ field }) => (
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="ROOM_TEMP">Room Temperature</SelectItem>
-                                <SelectItem value="COOL_DRY">Cool & Dry</SelectItem>
-                                <SelectItem value="REFRIGERATED">Refrigerated</SelectItem>
-                                <SelectItem value="FROZEN">Frozen</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          )} />
-                        </div>
-                        <div className="flex items-center justify-between rounded-xl border border-border/60 px-4 py-3">
-                          <div>
-                            <Label className="text-sm">Is Narcotic</Label>
-                            <p className="text-xs text-muted-foreground mt-0.5">Narcotic substance</p>
-                          </div>
-                          <Controller control={form.control} name="isNarcotic" render={({ field }) => (
-                            <Switch checked={field.value} onCheckedChange={field.onChange} />
-                          )} />
                         </div>
                       </div>
                     </div>
@@ -998,16 +979,16 @@ export default function ProductsPage() {
                           {form.formState.errors.mrp && <p className="text-xs text-rose-500">{form.formState.errors.mrp.message}</p>}
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="purchaseRate">Purchase Rate (₹) <span className="text-rose-500">*</span></Label>
-                          <Input id="purchaseRate" type="number" step="0.01" {...form.register('purchaseRate')} error={!!form.formState.errors.purchaseRate} />
-                          {form.formState.errors.purchaseRate && <p className="text-xs text-rose-500">{form.formState.errors.purchaseRate.message}</p>}
+                          <Label htmlFor="sellingRate">Selling Price (₹) <span className="text-rose-500">*</span></Label>
+                          <Input id="sellingRate" type="number" step="0.01" {...form.register('sellingRate')} error={!!form.formState.errors.sellingRate} />
+                          {form.formState.errors.sellingRate && <p className="text-xs text-rose-500">{form.formState.errors.sellingRate.message}</p>}
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="sellingRate">Selling Rate (₹)</Label>
-                          <Input id="sellingRate" type="number" step="0.01" {...form.register('sellingRate')} />
+                          <Label htmlFor="purchaseRate">Purchase Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
+                          <Input id="purchaseRate" type="number" step="0.01" {...form.register('purchaseRate')} />
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="wholesaleRate">Wholesale Rate (₹)</Label>
+                          <Label htmlFor="wholesaleRate">Wholesale Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Input id="wholesaleRate" type="number" step="0.01" {...form.register('wholesaleRate')} />
                         </div>
                       </div>
@@ -1020,7 +1001,7 @@ export default function ProductsPage() {
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Tax</p>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                          <Label>GST Rate</Label>
+                          <Label>GST Rate <span className="text-rose-500">*</span></Label>
                           <Controller control={form.control} name="gstRate" render={({ field }) => (
                             <Select value={String(field.value)} onValueChange={v => field.onChange(Number(v))}>
                               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1045,15 +1026,16 @@ export default function ProductsPage() {
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Stock Levels</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="grid gap-2">
-                          <Label htmlFor="minStock">Min Stock</Label>
-                          <Input id="minStock" type="number" {...form.register('minStock')} />
+                          <Label htmlFor="minStock">Min Stock <span className="text-rose-500">*</span></Label>
+                          <Input id="minStock" type="number" {...form.register('minStock')} error={!!form.formState.errors.minStock} />
+                          {form.formState.errors.minStock && <p className="text-xs text-rose-500">{form.formState.errors.minStock.message}</p>}
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="maxStock">Max Stock</Label>
+                          <Label htmlFor="maxStock">Max Stock <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Input id="maxStock" type="number" {...form.register('maxStock')} />
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="reorderQty">Reorder Qty</Label>
+                          <Label htmlFor="reorderQty">Reorder Qty <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Input id="reorderQty" type="number" {...form.register('reorderQty')} />
                         </div>
                       </div>
@@ -1062,9 +1044,8 @@ export default function ProductsPage() {
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Location</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                          <Label htmlFor="rackLocation">Rack Location <span className="text-rose-500">*</span></Label>
-                          <Input id="rackLocation" placeholder="e.g. A1-01" {...form.register('rackLocation')} error={!!form.formState.errors.rackLocation} />
-                          {form.formState.errors.rackLocation && <p className="text-xs text-rose-500">{form.formState.errors.rackLocation.message}</p>}
+                          <Label htmlFor="rackLocation">Rack Location <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
+                          <Input id="rackLocation" placeholder="e.g. A1-01" {...form.register('rackLocation')} />
                         </div>
                       </div>
                     </div>

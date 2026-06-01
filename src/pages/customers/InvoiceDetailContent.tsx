@@ -219,6 +219,26 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         </Table>
       </div>
 
+      {/* Balance Due hero — only when there's outstanding. Rendered ABOVE the
+          totals breakdown so the customer's eye lands on what they still owe
+          before scanning the line-by-line breakdown. Amber-tinted, large
+          currency, full-width. */}
+      {outstanding > 0.01 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+          <div className="flex flex-col">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">
+              Balance Due
+            </span>
+            <span className="text-xs text-amber-700/70 dark:text-amber-400/70">
+              {formatCurrency(amountPaid)} paid of {formatCurrency(grandTotal)}
+            </span>
+          </div>
+          <span className="font-mono text-3xl font-black tabular-nums text-amber-700 dark:text-amber-400">
+            {formatCurrency(outstanding)}
+          </span>
+        </div>
+      )}
+
       {/* Totals */}
       <div className="space-y-1.5 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
         {[
@@ -244,12 +264,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
             <span>Paid</span>
             <span className="font-mono">{formatCurrency(amountPaid)}</span>
-          </div>
-        )}
-        {outstanding > 0.01 && (
-          <div className="flex justify-between text-amber-600 dark:text-amber-400 font-medium">
-            <span>Outstanding</span>
-            <span className="font-mono">{formatCurrency(outstanding)}</span>
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -54,6 +54,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
@@ -815,7 +816,7 @@ export default function SalesListPage() {
                   </div>
                   {/* Row 2: Customer + Doctor */}
                   <div>
-                    <p className="text-sm font-medium leading-tight">{inv.customerName}</p>
+                    <CustomerNameLine name={inv.customerName} phone={inv.customerPhone} />
                     {inv.doctorName && (
                       <p className="text-[11px] text-muted-foreground">{inv.doctorName}</p>
                     )}
@@ -920,7 +921,7 @@ export default function SalesListPage() {
                       />
                     </TableCell>
                     <TableCell className="max-w-45">
-                      <p className="truncate text-sm font-medium">{inv.customerName}</p>
+                      <CustomerNameLine name={inv.customerName} phone={inv.customerPhone} />
                       {inv.doctorName && (
                         <p className="truncate text-[11px] text-muted-foreground">
                           {inv.doctorName}
@@ -1051,14 +1052,20 @@ export default function SalesListPage() {
                     </div>
                   )}
 
-                  {/* Meta block — single horizontal row */}
+                  {/* Meta block — single horizontal row. The Customer cell
+                      uses CustomerNameLine so the phone appears underneath
+                      the name (same disambiguation pattern as the list rows). */}
                   <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
                     {([
-                      { label: 'Customer', value: detailInvoice.customerName },
+                      {
+                        label: 'Customer',
+                        value: detailInvoice.customerName,
+                        node: <CustomerNameLine name={detailInvoice.customerName} phone={detailInvoice.customerPhone} nameClassName="text-sm font-medium truncate" />,
+                      },
                       { label: 'Payment', value: paymentModeLabels[detailInvoice.paymentMode] || detailInvoice.paymentMode },
                       detailInvoice.doctorName ? { label: 'Doctor', value: detailInvoice.doctorName } : null,
                       { label: 'Billing Type', value: detailInvoice.billingType },
-                    ].filter(Boolean) as Array<{ label: string; value: string }>).map((cell, i) => (
+                    ].filter(Boolean) as Array<{ label: string; value: string; node?: ReactNode }>).map((cell, i) => (
                       <div
                         key={cell.label}
                         className={cn(
@@ -1067,7 +1074,9 @@ export default function SalesListPage() {
                         )}
                       >
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{cell.label}</p>
-                        <p className="mt-0.5 text-sm font-medium truncate" title={cell.value}>{cell.value}</p>
+                        {cell.node ?? (
+                          <p className="mt-0.5 text-sm font-medium truncate" title={cell.value}>{cell.value}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1143,6 +1152,26 @@ export default function SalesListPage() {
 
                 {/* ── Sticky Footer: totals strip + actions ── */}
                 <div className="shrink-0 border-t border-border/40 bg-background">
+                  {/* Balance Due hero strip — only when there's outstanding.
+                      Sits above the totals breakdown so the customer's eye
+                      lands on what they still owe first. Amber-tinted, large
+                      currency, takes the full footer width. */}
+                  {balanceDue > 0.01 && (
+                    <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">
+                          Balance Due
+                        </span>
+                        <span className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
+                          {formatCurrency(Number(detailInvoice.amountPaid))} paid of {formatCurrency(Number(detailInvoice.grandTotal))}
+                        </span>
+                      </div>
+                      <span className="font-mono text-2xl font-black tabular-nums text-amber-700 dark:text-amber-400">
+                        {formatCurrency(balanceDue)}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Totals strip — single horizontal row */}
                   <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
                     {([

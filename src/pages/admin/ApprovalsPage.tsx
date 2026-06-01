@@ -43,10 +43,7 @@ const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; acce
   { key: 'all',             label: 'All',             icon: ListFilter, accent: 'text-foreground' },
   { key: 'NEW_CUSTOMER',    label: 'New Customer',    icon: UserPlus,   accent: 'text-blue-600 dark:text-blue-400' },
   { key: 'CREDIT_BILL',     label: 'Credit Bill',     icon: CreditCard, accent: 'text-amber-600 dark:text-amber-400' },
-  // SALES_RETURN chip retired — credit notes now manage their own pending-review
-  // lifecycle on /billing/credit-notes. Historical SALES_RETURN rows still
-  // render in this list when present (typeMeta below still resolves them);
-  // the chip is just removed from the type-filter strip so no new ones get filed.
+  { key: 'SALES_RETURN',    label: 'Sales Return',    icon: RotateCcw,  accent: 'text-rose-600 dark:text-rose-400' },
   { key: 'PURCHASE_RETURN', label: 'Purchase Return', icon: Truck,      accent: 'text-purple-600 dark:text-purple-400' },
 ]
 

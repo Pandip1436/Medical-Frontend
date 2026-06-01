@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search,
   Bell,
   Sun,
   Moon,
@@ -23,6 +22,7 @@ import { useBranchStore } from '@/stores/branchStore'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
+import { HeaderSearch } from '@/components/shared/HeaderSearch'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -135,27 +135,9 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-1.5 md:gap-2">
-        {/* Global Search - Pill-shaped trigger, hidden on mobile */}
-        <Button
-          variant="outline"
-          className={cn(
-            'hidden h-8 w-60 justify-start gap-2 rounded-full md:flex',
-            'border-border/60 bg-muted/40 text-muted-foreground',
-            'hover:bg-accent hover:text-accent-foreground',
-            'transition-all duration-200'
-          )}
-          onClick={() => {
-            document.dispatchEvent(
-              new KeyboardEvent('keydown', { key: 'k', ctrlKey: true })
-            )
-          }}
-        >
-          <Search className="h-3.5 w-3.5" />
-          <span className="flex-1 text-left text-xs">Search...</span>
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded-md border border-border/60 bg-background/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground/70">
-            Ctrl+K
-          </kbd>
-        </Button>
+        {/* Global Master Search — inline input with a results dropdown.
+            Hidden on mobile (the pill won't fit the header bar). */}
+        <HeaderSearch />
 
         {/* Branch indicator/selector — non-admins see a locked badge; admins get a switcher */}
         {activeBranch && (

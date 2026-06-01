@@ -5,6 +5,7 @@ export type DateRangePreset = 'month' | '6m' | 'year'
 export interface OverdueCustomer {
   customerId: string
   customerName: string
+  customerPhone?: string | null
   overdueAmount: number
   daysOverdue: number
   invoiceCount: number

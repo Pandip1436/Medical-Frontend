@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
-import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
   Search,
   ChevronRight,
@@ -10,13 +11,15 @@ import {
   Check,
   RotateCcw,
   ShieldCheck,
-  FileText,
+  User,
+  Phone,
   Package,
   Receipt,
   AlertCircle,
   Minus,
   Plus,
   ArrowLeft,
+  X,
   Printer,
   Download,
   ShieldAlert,
@@ -60,7 +63,7 @@ import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { Invoice, InvoiceItem } from '@/types'
+import type { Customer, InvoiceItem } from '@/types'
 import { printCreditNotePdf, downloadCreditNotePdf, type NoteData } from '@/lib/pdf/notesPdf'
 
 // ─────────────────────────────────────────────────────────────
@@ -78,8 +81,33 @@ export const RETURN_REASONS = [
 
 type ReturnReason = (typeof RETURN_REASONS)[number]
 
+// One still-returnable purchase line, as returned by
+// GET /credit-notes/customer/:id/returnable-items. Each line stays bound to
+// its source invoice + batch because a credit note references exactly one
+// invoice and returnable qty is capped per (invoiceId, productId, batchId).
+interface ReturnableLine {
+  invoiceId: string
+  invoiceNumber: string
+  invoiceDate: string
+  invoiceItemId: string
+  productId: string
+  productName: string
+  batchId: string
+  batchNumber: string
+  expiryDate: string
+  soldQty: number
+  alreadyReturned: number
+  remaining: number
+  mrp: number
+  rate: number
+  discountPercent: number
+  gstPercent: number
+}
+
 interface ReturnItemState {
   itemId: string
+  invoiceId: string
+  invoiceNumber: string
   selected: boolean
   returnQty: number
   maxQty: number
@@ -114,7 +142,7 @@ const SETTLEMENT_OPTIONS = [
 ] as const
 
 const STEPS = [
-  { number: 1, label: 'Select Invoice', icon: FileText },
+  { number: 1, label: 'Select Customer', icon: User },
   { number: 2, label: 'Return Items', icon: Package },
   { number: 3, label: 'Credit Note', icon: Receipt, adjust: { icon: Scale, variant: 'warning' as const } },
 ] as const
@@ -159,6 +187,7 @@ const MobileReturnCard = ({
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold truncate">{ri.item.productName}</p>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground/60">
+              <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
               <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
               <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
               <span className="text-foreground/40 font-bold">Sold: {ri.item.quantity}</span>
@@ -193,7 +222,7 @@ const MobileReturnCard = ({
                   type="number"
                   value={ri.returnQty}
                   onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
-                  className="w-12 h-8 bg-muted/40 border-0 text-sm font-black font-mono text-center focus:ring-0 rounded-lg"
+                  className="w-16 shrink-0 h-8 bg-muted/40 border-0 text-sm font-black font-mono text-center focus:ring-0 rounded-lg [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <Button
                   variant="outline"
@@ -216,12 +245,12 @@ const MobileReturnCard = ({
                 <SelectTrigger className="h-9 w-full text-xs font-semibold bg-background">
                   <SelectValue placeholder="Select a reason..." />
                 </SelectTrigger>
-                <SelectContent className="z-100">
+                <SelectContent className="z-100 min-w-44">
                   {RETURN_REASONS.map((reason) => {
                     const Icon = reasonIcons[reason]
                     return (
                       <SelectItem key={reason} value={reason} className="text-xs">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <Icon className="h-3.5 w-3.5 opacity-60" />
                           {reason}
                         </div>
@@ -269,29 +298,28 @@ export default function SalesReturnsPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [direction, setDirection] = useState(1)
 
-  // Step 1
-  const [invoiceSearch, setInvoiceSearch] = useState('')
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
-  
-  // Real Data State
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  // Step 1 — customer search + product selection
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [returnableLoading, setReturnableLoading] = useState(false)
+  // Filter for the returnable-products list (right pane) once a customer is picked.
+  const [productSearch, setProductSearch] = useState('')
 
-  const fetchInvoices = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const res = await api.get('/billing')
-      setInvoices(res.data.data || res.data)
-    } catch (error) {
-      toast.error('Failed to load invoices')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
+  const customerResults = usePaginatedSearch<Customer>({ endpoint: '/customers', pageSize: 20 })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchInvoices() }, [])
-  useBranchRefresh(fetchInvoices)
+  useEffect(() => { customerResults.setQuery(customerSearch) }, [customerSearch])
+
+  // Infinite scroll for the customer list: a sentinel at the end of the list
+  // triggers loadMore() as it scrolls into the ScrollArea viewport.
+  const customerViewportRef = useRef<HTMLDivElement>(null)
+  const customerSentinelRef = useRef<HTMLDivElement>(null)
+  useInfiniteScroll({
+    root: customerViewportRef,
+    sentinel: customerSentinelRef,
+    hasMore: customerResults.hasMore,
+    isLoading: customerResults.loading,
+    onLoadMore: customerResults.loadMore,
+  })
 
   // Step 2
   const [returnItems, setReturnItems] = useState<ReturnItemState[]>([])
@@ -299,6 +327,17 @@ export default function SalesReturnsPage() {
   // Step 3
   const [settlementOption, setSettlementOption] = useState<string>('refund')
   const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null)
+
+  // Reset the flow on branch switch — customer search re-scopes server-side via
+  // the JWT branch, so a stale selected customer from the old branch must clear.
+  useBranchRefresh(() => {
+    setSelectedCustomer(null)
+    setReturnItems([])
+    setCustomerSearch('')
+    setProductSearch('')
+    setCustomerOutstanding(null)
+    setCurrentStep(1)
+  })
 
   const creditNoteNumber = useMemo(() => generateInvoiceNumber('CN', 12), [])
 
@@ -308,77 +347,52 @@ export default function SalesReturnsPage() {
     setCurrentStep(step)
   }
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 10
-
-  // ── Step 1: Search ──
-  const matchingInvoices = useMemo(() => {
-    if (!invoiceSearch.trim()) return []
-    const q = invoiceSearch.toLowerCase()
-    return invoices
-      .filter(
-        (inv) =>
-          inv.type === 'INVOICE' &&
-          inv.status !== 'RETURNED' &&
-          inv.status !== 'CANCELLED' &&
-          inv.status !== 'DRAFT' &&
-          (inv.invoiceNumber.toLowerCase().includes(q) ||
-            inv.customerName.toLowerCase().includes(q))
-      )
-  }, [invoiceSearch, invoices])
-
-  // Reset pagination on search
-  useEffect(() => { setCurrentPage(1) }, [invoiceSearch])
-
-  const totalPages = Math.ceil(matchingInvoices.length / PAGE_SIZE)
-  const paginatedInvoices = useMemo(() => {
-    return matchingInvoices.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [matchingInvoices, currentPage])
-
-  const handleSelectInvoice = async (inv: Invoice) => {
-    setSelectedInvoice(inv)
-    // Initialise lines with no clamp; refine once the BE tells us prior returns.
-    setReturnItems(
-      inv.items.map((item) => ({
-        itemId: item.id,
-        selected: false,
-        returnQty: 0,
-        maxQty: item.quantity,
-        alreadyReturned: 0,
-        reason: '',
-        customReason: '',
-        item,
-      }))
-    )
-    // Fetch customer outstanding so we can disable "Adjust" if balance is zero
-    setCustomerOutstanding(null)
-    if (inv.customerId) {
-      api.get(`/customers/${inv.customerId}`)
-        .then(r => setCustomerOutstanding(Number(r.data.currentOutstanding ?? 0)))
-        .catch(() => setCustomerOutstanding(0))
-    } else {
-      setCustomerOutstanding(0)
-    }
-    // Fetch already-returned qty (approved CNs + pending approvals) and clamp
-    // each line so users can't type more than is still returnable.
+  // ── Step 1: select a customer, then load every still-returnable line they
+  // have across all their invoices. The endpoint already subtracts
+  // approved + pending returns and clamps `remaining`, so no second
+  // returned-qty call is needed — the BE re-validates per invoice on submit.
+  const handleSelectCustomer = async (cust: Customer) => {
+    setSelectedCustomer(cust)
+    setReturnItems([])
+    setProductSearch('')
+    setCustomerOutstanding(Number(cust.currentOutstanding ?? 0))
+    setReturnableLoading(true)
     try {
-      const res = await api.get<Array<{ productId: string; batchId: string; alreadyReturned: number }>>(
-        `/credit-notes/invoice/${inv.id}/returned-qty`,
+      const res = await api.get<ReturnableLine[]>(
+        `/credit-notes/customer/${cust.id}/returnable-items`,
       )
-      const map = new Map<string, number>()
-      for (const r of res.data) {
-        map.set(`${r.productId}::${r.batchId}`, Number(r.alreadyReturned ?? 0))
-      }
-      setReturnItems((prev) =>
-        prev.map((ri) => {
-          const alreadyReturned = map.get(`${ri.item.productId}::${ri.item.batchId}`) ?? 0
-          const remaining = Math.max(0, ri.item.quantity - alreadyReturned)
-          return { ...ri, alreadyReturned, maxQty: remaining }
-        }),
+      setReturnItems(
+        res.data.map((line) => ({
+          itemId: line.invoiceItemId,
+          invoiceId: line.invoiceId,
+          invoiceNumber: line.invoiceNumber,
+          selected: false,
+          returnQty: 0,
+          maxQty: line.remaining,
+          alreadyReturned: line.alreadyReturned,
+          reason: '',
+          customReason: '',
+          item: {
+            id: line.invoiceItemId,
+            productId: line.productId,
+            productName: line.productName,
+            batchId: line.batchId,
+            batchNumber: line.batchNumber,
+            expiryDate: line.expiryDate,
+            quantity: line.soldQty,
+            mrp: line.mrp,
+            rate: line.rate,
+            discountPercent: line.discountPercent,
+            gstPercent: line.gstPercent,
+            amount: 0,
+          },
+        })),
       )
     } catch {
-      // Best-effort clamp; BE will still re-validate on submit.
+      // api.ts surfaces the error toast; leave the list empty.
+      setReturnItems([])
+    } finally {
+      setReturnableLoading(false)
     }
   }
 
@@ -423,8 +437,54 @@ export default function SalesReturnsPage() {
     )
   }
 
-  const selectedReturnItems = returnItems.filter((ri) => ri.selected && ri.returnQty > 0)
+  // All items the user picked in step 1 — drives the Step 2 display so a row
+  // stays visible even when the user temporarily clears its qty input to 0
+  // (otherwise they'd have to go back to step 1 to re-pick it). Validation
+  // and submission filter further on returnQty > 0 below.
+  const pickedReturnItems = returnItems.filter((ri) => ri.selected)
+  const selectedReturnItems = pickedReturnItems.filter((ri) => ri.returnQty > 0)
+  // Step 1 → 2 only needs at least one product chosen; reasons/qty come in step 2.
+  const canProceedToStep2 = returnItems.some((ri) => ri.selected)
   const canProceedToStep3 = selectedReturnItems.length > 0 && selectedReturnItems.every((ri) => ri.reason !== '')
+
+  const groupByProduct = (items: ReturnItemState[]) => {
+    const groups = new Map<string, ReturnItemState[]>()
+    for (const ri of items) {
+      const list = groups.get(ri.item.productName)
+      if (list) list.push(ri)
+      else groups.set(ri.item.productName, [ri])
+    }
+    return Array.from(groups.entries()).map(([productName, list]) => ({ productName, items: list }))
+  }
+
+  // Step 1 product picker: filter the returnable lines by name/batch/invoice,
+  // then group under the product name (one selectable row per purchase).
+  const groupedPickItems = useMemo(() => {
+    const q = productSearch.trim().toLowerCase()
+    const filtered = !q
+      ? returnItems
+      : returnItems.filter(
+          (ri) =>
+            ri.item.productName.toLowerCase().includes(q) ||
+            ri.item.batchNumber.toLowerCase().includes(q) ||
+            ri.invoiceNumber.toLowerCase().includes(q),
+        )
+    return groupByProduct(filtered)
+  }, [returnItems, productSearch])
+
+  // Step 2 only shows the lines chosen in step 1, grouped, for qty + reason.
+  // Uses the unfiltered "picked" list so rows persist when qty is cleared.
+  const groupedSelectedItems = useMemo(
+    () => groupByProduct(pickedReturnItems),
+    [pickedReturnItems],
+  )
+
+  // Distinct source invoices for the current selection — selecting lines from
+  // several invoices files one credit note per invoice (see handleConfirmReturn).
+  const selectedInvoiceNumbers = useMemo(
+    () => Array.from(new Set(selectedReturnItems.map((ri) => ri.invoiceNumber))),
+    [selectedReturnItems],
+  )
 
   // ── Step 3: Calculations ──
   const creditSummary = useMemo(() => {
@@ -441,7 +501,7 @@ export default function SalesReturnsPage() {
   }, [selectedReturnItems])
 
   const buildCreditNoteData = (): NoteData | null => {
-    if (!selectedInvoice) return null
+    if (!selectedCustomer) return null
     const reasonSummary = Array.from(
       new Set(
         selectedReturnItems.map((ri) =>
@@ -453,9 +513,9 @@ export default function SalesReturnsPage() {
       noteNo: creditNoteNumber,
       date: new Date().toISOString(),
       partyLabel: 'Customer',
-      partyName: selectedInvoice.customerName,
-      referenceLabel: 'Invoice',
-      referenceValue: fmtInvoiceNum(selectedInvoice),
+      partyName: selectedCustomer.name,
+      referenceLabel: selectedInvoiceNumbers.length > 1 ? 'Invoices' : 'Invoice',
+      referenceValue: selectedInvoiceNumbers.join(', '),
       reason: reasonSummary || '-',
       items: selectedReturnItems.map((ri) => {
         const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
@@ -498,7 +558,7 @@ export default function SalesReturnsPage() {
   }
 
   const handleConfirmReturn = async () => {
-    if (!selectedInvoice) return
+    if (!selectedCustomer || selectedReturnItems.length === 0) return
     // Safety: if adjust selected but customer has no outstanding, fall back to refund
     const effectiveOption = (settlementOption === 'adjust' && (customerOutstanding ?? 0) <= 0) ? 'refund' : settlementOption
     const settlementMode =
@@ -506,66 +566,94 @@ export default function SalesReturnsPage() {
       : effectiveOption === 'replacement' ? 'REPLACEMENT'
       : 'REFUND'
 
-    const payloadItems = selectedReturnItems.map((ri) => {
-      const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
-      const lineAmount = lineRate * ri.returnQty
-      const gstAmount = lineAmount * (ri.item.gstPercent / 100)
-      return {
-        productId: ri.item.productId,
-        productName: ri.item.productName,
-        batchId: ri.item.batchId,
-        batchNumber: ri.item.batchNumber,
-        expiryDate: new Date(ri.item.expiryDate).toISOString(),
-        returnedQty: ri.returnQty,
-        rate: Number(lineRate.toFixed(2)),
-        gstPercent: Number(ri.item.gstPercent),
-        amount: Number((lineAmount + gstAmount).toFixed(2)),
-      }
-    })
-
-    const reasonSummary = Array.from(
-      new Set(
-        selectedReturnItems.map((ri) =>
-          ri.reason === 'Other' && ri.customReason ? ri.customReason : ri.reason,
-        ),
-      ),
-    ).join(', ')
-
-    const payload = {
-      invoiceId: selectedInvoice.id,
-      reason: reasonSummary,
-      items: payloadItems,
-      subtotal: Number(creditSummary.subtotal.toFixed(2)),
-      cgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
-      sgst: Number((creditSummary.gstReversal / 2).toFixed(2)),
-      totalAmount: Number(creditSummary.total.toFixed(2)),
-      settlementMode,
+    // A credit note references exactly one invoice, so split the selection by
+    // source invoice and file one CN per invoice. Each CN carries only that
+    // invoice's items/totals.
+    const byInvoice = new Map<string, ReturnItemState[]>()
+    for (const ri of selectedReturnItems) {
+      const list = byInvoice.get(ri.invoiceId)
+      if (list) list.push(ri)
+      else byInvoice.set(ri.invoiceId, [ri])
     }
 
-    try {
-      const res = await api.post('/credit-notes', payload)
-      // Every CN — admin or pharmacist — now lands in PENDING_REVIEW. The
-      // returned goods have to be physically inspected before any inventory
-      // or balance changes fire; the reviewer either approves (with optional
-      // settlement-method override) or rejects on the CN detail page.
-      toast.success(`Credit Note ${res.data.creditNoteNo ?? creditNoteNumber} submitted — awaiting review`, {
-        description: `${formatCurrency(creditSummary.total)} held pending inspection. Reviewer will finalise the ${settlementMode.toLowerCase()} settlement.`,
-        duration: 6000,
+    let okCount = 0
+    const failedInvoices: string[] = []
+
+    for (const [invoiceId, items] of byInvoice) {
+      let subtotal = 0
+      let totalGst = 0
+      const payloadItems = items.map((ri) => {
+        const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+        const lineAmount = lineRate * ri.returnQty
+        const gstAmount = lineAmount * (ri.item.gstPercent / 100)
+        subtotal += lineAmount
+        totalGst += gstAmount
+        return {
+          productId: ri.item.productId,
+          productName: ri.item.productName,
+          batchId: ri.item.batchId,
+          batchNumber: ri.item.batchNumber,
+          expiryDate: new Date(ri.item.expiryDate).toISOString(),
+          returnedQty: ri.returnQty,
+          rate: Number(lineRate.toFixed(2)),
+          gstPercent: Number(ri.item.gstPercent),
+          amount: Number((lineAmount + gstAmount).toFixed(2)),
+        }
       })
+
+      const reasonSummary = Array.from(
+        new Set(
+          items.map((ri) =>
+            ri.reason === 'Other' && ri.customReason ? ri.customReason : ri.reason,
+          ),
+        ),
+      ).join(', ')
+
+      const payload = {
+        invoiceId,
+        reason: reasonSummary,
+        items: payloadItems,
+        subtotal: Number(subtotal.toFixed(2)),
+        cgst: Number((totalGst / 2).toFixed(2)),
+        sgst: Number((totalGst / 2).toFixed(2)),
+        totalAmount: Number((subtotal + totalGst).toFixed(2)),
+        settlementMode,
+      }
+
+      try {
+        await api.post('/credit-notes', payload)
+        okCount++
+      } catch {
+        // api.ts already surfaces the error toast; record which invoice failed.
+        failedInvoices.push(items[0].invoiceNumber)
+      }
+    }
+
+    // Every CN lands in PENDING_REVIEW — goods are physically inspected before
+    // any inventory/balance change fires; the reviewer approves (with optional
+    // settlement override) or rejects on the CN detail page.
+    if (okCount > 0) {
+      toast.success(
+        `${okCount} credit note${okCount !== 1 ? 's' : ''} submitted — awaiting review`,
+        {
+          description: failedInvoices.length
+            ? `Could not file for: ${failedInvoices.join(', ')}. Please retry those.`
+            : `${formatCurrency(creditSummary.total)} held pending inspection. Reviewer will finalise the ${settlementMode.toLowerCase()} settlement.`,
+          duration: 6000,
+        },
+      )
       setCurrentStep(1)
       setDirection(-1)
-      setSelectedInvoice(null)
+      setSelectedCustomer(null)
       setReturnItems([])
-      setInvoiceSearch('')
+      setCustomerSearch('')
+      setProductSearch('')
       setSettlementOption('refund')
       setCustomerOutstanding(null)
-    } catch {
-      // api.ts already surfaces a toast for the error
     }
+    // If nothing succeeded, stay on the page so the user can retry; api.ts has
+    // already shown the failure toast.
   }
-
-  // Display the invoice number as the backend generated it (atomic FY format).
-  const fmtInvoiceNum = (inv: Invoice) => inv.invoiceNumber
 
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden">
@@ -661,7 +749,7 @@ export default function SalesReturnsPage() {
       <div className="relative flex-1 overflow-hidden">
         <AnimatePresence mode="wait" custom={direction}>
           {/* ═══════════════════════════════════════════════════════ */}
-          {/* STEP 1: Select Invoice — Two-Pane Layout               */}
+          {/* STEP 1: Select Customer — Two-Pane Layout              */}
           {/* ═══════════════════════════════════════════════════════ */}
           {currentStep === 1 && (
             <motion.div
@@ -673,51 +761,58 @@ export default function SalesReturnsPage() {
               transition={{ duration: 0.2, ease: 'easeInOut' }}
               className="absolute inset-0 flex"
             >
-              {/* Left: Search & Invoice List */}
-              <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%] pb-20 lg:pb-0">
+              {/* Left: Search & Customer List — hidden on mobile once a customer
+                  is chosen so the product picker takes over the screen. */}
+              <div className={cn('w-full flex-col overflow-hidden border-r border-border/40 lg:flex lg:w-[55%]', selectedCustomer ? 'hidden lg:flex' : 'flex')}>
                 <div className="shrink-0 border-b border-border/40 p-4 bg-muted/10 dark:bg-muted/5">
                   <DataTableFilterBar
-                    searchQuery={invoiceSearch}
-                    onSearchChange={setInvoiceSearch}
-                    searchPlaceholder="Search by invoice number or customer name..."
-                    resultsCount={matchingInvoices.length}
+                    searchQuery={customerSearch}
+                    onSearchChange={setCustomerSearch}
+                    searchPlaceholder="Search customer by name, phone or GSTIN..."
+                    resultsCount={customerResults.total}
                   />
                 </div>
 
-                <ScrollArea className="min-h-0 flex-1">
+                <ScrollArea className="min-h-0 flex-1" viewportRef={customerViewportRef}>
                   <div className="p-2">
-                    {!invoiceSearch.trim() && (
+                    {!customerSearch.trim() && customerResults.items.length === 0 && !customerResults.loading && (
                       <div className="flex h-60 flex-col items-center justify-center gap-3 text-center">
                         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                           <Search className="h-6 w-6 text-muted-foreground/40" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-muted-foreground">Search for an invoice</p>
+                          <p className="text-sm font-medium text-muted-foreground">Search for a customer</p>
                           <p className="mt-0.5 text-[11px] text-muted-foreground/60">
-                            Type invoice number or customer name to begin
+                            Type a name, phone number or GSTIN to begin
                           </p>
                         </div>
                       </div>
                     )}
 
-                    {invoiceSearch.trim() && matchingInvoices.length === 0 && (
+                    {customerResults.loading && customerResults.items.length === 0 && (
+                      <div className="flex h-60 flex-col items-center justify-center gap-3 text-center">
+                        <p className="text-sm text-muted-foreground">Loading customers…</p>
+                      </div>
+                    )}
+
+                    {!customerResults.loading && customerSearch.trim() && customerResults.items.length === 0 && (
                       <div className="flex h-60 flex-col items-center justify-center gap-3 text-center">
                         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                           <AlertCircle className="h-6 w-6 text-muted-foreground/40" />
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          No eligible invoices for &ldquo;{invoiceSearch}&rdquo;
+                          No customers for &ldquo;{customerSearch}&rdquo;
                         </p>
                       </div>
                     )}
 
-                    {paginatedInvoices.map((inv) => (
+                    {customerResults.items.map((cust) => (
                       <div
-                        key={inv.id}
-                        onClick={() => handleSelectInvoice(inv)}
+                        key={cust.id}
+                        onClick={() => handleSelectCustomer(cust)}
                         className={cn(
                           'group flex cursor-pointer items-center justify-between rounded-xl px-4 py-3 transition-all',
-                          selectedInvoice?.id === inv.id
+                          selectedCustomer?.id === cust.id
                             ? 'bg-primary/8 ring-1 ring-primary/20 dark:bg-primary/10'
                             : 'hover:bg-muted/40'
                         )}
@@ -725,139 +820,186 @@ export default function SalesReturnsPage() {
                         <div className="flex items-center gap-3">
                           <div className={cn(
                             'flex h-9 w-9 items-center justify-center rounded-full border-2 transition-all',
-                            selectedInvoice?.id === inv.id
+                            selectedCustomer?.id === cust.id
                               ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-border/60 bg-muted/30 group-hover:border-border'
                           )}>
-                            {selectedInvoice?.id === inv.id ? (
+                            {selectedCustomer?.id === cust.id ? (
                               <Check className="h-4 w-4" />
                             ) : (
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                              <User className="h-3.5 w-3.5 text-muted-foreground" />
                             )}
                           </div>
-                          <div>
-                            <p className="font-mono text-sm font-medium">{fmtInvoiceNum(inv)}</p>
-                            <p className="text-xs text-muted-foreground">{inv.customerName}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{cust.name}</p>
+                            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Phone className="h-3 w-3" /> {cust.phone}
+                            </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-mono text-sm font-semibold">{formatCurrency(inv.grandTotal)}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {formatDate(inv.date)} &middot; {inv.items.length} {inv.items.length === 1 ? 'item' : 'items'}
-                          </p>
+                        <div className="text-right shrink-0">
+                          <Badge variant="secondary" size="sm" className="capitalize">{cust.type.toLowerCase()}</Badge>
+                          {cust.currentOutstanding > 0 && (
+                            <p className="mt-1 text-[11px] font-mono text-amber-600 dark:text-amber-400">
+                              {formatCurrency(cust.currentOutstanding)} due
+                            </p>
+                          )}
                         </div>
                       </div>
                     ))}
+
+                    {customerResults.hasMore && <div ref={customerSentinelRef} className="h-px" aria-hidden />}
+                    {customerResults.loading && customerResults.items.length > 0 && (
+                      <p className="py-3 text-center text-[11px] text-muted-foreground">Loading more…</p>
+                    )}
                   </div>
                 </ScrollArea>
-
-                {totalPages > 1 && (
-                  <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
-                    <DataTablePagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={setCurrentPage}
-                      className="justify-center! gap-2! py-0! [&>div]:ml-0! [&_button]:h-9! [&_input]:h-9!"
-                    />
-                  </div>
-                )}
               </div>
 
-              {/* Right: Invoice Details Preview */}
-              <div className="hidden flex-col overflow-hidden lg:flex lg:w-[45%]">
-                {!selectedInvoice ? (
+              {/* Right: Returnable product picker — selection happens here. Also
+                  becomes the full mobile screen once a customer is chosen. */}
+              <div className={cn('w-full flex-col overflow-hidden lg:flex lg:w-[45%]', selectedCustomer ? 'flex' : 'hidden lg:flex')}>
+                {!selectedCustomer ? (
                   <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-8">
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30 dark:bg-muted/15">
                       <Receipt className="h-7 w-7 text-muted-foreground/30" />
                     </div>
-                    <p className="text-sm text-muted-foreground">Select an invoice to see details</p>
+                    <p className="text-sm text-muted-foreground">Select a customer to see their returnable products</p>
                   </div>
                 ) : (
                   <div className="flex h-full flex-col">
-                    {/* Invoice header */}
+                    {/* Mobile-only: back to the customer list */}
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedCustomer(null); setReturnItems([]); setProductSearch('') }}
+                      className="flex items-center gap-1 border-b border-border/40 px-4 py-2 text-xs font-medium text-muted-foreground lg:hidden"
+                    >
+                      <ChevronLeft className="h-4 w-4" /> Change customer
+                    </button>
+
+                    {/* Customer header */}
                     <div className="shrink-0 border-b border-border/40 p-5">
                       <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
                         <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            Selected Invoice
-                          </p>
-                          <p className="mt-0.5 font-mono text-sm font-bold truncate" title={fmtInvoiceNum(selectedInvoice)}>{fmtInvoiceNum(selectedInvoice)}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
+                          <p className="mt-0.5 text-sm font-bold truncate" title={selectedCustomer.name}>{selectedCustomer.name}</p>
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
-                          <p className="mt-0.5 text-sm font-medium truncate" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phone</p>
+                          <p className="mt-0.5 text-sm font-medium whitespace-nowrap">{selectedCustomer.phone}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</p>
-                          <p className="mt-0.5 text-sm whitespace-nowrap">{formatDate(selectedInvoice.date)}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type</p>
+                          <Badge variant="secondary" size="sm" className="mt-0.5 capitalize">{selectedCustomer.type.toLowerCase()}</Badge>
                         </div>
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-                          <p className="mt-0.5 font-mono text-sm font-bold whitespace-nowrap">{formatCurrency(selectedInvoice.grandTotal)}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Outstanding</p>
+                          <p className="mt-0.5 font-mono text-sm font-bold whitespace-nowrap">{formatCurrency(customerOutstanding ?? 0)}</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Items list */}
+                    {/* Product search */}
+                    <div className="shrink-0 border-b border-border/40 px-4 py-3">
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                        <Input
+                          value={productSearch}
+                          onChange={(e) => setProductSearch(e.target.value)}
+                          placeholder="Search product, batch or invoice..."
+                          className="h-9 pl-9 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Selectable returnable products */}
                     <ScrollArea className="min-h-0 flex-1">
-                      <div className="p-5">
+                      <div className="p-4">
                         <div className="mb-3 flex items-center justify-between">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            Items ({selectedInvoice.items.length})
+                            Returnable Products ({groupedPickItems.reduce((n, g) => n + g.items.length, 0)})
                           </p>
-                          <Badge variant="success" size="sm" dot>
-                            {selectedInvoice.status}
-                          </Badge>
+                          {returnItems.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const allPicked = returnItems.every((ri) => ri.selected)
+                                setReturnItems((prev) => prev.map((ri) => ({
+                                  ...ri,
+                                  selected: !allPicked,
+                                  returnQty: !allPicked ? ri.maxQty : 0,
+                                  reason: !allPicked ? ri.reason : '',
+                                })))
+                              }}
+                              className="text-[11px] font-medium text-primary hover:underline"
+                            >
+                              {returnItems.every((ri) => ri.selected) ? 'Clear all' : 'Select all'}
+                            </button>
+                          )}
                         </div>
-                        <div className="space-y-2">
-                          {selectedInvoice.items.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 p-3 dark:bg-muted/10">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium truncate">{item.productName}</p>
-                                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                                  <span>Batch: {item.batchNumber}</span>
-                                  <span>&middot;</span>
-                                  <span>Qty: {item.quantity}</span>
-                                  <span>&middot;</span>
-                                  <span>GST: {item.gstPercent}%</span>
+                        {returnableLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading purchases…</p>
+                        ) : returnItems.length === 0 ? (
+                          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+                            <AlertCircle className="h-6 w-6 text-muted-foreground/40" />
+                            <p className="text-sm text-muted-foreground">No returnable items for this customer</p>
+                          </div>
+                        ) : groupedPickItems.length === 0 ? (
+                          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+                            <AlertCircle className="h-6 w-6 text-muted-foreground/40" />
+                            <p className="text-sm text-muted-foreground">No products match &ldquo;{productSearch}&rdquo;</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {groupedPickItems.map((g) => (
+                              <div key={g.productName} className="rounded-lg border border-border/40 bg-muted/10 p-2 dark:bg-muted/5">
+                                <p className="px-1 pb-1 text-sm font-semibold truncate">{g.productName}</p>
+                                <div className="space-y-1">
+                                  {g.items.map((ri) => (
+                                    <div
+                                      key={ri.itemId}
+                                      onClick={() => toggleReturnItem(ri.itemId)}
+                                      className={cn(
+                                        'flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 transition-colors',
+                                        ri.selected ? 'bg-primary/8 dark:bg-primary/10' : 'hover:bg-muted/40'
+                                      )}
+                                    >
+                                      <Checkbox checked={ri.selected} className="pointer-events-none" />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                          <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
+                                          <span className="font-mono bg-muted px-1 rounded text-muted-foreground">{ri.item.batchNumber}</span>
+                                          <span className="text-muted-foreground">Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+                                        </div>
+                                      </div>
+                                      <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">{ri.maxQty} returnable</span>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
-                              <p className="font-mono text-sm font-semibold ml-4">{formatCurrency(item.amount)}</p>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </ScrollArea>
 
                     {/* Fixed footer with action */}
-                    <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6">
+                    <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur-md px-4 py-3 sm:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                       <button
                         type="button"
                         onClick={() => goToStep(2)}
-                        className="flex w-full h-9 items-center justify-center gap-1 rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all duration-150 hover:bg-primary/90 active:scale-[0.97]"
+                        disabled={!canProceedToStep2}
+                        className="flex w-full h-9 items-center justify-center gap-1 rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all duration-150 hover:bg-primary/90 active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none"
                       >
-                        Continue to Select Items
+                        {pickedReturnItems.length > 0
+                          ? `Continue with ${pickedReturnItems.length} item${pickedReturnItems.length !== 1 ? 's' : ''}`
+                          : 'Select items to continue'}
                         <ChevronRight className="ml-1 h-4 w-4" />
                       </button>
                     </div>
                   </div>
                 )}
               </div>
-
-              {/* Mobile: Continue button when invoice selected (shown on small screens) */}
-              {selectedInvoice && (
-                <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background/95 backdrop-blur-md [-webkit-backdrop-filter:blur(8px)] px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden z-50">
-                  <Button
-                    size="sm"
-                    className="w-full text-xs"
-                    style={{ height: '2rem' }}
-                    onClick={() => goToStep(2)}
-                  >
-                    Continue with {fmtInvoiceNum(selectedInvoice).split('/').pop()}
-                    <ChevronRight className="ml-1 h-4 w-4" />
-                  </Button>
-                </div>
-              )}
             </motion.div>
           )}
 
@@ -866,7 +1008,7 @@ export default function SalesReturnsPage() {
           {/* ═══════════════════════════════════════════════════════ */}
           {/* STEP 2: Select Return Items — Full Width Table          */}
           {/* ═══════════════════════════════════════════════════════ */}
-          {currentStep === 2 && selectedInvoice && (
+          {currentStep === 2 && selectedCustomer && (
             <motion.div
               key="step2"
               custom={direction}
@@ -879,55 +1021,58 @@ export default function SalesReturnsPage() {
               {/* Sub-header */}
               <div className="flex shrink-0 flex-col gap-1 border-b border-border/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm text-muted-foreground">Returning from</p>
-                  <Badge variant="outline" size="sm" className="font-mono">
-                    {fmtInvoiceNum(selectedInvoice)}
-                  </Badge>
-                  <span className="text-sm font-medium" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</span>
+                  <p className="text-sm text-muted-foreground">Returning for</p>
+                  <span className="text-sm font-medium" title={selectedCustomer.name}>{selectedCustomer.name}</span>
                 </div>
-                {selectedReturnItems.length > 0 && (
+                {pickedReturnItems.length > 0 && (
                   <Badge variant="info" dot size="sm" className="self-start sm:self-auto">
-                    {selectedReturnItems.length} item{selectedReturnItems.length !== 1 ? 's' : ''} selected
+                    {pickedReturnItems.length} item{pickedReturnItems.length !== 1 ? 's' : ''} selected
+                    {selectedInvoiceNumbers.length > 1 ? ` · ${selectedInvoiceNumbers.length} invoices` : ''}
                   </Badge>
                 )}
               </div>
 
               {/* Items — Table View (Desktop) / Card View (Mobile) */}
               <div className="flex-1 overflow-auto border-t border-border/40">
+                {pickedReturnItems.length === 0 && (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-8">
+                    <Package className="h-8 w-8 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">No items selected. Go back to choose products to return.</p>
+                    <Button variant="outline" size="sm" onClick={() => goToStep(1)}>
+                      <ChevronLeft className="mr-1 h-4 w-4" /> Back to products
+                    </Button>
+                  </div>
+                )}
                 {/* Desktop View */}
-                <div className="hidden md:block">
+                <div className={cn(pickedReturnItems.length > 0 ? 'hidden md:block' : 'hidden')}>
                   <Table className="min-w-175">
                     <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
                       <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
-                        <TableHead className="w-12 px-4 py-3 text-center">
-                          <Checkbox 
-                            checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
-                            onCheckedChange={(checked) => {
-                              setReturnItems(prev => prev.map(ri => ({ 
-                                ...ri, 
-                                selected: !!checked,
-                                returnQty: checked ? ri.maxQty : 0,
-                                reason: checked ? ri.reason || 'Other' : ''
-                              })))
-                            }}
-                          />
-                        </TableHead>
+                        <TableHead className="w-12 px-4 py-3" />
                         <TableHead className="min-w-50 px-4 py-3">Product Details</TableHead>
                         <TableHead className="w-25 px-2 py-3 text-center">Sold Qty</TableHead>
-                        <TableHead className="w-35 px-2 py-3 text-center">Return Qty</TableHead>
+                        <TableHead className="w-44 px-2 py-3 text-center">Return Qty</TableHead>
                         <TableHead className="w-50 px-2 py-3">Return Reason</TableHead>
                         <TableHead className="w-30 px-4 py-3 text-right">Refund Amt</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {returnItems.map((ri) => {
+                      {groupedSelectedItems.map((g) => (
+                        <Fragment key={g.productName}>
+                          <TableRow className="bg-muted/40 hover:bg-muted/40 dark:bg-muted/20">
+                            <TableCell colSpan={6} className="px-4 py-1.5">
+                              <span className="text-[11px] font-bold text-foreground/80">{g.productName}</span>
+                              <span className="ml-2 text-[10px] text-muted-foreground/60">{g.items.length} purchase{g.items.length !== 1 ? 's' : ''}</span>
+                            </TableCell>
+                          </TableRow>
+                          {g.items.map((ri) => {
                         const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
                         const lineRefund = lineRate * ri.returnQty
                         const gstRefund = lineRefund * (ri.item.gstPercent / 100)
                         const totalRefund = lineRefund + gstRefund
 
                         return (
-                          <TableRow 
+                          <TableRow
                             key={ri.itemId}
                             className={cn(
                               "group transition-colors",
@@ -935,16 +1080,20 @@ export default function SalesReturnsPage() {
                             )}
                           >
                             <TableCell className="px-4 py-3 text-center">
-                              <Checkbox
-                                checked={ri.selected}
-                                onCheckedChange={() => toggleReturnItem(ri.itemId)}
-                                disabled={ri.maxQty === 0}
-                              />
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="h-6 w-6 text-muted-foreground/50 hover:text-rose-500"
+                                onClick={() => toggleReturnItem(ri.itemId)}
+                                title="Remove from return"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
                             </TableCell>
                             <TableCell className="px-4 py-3">
                               <div className="space-y-1">
-                                <p className="text-xs font-bold leading-none">{ri.item.productName}</p>
-                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                                <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground/60">
+                                  <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
                                   <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
                                   <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
                                   {ri.alreadyReturned > 0 && (
@@ -974,7 +1123,7 @@ export default function SalesReturnsPage() {
                                     type="number"
                                     value={ri.returnQty}
                                     onChange={(e) => updateReturnQty(ri.itemId, parseInt(e.target.value) || 0)}
-                                    className="w-10 h-6 bg-transparent border-0 text-[11px] font-black font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary/20 rounded"
+                                    className="w-16 shrink-0 h-6 bg-transparent border-0 text-[11px] font-black font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary/20 rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                   />
                                   <Button
                                     variant="outline"
@@ -1000,12 +1149,12 @@ export default function SalesReturnsPage() {
                                     <SelectTrigger className="h-7 text-[10px] font-medium border-primary/10 bg-background/50">
                                       <SelectValue placeholder="Reason..." />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-popover/95 backdrop-blur-xl">
+                                    <SelectContent className="min-w-44 bg-popover/95 backdrop-blur-xl">
                                       {RETURN_REASONS.map((reason) => {
                                         const Icon = reasonIcons[reason]
                                         return (
                                           <SelectItem key={reason} value={reason} className="text-[11px]">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 whitespace-nowrap">
                                               <Icon className="h-3 w-3 opacity-60" />
                                               {reason}
                                             </div>
@@ -1037,39 +1186,33 @@ export default function SalesReturnsPage() {
                             </TableCell>
                           </TableRow>
                         )
-                      })}
+                          })}
+                        </Fragment>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
 
                 {/* Mobile View */}
-                <div className="md:hidden p-4 space-y-1 pb-20">
+                <div className={cn('p-4 space-y-1 pb-20', pickedReturnItems.length > 0 ? 'md:hidden' : 'hidden')}>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Return Items</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground font-semibold">Select All</span>
-                      <Checkbox 
-                        checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
-                        onCheckedChange={(checked) => {
-                          setReturnItems(prev => prev.map(ri => ({ 
-                            ...ri, 
-                            selected: !!checked,
-                            returnQty: checked ? ri.maxQty : 0,
-                            reason: checked ? ri.reason || 'Other' : ''
-                          })))
-                        }}
-                      />
-                    </div>
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Set Quantity &amp; Reason</h3>
+                    <span className="text-[10px] text-muted-foreground font-semibold">Tap the box to remove an item</span>
                   </div>
-                  {returnItems.map((ri) => (
-                    <MobileReturnCard 
-                      key={ri.itemId} 
-                      ri={ri} 
-                      toggleReturnItem={toggleReturnItem}
-                      updateReturnQty={updateReturnQty}
-                      updateReturnReason={updateReturnReason}
-                      updateCustomReason={updateCustomReason}
-                    />
+                  {groupedSelectedItems.map((g) => (
+                    <div key={g.productName} className="mb-3">
+                      <p className="mb-1.5 px-1 text-[11px] font-bold text-foreground/80">{g.productName}</p>
+                      {g.items.map((ri) => (
+                        <MobileReturnCard
+                          key={ri.itemId}
+                          ri={ri}
+                          toggleReturnItem={toggleReturnItem}
+                          updateReturnQty={updateReturnQty}
+                          updateReturnReason={updateReturnReason}
+                          updateCustomReason={updateCustomReason}
+                        />
+                      ))}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1106,7 +1249,7 @@ export default function SalesReturnsPage() {
           {/* ═══════════════════════════════════════════════════════ */}
           {/* STEP 3: Credit Note Preview — Two-Pane Layout           */}
           {/* ═══════════════════════════════════════════════════════ */}
-          {currentStep === 3 && selectedInvoice && (
+          {currentStep === 3 && selectedCustomer && (
             <motion.div
               key="step3"
               custom={direction}
@@ -1123,19 +1266,22 @@ export default function SalesReturnsPage() {
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Credit Note</p>
                     <p className="mt-1 font-mono text-xl font-bold">{creditNoteNumber}</p>
+                    {selectedInvoiceNumbers.length > 1 && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Filed as {selectedInvoiceNumbers.length} separate credit notes — one per invoice.
+                      </p>
+                    )}
                   </div>
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-8 gap-y-3 text-sm">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] gap-x-8 gap-y-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Customer</p>
-                      <p className="mt-0.5 font-medium truncate" title={selectedInvoice.customerName}>{selectedInvoice.customerName}</p>
+                      <p className="mt-0.5 font-medium truncate" title={selectedCustomer.name}>{selectedCustomer.name}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against Invoice</p>
-                      <p className="mt-0.5 font-mono font-medium whitespace-nowrap" title={fmtInvoiceNum(selectedInvoice)}>{fmtInvoiceNum(selectedInvoice)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date</p>
-                      <p className="mt-0.5 whitespace-nowrap">{formatDate(selectedInvoice.date)}</p>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Against {selectedInvoiceNumbers.length > 1 ? 'Invoices' : 'Invoice'}
+                      </p>
+                      <p className="mt-0.5 font-mono font-medium" title={selectedInvoiceNumbers.join(', ')}>{selectedInvoiceNumbers.join(', ')}</p>
                     </div>
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Return Date</p>
@@ -1165,7 +1311,9 @@ export default function SalesReturnsPage() {
                         <div key={ri.itemId} className="grid grid-cols-12 gap-2 border-b border-border/30 px-4 py-3 items-center text-sm">
                           <div className="col-span-4">
                             <p className="font-medium truncate">{ri.item.productName}</p>
-                            <p className="text-[11px] text-muted-foreground font-mono">{ri.item.batchNumber}</p>
+                            <p className="text-[11px] text-muted-foreground font-mono">
+                              <span className="text-primary">{ri.invoiceNumber}</span> · {ri.item.batchNumber}
+                            </p>
                           </div>
                           <div className="col-span-1 text-center font-mono font-semibold">{ri.returnQty}</div>
                           <div className="col-span-2 text-right font-mono">{formatCurrency(lineRate)}</div>

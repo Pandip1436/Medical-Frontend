@@ -46,6 +46,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import {
@@ -503,7 +504,7 @@ export default function QuotationsPage() {
               onClick={() => navigate('/billing/sales')}
             >
               <FileText className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Sales List</span>
+              <span className="hidden sm:inline">Invoice List</span>
             </Button>
           </div>
         }
@@ -674,7 +675,7 @@ export default function QuotationsPage() {
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-mono text-[11px] font-medium">{qt.quotationNumber}</p>
-                  <p className="text-sm font-medium truncate">{qt.customerName}</p>
+                  <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
                   <div className="mt-0.5 flex items-center gap-2">
                     <Badge variant={statusBadgeVariant[qt.status]} size="sm" dot>
                       {statusLabel[qt.status]}
@@ -767,7 +768,7 @@ export default function QuotationsPage() {
                       </span>
                     </TableCell>
                     <TableCell className="max-w-50">
-                      <p className="truncate text-sm font-medium">{qt.customerName}</p>
+                      <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
@@ -871,10 +872,7 @@ export default function QuotationsPage() {
                 <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
-                    <p className="mt-0.5 text-sm font-medium truncate" title={detailQt.customerName}>{detailQt.customerName}</p>
-                    {detailQt.customerPhone && (
-                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground tabular-nums">{detailQt.customerPhone}</p>
-                    )}
+                    <CustomerNameLine name={detailQt.customerName} phone={detailQt.customerPhone} className="mt-0.5" />
                   </div>
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Items</p>

@@ -36,7 +36,6 @@ export interface Customer {
   referredBy?: string
   creditLimit: number
   currentOutstanding: number
-  loyaltyPoints: number
   gstin?: string
   dlNumber?: string
   notes?: string
@@ -142,6 +141,10 @@ export interface Invoice {
   billingType: 'RETAIL' | 'WHOLESALE'
   customerId?: string
   customerName: string
+  // Live JOIN from the Customer table on list/detail endpoints. Optional
+  // because legacy / DRAFT records may pre-date the join, and walk-in flows
+  // can have no customer attached.
+  customerPhone?: string | null
   doctorName?: string
   items: InvoiceItem[]
   subtotal: number
