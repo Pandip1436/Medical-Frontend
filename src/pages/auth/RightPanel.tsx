@@ -62,7 +62,10 @@ export function RightPanel() {
         </div>
 
         {/* ─── 3D-style "Supply Hub" illustration ────────────── */}
-        <div className="relative mx-auto my-4 flex flex-1 w-full max-w-[560px] items-center justify-center">
+        {/* min-h-0 lets this flex item shrink below the SVG's intrinsic
+            aspect-ratio size so the bottom stats strip stays visible on
+            short viewports (e.g. Windows 150% scale = 720 CSS px tall). */}
+        <div className="relative mx-auto my-4 flex flex-1 min-h-0 w-full max-w-[560px] items-center justify-center">
           <svg viewBox="0 0 600 460" className="h-full w-full" style={{ filter: 'drop-shadow(0 30px 60px rgba(0,0,0,0.45))' }}>
             <defs>
               <linearGradient id="rp-crossFront" x1="0" y1="0" x2="0" y2="1">
