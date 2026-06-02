@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import api from '@/lib/api'
-import { navigate, useRoute } from '@/lib/router'
+import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import { formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Invoice } from '@/types'
@@ -46,7 +46,7 @@ export default function InvoiceDetailPage() {
     else { setIsLoading(false); setError('No invoice id provided') }
   }, [id, fetchInvoice])
 
-  const goBack = () => navigate('/customers/invoices')
+  const goBack = () => routerGoBack('/customers/invoices')
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">

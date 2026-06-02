@@ -249,6 +249,15 @@ export default function SalesListPage() {
 
   const handleCollectPayment = async () => {
     if (!detailInvoice || !collectAmount) return
+    const amount = parseFloat(collectAmount)
+    const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
+    if (isNaN(amount) || amount <= 0) return
+    // Never collect more than what's due. Backend enforces this too; blocking
+    // here gives instant feedback and avoids the round-trip.
+    if (amount > balanceDue + 0.01) {
+      toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(balanceDue)}`)
+      return
+    }
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${detailInvoice.id}/collect-payment`, {
@@ -864,9 +873,9 @@ export default function SalesListPage() {
                   onCheckedChange={toggleSelectAll}
                 />
               </TableHead>
+              <TableHead>Date</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Invoice #</TableHead>
-              <TableHead>Date</TableHead>
               <TableHead className="text-center">Items</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Payment</TableHead>
@@ -920,6 +929,11 @@ export default function SalesListPage() {
                         onCheckedChange={() => toggleSelectOne(inv.id)}
                       />
                     </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatDate(inv.date)}
+                      </span>
+                    </TableCell>
                     <TableCell className="max-w-45">
                       <CustomerNameLine name={inv.customerName} phone={inv.customerPhone} />
                       {inv.doctorName && (
@@ -935,11 +949,6 @@ export default function SalesListPage() {
                           {formatInvoiceNumber(inv)}
                         </span>
                       </div>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      <span className="text-[11px] text-muted-foreground">
-                        {formatDate(inv.date)}
-                      </span>
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
@@ -997,6 +1006,10 @@ export default function SalesListPage() {
         >
           {detailInvoice && (() => {
             const balanceDue = detailInvoice.grandTotal - detailInvoice.amountPaid
+            // Typed collect amount overshoots the balance due — drives the
+            // inline error + disabled Collect button below.
+            const collectNum = parseFloat(collectAmount)
+            const collectExceeds = !isNaN(collectNum) && collectNum > balanceDue + 0.01
             return (
               <>
                 {/* ── Sticky Header ── */}
@@ -1131,21 +1144,30 @@ export default function SalesListPage() {
                         <Input
                           type="number"
                           placeholder="Amount"
-                          className="h-9 text-sm"
+                          className={cn(
+                            'h-9 text-sm',
+                            collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
+                          )}
                           value={collectAmount}
                           onChange={(e) => setCollectAmount(e.target.value)}
+                          min={0}
                           max={balanceDue}
                         />
                         <Button
                           size="sm"
                           className="gap-1.5 shrink-0"
-                          disabled={collectSubmitting || !collectAmount}
+                          disabled={collectSubmitting || !collectAmount || collectExceeds}
                           onClick={handleCollectPayment}
                         >
                           <Wallet className="h-4 w-4" />
                           {collectSubmitting ? 'Saving...' : 'Collect'}
                         </Button>
                       </div>
+                      {collectExceeds && (
+                        <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
+                          Amount can't exceed the outstanding {formatCurrency(balanceDue)}.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

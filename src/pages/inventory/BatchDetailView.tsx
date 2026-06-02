@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
 import {
-  FileX2, Clock, AlertOctagon, Package, IndianRupee,
+  FileX2, Clock, AlertOctagon, Package,
   Truck, Trash2, Undo2, History,
 } from 'lucide-react'
 
@@ -20,7 +20,10 @@ import api from '@/lib/api'
 // and by the Stock Overview side panel. Owns its own data fetch + confirm
 // dialog so the host (page or sheet) only has to provide chrome.
 
-type ConfirmKind = 'writeoff' | 'dispose' | null
+// Write-off is the single removal action for expired stock. (Disposal used to
+// be a separate action with reason 'Damaged', but it was redundant — both
+// just zero out the batch — so the UI now exposes Write Off only.)
+type ConfirmKind = 'writeoff' | null
 
 interface BatchDetailViewProps {
   /** When this changes (or becomes truthy), the view re-fetches. Null clears state. */
@@ -58,7 +61,7 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
   const stockValue = batch ? batch.quantity * Number(batch.mrp) : 0
   const isExpired = daysToExpiry < 0
   const isCritical = daysToExpiry < 30 && daysToExpiry >= 0
-  const handleAction = async (kind: 'writeoff' | 'dispose') => {
+  const handleWriteOff = async () => {
     if (!batch) return
     setSubmitting(true)
     try {
@@ -69,10 +72,8 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
         threshold?: number
       }>(`/products/${batch.productId}/batches/${batch.id}/adjust`, {
         adjustedQty: 0,
-        reason: kind === 'writeoff' ? 'Expired Removal' : 'Damaged',
-        notes: kind === 'writeoff'
-          ? `Written off — expired batch ${batch.batchNumber}`
-          : `Disposed — batch ${batch.batchNumber}`,
+        reason: 'Expired Removal',
+        notes: `Written off — expired batch ${batch.batchNumber}`,
       })
       if (res.data?.approvalRequested) {
         toast.info(
@@ -81,11 +82,7 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
         )
       } else {
         updateBatchLocally(batch.id, -batch.quantity)
-        toast.success(
-          kind === 'writeoff'
-            ? `Batch ${batch.batchNumber} written off`
-            : `Batch ${batch.batchNumber} marked disposed`,
-        )
+        toast.success(`Batch ${batch.batchNumber} written off`)
       }
       setConfirmKind(null)
       onAfterAction?.()
@@ -126,12 +123,6 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
     )
   }
 
-  const stockHealth = product
-    ? product.totalStock === 0 ? 'out'
-      : product.totalStock < product.minStock ? 'low'
-      : 'healthy'
-    : 'healthy'
-
   return (
     <div className="flex h-full flex-col">
       {/* ── Sticky Header ── */}
@@ -147,11 +138,11 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
               {isExpired ? <AlertOctagon className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                Batch · {batch.batchNumber}
-              </p>
-              <p className="truncate text-base font-semibold leading-snug">
+              <p className="truncate text-lg font-bold leading-snug">
                 {product?.name ?? batch.productName ?? 'Unknown product'}
+              </p>
+              <p className="mt-0.5 font-mono text-xs font-semibold text-foreground/80">
+                Batch {batch.batchNumber}
               </p>
             </div>
           </div>
@@ -168,52 +159,35 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
           badge and the Expiry pill below, so no banner here — it just pushed
           the action footer off-screen in the side panel. */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {/* Stock + value — compact 2-up tiles */}
-        <SectionLabel>Stock &amp; Value</SectionLabel>
-        <div className="grid grid-cols-2 gap-2.5">
-          <BigTile
-            icon={Package}
-            label="Quantity"
-            value={`${batch.quantity}`}
-            unit="units"
-            sub={product ? `of ${product.totalStock} total in stock` : undefined}
-            accent="blue"
-          />
-          <BigTile
-            icon={IndianRupee}
-            label="Stock Value"
-            value={formatCurrency(stockValue)}
-            sub={`@ ${formatCurrency(Number(batch.mrp))} MRP`}
-            accent={isExpired ? 'red' : 'emerald'}
-          />
-        </div>
-
-        {/* Expiry — single pill with the formatted date + countdown */}
-        <SectionLabel>Expiry</SectionLabel>
+        {/* Expiry — the headline of an expiry view, so it's the hero block:
+            large date + countdown, colour-coded by status. */}
+        <SectionLabel>Expiry Date</SectionLabel>
         <div className={cn(
-          'flex items-center justify-between gap-3 rounded-xl border px-3 py-2',
+          'flex items-center justify-between gap-3 rounded-xl border px-4 py-3',
           isExpired
-            ? 'border-red-300/60 bg-red-50/40 dark:border-red-900/60 dark:bg-red-950/20'
+            ? 'border-red-300/60 bg-red-50/50 dark:border-red-900/60 dark:bg-red-950/20'
             : isCritical
-              ? 'border-orange-300/60 bg-orange-50/40 dark:border-orange-900/60 dark:bg-orange-950/20'
+              ? 'border-orange-300/60 bg-orange-50/50 dark:border-orange-900/60 dark:bg-orange-950/20'
               : 'border-border/40 bg-muted/20',
         )}>
           <div className="flex items-center gap-2.5">
             <Clock className={cn(
-              'h-4 w-4',
+              'h-5 w-5 shrink-0',
               isExpired ? 'text-red-600 dark:text-red-400'
                         : isCritical ? 'text-orange-600 dark:text-orange-400'
                         : 'text-muted-foreground/70',
             )} />
             <span className={cn(
-              'text-sm font-semibold tabular-nums',
-              (isExpired || isCritical) && 'text-foreground',
+              'text-xl font-bold tabular-nums',
+              isExpired ? 'text-red-700 dark:text-red-300'
+                        : isCritical ? 'text-orange-700 dark:text-orange-300'
+                        : 'text-foreground',
             )}>
               {formatDate(batch.expiryDate)}
             </span>
           </div>
           <span className={cn(
-            'text-xs font-medium',
+            'text-sm font-semibold',
             isExpired ? 'text-red-600 dark:text-red-400'
                       : isCritical ? 'text-orange-600 dark:text-orange-400'
                       : 'text-muted-foreground',
@@ -221,6 +195,21 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
             {isExpired ? `${Math.abs(daysToExpiry)} days overdue` : `in ${daysToExpiry} days`}
           </span>
         </div>
+
+        {/* Quantity — how much is affected. Stock value is shown as a small
+            caption here (it's secondary, not a headline number). */}
+        <SectionLabel>Quantity</SectionLabel>
+        <BigTile
+          icon={Package}
+          label="Quantity"
+          value={`${batch.quantity}`}
+          unit="units"
+          sub={[
+            product ? `of ${product.totalStock} total in stock` : null,
+            `value ${formatCurrency(stockValue)} @ ${formatCurrency(Number(batch.mrp))} MRP`,
+          ].filter(Boolean).join(' · ')}
+          accent="blue"
+        />
 
         {/* Product + supplier — one combined info card */}
         {(product || supplier) && (
@@ -231,29 +220,15 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
                 <InfoRow label="Generic" value={product?.genericName ?? '—'} />
                 <InfoRow label="Manufacturer" value={product?.manufacturer ?? '—'} />
                 <InfoRow label="Pack" value={product?.packSize ?? '—'} />
-                <InfoRow
-                  label="Supplier"
-                  value={supplier?.name ?? '—'}
-                  icon={Truck}
-                />
-                <div className="sm:col-span-2 mt-1 border-t border-border/40 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                      Product stock health
-                    </span>
-                    <Badge
-                      variant={stockHealth === 'out' ? 'destructive' : stockHealth === 'low' ? 'warning' : 'success'}
-                      size="sm"
-                      dot
-                    >
-                      {stockHealth === 'out' ? 'Out of stock' : stockHealth === 'low' ? 'Low stock' : 'Healthy'}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs">
-                    <span className="font-semibold tabular-nums">{product?.totalStock ?? 0}</span>
-                    <span className="text-muted-foreground"> total units · min level </span>
-                    <span className="font-semibold tabular-nums">{product?.minStock ?? 0}</span>
-                  </p>
+                {/* Supplier spans the full row so long distributor names aren't
+                    truncated (e.g. "Sun Pharma Distribution"). */}
+                <div className="sm:col-span-2">
+                  <InfoRow
+                    label="Supplier"
+                    value={supplier?.name ?? '—'}
+                    icon={Truck}
+                    noTruncate
+                  />
                 </div>
               </div>
             </div>
@@ -269,15 +244,17 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
               size="sm"
               variant="ghost"
               className="gap-1.5"
-              onClick={() => navigate(`/inventory/product-history?productId=${product.id}`)}
+              onClick={() => {
+                // Remember the open batch so the Expiry page can re-open this
+                // drawer when the user hits Back from product history.
+                if (batch) sessionStorage.setItem('expiry:reopenBatchId', batch.id)
+                navigate(`/inventory/product-history?productId=${product.id}`)
+              }}
             >
               <History className="h-3.5 w-3.5" /> Product history
             </Button>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfirmKind('dispose')}>
-              <Trash2 className="h-3.5 w-3.5" /> Mark Disposed
-            </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfirmKind('writeoff')}>
               <Trash2 className="h-3.5 w-3.5" /> Write Off
             </Button>
@@ -292,13 +269,9 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
       <Dialog open={!!confirmKind} onOpenChange={(open) => { if (!open) setConfirmKind(null) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {confirmKind === 'writeoff' ? 'Write off batch?' : 'Mark batch as disposed?'}
-            </DialogTitle>
+            <DialogTitle>Write off batch?</DialogTitle>
             <DialogDescription>
-              {confirmKind === 'writeoff'
-                ? 'Removes expired stock from sellable inventory and records the value as a financial loss. Use for stock that’s past expiry but where no physical disposal is being recorded yet.'
-                : 'Records that this batch was physically destroyed, contaminated, or damaged. Use when documenting actual disposal (incineration, hazardous waste, controlled-substance destruction).'}
+              Removes this expired stock from sellable inventory and records the value as a financial loss. This zeroes out the batch quantity.
             </DialogDescription>
           </DialogHeader>
           {batch && (
@@ -317,18 +290,18 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Recorded reason</span>
-                <span className="font-medium">{confirmKind === 'writeoff' ? 'Expired Removal' : 'Damaged'}</span>
+                <span className="font-medium">Expired Removal</span>
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmKind(null)} disabled={submitting}>Cancel</Button>
             <Button
-              variant={confirmKind === 'writeoff' ? 'destructive' : 'default'}
-              onClick={() => confirmKind && handleAction(confirmKind)}
+              variant="destructive"
+              onClick={handleWriteOff}
               disabled={submitting}
             >
-              {submitting ? 'Working…' : confirmKind === 'writeoff' ? 'Write Off' : 'Mark Disposed'}
+              {submitting ? 'Working…' : 'Write Off'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -382,17 +355,18 @@ function BigTile({
 }
 
 function InfoRow({
-  label, value, icon: Icon,
+  label, value, icon: Icon, noTruncate,
 }: {
   label: string
   value: string
   icon?: typeof Truck
+  noTruncate?: boolean
 }) {
   return (
     <div className="flex items-baseline gap-2">
       {Icon && <Icon className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">{label}:</span>
-      <span className="truncate text-sm">{value}</span>
+      <span className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">{label}:</span>
+      <span className={cn('text-sm', noTruncate ? 'wrap-break-word' : 'truncate')}>{value}</span>
     </div>
   )
 }

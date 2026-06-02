@@ -21,7 +21,6 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
@@ -123,10 +122,12 @@ export default function SupplierOutstandingPage() {
   const [payAmount, setPayAmount] = useState('')
   const [payReference, setPayReference] = useState('')
   const [paySubmitting, setPaySubmitting] = useState(false)
-  // Payment allocation: FIFO across all open GRNs, or only the ones the user picked.
-  const [allocationMode, setAllocationMode] = useState<'fifo' | 'specific'>('fifo')
-  const [selectedGrnIds, setSelectedGrnIds] = useState<Set<string>>(new Set())
-  // True while the amount input mirrors the selected-GRNs sum, so we keep it in sync.
+  // Mirrors the customer-outstanding flow: one payment is always recorded
+  // against exactly one open PR. FIFO / whole-balance allocation is intentionally
+  // not offered — payments reconcile against specific purchase-receipt numbers.
+  const [selectedGrnId, setSelectedGrnId] = useState<string | null>(null)
+  // While true, the amount input mirrors the selected PR's balance. Flips to
+  // false once the user manually edits the amount (e.g. partial payment).
   const [amountAutoFilled, setAmountAutoFilled] = useState(true)
 
   // ── Query builder ──
@@ -203,56 +204,29 @@ export default function SupplierOutstandingPage() {
     setPayAmount('')
     setPayReference('')
     setPayMode('CASH')
-    setAllocationMode('fifo')
-    setSelectedGrnIds(new Set())
+    setSelectedGrnId(null)
     setAmountAutoFilled(true)
   }
 
-  // Sum of balances for GRNs the user has ticked.
-  const selectedGrnsSum = useMemo(() => {
-    if (selectedGrnIds.size === 0) return 0
-    return drawerGrns
-      .filter((g) => selectedGrnIds.has(g.id))
-      .reduce((s, g) => s + g.balance, 0)
-  }, [drawerGrns, selectedGrnIds])
+  // Balance of the currently selected PR, used to auto-fill / cap the amount input.
+  const selectedGrnBalance = useMemo(() => {
+    if (!selectedGrnId) return 0
+    return drawerGrns.find((g) => g.id === selectedGrnId)?.balance ?? 0
+  }, [drawerGrns, selectedGrnId])
 
-  const toggleGrnSelection = (grnId: string) => {
-    setSelectedGrnIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(grnId)) next.delete(grnId)
-      else next.add(grnId)
-      return next
-    })
+  const selectGrn = (grnId: string) => {
+    setSelectedGrnId(grnId)
+    // Re-arm auto-fill so the amount snaps to the newly-picked PR's balance
+    // even if the user had previously typed a partial amount.
     setAmountAutoFilled(true)
   }
 
-  const allGrnsSelected =
-    drawerGrns.length > 0 && drawerGrns.every((g) => selectedGrnIds.has(g.id))
-
-  const toggleAllGrns = () => {
-    setSelectedGrnIds((prev) => {
-      if (drawerGrns.length > 0 && drawerGrns.every((g) => prev.has(g.id))) {
-        return new Set()
-      }
-      return new Set(drawerGrns.map((g) => g.id))
-    })
-    setAmountAutoFilled(true)
-  }
-
-  // Keep the amount input mirroring the selected-GRN total while the user is in
-  // "specific" mode and hasn't manually edited the amount yet.
+  // Keep the amount input mirroring the selected PR's balance until the user
+  // manually edits it (partial payment).
   useEffect(() => {
-    if (allocationMode !== 'specific') return
     if (!amountAutoFilled) return
-    setPayAmount(selectedGrnsSum > 0 ? selectedGrnsSum.toFixed(2) : '')
-  }, [allocationMode, amountAutoFilled, selectedGrnsSum])
-
-  const switchAllocationMode = (mode: 'fifo' | 'specific') => {
-    setAllocationMode(mode)
-    setAmountAutoFilled(true)
-    setSelectedGrnIds(new Set())
-    setPayAmount('')
-  }
+    setPayAmount(selectedGrnBalance > 0 ? selectedGrnBalance.toFixed(2) : '')
+  }, [amountAutoFilled, selectedGrnBalance])
 
   const fetchDrawerGrns = useCallback(async (supplierId: string) => {
     setDrawerGrnsLoading(true)
@@ -281,17 +255,12 @@ export default function SupplierOutstandingPage() {
       toast.error('Enter a valid amount')
       return
     }
-    if (allocationMode === 'specific') {
-      if (selectedGrnIds.size === 0) {
-        toast.error('Pick at least one GRN')
-        return
-      }
-      if (amount > selectedGrnsSum + 0.01) {
-        toast.error(`Amount exceeds selected GRNs (${formatCurrency(selectedGrnsSum)})`)
-        return
-      }
-    } else if (amount > selectedRow.outstanding + 0.01) {
-      toast.error(`Amount exceeds outstanding (${formatCurrency(selectedRow.outstanding)})`)
+    if (!selectedGrnId) {
+      toast.error('Pick a PR to pay against')
+      return
+    }
+    if (amount > selectedGrnBalance + 0.01) {
+      toast.error(`Amount exceeds PR balance (${formatCurrency(selectedGrnBalance)})`)
       return
     }
     setPaySubmitting(true)
@@ -300,14 +269,12 @@ export default function SupplierOutstandingPage() {
         amount,
         paymentMode: payMode,
         referenceNumber: payReference || undefined,
-        ...(allocationMode === 'specific'
-          ? { grnIds: Array.from(selectedGrnIds) }
-          : {}),
+        grnIds: [selectedGrnId],
       })
       toast.success(`Payment recorded · ${res.data?.paymentNumber ?? ''}`)
       setPayAmount('')
       setPayReference('')
-      setSelectedGrnIds(new Set())
+      setSelectedGrnId(null)
       setAmountAutoFilled(true)
       // Refresh list + the drawer's GRN table; supplier may now be settled.
       await fetchRows()
@@ -603,9 +570,9 @@ export default function SupplierOutstandingPage() {
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Open PRs ({drawerGrns.length})
                     </p>
-                    {allocationMode === 'specific' && drawerGrns.length > 0 && (
+                    {selectedGrnId && (
                       <p className="text-[10px] text-muted-foreground">
-                        {selectedGrnIds.size} selected · {formatCurrency(selectedGrnsSum)}
+                        1 selected · {formatCurrency(selectedGrnBalance)}
                       </p>
                     )}
                   </div>
@@ -613,15 +580,7 @@ export default function SupplierOutstandingPage() {
                     <Table>
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
-                          {allocationMode === 'specific' && (
-                            <TableHead className="h-9 w-9 px-3">
-                              <Checkbox
-                                checked={allGrnsSelected}
-                                onCheckedChange={toggleAllGrns}
-                                aria-label="Select all PRs"
-                              />
-                            </TableHead>
-                          )}
+                          <TableHead className="h-9 w-9 px-3" aria-label="Pick" />
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PR #</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Age</TableHead>
@@ -633,38 +592,30 @@ export default function SupplierOutstandingPage() {
                       </TableHeader>
                       <TableBody>
                         {drawerGrnsLoading ? (
-                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading PRs…</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading PRs…</TableCell></TableRow>
                         ) : drawerGrns.length === 0 ? (
-                          <TableRow><TableCell colSpan={allocationMode === 'specific' ? 8 : 7} className="py-6 text-center text-xs text-muted-foreground">No open PRs.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground">No open PRs.</TableCell></TableRow>
                         ) : drawerGrns.map((g) => {
-                          const isSelected = selectedGrnIds.has(g.id)
-                          const rowClickable = allocationMode !== 'specific'
+                          const isSelected = selectedGrnId === g.id
                           return (
                             <TableRow
                               key={g.id}
                               className={cn(
-                                'border-b border-border/30 last:border-b-0 hover:bg-muted/20',
-                                rowClickable && 'cursor-pointer',
-                                allocationMode === 'specific' && isSelected && 'bg-primary/5',
+                                'border-b border-border/30 last:border-b-0 hover:bg-muted/20 cursor-pointer',
+                                isSelected && 'bg-primary/5',
                               )}
-                              onClick={() => {
-                                if (allocationMode === 'specific') {
-                                  toggleGrnSelection(g.id)
-                                  return
-                                }
-                                navigate(`/purchase/grn-list?grnId=${g.id}`)
-                                setSelectedRow(null)
-                              }}
+                              onClick={() => selectGrn(g.id)}
                             >
-                              {allocationMode === 'specific' && (
-                                <TableCell className="px-3 py-2.5 w-9" onClick={(e) => e.stopPropagation()}>
-                                  <Checkbox
-                                    checked={isSelected}
-                                    onCheckedChange={() => toggleGrnSelection(g.id)}
-                                    aria-label={`Select PR ${g.grnNumber}`}
-                                  />
-                                </TableCell>
-                              )}
+                              <TableCell className="px-3 py-2.5 w-9" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="radio"
+                                  name="payment-grn"
+                                  className="h-3.5 w-3.5 accent-primary"
+                                  checked={isSelected}
+                                  onChange={() => selectGrn(g.id)}
+                                  aria-label={`Select PR ${g.grnNumber}`}
+                                />
+                              </TableCell>
                               <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{g.grnNumber}</TableCell>
                               <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{formatDate(g.date)}</TableCell>
                               <TableCell className={cn('px-3 py-2.5 text-xs font-mono whitespace-nowrap', g.daysOverdue > 60 && 'text-rose-600 dark:text-rose-400 font-semibold')}>
@@ -688,42 +639,31 @@ export default function SupplierOutstandingPage() {
 
                 {/* Inline Record Payment form — FIFO or GRN-specific */}
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                        Record Payment
-                      </p>
-                    </div>
-                    <div className="inline-flex rounded-md border border-emerald-300/60 bg-white/60 p-0.5 dark:border-emerald-900/60 dark:bg-emerald-950/40">
-                      <button
-                        type="button"
-                        onClick={() => switchAllocationMode('fifo')}
-                        className={cn(
-                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
-                          allocationMode === 'fifo'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-emerald-800 hover:bg-emerald-100/60 dark:text-emerald-300 dark:hover:bg-emerald-900/30',
-                        )}
-                      >
-                        FIFO (oldest first)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => switchAllocationMode('specific')}
-                        className={cn(
-                          'h-7 rounded px-2.5 text-[11px] font-medium transition-colors',
-                          allocationMode === 'specific'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-emerald-800 hover:bg-emerald-100/60 dark:text-emerald-300 dark:hover:bg-emerald-900/30',
-                        )}
-                      >
-                        Specific PR(s)
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      Record Payment
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr_180px_auto] gap-2">
-                    <Select value={payMode} onValueChange={(v) => setPayMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
+                  <div className={cn(
+                    'grid grid-cols-1 gap-2',
+                    // Cash payments don't carry a txn reference, so we collapse the
+                    // grid to 3 cols and drop the reference input for that mode.
+                    // Cheque needs the cheque #, NEFT/UPI needs the UTR.
+                    payMode === 'CASH'
+                      ? 'sm:grid-cols-[160px_1fr_auto]'
+                      : 'sm:grid-cols-[160px_1fr_180px_auto]',
+                  )}>
+                    <Select
+                      value={payMode}
+                      onValueChange={(v) => {
+                        const next = v as 'CASH' | 'CHEQUE' | 'NEFT_UPI'
+                        setPayMode(next)
+                        // Clear a stale reference when switching to cash so we don't
+                        // accidentally send a leftover cheque # to the backend.
+                        if (next === 'CASH') setPayReference('')
+                      }}
+                    >
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>
@@ -738,25 +678,39 @@ export default function SupplierOutstandingPage() {
                       placeholder="Amount"
                       className="h-9 font-mono text-sm"
                       value={payAmount}
-                      onChange={(e) => { setPayAmount(e.target.value); setAmountAutoFilled(false) }}
-                      max={allocationMode === 'specific' ? selectedGrnsSum : selectedRow.outstanding}
-                      disabled={allocationMode === 'specific' && selectedGrnIds.size === 0}
+                      onChange={(e) => {
+                        const raw = e.target.value
+                        // Hard-cap the input at the selected PR's balance — the
+                        // backend rejects overpayment, but bouncing it on submit is
+                        // poor UX. Allow empty string so the user can clear.
+                        if (raw === '' || !selectedGrnId) {
+                          setPayAmount(raw)
+                        } else {
+                          const num = parseFloat(raw)
+                          if (Number.isFinite(num) && num > selectedGrnBalance) {
+                            setPayAmount(selectedGrnBalance.toFixed(2))
+                          } else {
+                            setPayAmount(raw)
+                          }
+                        }
+                        setAmountAutoFilled(false)
+                      }}
+                      max={selectedGrnBalance}
+                      disabled={!selectedGrnId}
                     />
-                    <Input
-                      type="text"
-                      placeholder={payMode === 'CHEQUE' ? 'Cheque #' : payMode === 'NEFT_UPI' ? 'UPI / Txn ref' : 'Reference (optional)'}
-                      className="h-9 text-sm"
-                      value={payReference}
-                      onChange={(e) => setPayReference(e.target.value)}
-                    />
+                    {payMode !== 'CASH' && (
+                      <Input
+                        type="text"
+                        placeholder={payMode === 'CHEQUE' ? 'Cheque #' : 'UPI / Txn ref'}
+                        className="h-9 text-sm"
+                        value={payReference}
+                        onChange={(e) => setPayReference(e.target.value)}
+                      />
+                    )}
                     <Button
                       size="sm"
                       className="gap-1.5 h-9"
-                      disabled={
-                        paySubmitting ||
-                        !payAmount ||
-                        (allocationMode === 'specific' && selectedGrnIds.size === 0)
-                      }
+                      disabled={paySubmitting || !payAmount || !selectedGrnId}
                       onClick={handleRecordPayment}
                     >
                       <Wallet className="h-4 w-4" />
@@ -764,11 +718,9 @@ export default function SupplierOutstandingPage() {
                     </Button>
                   </div>
                   <p className="text-[10px] text-emerald-700/70 dark:text-emerald-400/70">
-                    {allocationMode === 'fifo'
-                      ? 'Payment will be allocated to oldest open PR(s) first.'
-                      : selectedGrnIds.size === 0
-                        ? 'Tick one or more PRs above to pay against them.'
-                        : `Payment will be allocated to the ${selectedGrnIds.size} selected PR${selectedGrnIds.size !== 1 ? 's' : ''} (oldest-first within selection).`}
+                    {selectedGrnId
+                      ? `Payment will be recorded against the selected PR (balance ${formatCurrency(selectedGrnBalance)}).`
+                      : 'Pick one PR above to pay against. Each payment is recorded against exactly one PR.'}
                   </p>
                 </div>
               </div>

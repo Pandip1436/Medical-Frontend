@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { navigate, useRoute } from '@/lib/router'
+import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -98,7 +98,7 @@ export default function ApprovalDetailPage() {
     }
   }
 
-  const goBack = () => navigate('/admin/approvals')
+  const goBack = () => routerGoBack('/admin/approvals')
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">

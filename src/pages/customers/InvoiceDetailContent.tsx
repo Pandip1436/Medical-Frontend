@@ -15,7 +15,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 import { downloadInvoicePdf, printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 import type { Invoice } from '@/types'
 
@@ -98,7 +98,14 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   }
 
   const handleCollectPayment = async () => {
-    if (!collectAmount) return
+    const amount = parseFloat(collectAmount)
+    if (!collectAmount || isNaN(amount) || amount <= 0) return
+    // Never let a collection exceed what's actually due. The backend enforces
+    // this too, but blocking here gives instant feedback and avoids the round-trip.
+    if (amount > outstanding + 0.01) {
+      toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(outstanding)}`)
+      return
+    }
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${invoice.id}/collect-payment`, {
@@ -142,6 +149,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const grandTotal = Number(invoice.grandTotal)
   const amountPaid = Number(invoice.amountPaid)
   const outstanding = grandTotal - amountPaid
+  // Typed amount overshoots what's due — drives the inline error + disabled state.
+  const collectNum = parseFloat(collectAmount)
+  const collectExceeds = !isNaN(collectNum) && collectNum > outstanding + 0.01
 
   return (
     <div className="space-y-4">
@@ -288,21 +298,30 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             <Input
               type="number"
               placeholder="Amount"
-              className="h-9 text-sm"
+              className={cn(
+                'h-9 text-sm',
+                collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
+              )}
               value={collectAmount}
               onChange={(e) => setCollectAmount(e.target.value)}
+              min={0}
               max={outstanding}
             />
             <Button
               size="sm"
               className="gap-1.5 shrink-0"
-              disabled={collectSubmitting || !collectAmount}
+              disabled={collectSubmitting || !collectAmount || collectExceeds}
               onClick={handleCollectPayment}
             >
               <Wallet className="h-4 w-4" />
               {collectSubmitting ? 'Saving…' : 'Collect'}
             </Button>
           </div>
+          {collectExceeds && (
+            <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
+              Amount can't exceed the outstanding {formatCurrency(outstanding)}.
+            </p>
+          )}
         </div>
       )}
 

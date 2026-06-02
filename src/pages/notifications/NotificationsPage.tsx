@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from 'react'
+import { useState, useMemo, useEffect, Fragment, createContext, useContext } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
@@ -15,6 +15,7 @@ import { cn, timeAgo } from '@/lib/utils'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import type { Notification } from '@/types'
@@ -55,6 +56,15 @@ const reminderConfig = {
   tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10',
 }
 const cfgFor = (n: Notification) => (isReminder(n) ? reminderConfig : typeConfig[n.type])
+
+// Resolves a customer's phone for a notification so the UI can show it next to
+// the name (and disambiguate two customers with the same name). Order of trust:
+// the backend-stamped entityState.customerPhone → entityState.customerId looked
+// up in master data → a unique name match in master data. Provided via context
+// so the deeply-nested row components don't each subscribe to master data.
+type PhoneResolver = (n: Notification, name?: string | null) => string | null
+const PhoneCtx = createContext<PhoneResolver>(() => null)
+const usePhoneResolver = () => useContext(PhoneCtx)
 
 const SNOOZE_PRESETS: { label: string; hours: number }[] = [
   { label: 'For 1 hour',     hours: 1 },
@@ -144,6 +154,101 @@ function cleanMessage(msg: string): string {
   return msg.replace(/\s*\[\w+Id:[^\]]+\](?:\[[^\]]+\])*/g, '').trim()
 }
 
+// Reorder the one-line detail so the most relevant entity leads:
+//   Payment Due → customer first (not the invoice number)
+//   Expiry      → product first, then batch
+//   Low Stock   → product first (already the case)
+// New notifications are generated in this order by the backend, so they fall
+// straight through `cleanMessage`. This also rewrites the *legacy* phrasing
+// ("Invoice X for Y…", "Batch B of P…") so already-stored alerts reorder too.
+// Returns the detail split into a highlighted `lead` (the entity to scan for —
+// customer + phone, or product + batch) and the muted `rest`. The lead is
+// rendered bold so the user's eye lands on the name/number, and the redundant
+// invoice number is dropped from Payment Due. Handles both the current and the
+// legacy backend phrasings so already-stored alerts reformat too.
+interface Detail { lead: string; rest: string }
+
+// Pull a "(phone)" embedded in the message (reminders / approvals carry it
+// inline). Returns [nameWithoutPhone, phone|null].
+function splitInlinePhone(s: string): [string, string | null] {
+  const m = s.match(/^(.*?)\s*\(([+\d][\d\s-]{4,})\)\s*$/)
+  return m ? [m[1].trim(), m[2].trim()] : [s.trim(), null]
+}
+
+function withPhone(name: string, phone: string | null): string {
+  return phone ? `${name} · ${phone}` : name
+}
+
+function formatDetail(n: Notification, resolvePhone: PhoneResolver): Detail {
+  const message = cleanMessage(n.message)
+  if (isReminder(n)) {
+    // "<title> — Follow up with <name> (<phone>?) today."
+    const m = message.match(/Follow up with\s+(.+?)\s+today/i)
+    if (m) {
+      const [name, inlinePhone] = splitInlinePhone(m[1])
+      return { lead: withPhone(name, inlinePhone ?? resolvePhone(n, name)), rest: 'Follow up today' }
+    }
+    return { lead: '', rest: message }
+  }
+  switch (n.type) {
+    case 'PAYMENT_DUE': {
+      // Legacy phrasing also starts with a name-like token, so match it first.
+      const legacy = message.match(/^Invoice\s+\S+\s+for\s+(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      const cur = legacy ? null : message.match(/^(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      const customer = legacy?.[1] ?? cur?.[1]
+      const amount = legacy?.[2] ?? cur?.[2]
+      if (customer && amount) {
+        return { lead: withPhone(customer, resolvePhone(n, customer)), rest: `₹${amount} outstanding` }
+      }
+      break
+    }
+    case 'EXPIRY': {
+      const cur = message.match(/^(.+?)\s+·\s+Batch\s+(\S+)\s+(expires\b.*|has already expired.*)$/i)
+      if (cur) return { lead: `${cur[1]} · Batch ${cur[2]}`, rest: cur[3] }
+      const legacy = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+(expires\b.*|has already expired.*)$/i)
+      if (legacy) return { lead: `${legacy[2]} · Batch ${legacy[1]}`, rest: legacy[3] }
+      break
+    }
+    case 'LOW_STOCK': {
+      const m = message.match(/^(.+?)\s+(is out of stock.*|has only\s+.*)$/i)
+      if (m) return { lead: m[1], rest: m[2] }
+      break
+    }
+    case 'APPROVAL': {
+      // Current: "<customer> (<phone>?) — Credit Note <cn> (₹<amt>) awaiting review."
+      // Legacy:  "<cn> (<customer>, ₹<amt>) — inspect returned goods …"
+      const legacy = message.match(/^(\S+)\s+\((.+?),\s*₹([\d,.]+)\)\s+—\s+/i)
+      if (legacy) {
+        const [, cnNo, customer, amt] = legacy
+        return { lead: withPhone(customer, resolvePhone(n, customer)), rest: `Credit Note ${cnNo} · ₹${amt} — review` }
+      }
+      const cur = message.match(/^(.+?)\s+—\s+(.*)$/)
+      if (cur) {
+        const [name, inlinePhone] = splitInlinePhone(cur[1])
+        return { lead: withPhone(name, inlinePhone ?? resolvePhone(n, name)), rest: cur[2] }
+      }
+      break
+    }
+  }
+  return { lead: '', rest: message }
+}
+
+// Renders a one-line detail with the lead entity highlighted (bold/foreground)
+// and the rest muted: "Title · **Customer · phone** · ₹X outstanding".
+function NotificationDetail({ n }: { n: Notification }) {
+  const resolvePhone = usePhoneResolver()
+  const { lead, rest } = formatDetail(n, resolvePhone)
+  return (
+    <>
+      <span className={cn(!n.isRead ? 'font-semibold text-foreground' : 'text-foreground/80')}>
+        {n.title}
+      </span>
+      {lead && <span className="font-semibold text-foreground"> · {lead}</span>}
+      {rest && <span className="text-muted-foreground"> · {rest}</span>}
+    </>
+  )
+}
+
 // ─── Per-type cluster row parsing ─────────────────────────────────
 // When a cluster expands we render its items in a real <table> with
 // type-specific columns instead of one merged prose string. The backend
@@ -168,14 +273,13 @@ interface ColumnDef {
 // instead of leaving an empty band in the middle of the row.
 const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
   PAYMENT_DUE: [
-    { key: 'invoiceNo', label: 'Invoice',     className: 'font-mono text-[11px]', width: 'w-40' },
     { key: 'customer',  label: 'Customer' },
     { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-32' },
     { key: 'aged',      label: 'Aged',        align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-24' },
   ],
   EXPIRY: [
-    { key: 'batch',     label: 'Batch',       className: 'font-mono text-[11px]', width: 'w-32' },
     { key: 'product',   label: 'Product' },
+    { key: 'batch',     label: 'Batch',       className: 'font-mono text-[11px]', width: 'w-32' },
     { key: 'expiresIn', label: 'Expires in',  align: 'right', className: 'tabular-nums', width: 'w-28' },
     { key: 'severity',  label: 'Severity',    align: 'left', width: 'w-32' },
   ],
@@ -185,36 +289,66 @@ const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
     { key: 'min',       label: 'Min',    align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-20' },
     { key: 'status',    label: 'Status', align: 'left',  width: 'w-32' },
   ],
+  APPROVAL: [
+    { key: 'customer', label: 'Customer', width: 'w-56' },
+    { key: 'detail',   label: 'Request' },
+  ],
+  REMINDER: [
+    { key: 'customer', label: 'Customer', width: 'w-56' },
+    { key: 'detail',   label: 'Follow-up' },
+  ],
 }
 
 const DEFAULT_COLUMNS: ColumnDef[] = [{ key: 'detail', label: 'Detail' }]
 
-function parseClusterRow(n: Notification): Record<string, string> {
+function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<string, string> {
   const message = cleanMessage(n.message)
-  if (isReminder(n)) return { detail: message }
+  if (isReminder(n)) {
+    // "<title> — Follow up with <name> (<phone>?) today."
+    const m = message.match(/Follow up with\s+(.+?)\s+today/i)
+    if (m) {
+      const [name, inlinePhone] = splitInlinePhone(m[1])
+      const title = message.split('—')[0]?.trim()
+      return { customer: name, phone: (inlinePhone ?? resolvePhone(n, name)) ?? '', detail: title || 'Follow up today' }
+    }
+    return { detail: message }
+  }
   // entityState is the structured snapshot the backend stamps when generating
   // the alert. Prefer it over re-parsing the message when both are available
   // — the message is for humans and may not carry every datum.
   const state = (n.entityState ?? {}) as Record<string, unknown>
   switch (n.type) {
     case 'PAYMENT_DUE': {
-      // "Invoice <invNo> for <customer> has ₹<amount> outstanding."
-      const m = message.match(/^Invoice\s+(\S+)\s+for\s+(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      // Current: "<customer> has ₹<amount> outstanding · Invoice <invNo>."
+      // Legacy:  "Invoice <invNo> for <customer> has ₹<amount> outstanding."
       const aged =
         typeof state.daysOutstanding === 'number' && state.daysOutstanding > 0
           ? `${state.daysOutstanding}d`
           : '—'
-      if (m) return { invoiceNo: m[1], customer: m[2], amount: `₹${m[3]}`, aged }
+      const legacy = message.match(/^Invoice\s+\S+\s+for\s+(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      const cur = legacy ? null : message.match(/^(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
+      const customer = legacy?.[1] ?? cur?.[1]
+      const amount = legacy?.[2] ?? cur?.[2]
+      if (customer && amount) {
+        return { customer, phone: resolvePhone(n, customer) ?? '', amount: `₹${amount}`, aged }
+      }
       break
     }
     case 'EXPIRY': {
-      // "Batch <b#> of <product> expires in <N> day(s)."
-      const m = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+expires\s+in\s+(\d+)\s*day/i)
+      // Current: "<product> · Batch <b#> expires in <N> day(s)." / "… has already expired."
+      // Legacy:  "Batch <b#> of <product> expires in <N> day(s)."
+      const cur = message.match(/^(.+?)\s+·\s+Batch\s+(\S+)\s+expires\s+in\s+(\d+)\s*day/i)
+      const legacy = cur ? null : message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+expires\s+in\s+(\d+)\s*day/i)
+      const m = cur
+        ? { product: cur[1], batch: cur[2], days: cur[3] }
+        : legacy
+          ? { product: legacy[2], batch: legacy[1], days: legacy[3] }
+          : null
       const daysLeft =
         typeof state.daysLeft === 'number'
           ? state.daysLeft
           : m
-            ? parseInt(m[3], 10)
+            ? parseInt(m.days, 10)
             : null
       const severity =
         daysLeft === null ? '—'
@@ -222,10 +356,13 @@ function parseClusterRow(n: Notification): Record<string, string> {
         : daysLeft <= 30  ? 'Critical'
         : daysLeft <= 60  ? 'Soon'
         : 'Upcoming'
-      if (m) return { batch: m[1], product: m[2], expiresIn: `${m[3]}d`, severity }
-      // Fallback for the "Expired Stock" message that doesn't carry days.
-      const exp = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+has already expired/i)
-      if (exp) return { batch: exp[1], product: exp[2], expiresIn: 'Expired', severity: 'Expired' }
+      if (m) return { batch: m.batch, product: m.product, expiresIn: `${m.days}d`, severity }
+      // Fallback for the "Expired Stock" message that doesn't carry days
+      // (both current "<product> · Batch <b#> has already expired" and legacy).
+      const expCur = message.match(/^(.+?)\s+·\s+Batch\s+(\S+)\s+has already expired/i)
+      if (expCur) return { batch: expCur[2], product: expCur[1], expiresIn: 'Expired', severity: 'Expired' }
+      const expLegacy = message.match(/^Batch\s+(\S+)\s+of\s+(.+?)\s+has already expired/i)
+      if (expLegacy) return { batch: expLegacy[1], product: expLegacy[2], expiresIn: 'Expired', severity: 'Expired' }
       break
     }
     case 'LOW_STOCK': {
@@ -252,6 +389,21 @@ function parseClusterRow(n: Notification): Record<string, string> {
           min: low[3],
           status: 'Low',
         }
+      }
+      break
+    }
+    case 'APPROVAL': {
+      // Current: "<customer> (<phone>?) — Credit Note <cn> (₹<amt>) awaiting review."
+      // Legacy:  "<cn> (<customer>, ₹<amt>) — inspect returned goods …"
+      const legacy = message.match(/^(\S+)\s+\((.+?),\s*₹([\d,.]+)\)\s+—\s+/i)
+      if (legacy) {
+        const [, cnNo, customer, amt] = legacy
+        return { customer, phone: resolvePhone(n, customer) ?? '', detail: `Credit Note ${cnNo} · ₹${amt} — review` }
+      }
+      const cur = message.match(/^(.+?)\s+—\s+(.*)$/)
+      if (cur) {
+        const [name, inlinePhone] = splitInlinePhone(cur[1])
+        return { customer: name, phone: (inlinePhone ?? resolvePhone(n, name)) ?? '', detail: cur[2] }
       }
       break
     }
@@ -359,6 +511,35 @@ export default function NotificationsPage() {
     markAsRead, markAllAsRead, snooze, resolve, removeNotification,
   } = useNotificationStore()
   const userRole = useAuthStore((s) => s.user?.role ?? 'PHARMACIST')
+
+  // Customer phone lookup for the notification rows. Loaded lazily; rows fall
+  // back to name-only until it arrives.
+  const customers = useMasterDataStore((s) => s.customers)
+  const fetchMasterData = useMasterDataStore((s) => s.fetchMasterData)
+  useEffect(() => { fetchMasterData() }, [fetchMasterData])
+
+  const phoneResolver = useMemo<PhoneResolver>(() => {
+    const byId = new Map<string, string>()
+    const nameCount = new Map<string, number>()
+    const byName = new Map<string, string>()
+    for (const c of customers) {
+      if (c.id && c.phone) byId.set(c.id, c.phone)
+      const key = (c.name || '').trim().toLowerCase()
+      if (!key) continue
+      nameCount.set(key, (nameCount.get(key) ?? 0) + 1)
+      if (c.phone) byName.set(key, c.phone)
+    }
+    return (n, name) => {
+      const es = (n.entityState ?? {}) as Record<string, unknown>
+      if (typeof es.customerPhone === 'string' && es.customerPhone) return es.customerPhone
+      if (typeof es.customerId === 'string' && byId.has(es.customerId)) return byId.get(es.customerId)!
+      // Name match only when unambiguous — never guess a phone for a name two
+      // customers share (the exact case phone is meant to disambiguate).
+      const key = (name || '').trim().toLowerCase()
+      if (key && nameCount.get(key) === 1) return byName.get(key) ?? null
+      return null
+    }
+  }, [customers])
 
   const visibleCategories = useMemo(
     () => CATEGORIES.filter((c) => c.roles === null || c.roles.includes(userRole)),
@@ -517,6 +698,7 @@ export default function NotificationsPage() {
     visibleCategories.find((c) => c.key === activeCategory)?.label ?? 'All'
 
   return (
+    <PhoneCtx.Provider value={phoneResolver}>
     <motion.div variants={containerVariants} initial="hidden" animate="visible">
       <motion.div variants={itemVariants}>
         <Card className="overflow-hidden p-0">
@@ -751,6 +933,7 @@ export default function NotificationsPage() {
         </Card>
       </motion.div>
     </motion.div>
+    </PhoneCtx.Provider>
   )
 }
 
@@ -778,7 +961,6 @@ function NotificationRow({
   const cfg = cfgFor(n)
   const Icon = cfg.icon
   const isResolved = !!n.resolvedAt
-  const message = cleanMessage(n.message)
 
   return (
     <div
@@ -815,14 +997,9 @@ function NotificationRow({
         )}
       </span>
 
-      {/* Title + message merged on one line, truncated */}
+      {/* Title + highlighted lead + muted rest, on one truncated line */}
       <span className="min-w-0 truncate leading-tight">
-        <span className={cn(!n.isRead ? 'font-semibold text-foreground' : 'text-foreground/80')}>
-          {n.title}
-        </span>
-        {message && (
-          <span className="text-muted-foreground"> · {message}</span>
-        )}
+        <NotificationDetail n={n} />
       </span>
 
       {/* Time */}
@@ -1135,7 +1312,8 @@ function ClusterRow({
   onDelete: (id: string) => void
 }) {
   const isResolved = !!n.resolvedAt
-  const parsed = parseClusterRow(n)
+  const resolvePhone = usePhoneResolver()
+  const parsed = parseClusterRow(n, resolvePhone)
   const primaryKey = columns[0]?.key
 
   return (
@@ -1169,19 +1347,31 @@ function ClusterRow({
         // Render status/severity as a coloured pill so urgency is scannable
         // at a glance. Falls back to plain text for the rest.
         const isBadge = c.key === 'status' || c.key === 'severity'
+        // The customer column stacks the name (highlighted) over the phone, so
+        // same-named customers are distinguishable at a glance.
+        const isCustomer = c.key === 'customer'
         return (
           <td
             key={c.key}
             className={cn(
               'px-3 py-1.5 align-middle text-[12px]',
-              !isBadge && 'truncate',
+              !isBadge && !isCustomer && 'truncate',
               c.align === 'right' && 'text-right',
-              // Bold the primary column when unread, so the eye lands on it.
-              !n.isRead && c.key === primaryKey && 'font-semibold text-foreground',
+              // Always highlight the primary (name/entity) column so it stands out.
+              c.key === primaryKey && 'font-semibold text-foreground',
               c.className,
             )}
           >
-            {value
+            {isCustomer ? (
+              <span className="block min-w-0">
+                <span className="block truncate">{value || <span className="text-muted-foreground/50">—</span>}</span>
+                {parsed.phone && (
+                  <span className="block truncate font-mono text-[10px] font-normal text-muted-foreground">
+                    {parsed.phone}
+                  </span>
+                )}
+              </span>
+            ) : value
               ? isBadge
                 ? <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium', badgeToneFor(value))}>{value}</span>
                 : value
@@ -1509,7 +1699,6 @@ function AllRow({
   const cfg = cfgFor(n)
   const Icon = cfg.icon
   const isResolved = !!n.resolvedAt
-  const message = cleanMessage(n.message)
 
   return (
     <tr
@@ -1557,15 +1746,10 @@ function AllRow({
         </span>
       </td>
 
-      {/* Detail — title (bold when unread) + cleaned message on one line */}
+      {/* Detail — title + highlighted lead entity + muted rest, one line */}
       <td className="px-3 py-1.5 align-middle text-[12px]">
         <span className="block truncate">
-          <span className={cn(!n.isRead ? 'font-semibold text-foreground' : 'text-foreground/80')}>
-            {n.title}
-          </span>
-          {message && (
-            <span className="text-muted-foreground"> · {message}</span>
-          )}
+          <NotificationDetail n={n} />
         </span>
       </td>
 

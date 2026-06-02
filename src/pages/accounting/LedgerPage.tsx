@@ -67,7 +67,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { Customer, Supplier } from '@/types'
-import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyCompact, formatDate, formatLedgerBalance, ledgerBalanceSuffix, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
@@ -438,8 +438,8 @@ export default function LedgerPage() {
     const rows = ledgerWithBalance.map((e) => ({
       Date: formatDate(e.date),
       Particular: e.particular,
-      Debit: e.debit,
-      Credit: e.credit,
+      [LEDGER_COL_BILLED]: e.debit,
+      [LEDGER_COL_PAID]: e.credit,
       Balance: e.balance,
     }))
     if (format === 'PDF') exportToPdf(rows, title, `ledger-${selectedPartyName}`)
@@ -611,7 +611,7 @@ export default function LedgerPage() {
   const kpis: KpiTileData[] = [
     {
       key: 'debit',
-      title: 'Total Debit',
+      title: 'Total Billed',
       value: summary.totalDebit,
       subtitle: periodLabel,
       icon: ArrowUpRight,
@@ -623,7 +623,7 @@ export default function LedgerPage() {
     },
     {
       key: 'credit',
-      title: 'Total Credit',
+      title: 'Total Paid / Returned',
       value: summary.totalCredit,
       subtitle: periodLabel,
       icon: ArrowDownLeft,
@@ -639,9 +639,9 @@ export default function LedgerPage() {
       value: Math.abs(summary.netBalance),
       subtitle:
         summary.netBalance > 0
-          ? 'Dr — receivable (end of period)'
+          ? `${partyType === 'customer' ? 'Due' : 'Payable'} (end of period)`
           : summary.netBalance < 0
-            ? 'Cr — payable (end of period)'
+            ? 'Advance (end of period)'
             : 'Settled',
       icon: Wallet,
       iconBg:
@@ -969,8 +969,7 @@ export default function LedgerPage() {
                       : '',
                 )}
               >
-                {formatCurrency(Math.abs(outstanding))}
-                {outstanding > 0 ? ' Dr' :outstanding < 0 ? ' Cr' : ''}
+                {formatLedgerBalance(outstanding, partyType)}
               </p>
               {selectedParty?.type === 'customer' && creditLimit > 0 && (
                 <div className="mt-1.5 w-32">
@@ -1125,8 +1124,7 @@ export default function LedgerPage() {
             balance > 0 ? 'text-rose-600 dark:text-rose-400'
               : balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
           )}>
-            {formatCurrency(Math.abs(balance))}
-            {balance > 0 ? ' Dr' :balance < 0 ? ' Cr' : ''}
+            {formatLedgerBalance(balance, partyType)}
           </td>
         </tr>
       )
@@ -1163,13 +1161,13 @@ export default function LedgerPage() {
                     </div>
                     <div className="text-right shrink-0">
                       {entry.debit > 0 && (
-                        <p className="font-mono text-xs text-rose-600 dark:text-rose-400">Dr {formatCurrency(entry.debit)}</p>
+                        <p className="font-mono text-xs text-rose-600 dark:text-rose-400">Billed {formatCurrency(entry.debit)}</p>
                       )}
                       {entry.credit > 0 && (
-                        <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(entry.credit)}</p>
+                        <p className="font-mono text-xs text-emerald-600 dark:text-emerald-400">Paid {formatCurrency(entry.credit)}</p>
                       )}
                       <p className={cn('font-mono text-xs font-semibold', entry.balance > 0 ? 'text-rose-600 dark:text-rose-400' : entry.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : '')}>
-                        Bal: {formatCurrency(Math.abs(entry.balance))}{entry.balance > 0 ? ' Dr' :entry.balance < 0 ? ' Cr' : ''}
+                        Bal: {formatLedgerBalance(entry.balance, partyType)}
                       </p>
                     </div>
                   </div>
@@ -1188,8 +1186,8 @@ export default function LedgerPage() {
                     {[
                       { label: 'Date', align: 'text-left' },
                       { label: 'Particular', align: 'text-left' },
-                      { label: 'Debit', align: 'text-right' },
-                      { label: 'Credit', align: 'text-right' },
+                      { label: LEDGER_COL_BILLED, align: 'text-right' },
+                      { label: LEDGER_COL_PAID, align: 'text-right' },
                       { label: 'Running Balance', align: 'text-right' },
                     ].map((col) => (
                       <th
@@ -1237,8 +1235,7 @@ export default function LedgerPage() {
                               : '',
                         )}
                       >
-                        {formatCurrency(Math.abs(entry.balance))}
-                        {entry.balance > 0 ? ' Dr' :entry.balance < 0 ? ' Cr' : ''}
+                        {formatLedgerBalance(entry.balance, partyType)}
                       </td>
                     </tr>
                   ))}
@@ -1322,12 +1319,12 @@ export default function LedgerPage() {
       : closing < 0
         ? 'text-emerald-600 dark:text-emerald-400'
         : 'text-muted-foreground'
-    const sideLabel = closing > 0 ? 'Dr' : closing < 0 ? 'Cr' : ''
+    const sideLabel = ledgerBalanceSuffix(closing, partyType)
     const sideMeaning = closing === 0
       ? 'settled'
       : partyType === 'customer'
-        ? (closing > 0 ? 'receivable' : 'we owe — overpaid / credit')
-        : (closing > 0 ? 'they owe — overpaid' : 'payable')
+        ? (closing > 0 ? 'receivable — they owe you' : 'credit balance — you owe them')
+        : (closing > 0 ? 'you owe this supplier' : 'you overpaid this supplier')
 
     // Change vs opening — direction interpreted contextually.
     const change = closing - opening
@@ -1409,15 +1406,14 @@ export default function LedgerPage() {
                         <p className="font-mono">
                           Balance:{' '}
                           <span className={d.balance > 0 ? 'text-rose-600 dark:text-rose-400' : d.balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}>
-                            {formatCurrency(Math.abs(d.balance))}
-                            {d.balance > 0 ? ' Dr' : d.balance < 0 ? ' Cr' : ''}
+                            {formatLedgerBalance(d.balance, partyType)}
                           </span>
                         </p>
                         {(d.debit > 0 || d.credit > 0) && (
                           <p className="font-mono mt-0.5 text-muted-foreground">
-                            {d.debit > 0 && <span className="text-rose-600 dark:text-rose-400">Dr {formatCurrency(d.debit)}</span>}
+                            {d.debit > 0 && <span className="text-rose-600 dark:text-rose-400">Billed {formatCurrency(d.debit)}</span>}
                             {d.debit > 0 && d.credit > 0 && ' · '}
-                            {d.credit > 0 && <span className="text-emerald-600 dark:text-emerald-400">Cr {formatCurrency(d.credit)}</span>}
+                            {d.credit > 0 && <span className="text-emerald-600 dark:text-emerald-400">Paid {formatCurrency(d.credit)}</span>}
                           </p>
                         )}
                       </div>
@@ -1463,7 +1459,7 @@ export default function LedgerPage() {
                 {formatCurrency(Math.abs(opening))}
                 {opening !== 0 && (
                   <span className="ml-1 text-[10px] text-muted-foreground">
-                    {opening > 0 ? 'Dr' : 'Cr'}
+                    {ledgerBalanceSuffix(opening, partyType)}
                   </span>
                 )}
               </p>

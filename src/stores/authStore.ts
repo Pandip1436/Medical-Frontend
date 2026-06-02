@@ -28,6 +28,7 @@ interface AuthState {
   // Preferences
   theme: Theme
   sidebarCollapsed: boolean
+  expandedSection: string | null
   mobileSidebarOpen: boolean
   language: Language
   uiScale: UiScale
@@ -39,6 +40,7 @@ interface AuthState {
   setTheme: (theme: Theme) => void
   resolvedTheme: () => 'light' | 'dark'
   toggleSidebar: () => void
+  toggleSection: (title: string) => void
   toggleMobileSidebar: () => void
   setMobileSidebarOpen: (open: boolean) => void
   setLanguage: (language: Language) => void
@@ -57,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
       // Preference state
       theme: 'system' as Theme,
       sidebarCollapsed: false,
+      expandedSection: null,
       mobileSidebarOpen: false,
       language: 'en' as Language,
       uiScale: 'auto' as UiScale,
@@ -149,6 +152,12 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))
       },
 
+      // Accordion: opening a section replaces the previously open one;
+      // clicking the open section again collapses everything (null).
+      toggleSection: (title: string) => {
+        set((state) => ({ expandedSection: state.expandedSection === title ? null : title }))
+      },
+
       toggleMobileSidebar: () => {
         set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen }))
       },
@@ -194,6 +203,7 @@ export const useAuthStore = create<AuthState>()(
         theme: state.theme,
         language: state.language,
         sidebarCollapsed: state.sidebarCollapsed,
+        expandedSection: state.expandedSection,
         uiScale: state.uiScale,
         hasCompletedOnboarding: state.hasCompletedOnboarding,
       }),

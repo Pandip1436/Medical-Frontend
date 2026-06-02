@@ -17,7 +17,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { navigate, useRoute } from '@/lib/router'
+import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -125,7 +125,7 @@ export default function ReminderDetailPage() {
 
   const isToday = useMemo(() => reminder?.dayOfMonth === todayDay, [reminder, todayDay])
 
-  const goBack = () => navigate('/reminders')
+  const goBack = () => routerGoBack('/reminders')
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">

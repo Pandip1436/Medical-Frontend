@@ -62,7 +62,6 @@ type FolderKey =
   | 'expired'
   | 'expiring-soon'
   | 'write-offs'
-  | 'disposals'
 
 interface FolderConfig {
   key: FolderKey
@@ -77,11 +76,10 @@ const FOLDERS: FolderConfig[] = [
   { key: 'expired',       label: 'Expired',       icon: AlertOctagon,  accent: 'text-rose-600 dark:text-rose-400' },
   { key: 'expiring-soon', label: 'Expiring Soon', icon: Clock,         accent: 'text-amber-600 dark:text-amber-400' },
   { key: 'write-offs',    label: 'Write-offs',    icon: Trash2,        accent: 'text-rose-600 dark:text-rose-400', divider: true },
-  { key: 'disposals',     label: 'Disposals',     icon: PackageX,      accent: 'text-purple-600 dark:text-purple-400' },
 ]
 
 const BUCKET_FOLDERS: FolderKey[] = ['all', 'expired', 'expiring-soon']
-const DISPOSAL_FOLDERS: FolderKey[] = ['write-offs', 'disposals']
+const DISPOSAL_FOLDERS: FolderKey[] = ['write-offs']
 
 type DisplayRow =
   | { kind: 'batch'; batch: EnrichedBatch }
@@ -122,7 +120,6 @@ export default function ExpiryManagementPage() {
   // pattern as Stock Adjustment's History folder.
   const [disposalRows, setDisposalRows] = useState<DisposalEntry[]>([])
   const [writeOffsTotal, setWriteOffsTotal] = useState<number | null>(null)
-  const [disposalsTotal, setDisposalsTotal] = useState<number | null>(null)
   const [disposalPage, setDisposalPage] = useState(1)
   const [fetchingDisposal, setFetchingDisposal] = useState(false)
 
@@ -189,10 +186,9 @@ export default function ExpiryManagementPage() {
     if (!DISPOSAL_FOLDERS.includes(folder)) return
     let cancelled = false
     setFetchingDisposal(true)
-    const reason = folder === 'write-offs' ? 'Expired Removal' : 'Damaged'
     api.get('/products/disposals', {
       params: {
-        reason,
+        reason: 'Expired Removal',
         skip: (disposalPage - 1) * PAGE_SIZE,
         take: PAGE_SIZE,
       },
@@ -202,14 +198,12 @@ export default function ExpiryManagementPage() {
         const data: DisposalEntry[] = res.data?.data ?? []
         const total: number = res.data?.total ?? 0
         setDisposalRows(data)
-        if (folder === 'write-offs') setWriteOffsTotal(total)
-        else setDisposalsTotal(total)
+        setWriteOffsTotal(total)
       })
       .catch(() => {
         if (!cancelled) {
           setDisposalRows([])
-          if (folder === 'write-offs') setWriteOffsTotal(0)
-          else setDisposalsTotal(0)
+          setWriteOffsTotal(0)
         }
       })
       .finally(() => { if (!cancelled) setFetchingDisposal(false) })
@@ -282,9 +276,8 @@ export default function ExpiryManagementPage() {
       expired: eb.expired?.count ?? 0,
       'expiring-soon': expiringSoonCount,
       'write-offs': writeOffsTotal ?? 0,
-      disposals: disposalsTotal ?? 0,
     }
-  }, [stats, folder, batchesTotal, writeOffsTotal, disposalsTotal])
+  }, [stats, folder, batchesTotal, writeOffsTotal])
 
   // "At risk" value shown in the toolbar.
   const atRiskValue = useMemo(() => {
@@ -327,6 +320,18 @@ export default function ExpiryManagementPage() {
       setFolder('all')
       setBatchesPage(1)
       window.history.replaceState(null, '', '/inventory/expiry')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Re-open the batch drawer when returning from Product history (Back button).
+  // BatchDetailView stashes the batch id before navigating away; we consume it
+  // once on mount so a normal visit to this page doesn't spuriously re-open.
+  useEffect(() => {
+    const reopenId = sessionStorage.getItem('expiry:reopenBatchId')
+    if (reopenId) {
+      sessionStorage.removeItem('expiry:reopenBatchId')
+      setPendingBatchId(reopenId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -382,7 +387,7 @@ export default function ExpiryManagementPage() {
   }, [pendingBatchId, enrichedBatches, fetchingBatches, selectedRow])
 
   const totalBatchesPages = Math.max(1, Math.ceil(batchesTotal / PAGE_SIZE))
-  const currentDisposalTotal = folder === 'write-offs' ? writeOffsTotal ?? 0 : disposalsTotal ?? 0
+  const currentDisposalTotal = writeOffsTotal ?? 0
   const totalDisposalPages = Math.max(1, Math.ceil(currentDisposalTotal / PAGE_SIZE))
 
   return (
@@ -658,7 +663,7 @@ function BatchRow({
       className={cn(
         'group flex cursor-pointer items-start gap-2.5 border-b border-l-[3px] border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
         borderTone,
-        isSelected && 'bg-accent/60',
+        isSelected && 'bg-primary/10 ring-1 ring-inset ring-primary/50 hover:bg-primary/10',
         highlighted && 'bg-emerald-500/10 ring-1 ring-emerald-500/40',
       )}
     >
@@ -672,7 +677,8 @@ function BatchRow({
           </Badge>
         </div>
         <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70">
-          {batch.batchNumber} · Qty {batch.quantity} · MRP {formatCurrency(batch.mrp)} · {formatCurrency(batch.stockValue)}
+          <span className="font-semibold text-foreground/80">{batch.batchNumber}</span>
+          {' · '}Qty {batch.quantity} · MRP {formatCurrency(batch.mrp)}
         </p>
         <p className="mt-0.5 truncate text-[10px] text-muted-foreground/60">
           {batch.supplierName}
@@ -706,7 +712,7 @@ function DisposalRow({
       className={cn(
         'group flex cursor-pointer items-start gap-2.5 border-b border-l-[3px] border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
         isWriteOff ? 'border-l-rose-500' : 'border-l-purple-500',
-        isSelected && 'bg-accent/60',
+        isSelected && 'bg-primary/10 ring-1 ring-inset ring-primary/50 hover:bg-primary/10',
       )}
     >
       <div className="min-w-0 flex-1">

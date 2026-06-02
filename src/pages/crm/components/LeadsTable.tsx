@@ -93,7 +93,7 @@ export function LeadsTable({
     // fill the parent's available height — so only the table body scrolls
     // vertically, while the page's top bar / search / filters / pagination
     // stay pinned above and below.
-    <div className="flex h-full min-w-0 max-w-full flex-col rounded-lg border border-border/40 bg-background [&>div]:!rounded-none [&>div]:!border-0 [&>div]:!flex-1 [&>div]:!min-h-0 [&>div]:overscroll-x-none">
+    <div className="flex h-full min-w-0 max-w-full flex-col rounded-lg border border-border/40 bg-background [&>div]:rounded-none! [&>div]:border-0! [&>div]:flex-1! [&>div]:min-h-0! [&>div]:overscroll-x-none">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 hover:bg-muted/30">
@@ -463,7 +463,7 @@ function InlineStagePill({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-44 p-1 rounded-lg border border-border/60 bg-popover shadow-lg ring-1 ring-black/[0.02]"
+        className="w-44 p-1 rounded-lg border border-border/60 bg-popover shadow-lg ring-1 ring-black/2"
       >
         <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
           Change stage
@@ -544,7 +544,7 @@ function InlineSourcePill({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-40 p-1 rounded-lg border border-border/60 bg-popover shadow-lg ring-1 ring-black/[0.02]"
+        className="w-40 p-1 rounded-lg border border-border/60 bg-popover shadow-lg ring-1 ring-black/2"
       >
         <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
           Lead source

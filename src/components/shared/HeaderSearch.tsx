@@ -91,13 +91,13 @@ export function HeaderSearch() {
         shouldFilter={false}
         loop
         className={cn(
-          'flex items-center gap-2 rounded-full border h-8 w-60 px-3',
-          'border-border/60 bg-muted/40',
-          'transition-colors',
-          open && 'border-primary/40 bg-background ring-2 ring-primary/10',
+          'flex items-center gap-2.5 rounded-full border h-10 w-72 lg:w-80 px-4',
+          'border-border bg-background shadow-sm',
+          'transition-all hover:border-primary/40 hover:shadow',
+          open && 'border-primary/50 ring-2 ring-primary/15 shadow-md',
         )}
       >
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Search className="h-4 w-4 shrink-0 text-primary/70" />
         <Command.Input
           ref={inputRef}
           value={query}
@@ -107,12 +107,9 @@ export function HeaderSearch() {
           }}
           onFocus={() => setOpen(true)}
           onClick={() => setOpen(true)}
-          placeholder="Search..."
-          className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+          placeholder="Search customers, products, invoices…"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/80"
         />
-        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded-md border border-border/60 bg-background/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground/70">
-          Ctrl+K
-        </kbd>
 
         <AnimatePresence>
           {open && (
@@ -124,7 +121,7 @@ export function HeaderSearch() {
               // Anchor the dropdown to the right edge of the input so it
               // doesn't overflow the viewport on narrow desktops. Width is
               // wider than the input itself so result subtitles fit cleanly.
-              className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-96 lg:w-[28rem]"
+              className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-96 lg:w-md"
             >
               <div className="overflow-hidden rounded-2xl border border-border/60 bg-popover/95 shadow-2xl backdrop-blur-xl">
                 <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto overscroll-contain p-2">

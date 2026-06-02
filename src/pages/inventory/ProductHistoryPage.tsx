@@ -21,7 +21,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import api from '@/lib/api'
-import { useRoute, navigate } from '@/lib/router'
+import { useRoute, navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { exportToCsv } from '@/lib/exportUtils'
 
@@ -340,7 +340,7 @@ export default function ProductHistoryPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="outline" size="icon-sm" onClick={() => navigate('/inventory/products')}>
+          <Button variant="outline" size="icon-sm" onClick={() => goBack('/inventory/products')}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -579,8 +579,8 @@ export default function ProductHistoryPage() {
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
-                          <TableHead>Invoice #</TableHead>
                           <TableHead>Customer</TableHead>
+                          <TableHead>Invoice #</TableHead>
                           <TableHead>Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
                           <TableHead className="text-right">Rate</TableHead>
@@ -601,13 +601,13 @@ export default function ProductHistoryPage() {
                               <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                 {row.date.toLocaleDateString('en-IN')}
                               </TableCell>
+                              <TableCell className="text-xs">{row.party}</TableCell>
                               <TableCell className="text-xs font-mono font-medium">
                                 <div className="flex items-center gap-1.5">
                                   {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.5 text-[9px] font-bold"><RotateCcw className="h-2.5 w-2.5" />RETURN</span>}
                                   {row.ref}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-xs">{row.party}</TableCell>
                               <TableCell className="text-xs font-mono text-muted-foreground">
                                 {row.batch ? (
                                   <button
@@ -663,8 +663,8 @@ export default function ProductHistoryPage() {
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
-                          <TableHead>PR #</TableHead>
                           <TableHead>Supplier</TableHead>
+                          <TableHead>PR #</TableHead>
                           <TableHead>Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
                           <TableHead className="text-right">Free Qty</TableHead>
@@ -685,13 +685,13 @@ export default function ProductHistoryPage() {
                               <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                 {row.date.toLocaleDateString('en-IN')}
                               </TableCell>
+                              <TableCell className="text-xs">{row.party}</TableCell>
                               <TableCell className="text-xs font-mono font-medium">
                                 <div className="flex items-center gap-1.5">
                                   {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 px-1.5 py-0.5 text-[9px] font-bold"><PackageX className="h-2.5 w-2.5" />RETURN</span>}
                                   {row.ref}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-xs">{row.party}</TableCell>
                               <TableCell className="text-xs font-mono text-muted-foreground">
                                 {row.batch ? (
                                   <button

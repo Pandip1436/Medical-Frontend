@@ -564,10 +564,10 @@ export default function DebitNotesPage() {
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead className="w-47.5">Note Number</TableHead>
-                        <TableHead className="w-30">Type</TableHead>
                         <TableHead className="w-27.5">Date</TableHead>
                         <TableHead>Supplier</TableHead>
+                        <TableHead className="w-47.5">Note Number</TableHead>
+                        <TableHead className="w-30">Type</TableHead>
                         <TableHead className="whitespace-nowrap">PR</TableHead>
                         <TableHead className="text-right w-30">Amount</TableHead>
                         <TableHead className="w-25">Status</TableHead>
@@ -599,6 +599,8 @@ export default function DebitNotesPage() {
                             notes: pr.notes,
                           })}
                         >
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>
+                          <TableCell className="font-medium text-sm">{pr.supplierName}</TableCell>
                           <TableCell className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</TableCell>
                           <TableCell>
                             {/short.*delivery|short.*supply/i.test(pr.reason ?? '') ? (
@@ -611,8 +613,6 @@ export default function DebitNotesPage() {
                               </span>
                             )}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>
-                          <TableCell className="font-medium text-sm">{pr.supplierName}</TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.grn?.grnNumber ?? '—'}</TableCell>
                           <TableCell className="text-right font-mono font-semibold text-rose-600 dark:text-rose-400">
                             {formatCurrency(pr.totalAmount)}

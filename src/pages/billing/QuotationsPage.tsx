@@ -699,9 +699,9 @@ export default function QuotationsPage() {
                   onCheckedChange={toggleSelectAll}
                 />
               </TableHead>
-              <TableHead>Quotation #</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Customer</TableHead>
+              <TableHead>Quotation #</TableHead>
               <TableHead className="text-center">Items</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Status</TableHead>
@@ -754,14 +754,6 @@ export default function QuotationsPage() {
                         onCheckedChange={() => toggleSelectOne(qt.id)}
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
-                        <span className="font-mono text-[11px] font-medium">
-                          {qt.quotationNumber}
-                        </span>
-                      </div>
-                    </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">
                         {formatDate(qt.date)}
@@ -769,6 +761,14 @@ export default function QuotationsPage() {
                     </TableCell>
                     <TableCell className="max-w-50">
                       <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
+                        <span className="font-mono text-[11px] font-medium">
+                          {qt.quotationNumber}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">

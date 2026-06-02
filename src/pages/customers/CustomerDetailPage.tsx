@@ -77,9 +77,9 @@ import {
   type SupplierActivityType as SAType,
 } from '@/components/shared/SupplierActivityDialog'
 
-import { navigate, useRoute } from '@/lib/router'
+import { navigate, goBack, useRoute } from '@/lib/router'
 import api, { API_SERVER_URL } from '@/lib/api'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import type { Customer } from '@/types'
 import { useCustomerDetail } from '@/hooks/useCustomerDetail'
@@ -354,7 +354,7 @@ export default function CustomerDetailPage() {
         <div className="text-center">
           <AlertTriangle className="mx-auto h-8 w-8 text-amber-500" />
           <p className="mt-2 text-sm">No customer ID provided</p>
-          <Button className="mt-4" onClick={() => navigate('/customers')}>Back to Customers</Button>
+          <Button className="mt-4" onClick={() => goBack('/customers')}>Back to Customers</Button>
         </div>
       </div>
     )
@@ -382,8 +382,8 @@ export default function CustomerDetailPage() {
       Date: r.date ? formatDate(r.date) : '',
       Reference: r.ref ?? '',
       Description: r.description ?? '',
-      Debit: Number(r.debit ?? 0) || '',
-      Credit: Number(r.credit ?? 0) || '',
+      [LEDGER_COL_BILLED]: Number(r.debit ?? 0) || '',
+      [LEDGER_COL_PAID]: Number(r.credit ?? 0) || '',
       Balance: Number(r.balance ?? 0),
     }))
     if (format === 'PDF') exportToPdf(rows, title, `ledger-${safeName}`)
@@ -400,7 +400,7 @@ export default function CustomerDetailPage() {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => navigate('/customers')}
+              onClick={() => goBack('/customers')}
               className="mt-0.5 shrink-0"
               aria-label="Back to Customers"
             >
@@ -524,25 +524,33 @@ export default function CustomerDetailPage() {
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{cust.address || '—'}</p>
                 </OverviewSection>
 
-                <OverviewSection icon={FileBadge} title="Identification">
-                  <Row
-                    label="GSTIN"
-                    value={cust.gstin || <span className="text-muted-foreground/40">Not provided</span>}
-                    mono
-                  />
-                  <Row
-                    label="Drug Lic."
-                    value={cust.dlNumber || <span className="text-muted-foreground/40">Not provided</span>}
-                    mono
-                  />
-                  {(cust.type === 'DOCTOR' || (cust as any).registrationNumber) && (
-                    <Row
-                      label="Reg. #"
-                      value={(cust as any).registrationNumber || <span className="text-muted-foreground/40">Not provided</span>}
-                      mono
-                    />
-                  )}
-                </OverviewSection>
+                {/* Identification fields are type-specific (mirrors CustomerFormDialog):
+                    Wholesale → GSTIN + Drug License, Doctor → Registration #, Retail → none. */}
+                {cust.type !== 'RETAIL' && (
+                  <OverviewSection icon={FileBadge} title="Identification">
+                    {cust.type === 'WHOLESALE' && (
+                      <>
+                        <Row
+                          label="GSTIN"
+                          value={cust.gstin || <span className="text-muted-foreground/40">Not provided</span>}
+                          mono
+                        />
+                        <Row
+                          label="Drug Lic."
+                          value={cust.dlNumber || <span className="text-muted-foreground/40">Not provided</span>}
+                          mono
+                        />
+                      </>
+                    )}
+                    {cust.type === 'DOCTOR' && (
+                      <Row
+                        label="Reg. #"
+                        value={(cust as any).registrationNumber || <span className="text-muted-foreground/40">Not provided</span>}
+                        mono
+                      />
+                    )}
+                  </OverviewSection>
+                )}
 
                 <OverviewSection icon={Banknote} title="Commercial">
                   <Row
@@ -761,8 +769,8 @@ export default function CustomerDetailPage() {
                         <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                         <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
                         <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
-                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Debit</TableHead>
-                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Credit</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
+                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
                         <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -788,7 +796,7 @@ export default function CustomerDetailPage() {
                             <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>
                             <TableCell className="px-3 py-2 text-right font-mono text-xs">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
                             <TableCell className="px-3 py-2 text-right font-mono text-xs">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
-                            <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(balance)}</TableCell>
+                            <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatLedgerBalance(balance, 'customer')}</TableCell>
                           </TableRow>
                         )
                       })}

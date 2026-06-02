@@ -72,9 +72,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import { navigate, useRoute } from '@/lib/router'
+import { navigate, goBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import type { Supplier } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -623,7 +623,7 @@ export default function SupplierDetailPage() {
         <div className="text-center">
           <AlertTriangle className="mx-auto h-8 w-8 text-amber-500" />
           <p className="mt-2 text-sm">No supplier ID provided</p>
-          <Button className="mt-4" onClick={() => navigate('/purchase/suppliers')}>Back to Suppliers</Button>
+          <Button className="mt-4" onClick={() => goBack('/purchase/suppliers')}>Back to Suppliers</Button>
         </div>
       </div>
     )
@@ -655,8 +655,8 @@ export default function SupplierDetailPage() {
       Date: r.date ? formatDate(r.date) : '',
       Reference: r.ref ?? '',
       Description: r.description ?? '',
-      Debit: Number(r.debit ?? 0) || '',
-      Credit: Number(r.credit ?? 0) || '',
+      [LEDGER_COL_BILLED]: Number(r.debit ?? 0) || '',
+      [LEDGER_COL_PAID]: Number(r.credit ?? 0) || '',
       Balance: Number(r.balance ?? 0),
     }))
     if (format === 'PDF') exportToPdf(rows, title, `ledger-${safeName}`)
@@ -673,7 +673,7 @@ export default function SupplierDetailPage() {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => navigate('/purchase/suppliers')}
+              onClick={() => goBack('/purchase/suppliers')}
               className="mt-0.5 shrink-0"
               aria-label="Back to Suppliers"
             >
@@ -1010,8 +1010,8 @@ export default function SupplierDetailPage() {
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Debit</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Credit</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
                       <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1037,7 +1037,7 @@ export default function SupplierDetailPage() {
                           <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>
                           <TableCell className="px-3 py-2 text-right font-mono text-xs">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
                           <TableCell className="px-3 py-2 text-right font-mono text-xs">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(balance)}</TableCell>
+                          <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatLedgerBalance(balance, 'supplier')}</TableCell>
                         </TableRow>
                       )
                     })}

@@ -25,6 +25,7 @@ import {
   PieChart,
   Settings,
   ChevronLeft,
+  ChevronDown,
   MoreHorizontal,
   X,
   Building2,
@@ -56,21 +57,30 @@ interface NavItem {
   icon: LucideIcon
   href: string
   adminOnly?: boolean
+  // Highlighted shortcut (e.g. Quick Sale): rendered as an accent action
+  // button rather than a plain link, and skips active-state styling.
+  action?: boolean
 }
 
 interface NavGroup {
   title: string
   items: NavItem[]
+  // Pinned group: always visible, no clickable header (the items render as
+  // plain top-level links). Used for MAIN so the primary pages are always
+  // reachable without expanding an accordion.
+  alwaysOpen?: boolean
 }
 
 const navigationGroups: NavGroup[] = [
   {
     title: 'MAIN',
+    alwaysOpen: true,
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Notifications', icon: Bell, href: '/notifications' },
       { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
       { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals', adminOnly: true },
+      { label: 'Quick Sale', icon: Zap, href: '/billing/new', action: true },
     ],
   },
   {
@@ -200,7 +210,7 @@ interface SidebarProps {
 import { useSettingsStore } from '@/stores/settingsStore'
 
 export function Sidebar({ currentPath }: SidebarProps) {
-  const { user, sidebarCollapsed, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
+  const { user, sidebarCollapsed, toggleSidebar, expandedSection, toggleSection, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
   const unreadCount = useNotificationStore((s) => s.unreadCount())
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [pendingApprovals, setPendingApprovals] = useState(0)
@@ -322,6 +332,22 @@ export function Sidebar({ currentPath }: SidebarProps) {
       item.href !== '/billing/new' &&
       currentPath.startsWith(item.href))
 
+  // On first load with no remembered choice, auto-open the (multi-item)
+  // section that contains the current page. Runs once per mount; afterwards
+  // the persisted `expandedSection` wins. The ref guard keeps it from
+  // re-firing when filteredGroups/currentPath change mid-session.
+  const didInitSectionRef = useRef(false)
+  useEffect(() => {
+    if (didInitSectionRef.current) return
+    didInitSectionRef.current = true
+    if (expandedSection !== null) return
+    const activeGroup = filteredGroups.find(
+      (g) => !g.alwaysOpen && g.items.length >= 2 && g.items.some((it) => isActive(it))
+    )
+    if (activeGroup) toggleSection(activeGroup.title)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const userRoleRing = user ? (roleRingColors[user.role] || 'ring-blue-500') : 'ring-blue-500'
 
   // ─── Shared sidebar content ─────────────────────────────────────────────
@@ -353,6 +379,89 @@ export function Sidebar({ currentPath }: SidebarProps) {
     </a>
   )
 
+  // A single nav link. Shared by flat (collapsed icon-rail), single-item
+  // sections, and the items inside an expanded accordion section.
+  const renderNavItem = (item: NavItem, collapsed: boolean) => {
+    // Action shortcuts (Quick Sale) read as a primary accent button and never
+    // show the active indicator — they're a shortcut, not a "current page".
+    const isAction = !!item.action
+    const active = !isAction && isActive(item)
+    const Icon = item.icon
+
+    const linkContent = (
+      <a
+        href={hashHref(item.href)}
+        onClick={handleNavLinkClick(item.href)}
+        className={cn(
+          'group relative flex h-9 items-center rounded-lg px-3 text-[13px] font-medium transition-all duration-150',
+          isAction
+            ? 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/15'
+            : active
+              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+              : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+          collapsed && 'justify-center px-0'
+        )}
+        style={{ gap: collapsed ? 0 : 12 }}
+      >
+        {active && (
+          <motion.div
+            layoutId="sidebar-indicator"
+            className="absolute left-0 top-1.5 bottom-1.5 w-0.75 rounded-r-full bg-blue-500"
+            style={{
+              boxShadow: '0 0 8px 1px rgba(59, 130, 246, 0.4)',
+            }}
+            transition={{
+              type: 'spring',
+              stiffness: 350,
+              damping: 30,
+            }}
+          />
+        )}
+        <Icon className="h-4.5 w-4.5 shrink-0" />
+        {!collapsed && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="flex flex-1 items-center justify-between truncate"
+          >
+            {item.label}
+            {item.href === '/notifications' && unreadCount > 0 && (
+              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+            {item.href === '/admin/approvals' && pendingApprovals > 0 && (
+              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                {pendingApprovals > 99 ? '99+' : pendingApprovals}
+              </span>
+            )}
+          </motion.span>
+        )}
+        {collapsed && item.href === '/notifications' && unreadCount > 0 && (
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
+        )}
+        {collapsed && item.href === '/admin/approvals' && pendingApprovals > 0 && (
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-500" />
+        )}
+      </a>
+    )
+
+    if (collapsed) {
+      return (
+        <Tooltip key={item.href + item.label}>
+          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            {item.label}
+          </TooltipContent>
+        </Tooltip>
+      )
+    }
+
+    return <div key={item.href + item.label}>{linkContent}</div>
+  }
+
   const renderNavGroups = (collapsed: boolean) => (
     <div
       ref={navScrollRef}
@@ -360,99 +469,80 @@ export function Sidebar({ currentPath }: SidebarProps) {
       className="flex-1 overflow-y-auto py-2 sidebar-scroll"
     >
       <nav className="flex flex-col gap-0.5 px-2">
-        {filteredGroups.map((group) => (
-          <div key={group.title} className="mb-1">
-            {!collapsed && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mb-1 mt-4 flex items-center gap-1 px-3 text-[10px] font-semibold uppercase text-sidebar-muted"
+        {filteredGroups.map((group) => {
+          // Icon-only rail: keep the flat layout (divider + every item).
+          if (collapsed) {
+            return (
+              <div key={group.title} className="mb-1">
+                <div className="my-2.5 mx-auto h-px w-5 bg-sidebar-border/60" />
+                {group.items.map((item) => renderNavItem(item, true))}
+              </div>
+            )
+          }
+
+          // Pinned group (MAIN): always visible, no header — items render as
+          // plain top-level links.
+          if (group.alwaysOpen) {
+            return (
+              <div key={group.title} className="mb-0.5 flex flex-col gap-0.5">
+                {group.items.map((item) => renderNavItem(item, false))}
+              </div>
+            )
+          }
+
+          // Single-page section: render the page as a plain top-level link.
+          if (group.items.length === 1) {
+            return (
+              <div key={group.title} className="mt-1 mb-0.5">
+                {renderNavItem(group.items[0], false)}
+              </div>
+            )
+          }
+
+          // Multi-page section: collapsible accordion group.
+          const open = expandedSection === group.title
+          const hasActiveChild = group.items.some((it) => isActive(it))
+          return (
+            <div key={group.title} className="mb-0.5">
+              <button
+                onClick={() => toggleSection(group.title)}
+                className={cn(
+                  'mt-3 flex w-full items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-[10px] font-semibold uppercase transition-colors hover:bg-sidebar-accent/50',
+                  hasActiveChild && !open ? 'text-sidebar-foreground' : 'text-sidebar-muted'
+                )}
                 style={{ letterSpacing: '0.1em' }}
               >
-                {group.title}
-                <span className="text-sidebar-muted/60">({group.items.length})</span>
-              </motion.p>
-            )}
-            {collapsed && (
-              <div className="my-2.5 mx-auto h-px w-5 bg-sidebar-border/60" />
-            )}
-            {group.items.map((item) => {
-              const active = isActive(item)
-              const Icon = item.icon
-
-              const linkContent = (
-                <a
-                  href={hashHref(item.href)}
-                  onClick={handleNavLinkClick(item.href)}
-                  className={cn(
-                    'group relative flex h-9 items-center rounded-lg px-3 text-[13px] font-medium transition-all duration-150',
-                    active
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent',
-                    collapsed && 'justify-center px-0'
+                <span className="flex items-center gap-1.5">
+                  {group.title}
+                  {hasActiveChild && !open && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
                   )}
-                  style={{ gap: collapsed ? 0 : 12 }}
+                </span>
+                <motion.div
+                  animate={{ rotate: open ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  {active && (
-                    <motion.div
-                      layoutId="sidebar-indicator"
-                      className="absolute left-0 top-1.5 bottom-1.5 w-0.75 rounded-r-full bg-blue-500"
-                      style={{
-                        boxShadow: '0 0 8px 1px rgba(59, 130, 246, 0.4)',
-                      }}
-                      transition={{
-                        type: 'spring',
-                        stiffness: 350,
-                        damping: 30,
-                      }}
-                    />
-                  )}
-                  <Icon className="h-4.5 w-4.5 shrink-0" />
-                  {!collapsed && (
-                    <motion.span
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.12 }}
-                      className="flex flex-1 items-center justify-between truncate"
-                    >
-                      {item.label}
-                      {item.href === '/notifications' && unreadCount > 0 && (
-                        <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                          {unreadCount > 99 ? '99+' : unreadCount}
-                        </span>
-                      )}
-                      {item.href === '/admin/approvals' && pendingApprovals > 0 && (
-                        <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
-                          {pendingApprovals > 99 ? '99+' : pendingApprovals}
-                        </span>
-                      )}
-                    </motion.span>
-                  )}
-                  {collapsed && item.href === '/notifications' && unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
-                  )}
-                  {collapsed && item.href === '/admin/approvals' && pendingApprovals > 0 && (
-                    <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-500" />
-                  )}
-                </a>
-              )
-
-              if (collapsed) {
-                return (
-                  <Tooltip key={item.href + item.label}>
-                    <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                    <TooltipContent side="right" sideOffset={8}>
-                      {item.label}
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              }
-
-              return <div key={item.href + item.label}>{linkContent}</div>
-            })}
-          </div>
-        ))}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </motion.div>
+              </button>
+              <AnimatePresence initial={false}>
+                {open && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex flex-col gap-0.5 pt-0.5">
+                      {group.items.map((item) => renderNavItem(item, false))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )
+        })}
       </nav>
     </div>
   )
@@ -600,7 +690,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
                 {filteredGroups.map((group) => (
                   <div key={group.title} className="mb-3">
                     <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase text-sidebar-muted/70" style={{ letterSpacing: '0.1em' }}>
-                      {group.title} ({group.items.length})
+                      {group.title}
                     </p>
                     <div className="grid grid-cols-3 gap-1.5">
                       {group.items.map((item) => {

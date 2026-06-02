@@ -260,6 +260,15 @@ export default function CustomerInvoicesPage() {
 
   const handleCollectPayment = async () => {
     if (!detailInvoice || !collectAmount) return
+    const amount = parseFloat(collectAmount)
+    const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
+    if (isNaN(amount) || amount <= 0) return
+    // Never collect more than what's due. Backend enforces this too; blocking
+    // here gives instant feedback and avoids the round-trip.
+    if (amount > balanceDue + 0.01) {
+      toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(balanceDue)}`)
+      return
+    }
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${detailInvoice.id}/collect-payment`, {
@@ -589,8 +598,8 @@ export default function CustomerInvoicesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Invoice #</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Invoice #</TableHead>
                     <TableHead>Items</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Status</TableHead>
@@ -622,13 +631,13 @@ export default function CustomerInvoicesPage() {
                       onClick={() => setDetailInvoice(inv)}
                     >
                       <TableCell className="text-muted-foreground text-sm">{formatDate(inv.date)}</TableCell>
-                      <TableCell className="font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                           <span className="text-sm truncate max-w-40">{inv.customerName}</span>
                         </div>
                       </TableCell>
+                      <TableCell className="font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
                       <TableCell>
                         <div className="text-sm text-muted-foreground max-w-48">
                           <span className="font-medium text-foreground">{inv.items.length} item{inv.items.length !== 1 ? 's' : ''}</span>
@@ -678,6 +687,10 @@ export default function CustomerInvoicesPage() {
         >
           {detailInvoice && (() => {
             const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
+            // Typed collect amount overshoots the balance due — drives the
+            // inline error + disabled Collect button below.
+            const collectNum = parseFloat(collectAmount)
+            const collectExceeds = !isNaN(collectNum) && collectNum > balanceDue + 0.01
             return (
               <>
                 {/* Sticky Header */}
@@ -775,21 +788,30 @@ export default function CustomerInvoicesPage() {
                         <Input
                           type="number"
                           placeholder="Amount"
-                          className="h-9 text-sm"
+                          className={cn(
+                            'h-9 text-sm',
+                            collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
+                          )}
                           value={collectAmount}
                           onChange={(e) => setCollectAmount(e.target.value)}
+                          min={0}
                           max={balanceDue}
                         />
                         <Button
                           size="sm"
                           className="gap-1.5 shrink-0"
-                          disabled={collectSubmitting || !collectAmount}
+                          disabled={collectSubmitting || !collectAmount || collectExceeds}
                           onClick={handleCollectPayment}
                         >
                           <Wallet className="h-4 w-4" />
                           {collectSubmitting ? 'Saving…' : 'Collect'}
                         </Button>
                       </div>
+                      {collectExceeds && (
+                        <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
+                          Amount can't exceed the outstanding {formatCurrency(balanceDue)}.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   Bell, Plus, Phone, CheckCircle2, XCircle, X, Clock, MessageSquare,
   Trash2, User, AlertCircle, RefreshCw, Mail, Search, ChevronRight,
-  ListFilter, Store, Building2, Stethoscope, AlertTriangle,
+  ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
+import { DatePicker } from '@/components/ui/date-picker'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -36,6 +37,7 @@ interface ContactLog {
   status: ContactStatus
   notes?: string | null
   contactedAt: string
+  followUpDate?: string | null
 }
 
 interface Reminder {
@@ -44,6 +46,9 @@ interface Reminder {
   dayOfMonth: number
   title: string
   notes?: string | null
+  // Active one-off follow-up requested by the customer. Overrides the monthly
+  // dayOfMonth schedule until the next contact is logged. null = monthly cycle.
+  followUpDate?: string | null
   customer: { id: string; name: string; phone: string; type: string; email?: string | null }
   contacts: ContactLog[]
 }
@@ -96,6 +101,12 @@ function nextDueDate(dayOfMonth: number, today: Date = new Date()): Date {
   return new Date(year, month + 1, dayOfMonth)
 }
 
+// Local (not UTC) yyyy-MM-dd — matches what DatePicker emits/consumes.
+function toISODate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 function daysUntil(date: Date, today: Date = new Date()): number {
   const a = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const b = new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -122,9 +133,32 @@ function isTalkedThisMonth(r: Reminder, today: Date = new Date()): boolean {
   return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
 }
 
+// Parse the reminder's active follow-up date (if any) into a Date.
+function followUpDateOf(r: Reminder): Date | null {
+  if (!r.followUpDate) return null
+  const d = new Date(r.followUpDate)
+  return isNaN(d.getTime()) ? null : d
+}
+
+// The reminder's effective due date. An active one-off follow-up overrides the
+// monthly cycle — even when it's already in the past (→ overdue) — until the
+// next contact is logged. Otherwise fall back to the monthly dayOfMonth.
+function effectiveDue(r: Reminder, today: Date = new Date()): { date: Date; isFollowUp: boolean } {
+  const fu = followUpDateOf(r)
+  if (fu) return { date: fu, isFollowUp: true }
+  return { date: nextDueDate(r.dayOfMonth, today), isFollowUp: false }
+}
+
 function nextDueLabel(r: Reminder, today: Date = new Date()): string {
-  const due = nextDueDate(r.dayOfMonth, today)
+  const { date: due, isFollowUp } = effectiveDue(r, today)
   const days = daysUntil(due, today)
+  if (isFollowUp) {
+    if (days < 0) return 'Follow-up overdue'
+    if (days === 0) return 'Follow-up today'
+    if (days === 1) return 'Follow-up tomorrow'
+    if (days <= 7) return `Follow-up in ${days} days`
+    return `Follow-up ${due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+  }
   if (days === 0) return 'Due today'
   if (days === 1) return 'Due tomorrow'
   if (days <= 7) return `Due in ${days} days`
@@ -135,15 +169,17 @@ function nextDueLabel(r: Reminder, today: Date = new Date()): string {
 function groupByNextDue(items: Reminder[]): { label: string; items: Reminder[] }[] {
   const today = new Date()
   const buckets: Record<string, Reminder[]> = {
-    'Due today': [], 'This week': [], 'Later this month': [], 'Next month': [],
+    'Overdue': [], 'Due today': [], 'This week': [], 'Later this month': [], 'Next month': [],
   }
   const currentMonth = today.getMonth()
+  const currentYear = today.getFullYear()
   for (const r of items) {
-    const due = nextDueDate(r.dayOfMonth, today)
+    const { date: due } = effectiveDue(r, today)
     const days = daysUntil(due, today)
-    if (days === 0) buckets['Due today'].push(r)
+    if (days < 0) buckets['Overdue'].push(r)              // only pending follow-ups can be in the past
+    else if (days === 0) buckets['Due today'].push(r)
     else if (days <= 7) buckets['This week'].push(r)
-    else if (due.getMonth() === currentMonth) buckets['Later this month'].push(r)
+    else if (due.getMonth() === currentMonth && due.getFullYear() === currentYear) buckets['Later this month'].push(r)
     else buckets['Next month'].push(r)
   }
   return Object.entries(buckets)
@@ -659,11 +695,17 @@ export default function RemindersPage() {
 // Map a status pill to a row predicate
 function applyStatusFilter(rows: Reminder[], status: StatusKey, today: Date): Reminder[] {
   if (status === 'all') return rows
-  if (status === 'today') return rows.filter(r => r.dayOfMonth === today.getDate())
-  if (status === 'overdue') return rows.filter(r => isSkipped(r, today))
+  if (status === 'today') return rows.filter(r => daysUntil(effectiveDue(r, today).date, today) === 0)
+  if (status === 'overdue') return rows.filter(r => {
+    const fu = followUpDateOf(r)
+    // A pending follow-up that's already passed is overdue; otherwise fall back
+    // to the monthly "skipped" rule (day passed this month, no contact logged).
+    if (fu) return daysUntil(fu, today) < 0
+    return isSkipped(r, today)
+  })
   // this-week: due in the next 7 days, excluding today
   return rows.filter(r => {
-    const d = daysUntil(nextDueDate(r.dayOfMonth, today), today)
+    const d = daysUntil(effectiveDue(r, today).date, today)
     return d > 0 && d <= 7
   })
 }
@@ -677,8 +719,11 @@ function ReminderRow({
   highlighted: boolean
   onSelect: (id: string) => void
 }) {
-  const todayDay = new Date().getDate()
-  const isDueToday = r.dayOfMonth === todayDay
+  const today = new Date()
+  const { date: dueDate, isFollowUp } = effectiveDue(r, today)
+  const dueDays = daysUntil(dueDate, today)
+  const isDueToday = dueDays === 0
+  const followUpOverdue = isFollowUp && dueDays < 0
   const skipped = isSkipped(r)
   const lastContact = r.contacts[0]
   const lastStatus = lastContact?.status as ContactStatus | undefined
@@ -703,14 +748,17 @@ function ReminderRow({
         doneThisCycle && 'opacity-80',
       )}
     >
-      {/* Day badge */}
+      {/* Day badge — reflects the follow-up date when one is active */}
       <div className={cn(
         'flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-lg text-center',
-        isDueToday ? 'bg-amber-500 text-white' : 'bg-muted text-foreground',
+        followUpOverdue ? 'bg-rose-500 text-white'
+          : isDueToday ? 'bg-amber-500 text-white'
+          : isFollowUp ? 'bg-violet-500 text-white'
+          : 'bg-muted text-foreground',
       )}>
-        <span className="text-[13px] font-black leading-none">{r.dayOfMonth}</span>
+        <span className="text-[13px] font-black leading-none">{isFollowUp ? dueDate.getDate() : r.dayOfMonth}</span>
         <span className="text-[7px] font-semibold uppercase tracking-wider opacity-80">
-          {isDueToday ? 'Today' : 'Day'}
+          {isDueToday ? 'Today' : followUpOverdue ? 'Late' : isFollowUp ? 'F-up' : 'Day'}
         </span>
       </div>
 
@@ -729,7 +777,17 @@ function ReminderRow({
           ) : (
             <Badge variant="outline" size="sm" className="text-[9px]">No contact yet</Badge>
           )}
-          {skipped && (
+          {isFollowUp && (
+            <span className={cn(
+              'inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider',
+              followUpOverdue
+                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
+                : 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
+            )}>
+              <CalendarClock className="h-2.5 w-2.5" /> Follow-up {dueDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+            </span>
+          )}
+          {skipped && !isFollowUp && (
             <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
               <AlertTriangle className="h-2.5 w-2.5" /> Skipped
             </span>
@@ -771,7 +829,12 @@ function ReminderDetailPanel({
   // Inline log form state — reset between selections via the key={r.id} on the parent <motion.aside>
   const [logStatus, setLogStatus] = useState<ContactStatus>('TALKED')
   const [logNotes, setLogNotes] = useState('')
+  const [logFollowUp, setLogFollowUp] = useState('')   // ISO yyyy-MM-dd, optional
   const [logSaving, setLogSaving] = useState(false)
+  const [clearingFollowUp, setClearingFollowUp] = useState(false)
+
+  const activeFollowUp = followUpDateOf(r)
+  const followUpOverdue = !!activeFollowUp && daysUntil(activeFollowUp) < 0
 
   const handleLog = async () => {
     setLogSaving(true)
@@ -779,15 +842,32 @@ function ReminderDetailPanel({
       await api.post(`/reminders/${r.id}/contacts`, {
         status: logStatus,
         notes: logNotes.trim() || undefined,
+        followUpDate: logFollowUp || undefined,
       })
-      toast.success('Contact logged')
+      toast.success(logFollowUp ? 'Contact logged · follow-up scheduled' : 'Contact logged')
       setLogNotes('')
       setLogStatus('TALKED')
+      setLogFollowUp('')
       onContactLogged()
     } catch (err: any) {
       toast.error(err.response?.data?.message ?? 'Failed to log contact')
     } finally {
       setLogSaving(false)
+    }
+  }
+
+  // Clear the active follow-up without logging a contact — reverts the reminder
+  // to its plain monthly cycle.
+  const handleClearFollowUp = async () => {
+    setClearingFollowUp(true)
+    try {
+      await api.patch(`/reminders/${r.id}`, { followUpDate: null })
+      toast.success('Follow-up cleared')
+      onContactLogged()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to clear follow-up')
+    } finally {
+      setClearingFollowUp(false)
     }
   }
 
@@ -830,6 +910,41 @@ function ReminderDetailPanel({
 
       {/* Body */}
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {/* Active follow-up banner */}
+        {activeFollowUp && (
+          <div className={cn(
+            'flex items-center gap-2.5 rounded-lg border px-3 py-2.5',
+            followUpOverdue
+              ? 'border-rose-300/60 bg-rose-500/10 dark:border-rose-900/50'
+              : 'border-violet-300/60 bg-violet-500/10 dark:border-violet-900/50',
+          )}>
+            <CalendarClock className={cn(
+              'h-4 w-4 shrink-0',
+              followUpOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-violet-600 dark:text-violet-400',
+            )} />
+            <div className="min-w-0 flex-1">
+              <p className={cn(
+                'text-xs font-semibold',
+                followUpOverdue ? 'text-rose-700 dark:text-rose-400' : 'text-violet-700 dark:text-violet-400',
+              )}>
+                {followUpOverdue ? 'Follow-up overdue' : 'Follow-up scheduled'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {activeFollowUp.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+              onClick={handleClearFollowUp}
+              disabled={clearingFollowUp}
+            >
+              <X className="h-3 w-3" /> {clearingFollowUp ? 'Clearing…' : 'Clear'}
+            </Button>
+          </div>
+        )}
+
         {/* Customer card */}
         <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Customer</p>
@@ -905,6 +1020,12 @@ function ReminderDetailPanel({
                   </Badge>
                   <div className="min-w-0 flex-1">
                     {c.notes && <p className="text-xs text-foreground/80">{c.notes}</p>}
+                    {c.followUpDate && (
+                      <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 dark:text-violet-400">
+                        <CalendarClock className="h-2.5 w-2.5" />
+                        Follow-up set for {new Date(c.followUpDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
                     <p className="mt-0.5 text-[10px] text-muted-foreground/60">
                       {new Date(c.contactedAt).toLocaleString('en-IN', {
                         day: '2-digit', month: 'short', year: 'numeric',
@@ -954,6 +1075,23 @@ function ReminderDetailPanel({
                 onChange={e => setLogNotes(e.target.value)}
                 className="text-xs"
               />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Follow up on <span className="font-normal normal-case text-muted-foreground/60">· optional</span>
+              </Label>
+              <DatePicker
+                value={logFollowUp}
+                onChange={setLogFollowUp}
+                min={toISODate(new Date())}
+                placeholder="Pick a date the customer asked for"
+                className="h-8 text-xs"
+              />
+              {logFollowUp && (
+                <p className="text-[10px] text-violet-600 dark:text-violet-400">
+                  Reminder will resurface on this date instead of its monthly day.
+                </p>
+              )}
             </div>
             <Button size="sm" className="w-full gap-1.5" onClick={handleLog} disabled={logSaving}>
               <MessageSquare className="h-3.5 w-3.5" />

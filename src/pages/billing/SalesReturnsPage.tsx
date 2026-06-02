@@ -59,7 +59,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { goBack } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
@@ -664,7 +664,7 @@ export default function SalesReturnsPage() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => navigate('/billing/sales')}
+            onClick={() => goBack('/billing/sales')}
             className="text-muted-foreground shrink-0"
           >
             <ArrowLeft className="h-4 w-4" />

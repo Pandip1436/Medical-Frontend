@@ -219,8 +219,8 @@ export default function CashBookPage() {
       Particular: 'Opening Balance',
       Type: '—',
       'Ref #': '—',
-      'Debit (In)': '—',
-      'Credit (Out)': '—',
+      'Cash In': '—',
+      'Cash Out': '—',
       Balance: formatCurrency(summary.openingBalance),
     }
     const closingRow = {
@@ -228,8 +228,8 @@ export default function CashBookPage() {
       Particular: 'Closing Balance',
       Type: '—',
       'Ref #': '—',
-      'Debit (In)': formatCurrency(summary.cashIn),
-      'Credit (Out)': formatCurrency(summary.cashOut),
+      'Cash In': formatCurrency(summary.cashIn),
+      'Cash Out': formatCurrency(summary.cashOut),
       Balance: formatCurrency(summary.closingBalance),
     }
     const txnRows = transactionsWithBalance.map((t) => ({
@@ -237,8 +237,8 @@ export default function CashBookPage() {
       Particular: t.particular,
       Type: t.type,
       'Ref #': t.type === 'Expense' ? '—' : t.refNumber,
-      'Debit (In)': t.debit > 0 ? formatCurrency(t.debit) : '—',
-      'Credit (Out)': t.credit > 0 ? formatCurrency(t.credit) : '—',
+      'Cash In': t.debit > 0 ? formatCurrency(t.debit) : '—',
+      'Cash Out': t.credit > 0 ? formatCurrency(t.credit) : '—',
       Balance: formatCurrency(t.balance),
     }))
     const rows = [openingRow, ...txnRows, closingRow]
@@ -589,12 +589,12 @@ export default function CashBookPage() {
                 </TableHead>
                 <TableHead className="text-right">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Debit (In)
+                    Cash In
                   </span>
                 </TableHead>
                 <TableHead className="text-right">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Credit (Out)
+                    Cash Out
                   </span>
                 </TableHead>
                 <TableHead className="text-right">

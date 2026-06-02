@@ -53,7 +53,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate, useRoute } from '@/lib/router'
+import { navigate, goBack, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { printDebitNotePdf, downloadDebitNotePdf, type NoteData } from '@/lib/pdf/notesPdf'
 
@@ -567,7 +567,7 @@ export default function PurchaseReturnsPage() {
             size="icon-sm"
             onClick={() => {
               if (currentStep > 1) goToStep(currentStep - 1)
-              else navigate('/purchase/debit-notes')
+              else goBack('/purchase/debit-notes')
             }}
             className="text-muted-foreground"
           >

@@ -16,6 +16,32 @@ export function formatCurrency(amount: any): string {
   }).format(num)
 }
 
+// ─── Ledger display helpers ─────────────────────────────────────────────────
+// Plain-English replacements for accounting Debit/Credit/Dr/Cr, shared across
+// the Accounting Ledger page and the Customer/Supplier detail Ledger tabs so the
+// wording can't drift between views.
+export type LedgerPartyType = 'customer' | 'supplier'
+
+// Column header labels. The biller differs by party (we bill customers; suppliers
+// bill us) but "Billed" reads correctly either way; "Paid / Returned" owns the
+// payments-and-returns mix that the old "Credit" column conflated.
+export const LEDGER_COL_BILLED = 'Billed'
+export const LEDGER_COL_PAID = 'Paid / Returned'
+
+/** Plain-English running-balance suffix, replacing accounting Dr/Cr.
+ *  >0: customer owes us ("Due") / we owe supplier ("Payable"). <0: party in credit ("Advance"). */
+export function ledgerBalanceSuffix(balance: number, partyType: LedgerPartyType): string {
+  if (balance > 0) return partyType === 'customer' ? 'Due' : 'Payable'
+  if (balance < 0) return 'Advance'
+  return ''
+}
+
+/** e.g. "₹1,099 Due", "₹200 Advance", "₹0". Shows the absolute value + suffix. */
+export function formatLedgerBalance(balance: number, partyType: LedgerPartyType): string {
+  const suffix = ledgerBalanceSuffix(balance, partyType)
+  return `${formatCurrency(Math.abs(balance))}${suffix ? ` ${suffix}` : ''}`
+}
+
 // Compact Indian-style currency for stat cards / KPI tiles where the full
 // "₹60,00,10,000" layout overflows the card width. Uses lakh/crore/thousand
 // abbreviations (e.g. "₹60.0 Cr", "₹49.2 K"). Falls back to the full format

@@ -28,8 +28,25 @@ if (typeof window !== 'undefined') {
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export function navigate(path: string) {
-  window.history.pushState(null, '', path)
+  const nextIdx = ((window.history.state?.idx as number | undefined) ?? 0) + 1
+  window.history.pushState({ idx: nextIdx }, '', path)
   emitChange()
+}
+
+/**
+ * Go one step back in history. If there is in-app history to pop (the current
+ * entry was reached via navigate(), so it carries an idx > 0), use the browser
+ * back stack — the popstate listener re-renders, so we must NOT call emitChange
+ * here. Otherwise (fresh load / deep-link / refresh, where state is null) fall
+ * back to a sensible parent path.
+ */
+export function goBack(fallback = '/dashboard') {
+  const idx = (window.history.state as { idx?: number } | null)?.idx
+  if (typeof idx === 'number' && idx > 0) {
+    window.history.back()
+  } else {
+    navigate(fallback)
+  }
 }
 
 /** React hook – returns current path, search string, and navigate function */

@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { navigate, useRoute } from '@/lib/router'
+import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import { BatchDetailView } from './BatchDetailView'
 
 // Batch Detail route — destination for Expiry notifications and dashboard
@@ -16,7 +16,7 @@ export default function BatchDetailPage() {
   const params = new URLSearchParams(search)
   const id = params.get('id') ?? params.get('batchId')
 
-  const goBack = () => navigate('/inventory/expiry')
+  const goBack = () => routerGoBack('/inventory/expiry')
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">

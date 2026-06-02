@@ -40,7 +40,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { navigate } from '@/lib/router'
+import { navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import {
   useLeadsAnalytics,
@@ -139,7 +139,7 @@ export default function LeadsAnalyticsPage() {
             variant="ghost"
             size="sm"
             className="h-9 gap-1.5 shrink-0"
-            onClick={() => navigate('/crm/leads')}
+            onClick={() => goBack('/crm/leads')}
           >
             <ArrowLeft className="h-4 w-4" />
             Back

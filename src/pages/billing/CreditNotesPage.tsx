@@ -722,9 +722,9 @@ export default function CreditNotesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Credit Note #</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Customer</TableHead>
+              <TableHead>Credit Note #</TableHead>
               <TableHead>Against Invoice</TableHead>
               <TableHead>Reason</TableHead>
               <TableHead>Status</TableHead>
@@ -782,17 +782,17 @@ export default function CreditNotesPage() {
                       className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
                       onClick={() => openDetail(cn)}
                     >
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-                          <span className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</span>
-                        </div>
-                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <span className="text-[11px] text-muted-foreground">{formatDate(cn.date)}</span>
                       </TableCell>
                       <TableCell className="max-w-40">
                         <CustomerNameLine name={cn.customerName} phone={cn.customerPhone} />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                          <span className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span className="font-mono text-[11px] text-muted-foreground">{cn.invoiceNumber}</span>

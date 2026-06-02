@@ -48,7 +48,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate, useRoute } from '@/lib/router'
+import { navigate, goBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -772,7 +772,7 @@ export default function GRNPage() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => navigate(editMode ? '/purchase/grn-list' : '/purchase/orders')}
+            onClick={() => goBack(editMode ? '/purchase/grn-list' : '/purchase/orders')}
             className="text-muted-foreground"
           >
             <ArrowLeft className="h-4 w-4" />

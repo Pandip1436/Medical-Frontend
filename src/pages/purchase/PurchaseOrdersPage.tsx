@@ -997,9 +997,9 @@ export default function PurchaseOrdersPage() {
               <TableHead className="w-10">
                 <Checkbox checked={allOnPageSelected} onCheckedChange={toggleSelectAll} />
               </TableHead>
-              <TableHead>PO #</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Supplier</TableHead>
+              <TableHead>PO #</TableHead>
               <TableHead className="text-center">Items</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Status</TableHead>
@@ -1046,17 +1046,17 @@ export default function PurchaseOrdersPage() {
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selectedIds.has(po.id)} onCheckedChange={() => toggleSelectOne(po.id)} />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
-                        <span className="font-mono text-[11px] font-medium">{po.poNumber}</span>
-                      </div>
-                    </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">{formatDate(po.date)}</span>
                     </TableCell>
                     <TableCell className="max-w-45">
                       <p className="truncate text-sm font-medium">{po.supplierName}</p>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
+                        <span className="font-mono text-[11px] font-medium">{po.poNumber}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">{po.items.length}</Badge>
