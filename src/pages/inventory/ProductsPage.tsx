@@ -278,6 +278,31 @@ export default function ProductsPage() {
     setDialogOpen(true)
   }
 
+  // Auto-open the Edit Product dialog when arrived at with `?editId=<id>`
+  // (used by the Product History page's "Edit Product" action). Fetches the
+  // product fresh so it works regardless of the current paginated page, then
+  // strips the param so a refresh doesn't re-trigger it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const editId = params.get('editId')
+    if (!editId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get(`/products/${editId}`)
+        if (!cancelled && res.data) openEditDialog(res.data)
+      } catch {
+        if (!cancelled) toast.error('Could not load that product to edit')
+      } finally {
+        params.delete('editId')
+        const qs = params.toString()
+        window.history.replaceState(null, '', `/inventory/products${qs ? `?${qs}` : ''}`)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const onSubmit = async (values: ProductFormValues) => {
     const payload = {
       ...values,

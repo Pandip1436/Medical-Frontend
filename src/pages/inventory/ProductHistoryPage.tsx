@@ -4,13 +4,12 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, Download, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX, PackagePlus,
+  RotateCcw, PackageX, PackagePlus, SquarePen,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
@@ -369,6 +368,15 @@ export default function ProductHistoryPage() {
         {history && (
           <div className="flex items-center gap-2 self-start">
             <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => navigate(`/inventory/products?editId=${selectedProductId}`)}
+            >
+              <SquarePen className="h-3.5 w-3.5" />
+              Edit Product
+            </Button>
+            <Button
               size="sm"
               className="gap-1.5 bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={() => navigate(`/purchase/orders?productId=${selectedProductId}`)}
@@ -465,16 +473,6 @@ export default function ProductHistoryPage() {
         resultsCount={activeCount}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
-        midNode={
-          <div className="w-60 shrink-0">
-            <ProductSearchInput
-              selectedId={selectedProductId}
-              onSelect={id => { setSelectedProductId(id); setHistory(null) }}
-              onClear={() => { setSelectedProductId(''); setHistory(null) }}
-              selectedLabel={selectedProduct ? selectedProduct.name : ''}
-            />
-          </div>
-        }
       >
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
@@ -509,8 +507,12 @@ export default function ProductHistoryPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">No product selected</p>
-              <p className="mt-0.5 text-xs text-muted-foreground/60">Search and select a product above to view its history</p>
+              <p className="mt-0.5 text-xs text-muted-foreground/60">Open a product from the Products list to view its history</p>
             </div>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate('/inventory/products')}>
+              <Package className="h-3.5 w-3.5" />
+              Go to Products
+            </Button>
           </CardContent>
         </Card>
       ) : loading ? (
@@ -838,95 +840,3 @@ export default function ProductHistoryPage() {
 // component filtered a master-loaded array client-side — that required the
 // page to pre-load every product on mount (slow). Now it only fetches the
 // page of results the user is actually looking at.
-function ProductSearchInput({
-  selectedId, onSelect, onClear, selectedLabel,
-}: {
-  selectedId: string
-  onSelect: (id: string) => void
-  onClear: () => void
-  selectedLabel: string
-}) {
-  const [q, setQ] = useState(selectedLabel)
-  const [open, setOpen] = useState(false)
-  const [results, setResults] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!selectedId) setQ('')
-    else setQ(selectedLabel)
-  }, [selectedId, selectedLabel])
-
-  useEffect(() => {
-    const handleFocusOut = (e: FocusEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node)) {
-        setOpen(false)
-      }
-    }
-    const el = containerRef.current
-    el?.addEventListener('focusout', handleFocusOut)
-    return () => el?.removeEventListener('focusout', handleFocusOut)
-  }, [])
-
-  // Debounced API fetch — fires ~200ms after the user stops typing (or
-  // immediately on focus with an empty query, to show a starter list).
-  useEffect(() => {
-    if (selectedId) return // No need to search while a selection is active.
-    let cancelled = false
-    const handle = setTimeout(async () => {
-      setLoading(true)
-      try {
-        const res = await api.get('/products', {
-          params: { q: q.trim() || undefined, take: 20 },
-        })
-        if (cancelled) return
-        const list = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
-        setResults(list)
-      } catch {
-        if (!cancelled) setResults([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }, 200)
-    return () => { cancelled = true; clearTimeout(handle) }
-  }, [q, selectedId])
-
-  return (
-    <div ref={containerRef} className="relative">
-      <Input
-        placeholder="Search product by name or generic name..."
-        value={q}
-        onChange={e => { setQ(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        suffix={selectedId
-          ? <button type="button" className="text-muted-foreground hover:text-foreground transition-colors" onClick={onClear}>✕</button>
-          : undefined
-        }
-      />
-      {open && !selectedId && (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-border/60 bg-popover shadow-xl overflow-hidden max-h-64 overflow-y-auto">
-          {loading ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">Searching…</p>
-          ) : results.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
-          ) : results.map(p => (
-            <button
-              key={p.id}
-              type="button"
-              className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent transition-colors flex items-center justify-between gap-3"
-              onMouseDown={e => { e.preventDefault(); onSelect(p.id); setQ(p.name); setOpen(false) }}
-            >
-              <div className="min-w-0">
-                <p className="font-medium truncate">{p.name}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {[p.manufacturer, p.genericName].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-              <span className="text-[10px] font-mono text-muted-foreground shrink-0">{p.totalStock ?? 0} in stock</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
