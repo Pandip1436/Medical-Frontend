@@ -24,8 +24,10 @@ function getCompany() {
   }
 }
 
+// jsPDF's Helvetica lacks the ₹ glyph (U+20B9) — it prints garbled — so use
+// the "Rs." prefix, which renders cleanly on the PDF.
 const fmt = (n: number) =>
-  n.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })
+  `Rs. ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export interface PoItemLike {
   productName: string

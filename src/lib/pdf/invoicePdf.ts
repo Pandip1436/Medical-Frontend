@@ -37,8 +37,11 @@ function getCompany() {
 // Backward-compat export: existing call sites reference COMPANY directly.
 export const COMPANY = DEFAULT_COMPANY
 
+// jsPDF's built-in Helvetica has no glyph for the ₹ sign (U+20B9), so the
+// `currency: 'INR'` symbol prints as a garbled superscript. Use the "Rs."
+// prefix instead — it renders cleanly and is unambiguous on a printed invoice.
 export const fmtINR = (n: number) =>
-  n.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })
+  `Rs. ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const fmt = fmtINR
 
