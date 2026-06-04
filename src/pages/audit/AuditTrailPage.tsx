@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 import { useDebounce } from '@/hooks/useDebounce'
 
@@ -101,7 +102,7 @@ const MODULE_OPTIONS = [
   { value: 'customers', label: 'Customers' },
   { value: 'debit-notes', label: 'Debit Notes' },
   { value: 'expenses', label: 'Expenses' },
-  { value: 'grn', label: 'Purchase Received' },
+  { value: 'grn', label: 'Goods Received Note' },
   { value: 'products', label: 'Products' },
   { value: 'purchase-orders', label: 'Purchase Orders' },
   { value: 'quotations', label: 'Quotations' },
@@ -273,13 +274,16 @@ function changesSummary(row: AuditLogRow): { text: string; hint?: string } {
 // ─── Page ────────────────────────────────────────────────────────────
 
 export default function AuditTrailPage() {
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('')
+  // Filters (persisted to sessionStorage so they survive refresh + back)
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:audit:search', '')
   const debouncedSearch = useDebounce(searchQuery, 300)
-  const [userFilter, setUserFilter] = useState('all')
-  const [moduleFilter, setModuleFilter] = useState('all')
-  const [actionFilter, setActionFilter] = useState('all')
-  const [periodFilter, setPeriodFilter] = useState('30d')
+  const [userFilter, setUserFilter] = usePersistedState('filters:audit:user', 'all')
+  const [moduleFilter, setModuleFilter] = usePersistedState('filters:audit:module', 'all')
+  const [actionFilter, setActionFilter] = usePersistedState('filters:audit:action', 'all')
+  // Period defaults to "today" — this is a date-scoped activity log, so the
+  // page opens on today's events. "today" is the baseline (excluded from the
+  // active-filter count and restored by Clear filters).
+  const [periodFilter, setPeriodFilter] = usePersistedState('filters:audit:period', 'today')
 
   // Pagination + data
   const [currentPage, setCurrentPage] = useState(1)
@@ -379,13 +383,13 @@ export default function AuditTrailPage() {
     (userFilter !== 'all' ? 1 : 0) +
     (moduleFilter !== 'all' ? 1 : 0) +
     (actionFilter !== 'all' ? 1 : 0) +
-    (periodFilter !== 'all' ? 1 : 0)
+    (periodFilter !== 'today' ? 1 : 0) // "today" is the default baseline
 
   const clearFilters = () => {
     setUserFilter('all')
     setModuleFilter('all')
     setActionFilter('all')
-    setPeriodFilter('all')
+    setPeriodFilter('today')
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -467,9 +471,11 @@ export default function AuditTrailPage() {
         </div>
       </div>
 
-      {/* ── Summary cards ── */}
+      {/* ── Summary cards — click Creates / Updates / Deletes to drill the
+          server-side Action filter; Total Events clears it. Counts come from
+          /audit-logs/stats, which already honours the selected period. ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Events',
             value: stats.total.toString(),
@@ -477,6 +483,8 @@ export default function AuditTrailPage() {
             icon: Activity,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Creates',
@@ -485,6 +493,8 @@ export default function AuditTrailPage() {
             icon: FilePlus2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'CREATE',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Updates',
@@ -493,6 +503,8 @@ export default function AuditTrailPage() {
             icon: FilePenLine,
             iconBg: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
             borderAccent: 'border-l-sky-500',
+            filterKey: 'UPDATE',
+            activeRing: 'ring-2 ring-sky-500/50',
           },
           {
             label: 'Deletes',
@@ -501,9 +513,26 @@ export default function AuditTrailPage() {
             icon: Trash2,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            filterKey: 'DELETE',
+            activeRing: 'ring-2 ring-rose-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && actionFilter === stat.filterKey
+          const apply = () => {
+            setActionFilter(active ? 'all' : stat.filterKey)
+            setCurrentPage(1)
+          }
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all actions in this period' : `Filter to ${stat.label.toLowerCase()}`}
+            onClick={apply}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -517,7 +546,8 @@ export default function AuditTrailPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Filter bar ── */}
@@ -571,7 +601,7 @@ export default function AuditTrailPage() {
             label="Period"
             value={periodFilter}
             onValueChange={setPeriodFilter}
-            onClear={() => setPeriodFilter('all')}
+            onClear={() => setPeriodFilter('today')}
             options={PERIOD_OPTIONS}
           />
           <EnumSelect

@@ -78,7 +78,7 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
   const rightX = pageWidth / 2 + 5
   const dateStr = grn.date ? formatDate(grn.date) : formatDate(new Date())
   let y = 48
-  doc.text(`PR No: ${grn.grnNumber}`, leftX, y)
+  doc.text(`PE No: ${grn.grnNumber}`, leftX, y)
   doc.text(`Date: ${dateStr}`, rightX, y)
   y += 5
   doc.text(`Supplier: ${grn.supplierName}`, leftX, y)

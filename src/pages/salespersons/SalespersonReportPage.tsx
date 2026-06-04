@@ -240,17 +240,17 @@ function KpiTile({ icon: Icon, label, value, subtitle, accent }: KpiTileProps) {
 
 function RankMedal({ rank }: { rank: number }) {
   if (rank === 1) return (
-    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-300 to-amber-500 shadow-sm">
+    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-amber-300 to-amber-500 shadow-sm">
       <Crown className="h-3.5 w-3.5 text-white" />
     </div>
   )
   if (rank === 2) return (
-    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-slate-300 to-slate-400 shadow-sm">
+    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-slate-300 to-slate-400 shadow-sm">
       <Medal className="h-3.5 w-3.5 text-white" />
     </div>
   )
   if (rank === 3) return (
-    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-orange-600 shadow-sm">
+    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-linear-to-br from-orange-400 to-orange-600 shadow-sm">
       <Award className="h-3.5 w-3.5 text-white" />
     </div>
   )
@@ -278,7 +278,7 @@ function ShareBar({ pct }: { pct: number }) {
     <div className="flex items-center gap-2">
       <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-muted/60">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary to-blue-500"
+          className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-primary to-blue-500"
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
@@ -335,7 +335,7 @@ function SalespersonPerformanceCard({
             </div>
             <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
               <div
-                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary to-blue-500"
+                className="absolute inset-y-0 left-0 rounded-full bg-linear-to-r from-primary to-blue-500"
                 style={{ width: `${Math.min(sharePct, 100)}%` }}
               />
             </div>
@@ -594,7 +594,7 @@ export default function SalespersonReportPage() {
                   />
                 </div>
                 {/* Preset chips fill remaining width */}
-                <div className="flex min-w-[280px] flex-1 flex-col gap-1">
+                <div className="flex min-w-70 flex-1 flex-col gap-1">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quick Range</p>
                   <div className="flex flex-wrap gap-1.5">
                     {PRESETS.map((p) => (
@@ -881,7 +881,7 @@ export default function SalespersonReportPage() {
                     <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 flex flex-col items-center text-center px-6">
                       {activeSliceIdx !== undefined && pieData[activeSliceIdx] ? (
                         <>
-                          <span className="max-w-[140px] truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          <span className="max-w-35 truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             {pieData[activeSliceIdx].name}
                           </span>
                           <span className="font-mono text-base font-bold" style={{ color: CHART_COLORS[activeSliceIdx % CHART_COLORS.length] }}>

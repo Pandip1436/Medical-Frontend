@@ -143,7 +143,7 @@ export function SalesHeroChart() {
             <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="hero-area" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
                   <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>

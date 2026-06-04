@@ -245,9 +245,8 @@ export function BatchDetailView({ batchId, onAfterAction }: BatchDetailViewProps
               variant="ghost"
               className="gap-1.5"
               onClick={() => {
-                // Remember the open batch so the Expiry page can re-open this
-                // drawer when the user hits Back from product history.
-                if (batch) sessionStorage.setItem('expiry:reopenBatchId', batch.id)
+                // Detail is its own route now, so browser Back from product
+                // history returns straight here — no reopen bookkeeping needed.
                 navigate(`/inventory/product-history?productId=${product.id}`)
               }}
             >

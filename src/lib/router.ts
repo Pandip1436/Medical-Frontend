@@ -27,7 +27,16 @@ if (typeof window !== 'undefined') {
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
-export function navigate(path: string) {
+export function navigate(path: string, opts?: { replace?: boolean }) {
+  // `replace` swaps the current history entry instead of adding one — used for
+  // redirects (e.g. a legacy deep-link bouncing to its new home) so the
+  // intermediate URL never lands in the back stack.
+  if (opts?.replace) {
+    const idx = (window.history.state?.idx as number | undefined) ?? 0
+    window.history.replaceState({ idx }, '', path)
+    emitChange()
+    return
+  }
   const nextIdx = ((window.history.state?.idx as number | undefined) ?? 0) + 1
   window.history.pushState({ idx: nextIdx }, '', path)
   emitChange()
@@ -97,17 +106,25 @@ export const routes: Record<string, RouteConfig> = {
     label: 'Credit Notes',
     breadcrumbs: [{ label: 'Billing' }, { label: 'Credit Notes' }],
   },
+  '/billing/credit-notes/detail': {
+    label: 'Credit Note Detail',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Credit Notes', href: '/billing/credit-notes' }, { label: 'Detail' }],
+  },
   '/purchase/orders': {
     label: 'Purchase Orders',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Orders' }],
   },
   '/purchase/grn': {
+    label: 'New GRN',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Entry', href: '/purchase/grn-list' }, { label: 'New' }],
+  },
+  '/purchase/grn-list': {
     label: 'Purchase Entry',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Entry' }],
   },
-  '/purchase/grn-list': {
-    label: 'Purchase Received',
-    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Received' }],
+  '/purchase/grn/detail': {
+    label: 'Purchase Entry Detail',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Purchase Entry', href: '/purchase/grn-list' }, { label: 'Detail' }],
   },
   '/purchase/returns': {
     label: 'Purchase Returns',
@@ -116,6 +133,10 @@ export const routes: Record<string, RouteConfig> = {
   '/purchase/debit-notes': {
     label: 'Debit Notes',
     breadcrumbs: [{ label: 'Purchase' }, { label: 'Debit Notes' }],
+  },
+  '/purchase/debit-notes/detail': {
+    label: 'Debit Note Detail',
+    breadcrumbs: [{ label: 'Purchase' }, { label: 'Debit Notes', href: '/purchase/debit-notes' }, { label: 'Detail' }],
   },
   '/purchase/suppliers': {
     label: 'Suppliers',
@@ -178,8 +199,11 @@ export const routes: Record<string, RouteConfig> = {
     breadcrumbs: [{ label: 'Customers' }, { label: 'Invoices' }],
   },
   '/customers/invoices/detail': {
+    // The shared, app-wide invoice detail view (reached from the Invoices list,
+    // customer detail, dashboard, etc.). It belongs to Billing — the old
+    // "Customers › Invoices" framing was misleading, and that list was removed.
     label: 'Invoice Detail',
-    breadcrumbs: [{ label: 'Customers' }, { label: 'Invoices', href: '/customers/invoices' }, { label: 'Detail' }],
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Invoices', href: '/billing/sales' }, { label: 'Detail' }],
   },
   '/customers/detail': {
     label: 'Customer Detail',
@@ -240,6 +264,10 @@ export const routes: Record<string, RouteConfig> = {
   '/salespersons/report': {
     label: 'Sales Report',
     breadcrumbs: [{ label: 'Salespersons', href: '/salespersons' }, { label: 'Sales Report' }],
+  },
+  '/salespersons/detail': {
+    label: 'Salesperson Detail',
+    breadcrumbs: [{ label: 'Salespersons', href: '/salespersons' }, { label: 'Detail' }],
   },
   '/notifications': {
     label: 'Notifications',

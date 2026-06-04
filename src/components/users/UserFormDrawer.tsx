@@ -1,22 +1,18 @@
-import { useEffect, useState } from 'react'
-import { useForm, Controller } from 'react-hook-form'
+import { useEffect, useMemo, useState } from 'react'
+import { useForm, Controller, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
-import { Eye, EyeOff, UserPlus, UserCog } from 'lucide-react'
+import { Eye, EyeOff, UserPlus, UserCog, ChevronDown } from 'lucide-react'
 
 import api from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Sheet,
   SheetContent,
@@ -30,9 +26,12 @@ export interface UserDrawerRow {
   email: string
   phone: string
   role: string
+  roles?: string[]
   isActive: boolean
   branchId?: string
+  branchIds?: string[]
   branch?: { id: string; name: string; code: string } | null
+  branches?: { id: string; name: string; code: string }[]
   lastLogin?: string
 }
 
@@ -41,52 +40,139 @@ interface UserFormDrawerProps {
   onOpenChange: (open: boolean) => void
   editing: UserDrawerRow | null
   branches: { id: string; name: string; code: string; isActive: boolean }[]
+  // Whether the signed-in admin may grant the Super Admin role. Branch Admins
+  // can't (and only see the branches they manage in `branches`).
+  allowSuperAdmin?: boolean
   onSaved: (saved: UserDrawerRow, mode: 'create' | 'update') => void
 }
 
 // ── Roles ───────────────────────────────────────────────────────────
 
 const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'ADMIN', label: 'Admin' },
+  { value: 'SUPER_ADMIN', label: 'Super Admin' },
+  { value: 'ADMIN', label: 'Branch Admin' },
   { value: 'PHARMACIST', label: 'Pharmacist' },
   { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
   { value: 'ACCOUNTANT', label: 'Accountant' },
   { value: 'SALESPERSON', label: 'Salesperson' },
 ]
 
+const SUPER_ADMIN = 'SUPER_ADMIN'
+
+// ── Reusable checkbox dropdown multi-select ──────────────────────────
+// A Select-style trigger that summarises the chosen values as chips and
+// opens a popover checklist bound to a string[] form field.
+function CheckDropdown({
+  options,
+  value,
+  onChange,
+  placeholder,
+}: {
+  options: Array<{ value: string; label: string; hint?: string }>
+  value: string[]
+  onChange: (next: string[]) => void
+  placeholder: string
+}) {
+  const toggle = (v: string) => {
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
+  }
+  const selected = options.filter((o) => value.includes(o.value))
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <span className="flex flex-wrap items-center gap-1 text-left">
+            {selected.length === 0 ? (
+              <span className="text-muted-foreground">{placeholder}</span>
+            ) : (
+              selected.map((o) => (
+                <span
+                  key={o.value}
+                  className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-foreground"
+                >
+                  {o.hint && <span className="font-mono text-[10px] font-bold text-muted-foreground">{o.hint}</span>}
+                  {o.label}
+                </span>
+              ))
+            )}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-1.5">
+        <div className="max-h-64 space-y-0.5 overflow-y-auto">
+          {options.map((o) => {
+            const checked = value.includes(o.value)
+            return (
+              <div
+                key={o.value}
+                role="option"
+                aria-selected={checked}
+                onClick={() => toggle(o.value)}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-accent',
+                  checked && 'bg-accent/40',
+                )}
+              >
+                <Checkbox checked={checked} className="pointer-events-none" tabIndex={-1} />
+                {o.hint && (
+                  <span className="font-mono text-[10px] font-bold text-muted-foreground">{o.hint}</span>
+                )}
+                <span className="truncate">{o.label}</span>
+              </div>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // ── Schemas ─────────────────────────────────────────────────────────
 // Two schemas because email + password are required for create but
-// locked / optional on edit. Keeps each form fully typed instead of
-// relying on partials sprinkled with as any.
+// locked / optional on edit. Roles & branches are now arrays; a
+// non-super-admin must be assigned at least one branch.
 
-const createSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  email: z.string().email('Valid email required'),
-  phone: z
-    .string()
-    .min(10, 'Valid phone number required')
-    .regex(/^\d+$/, 'Phone must be digits only'),
-  role: z.string().min(1, 'Role is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  branchId: z.string().optional(),
-  isActive: z.boolean(),
-})
+const rolesField = z.array(z.string()).min(1, 'Select at least one role')
+const branchRequirement = (
+  data: { roles: string[]; branchIds: string[] },
+  ctx: z.RefinementCtx,
+) => {
+  if (!data.roles.includes(SUPER_ADMIN) && data.branchIds.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['branchIds'],
+      message: 'Select at least one branch (or assign the Super Admin role for all branches)',
+    })
+  }
+}
 
-const editSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  phone: z
-    .string()
-    .min(10, 'Valid phone number required')
-    .regex(/^\d+$/, 'Phone must be digits only'),
-  role: z.string().min(1, 'Role is required'),
-  newPassword: z
-    .string()
-    .min(6, 'Password must be at least 6 characters')
-    .or(z.literal(''))
-    .optional(),
-  branchId: z.string().optional(),
-  isActive: z.boolean(),
-})
+const createSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required'),
+    email: z.string().email('Valid email required'),
+    phone: z.string().min(10, 'Valid phone number required').regex(/^\d+$/, 'Phone must be digits only'),
+    roles: rolesField,
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+    branchIds: z.array(z.string()),
+    isActive: z.boolean(),
+  })
+  .superRefine(branchRequirement)
+
+const editSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required'),
+    phone: z.string().min(10, 'Valid phone number required').regex(/^\d+$/, 'Phone must be digits only'),
+    roles: rolesField,
+    newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
+    branchIds: z.array(z.string()),
+    isActive: z.boolean(),
+  })
+  .superRefine(branchRequirement)
 
 type CreateValues = z.infer<typeof createSchema>
 type EditValues = z.infer<typeof editSchema>
@@ -95,10 +181,29 @@ const EMPTY_CREATE: CreateValues = {
   name: '',
   email: '',
   phone: '',
-  role: '',
+  roles: [],
   password: '',
-  branchId: '',
+  branchIds: [],
   isActive: true,
+}
+
+// Maps an API user object to the table row shape shared with UsersPage.
+function toRow(u: any, fallback?: Partial<UserDrawerRow>): UserDrawerRow {
+  const branches = u.branches ?? (u.branch ? [u.branch] : [])
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email ?? fallback?.email ?? '',
+    phone: u.phone ?? '',
+    role: u.role,
+    roles: u.roles ?? (u.role ? [u.role] : []),
+    isActive: u.isActive ?? fallback?.isActive ?? true,
+    branchId: u.branchId ?? '',
+    branchIds: u.branchIds ?? branches.map((b: any) => b.id),
+    branch: u.branch ?? null,
+    branches,
+    lastLogin: u.updatedAt ?? fallback?.lastLogin ?? '',
+  }
 }
 
 // ── Component ───────────────────────────────────────────────────────
@@ -108,6 +213,7 @@ export function UserFormDrawer({
   onOpenChange,
   editing,
   branches,
+  allowSuperAdmin = true,
   onSaved,
 }: UserFormDrawerProps) {
   const isEdit = !!editing
@@ -123,6 +229,7 @@ export function UserFormDrawer({
             key={editing!.id}
             user={editing!}
             branches={branches}
+            allowSuperAdmin={allowSuperAdmin}
             onClose={() => onOpenChange(false)}
             onSaved={(u) => onSaved(u, 'update')}
           />
@@ -130,6 +237,7 @@ export function UserFormDrawer({
           <CreateUserBody
             key="create"
             branches={branches}
+            allowSuperAdmin={allowSuperAdmin}
             onClose={() => onOpenChange(false)}
             onSaved={(u) => onSaved(u, 'create')}
           />
@@ -139,18 +247,124 @@ export function UserFormDrawer({
   )
 }
 
+// Shared role + branch assignment block used by both create and edit forms.
+function RoleBranchFields({
+  control,
+  branches,
+  allowSuperAdmin = true,
+  rolesError,
+  branchError,
+}: {
+  control: any
+  branches: UserFormDrawerProps['branches']
+  allowSuperAdmin?: boolean
+  rolesError?: string
+  branchError?: string
+}) {
+  const selectedRoles: string[] = useWatch({ control, name: 'roles' }) ?? []
+  const isSuper = selectedRoles.includes(SUPER_ADMIN)
+  // Branch Admins can't grant Super Admin — drop it from the options.
+  const roleOptions = allowSuperAdmin ? ROLE_OPTIONS : ROLE_OPTIONS.filter((r) => r.value !== SUPER_ADMIN)
+  const activeBranches = branches.filter((b) => b.isActive)
+  const branchOptions = activeBranches.map((b) => ({ value: b.id, label: b.name, hint: b.code }))
+  // A Branch Admin who manages exactly one branch has no choice to make — the
+  // branch is auto-assigned (set in the form defaults) and shown read-only.
+  const singleManaged = !allowSuperAdmin && activeBranches.length === 1
+  const fixedBranch = singleManaged ? activeBranches[0] : null
+
+  return (
+    <>
+      {/* Roles (multi-select) */}
+      <div className="space-y-1.5">
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Roles * <span className="normal-case font-normal text-muted-foreground/70">(select one or more)</span>
+        </Label>
+        <Controller
+          control={control}
+          name="roles"
+          render={({ field }) => (
+            <CheckDropdown
+              options={roleOptions}
+              value={field.value ?? []}
+              onChange={field.onChange}
+              placeholder="Select roles"
+            />
+          )}
+        />
+        {rolesError && <p className="text-xs text-destructive">{rolesError}</p>}
+      </div>
+
+      {/* Branch assignment (hidden for Super Admin = all branches) */}
+      {isSuper ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Super Admin</span> has access to{' '}
+          <span className="font-medium text-foreground">all branches</span> — no branch selection needed.
+        </div>
+      ) : fixedBranch ? (
+        <div className="space-y-1.5">
+          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Branch Access
+          </Label>
+          <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5 text-sm">
+            <span className="font-mono text-[10px] font-bold text-muted-foreground">{fixedBranch.code}</span>
+            <span className="truncate">{fixedBranch.name}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Assigned to your branch automatically.
+          </p>
+        </div>
+      ) : (
+        branches.length > 0 && (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Branch Access * <span className="normal-case font-normal text-muted-foreground/70">(select one or more)</span>
+            </Label>
+            <Controller
+              control={control}
+              name="branchIds"
+              render={({ field }) => (
+                <CheckDropdown
+                  options={branchOptions}
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  placeholder="Select branches"
+                />
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              The user can switch between assigned branches; data stays scoped to the active one.
+            </p>
+            {branchError && <p className="text-xs text-destructive">{branchError}</p>}
+          </div>
+        )
+      )}
+    </>
+  )
+}
+
 // ── Create body ─────────────────────────────────────────────────────
 
 function CreateUserBody({
   branches,
+  allowSuperAdmin = true,
   onClose,
   onSaved,
 }: {
   branches: UserFormDrawerProps['branches']
+  allowSuperAdmin?: boolean
   onClose: () => void
   onSaved: (saved: UserDrawerRow) => void
 }) {
   const [showPassword, setShowPassword] = useState(false)
+  // Branch Admins who manage a single branch get it pre-selected (the picker is
+  // shown read-only); everyone else starts with an empty branch selection.
+  const activeBranches = branches.filter((b) => b.isActive)
+  const autoBranchIds =
+    !allowSuperAdmin && activeBranches.length === 1 ? [activeBranches[0].id] : []
+  const initialValues = useMemo<CreateValues>(
+    () => ({ ...EMPTY_CREATE, branchIds: autoBranchIds }),
+    [autoBranchIds.join(',')], // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const {
     register,
     control,
@@ -159,12 +373,12 @@ function CreateUserBody({
     formState: { errors, isSubmitting },
   } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: EMPTY_CREATE,
+    defaultValues: initialValues,
   })
 
   useEffect(() => {
-    reset(EMPTY_CREATE)
-  }, [reset])
+    reset(initialValues)
+  }, [reset, initialValues])
 
   async function onSubmit(data: CreateValues) {
     try {
@@ -172,24 +386,14 @@ function CreateUserBody({
         name: data.name,
         email: data.email,
         phone: data.phone,
-        role: data.role,
+        roles: data.roles,
         password: data.password,
-        branchId: data.branchId || undefined,
+        branchIds: data.roles.includes(SUPER_ADMIN) ? [] : data.branchIds,
         isActive: data.isActive,
       })
       const u = res.data?.data ?? res.data
       toast.success(`User ${data.name} created successfully`)
-      onSaved({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        phone: u.phone ?? '',
-        role: u.role,
-        isActive: u.isActive ?? true,
-        branchId: u.branchId ?? '',
-        branch: u.branch ?? null,
-        lastLogin: u.updatedAt ?? '',
-      })
+      onSaved(toRow(u))
       onClose()
     } catch (err: unknown) {
       const msg =
@@ -210,14 +414,14 @@ function CreateUserBody({
             <div className="min-w-0">
               <SheetTitle>Add New User</SheetTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                Create a login for a team member and assign their role
+                Create a login for a team member and assign their roles
               </p>
             </div>
           </div>
         </div>
       </SheetHeader>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Identity */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -241,47 +445,15 @@ function CreateUserBody({
             </div>
           </div>
 
-          {/* Email + role */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Email *
-              </Label>
-              <Input
-                type="email"
-                placeholder="user@company.com"
-                {...register('email')}
-              />
-              {errors.email && (
-                <p className="text-xs text-destructive">{errors.email.message}</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Role *
-              </Label>
-              <Controller
-                control={control}
-                name="role"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLE_OPTIONS.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {errors.role && (
-                <p className="text-xs text-destructive">{errors.role.message}</p>
-              )}
-            </div>
+          {/* Email */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Email *
+            </Label>
+            <Input type="email" placeholder="user@company.com" autoComplete="off" {...register('email')} />
+            {errors.email && (
+              <p className="text-xs text-destructive">{errors.email.message}</p>
+            )}
           </div>
 
           {/* Password */}
@@ -293,6 +465,7 @@ function CreateUserBody({
               <Input
                 type={showPassword ? 'text' : 'password'}
                 placeholder="Min. 6 characters"
+                autoComplete="new-password"
                 {...register('password')}
                 className="pr-10"
               />
@@ -314,46 +487,13 @@ function CreateUserBody({
             </p>
           </div>
 
-          {/* Branch assignment */}
-          {branches.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Assign Branch
-              </Label>
-              <Controller
-                control={control}
-                name="branchId"
-                render={({ field }) => (
-                  <Select
-                    value={field.value || '__none__'}
-                    onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                  >
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="No branch (access all)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No branch (access all)</SelectItem>
-                      {branches
-                        .filter((b) => b.isActive)
-                        .map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            <span className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-muted-foreground">
-                                {b.code}
-                              </span>
-                              {b.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Leave blank to give access to all branches.
-              </p>
-            </div>
-          )}
+          <RoleBranchFields
+            control={control}
+            branches={branches}
+            allowSuperAdmin={allowSuperAdmin}
+            rolesError={errors.roles?.message as string | undefined}
+            branchError={errors.branchIds?.message as string | undefined}
+          />
 
           {/* Active toggle */}
           <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
@@ -396,11 +536,13 @@ function CreateUserBody({
 function EditUserBody({
   user,
   branches,
+  allowSuperAdmin = true,
   onClose,
   onSaved,
 }: {
   user: UserDrawerRow
   branches: UserFormDrawerProps['branches']
+  allowSuperAdmin?: boolean
   onClose: () => void
   onSaved: (saved: UserDrawerRow) => void
 }) {
@@ -415,9 +557,9 @@ function EditUserBody({
     defaultValues: {
       name: user.name,
       phone: user.phone,
-      role: user.role,
+      roles: user.roles?.length ? user.roles : (user.role ? [user.role] : []),
       newPassword: '',
-      branchId: user.branchId ?? '',
+      branchIds: user.branchIds ?? (user.branchId ? [user.branchId] : []),
       isActive: user.isActive,
     },
   })
@@ -427,25 +569,15 @@ function EditUserBody({
       const payload: Record<string, unknown> = {
         name: data.name,
         phone: data.phone,
-        role: data.role,
-        branchId: data.branchId || null,
+        roles: data.roles,
+        branchIds: data.roles.includes(SUPER_ADMIN) ? [] : data.branchIds,
         isActive: data.isActive,
       }
       if (data.newPassword) payload.password = data.newPassword
       const res = await api.patch(`/users/${user.id}`, payload)
       const u = res.data?.data ?? res.data
       toast.success('User updated successfully')
-      onSaved({
-        id: u.id,
-        name: u.name,
-        email: u.email ?? user.email,
-        phone: u.phone ?? '',
-        role: u.role,
-        isActive: u.isActive ?? data.isActive,
-        branchId: u.branchId ?? '',
-        branch: u.branch ?? null,
-        lastLogin: u.updatedAt ?? user.lastLogin ?? '',
-      })
+      onSaved(toRow(u, user))
       onClose()
     } catch (err: unknown) {
       const msg =
@@ -473,7 +605,7 @@ function EditUserBody({
         </div>
       </SheetHeader>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+      <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="flex flex-col flex-1 min-h-0">
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Identity */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -497,43 +629,15 @@ function EditUserBody({
             </div>
           </div>
 
-          {/* Email (read-only) + role */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Email
-              </Label>
-              <Input value={user.email} disabled className="bg-muted/40" />
-              <p className="text-[11px] text-muted-foreground">
-                Email cannot be changed after creation.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Role *
-              </Label>
-              <Controller
-                control={control}
-                name="role"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLE_OPTIONS.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {errors.role && (
-                <p className="text-xs text-destructive">{errors.role.message}</p>
-              )}
-            </div>
+          {/* Email (read-only) */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Email
+            </Label>
+            <Input value={user.email} disabled className="bg-muted/40" />
+            <p className="text-[11px] text-muted-foreground">
+              Email cannot be changed after creation.
+            </p>
           </div>
 
           {/* Reset password */}
@@ -548,6 +652,7 @@ function EditUserBody({
               <Input
                 type={showPassword ? 'text' : 'password'}
                 placeholder="Min. 6 characters"
+                autoComplete="new-password"
                 {...register('newPassword')}
                 className="pr-10"
               />
@@ -566,46 +671,13 @@ function EditUserBody({
             )}
           </div>
 
-          {/* Branch */}
-          {branches.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Assign Branch
-              </Label>
-              <Controller
-                control={control}
-                name="branchId"
-                render={({ field }) => (
-                  <Select
-                    value={field.value || '__none__'}
-                    onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                  >
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue placeholder="No branch (access all)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No branch (access all)</SelectItem>
-                      {branches
-                        .filter((b) => b.isActive)
-                        .map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            <span className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-muted-foreground">
-                                {b.code}
-                              </span>
-                              {b.name}
-                            </span>
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Leave blank to give access to all branches.
-              </p>
-            </div>
-          )}
+          <RoleBranchFields
+            control={control}
+            branches={branches}
+            allowSuperAdmin={allowSuperAdmin}
+            rolesError={errors.roles?.message as string | undefined}
+            branchError={errors.branchIds?.message as string | undefined}
+          />
 
           {/* Active toggle */}
           <div className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/20 px-4 py-3">

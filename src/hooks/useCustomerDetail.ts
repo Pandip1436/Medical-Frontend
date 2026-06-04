@@ -25,6 +25,8 @@ export type CustomerLedgerResponse = {
   customer?: any
   tableData: LedgerRow[]
   kpis: Kpi[]
+  /** Whole-period row count (for pagination). Present when fetched with skip/take. */
+  total?: number
 }
 
 // Activity type aliases — reuses the supplier-activity dialog component which
@@ -68,16 +70,110 @@ type AsyncState<T> = {
   error: string | null
 }
 
-type LazyState<T> = AsyncState<T> & {
-  /** Set to true after the first fetch attempt for this tab. Used to gate `ensureLoaded`. */
+// ─────────────────────────────────────────────────────────────
+// Server-side pagination
+// ─────────────────────────────────────────────────────────────
+
+/** Rows per page across every list tab. */
+export const CUSTOMER_TAB_PAGE_SIZE = 10
+
+/** Date window passed down from the per-tab period filter / ledger date pickers. */
+export type TabRange = { from?: string; to?: string }
+/** Extra per-tab query params (e.g. activity `type`). */
+type TabExtra = Record<string, string | undefined>
+
+type PagedState<T> = {
+  data: T[] | null
+  loading: boolean
+  error: string | null
+  /** True once a page has been requested for this tab (gates first-load logic). */
   attempted: boolean
+  /** Current 1-indexed page. */
+  page: number
+  /** Whole-result row count from the server. */
+  total: number
+}
+
+function isCanceled(err: any) {
+  return err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError'
+}
+
+/** Build a `?a=b&c=d` query string, dropping undefined/empty values. */
+function qstr(params: Record<string, string | number | undefined>): string {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') sp.set(k, String(v))
+  }
+  const s = sp.toString()
+  return s ? `?${s}` : ''
+}
+
+/**
+ * One server-paginated list tab. `buildPath(skip, take, range, extra)` produces
+ * the request URL. Returns only the current page in `data`, plus `total` for the
+ * pager. Reuses a per-tab AbortController so a slow page can't overwrite a newer
+ * one. `refresh()` re-runs the last request (used after optimistic mutations).
+ */
+function usePagedTab<T>(
+  customerId: string | null,
+  buildPath: (skip: number, take: number, range?: TabRange, extra?: TabExtra) => string,
+  errLabel: string,
+) {
+  const [state, setState] = useState<PagedState<T>>({
+    data: null,
+    loading: false,
+    error: null,
+    attempted: false,
+    page: 1,
+    total: 0,
+  })
+  const abortRef = useRef<AbortController | null>(null)
+  const lastArgs = useRef<{ page: number; range?: TabRange; extra?: TabExtra }>({ page: 1 })
+
+  const fetchPage = useCallback(
+    async (page: number, range?: TabRange, extra?: TabExtra) => {
+      if (!customerId) return
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      lastArgs.current = { page, range, extra }
+      setState((s) => ({ ...s, loading: true, error: null, attempted: true, page }))
+      try {
+        const skip = (page - 1) * CUSTOMER_TAB_PAGE_SIZE
+        const path = buildPath(skip, CUSTOMER_TAB_PAGE_SIZE, range, extra)
+        const res = await api.get(path, { signal: controller.signal })
+        const data = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as T[]
+        const total = Array.isArray(res.data) ? res.data.length : Number(res.data?.total ?? data.length)
+        setState({ data, loading: false, error: null, attempted: true, page, total })
+      } catch (err: any) {
+        if (isCanceled(err)) return
+        setState((s) => ({ ...s, loading: false, error: err?.message ?? `Failed to load ${errLabel}`, attempted: true }))
+      }
+    },
+    [customerId, buildPath, errLabel],
+  )
+
+  const refresh = useCallback(
+    () => fetchPage(lastArgs.current.page, lastArgs.current.range, lastArgs.current.extra),
+    [fetchPage],
+  )
+  const setPage = useCallback((p: number) => setState((s) => ({ ...s, page: p })), [])
+  const reset = useCallback(() => {
+    abortRef.current?.abort()
+    setState({ data: null, loading: false, error: null, attempted: false, page: 1, total: 0 })
+  }, [])
+  const setData = useCallback((updater: (prev: T[] | null) => T[] | null) => {
+    setState((s) => ({ ...s, data: updater(s.data) }))
+  }, [])
+
+  return { state, fetchPage, refresh, setPage, reset, setData, abortRef }
 }
 
 // ─────────────────────────────────────────────────────────────
 // Hook — centralises every API call. Component renders state only.
-// Same scaffolding pattern as `useSupplierDetail` (lazy + AbortController +
-// optimistic). Critical-path fetchers fire on mount; lazies fire on first
-// tab activation; activities slice exposes optimistic mutators.
+// Critical-path fetchers (customer, ledger) fire on mount — the ledger also
+// powers the KPI strip, so it loads even though Overview is the default tab.
+// List tabs are server-paginated: 10 rows/page via `fetchPage`.
 // ─────────────────────────────────────────────────────────────
 
 export function useCustomerDetail(customerId: string | null) {
@@ -92,28 +188,53 @@ export function useCustomerDetail(customerId: string | null) {
     loading: false,
     error: null,
   })
-
-  // Lazy state (fired on first tab click)
-  const [invoices, setInvoices] = useState<LazyState<any[]>>({ data: null, loading: false, error: null, attempted: false })
-  const [creditNotes, setCreditNotes] = useState<LazyState<any[]>>({ data: null, loading: false, error: null, attempted: false })
-  const [payments, setPayments] = useState<LazyState<any[]>>({ data: null, loading: false, error: null, attempted: false })
-  const [quotations, setQuotations] = useState<LazyState<any[]>>({ data: null, loading: false, error: null, attempted: false })
-  const [prescriptions, setPrescriptions] = useState<LazyState<any[]>>({ data: null, loading: false, error: null, attempted: false })
-  const [activities, setActivities] = useState<LazyState<CustomerActivity[]>>({ data: null, loading: false, error: null, attempted: false })
+  const [ledgerPage, setLedgerPage] = useState(1)
 
   // Ledger date range (debounced refetch)
   const [ledgerFrom, setLedgerFrom] = useState('')
   const [ledgerTo, setLedgerTo] = useState('')
 
-  // Abort tracking per logical request so stale responses can't overwrite fresh state
+  // Abort tracking for the two critical-path requests.
   const customerAbortRef = useRef<AbortController | null>(null)
   const ledgerAbortRef = useRef<AbortController | null>(null)
-  const invoicesAbortRef = useRef<AbortController | null>(null)
-  const creditNotesAbortRef = useRef<AbortController | null>(null)
-  const paymentsAbortRef = useRef<AbortController | null>(null)
-  const quotationsAbortRef = useRef<AbortController | null>(null)
-  const prescriptionsAbortRef = useRef<AbortController | null>(null)
-  const activitiesAbortRef = useRef<AbortController | null>(null)
+
+  // ── Paginated list tabs ───────────────────────────────────
+  const invoicesPath = useCallback(
+    (skip: number, take: number, range?: TabRange) =>
+      `/billing${qstr({ customerId: customerId ?? '', skip, take, from: range?.from, to: range?.to })}`,
+    [customerId],
+  )
+  const creditNotesPath = useCallback(
+    (skip: number, take: number, range?: TabRange) =>
+      `/credit-notes${qstr({ customerId: customerId ?? '', skip, take, from: range?.from, to: range?.to })}`,
+    [customerId],
+  )
+  const paymentsPath = useCallback(
+    (skip: number, take: number, range?: TabRange) =>
+      `/customers/${customerId}/payments${qstr({ skip, take, from: range?.from, to: range?.to })}`,
+    [customerId],
+  )
+  const quotationsPath = useCallback(
+    (skip: number, take: number, range?: TabRange) =>
+      `/quotations${qstr({ customerId: customerId ?? '', skip, take, fromDate: range?.from, toDate: range?.to })}`,
+    [customerId],
+  )
+  const prescriptionsPath = useCallback(
+    (skip: number, take: number) => `/prescriptions${qstr({ customerId: customerId ?? '', skip, take })}`,
+    [customerId],
+  )
+  const activitiesPath = useCallback(
+    (skip: number, take: number, range?: TabRange, extra?: TabExtra) =>
+      `/customers/${customerId}/activities${qstr({ skip, take, from: range?.from, to: range?.to, type: extra?.type })}`,
+    [customerId],
+  )
+
+  const invoicesTab = usePagedTab<any>(customerId, invoicesPath, 'invoices')
+  const creditNotesTab = usePagedTab<any>(customerId, creditNotesPath, 'credit notes')
+  const paymentsTab = usePagedTab<any>(customerId, paymentsPath, 'payments')
+  const quotationsTab = usePagedTab<any>(customerId, quotationsPath, 'quotations')
+  const prescriptionsTab = usePagedTab<any>(customerId, prescriptionsPath, 'prescriptions')
+  const activitiesTab = usePagedTab<CustomerActivity>(customerId, activitiesPath, 'activities')
 
   // ── Critical-path fetchers ────────────────────────────────
   const fetchCustomer = useCallback(async () => {
@@ -126,248 +247,116 @@ export function useCustomerDetail(customerId: string | null) {
       const res = await api.get(`/customers/${customerId}`, { signal: controller.signal })
       setCustomer({ data: res.data, loading: false, error: null })
     } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
+      if (isCanceled(err)) return
       setCustomer((s) => ({ data: s.data, loading: false, error: err?.message ?? 'Failed to load customer' }))
     }
   }, [customerId])
 
-  const fetchLedger = useCallback(async () => {
-    if (!customerId) return
-    ledgerAbortRef.current?.abort()
-    const controller = new AbortController()
-    ledgerAbortRef.current = controller
-    setLedger((s) => ({ ...s, loading: true, error: null }))
-    try {
-      const params = new URLSearchParams()
-      if (ledgerFrom) params.set('from', ledgerFrom)
-      if (ledgerTo) params.set('to', ledgerTo)
-      const qs = params.toString()
-      const res = await api.get(
-        `/reports/financial/ledger/${customerId}${qs ? `?${qs}` : ''}`,
-        { signal: controller.signal },
-      )
-      setLedger({ data: res.data, loading: false, error: null })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setLedger((s) => ({ data: s.data, loading: false, error: err?.message ?? 'Failed to load ledger' }))
-    }
-  }, [customerId, ledgerFrom, ledgerTo])
+  const fetchLedger = useCallback(
+    async (page = 1) => {
+      if (!customerId) return
+      ledgerAbortRef.current?.abort()
+      const controller = new AbortController()
+      ledgerAbortRef.current = controller
+      setLedgerPage(page)
+      setLedger((s) => ({ ...s, loading: true, error: null }))
+      try {
+        const skip = (page - 1) * CUSTOMER_TAB_PAGE_SIZE
+        const path = `/reports/financial/ledger/${customerId}${qstr({
+          from: ledgerFrom,
+          to: ledgerTo,
+          skip,
+          take: CUSTOMER_TAB_PAGE_SIZE,
+        })}`
+        const res = await api.get(path, { signal: controller.signal })
+        setLedger({ data: res.data, loading: false, error: null })
+      } catch (err: any) {
+        if (isCanceled(err)) return
+        setLedger((s) => ({ data: s.data, loading: false, error: err?.message ?? 'Failed to load ledger' }))
+      }
+    },
+    [customerId, ledgerFrom, ledgerTo],
+  )
 
-  // On mount / customerId change: fire both critical fetches in parallel.
+  // On mount / customerId change: fire both critical fetches in parallel and
+  // reset every list tab back to its empty/page-1 state.
   useEffect(() => {
     if (!customerId) return
-    void Promise.allSettled([fetchCustomer(), fetchLedger()])
-    setInvoices({ data: null, loading: false, error: null, attempted: false })
-    setCreditNotes({ data: null, loading: false, error: null, attempted: false })
-    setPayments({ data: null, loading: false, error: null, attempted: false })
-    setQuotations({ data: null, loading: false, error: null, attempted: false })
-    setPrescriptions({ data: null, loading: false, error: null, attempted: false })
-    setActivities({ data: null, loading: false, error: null, attempted: false })
+    void Promise.allSettled([fetchCustomer(), fetchLedger(1)])
+    invoicesTab.reset()
+    creditNotesTab.reset()
+    paymentsTab.reset()
+    quotationsTab.reset()
+    prescriptionsTab.reset()
+    activitiesTab.reset()
     return () => {
       customerAbortRef.current?.abort()
       ledgerAbortRef.current?.abort()
-      invoicesAbortRef.current?.abort()
-      creditNotesAbortRef.current?.abort()
-      paymentsAbortRef.current?.abort()
-      quotationsAbortRef.current?.abort()
-      prescriptionsAbortRef.current?.abort()
-      activitiesAbortRef.current?.abort()
     }
     // fetchLedger isn't in deps — date-change has its own debounced effect below
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, fetchCustomer])
 
-  // Debounced ledger refetch on date-range change
+  // Debounced ledger refetch on date-range change → always back to page 1.
   useEffect(() => {
     if (!customerId) return
-    const handle = setTimeout(() => { void fetchLedger() }, 300)
+    const handle = setTimeout(() => { void fetchLedger(1) }, 300)
     return () => clearTimeout(handle)
   }, [customerId, ledgerFrom, ledgerTo, fetchLedger])
 
-  // ── Lazy fetchers (one shot, cached) ──────────────────────
-  // Unconditional fetcher — always runs, regardless of `attempted`. The
-  // `ensureLoaded` wrappers below are thin gates on top of these so the
-  // first-tab-click semantics are preserved. `refetch*` reuses these directly
-  // so external mutation (CN approve, payment record) shows up on tab click.
-  const fetchInvoices = useCallback(async () => {
-    if (!customerId) return
-    invoicesAbortRef.current?.abort()
-    const controller = new AbortController()
-    invoicesAbortRef.current = controller
-    setInvoices((s) => ({ ...s, loading: true, error: null, attempted: true }))
-    try {
-      const res = await api.get(`/billing?customerId=${customerId}`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      setInvoices({ data: list, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setInvoices({ data: null, loading: false, error: err?.message ?? 'Failed to load invoices', attempted: true })
-    }
-  }, [customerId])
-
-  const ensureInvoicesLoaded = useCallback(async () => {
-    if (!customerId || invoices.attempted) return
-    await fetchInvoices()
-  }, [customerId, invoices.attempted, fetchInvoices])
-
-  const fetchCreditNotes = useCallback(async () => {
-    if (!customerId) return
-    creditNotesAbortRef.current?.abort()
-    const controller = new AbortController()
-    creditNotesAbortRef.current = controller
-    setCreditNotes((s) => ({ ...s, loading: true, error: null, attempted: true }))
-    try {
-      const res = await api.get(`/credit-notes?customerId=${customerId}`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      setCreditNotes({ data: list, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setCreditNotes({ data: null, loading: false, error: err?.message ?? 'Failed to load credit notes', attempted: true })
-    }
-  }, [customerId])
-
-  const ensureCreditNotesLoaded = useCallback(async () => {
-    if (!customerId || creditNotes.attempted) return
-    await fetchCreditNotes()
-  }, [customerId, creditNotes.attempted, fetchCreditNotes])
-
-  const fetchPayments = useCallback(async () => {
-    if (!customerId) return
-    paymentsAbortRef.current?.abort()
-    const controller = new AbortController()
-    paymentsAbortRef.current = controller
-    setPayments((s) => ({ ...s, loading: true, error: null, attempted: true }))
-    try {
-      const res = await api.get(`/customers/${customerId}/payments`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      setPayments({ data: list, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setPayments({ data: null, loading: false, error: err?.message ?? 'Failed to load payments', attempted: true })
-    }
-  }, [customerId])
-
-  const ensurePaymentsLoaded = useCallback(async () => {
-    if (!customerId || payments.attempted) return
-    await fetchPayments()
-  }, [customerId, payments.attempted, fetchPayments])
-
-  const ensureQuotationsLoaded = useCallback(async () => {
-    if (!customerId || quotations.attempted) return
-    quotationsAbortRef.current?.abort()
-    const controller = new AbortController()
-    quotationsAbortRef.current = controller
-    setQuotations({ data: null, loading: true, error: null, attempted: true })
-    try {
-      // Quotations endpoint doesn't support a customerId filter — fetch all and
-      // filter client-side. Wasteful for customers with many historic quotes,
-      // but acceptable until a backend filter lands.
-      const res = await api.get('/quotations', { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      const mine = list.filter((q) => q.customerId === customerId)
-      setQuotations({ data: mine, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setQuotations({ data: null, loading: false, error: err?.message ?? 'Failed to load quotations', attempted: true })
-    }
-  }, [customerId, quotations.attempted])
-
-  const ensurePrescriptionsLoaded = useCallback(async () => {
-    if (!customerId || prescriptions.attempted) return
-    prescriptionsAbortRef.current?.abort()
-    const controller = new AbortController()
-    prescriptionsAbortRef.current = controller
-    setPrescriptions({ data: null, loading: true, error: null, attempted: true })
-    try {
-      const res = await api.get(`/prescriptions?customerId=${customerId}`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      setPrescriptions({ data: list, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setPrescriptions({ data: null, loading: false, error: err?.message ?? 'Failed to load prescriptions', attempted: true })
-    }
-  }, [customerId, prescriptions.attempted])
-
-  const ensureActivitiesLoaded = useCallback(async () => {
-    if (!customerId || activities.attempted) return
-    activitiesAbortRef.current?.abort()
-    const controller = new AbortController()
-    activitiesAbortRef.current = controller
-    setActivities({ data: null, loading: true, error: null, attempted: true })
-    try {
-      const res = await api.get(`/customers/${customerId}/activities`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as CustomerActivity[]
-      setActivities({ data: list, loading: false, error: null, attempted: true })
-    } catch (err: any) {
-      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setActivities({ data: null, loading: false, error: err?.message ?? 'Failed to load activities', attempted: true })
-    }
-  }, [customerId, activities.attempted])
-
-  // ── Activity mutators (optimistic) ────────────────────────
+  // ── Activity mutators (optimistic, then reconcile via refresh) ──
   const createActivity = useCallback(
     async (payload: CustomerActivityPayload) => {
       if (!customerId) return
       try {
         const res = await api.post(`/customers/${customerId}/activities`, payload)
         const created = res.data as CustomerActivity
-        setActivities((s) => ({
-          ...s,
-          data: s.data ? [created, ...s.data] : [created],
-          attempted: true,
-        }))
+        // Optimistic prepend for instant feedback…
+        activitiesTab.setData((prev) => (prev ? [created, ...prev] : [created]))
         toast.success(
           payload.type === 'REMINDER'
             ? 'Reminder scheduled'
             : `${payload.type.charAt(0)}${payload.type.slice(1).toLowerCase()} logged`,
         )
+        // …then reconcile page contents + total with the server.
+        await activitiesTab.refresh()
       } catch (err) {
         throw err
       }
     },
-    [customerId],
+    [customerId, activitiesTab],
   )
 
   const updateActivity = useCallback(
     async (id: string, patch: Partial<CustomerActivityPayload>) => {
       if (!customerId) return
-      const prev = activities.data
-      setActivities((s) => ({
-        ...s,
-        data: s.data ? s.data.map((a) => (a.id === id ? { ...a, ...patch } : a)) : s.data,
-      }))
+      activitiesTab.setData((prev) => (prev ? prev.map((a) => (a.id === id ? { ...a, ...patch } : a)) : prev))
       try {
         const res = await api.patch(`/customers/${customerId}/activities/${id}`, patch)
         const updated = res.data as CustomerActivity
-        setActivities((s) => ({
-          ...s,
-          data: s.data ? s.data.map((a) => (a.id === id ? updated : a)) : s.data,
-        }))
+        activitiesTab.setData((prev) => (prev ? prev.map((a) => (a.id === id ? updated : a)) : prev))
       } catch (err) {
-        setActivities((s) => ({ ...s, data: prev }))
+        await activitiesTab.refresh()
         throw err
       }
     },
-    [customerId, activities.data],
+    [customerId, activitiesTab],
   )
 
   const removeActivity = useCallback(
     async (id: string) => {
       if (!customerId) return
-      const prev = activities.data
-      setActivities((s) => ({
-        ...s,
-        data: s.data ? s.data.filter((a) => a.id !== id) : s.data,
-      }))
+      activitiesTab.setData((prev) => (prev ? prev.filter((a) => a.id !== id) : prev))
       try {
         await api.delete(`/customers/${customerId}/activities/${id}`)
         toast.success('Activity removed')
+        await activitiesTab.refresh()
       } catch (err) {
-        setActivities((s) => ({ ...s, data: prev }))
+        await activitiesTab.refresh()
         throw err
       }
     },
-    [customerId, activities.data],
+    [customerId, activitiesTab],
   )
 
   // Optimistic patch helper: merge edits into customer.data without flashing skeleton.
@@ -375,39 +364,60 @@ export function useCustomerDetail(customerId: string | null) {
     setCustomer((s) => (s.data ? { ...s, data: { ...s.data, ...patch } } : s))
   }, [])
 
-  // ── Manual prescription refetch (used by upload + delete flows) ──
-  const refetchPrescriptions = useCallback(async () => {
-    if (!customerId) return
-    prescriptionsAbortRef.current?.abort()
-    const controller = new AbortController()
-    prescriptionsAbortRef.current = controller
-    try {
-      const res = await api.get(`/prescriptions?customerId=${customerId}`, { signal: controller.signal })
-      const list = (Array.isArray(res.data) ? res.data : res.data?.data ?? []) as any[]
-      setPrescriptions({ data: list, loading: false, error: null, attempted: true })
-    } catch {
-      /* swallow — caller already toasted */
-    }
-  }, [customerId])
+  // Stable ledger pager handles — keep these out of inline arrows so the page's
+  // effects (keyed on them) don't re-run every render.
+  const fetchLedgerPage = useCallback((page: number) => fetchLedger(page), [fetchLedger])
+  const refetchLedger = useCallback(() => fetchLedger(ledgerPage), [fetchLedger, ledgerPage])
 
   return {
     customer: { ...customer, refetch: fetchCustomer, applyPatch: applyCustomerPatch },
     ledger: {
       ...ledger,
-      refetch: fetchLedger,
+      page: ledgerPage,
+      total: ledger.data?.total ?? 0,
       from: ledgerFrom,
       to: ledgerTo,
       setFrom: setLedgerFrom,
       setTo: setLedgerTo,
+      fetchPage: fetchLedgerPage,
+      setPage: setLedgerPage,
+      refetch: refetchLedger,
     },
-    invoices: { ...invoices, ensureLoaded: ensureInvoicesLoaded, refetch: fetchInvoices },
-    creditNotes: { ...creditNotes, ensureLoaded: ensureCreditNotesLoaded, refetch: fetchCreditNotes },
-    payments: { ...payments, ensureLoaded: ensurePaymentsLoaded, refetch: fetchPayments },
-    quotations: { ...quotations, ensureLoaded: ensureQuotationsLoaded, refetch: () => { setQuotations((s) => ({ ...s, attempted: false })); void ensureQuotationsLoaded() } },
-    prescriptions: { ...prescriptions, ensureLoaded: ensurePrescriptionsLoaded, refetch: refetchPrescriptions },
+    invoices: {
+      ...invoicesTab.state,
+      fetchPage: invoicesTab.fetchPage,
+      setPage: invoicesTab.setPage,
+      refetch: invoicesTab.refresh,
+    },
+    creditNotes: {
+      ...creditNotesTab.state,
+      fetchPage: creditNotesTab.fetchPage,
+      setPage: creditNotesTab.setPage,
+      refetch: creditNotesTab.refresh,
+    },
+    payments: {
+      ...paymentsTab.state,
+      fetchPage: paymentsTab.fetchPage,
+      setPage: paymentsTab.setPage,
+      refetch: paymentsTab.refresh,
+    },
+    quotations: {
+      ...quotationsTab.state,
+      fetchPage: quotationsTab.fetchPage,
+      setPage: quotationsTab.setPage,
+      refetch: quotationsTab.refresh,
+    },
+    prescriptions: {
+      ...prescriptionsTab.state,
+      fetchPage: prescriptionsTab.fetchPage,
+      setPage: prescriptionsTab.setPage,
+      refetch: prescriptionsTab.refresh,
+    },
     activities: {
-      ...activities,
-      ensureLoaded: ensureActivitiesLoaded,
+      ...activitiesTab.state,
+      fetchPage: activitiesTab.fetchPage,
+      setPage: activitiesTab.setPage,
+      refetch: activitiesTab.refresh,
       create: createActivity,
       update: updateActivity,
       remove: removeActivity,

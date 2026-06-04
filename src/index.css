@@ -36,61 +36,65 @@
 
   /* ─── Core Palette — Light Mode ──────────────────────────── */
 
-  /* Canvas & Surfaces (3-layer depth system) */
-  --color-background: hsl(220 20% 97.5%);
-  --color-foreground: hsl(224 71% 4%);
+  /* Canvas & Surfaces — Neutral Slate: near-white page, white cards lifted by
+     soft neutral shadows. */
+  --color-background: hsl(220 20% 99%);
+  --color-foreground: hsl(222 24% 13%);
   --color-surface: hsl(0 0% 100%);
-  --color-surface-foreground: hsl(224 71% 4%);
+  --color-surface-foreground: hsl(222 24% 13%);
   --color-elevated: hsl(0 0% 100%);
 
   /* Card (Layer 2) */
   --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(224 71% 4%);
+  --color-card-foreground: hsl(222 24% 13%);
 
-  /* Borders & Inputs */
-  --color-border: hsl(220 13% 91%);
-  --color-input: hsl(220 13% 91%);
-  --color-ring: hsl(221 83% 53%);
+  /* Borders & Inputs — light grey hairlines. */
+  --color-border: hsl(220 16% 90%);
+  --color-input: hsl(220 16% 90%);
+  --color-ring: hsl(222 20% 30%);
 
-  /* Primary — Pharma Blue */
-  --color-primary: hsl(221 83% 53%);
+  /* Primary — coral red (#F4515A): buttons, links, active accents */
+  --color-primary: hsl(357 86% 62%);
   --color-primary-foreground: hsl(0 0% 100%);
 
   /* Secondary */
-  --color-secondary: hsl(220 14% 96%);
-  --color-secondary-foreground: hsl(220 9% 46%);
+  --color-secondary: hsl(220 16% 95%);
+  --color-secondary-foreground: hsl(222 18% 30%);
 
   /* Muted */
-  --color-muted: hsl(220 14% 96%);
-  --color-muted-foreground: hsl(220 9% 46%);
+  --color-muted: hsl(220 16% 95%);
+  --color-muted-foreground: hsl(220 9% 45%);
 
   /* Accent */
-  --color-accent: hsl(220 14% 96%);
-  --color-accent-foreground: hsl(224 71% 4%);
+  --color-accent: hsl(220 16% 94%);
+  --color-accent-foreground: hsl(222 24% 14%);
 
-  /* Destructive — Rose */
+  /* Destructive — Red (universal status) */
   --color-destructive: hsl(0 72% 51%);
   --color-destructive-foreground: hsl(0 0% 100%);
 
-  /* Success — Emerald */
-  --color-success: hsl(152 69% 31%);
+  /* Success — Emerald (universal status) */
+  --color-success: hsl(152 69% 36%);
   --color-success-foreground: hsl(0 0% 100%);
 
-  /* Warning — Amber */
+  /* Warning — Amber (universal status) */
   --color-warning: hsl(38 92% 50%);
   --color-warning-foreground: hsl(0 0% 100%);
 
   /* Popover (Layer 3) */
   --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(224 71% 4%);
+  --color-popover-foreground: hsl(222 24% 13%);
 
-  /* Sidebar */
-  --color-sidebar: hsl(224 71% 4%);
-  --color-sidebar-foreground: hsl(214 32% 91%);
-  --color-sidebar-accent: hsl(217 33% 17%);
-  --color-sidebar-accent-foreground: hsl(0 0% 100%);
-  --color-sidebar-border: hsl(217 33% 17%);
-  --color-sidebar-muted: hsl(215 20% 65%);
+  /* Sidebar — light grey (slightly darker than the page), dark selected row */
+  --color-sidebar: hsl(220 15% 95%);
+  --color-sidebar-foreground: hsl(222 18% 30%);
+  --color-sidebar-accent: hsl(220 14% 90%);
+  --color-sidebar-accent-foreground: hsl(222 24% 14%);
+  --color-sidebar-border: hsl(220 14% 88%);
+  --color-sidebar-muted: hsl(220 9% 50%);
+  /* Selected nav row — coral red (#F4515A) per reference */
+  --color-sidebar-active: hsl(357 89% 64%);
+  --color-sidebar-active-foreground: hsl(0 0% 100%);
 
   /* ─── 5-Stop Semantic Color Scales ───────────────────────── */
 
@@ -129,6 +133,26 @@
   --color-purple-emphasis: hsl(271 81% 56%);
   --color-purple-solid: hsl(272 72% 35%);
 
+  /* ─── Brand accent — coral red (#F4515A) ─────────────────── */
+  /* Drives the logo, Quick Sale tint, and "+" quick-add (matches selection). */
+  --color-brand: hsl(357 86% 62%);
+  --color-brand-foreground: hsl(0 0% 100%);
+
+  /* ─── Status / intent tokens (single source of truth) ────── */
+  /* Edit these to recolor transaction/status accents app-wide. Seeded from
+     the previously hard-coded palette so nothing shifts until a surface is
+     refactored to use them. */
+  --color-sale: hsl(217 91% 60%);       /* blue   — sales */
+  --color-purchase: hsl(271 81% 56%);   /* purple — purchases */
+  --color-stock: hsl(152 69% 41%);      /* emerald — stock movements */
+  --color-payment: hsl(38 92% 50%);     /* amber  — payments */
+  --color-up: hsl(152 69% 41%);         /* trend up */
+  --color-down: hsl(350 89% 60%);       /* trend down */
+  --color-status-out: hsl(0 72% 51%);   /* out of stock */
+  --color-status-low: hsl(45 95% 46%);  /* low stock */
+  --color-status-expired: hsl(38 92% 50%); /* expired / expiring */
+  --color-status-over: hsl(271 81% 56%);   /* overstock */
+
   /* ─── Radii ──────────────────────────────────────────────── */
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
@@ -138,14 +162,14 @@
   --radius-2xl: 1.25rem;
   --radius-full: 9999px;
 
-  /* ─── Shadows — Light Mode ───────────────────────────────── */
-  --shadow-xs: 0 1px 2px hsl(0 0% 0% / 0.04);
-  --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.06), 0 1px 2px hsl(0 0% 0% / 0.04);
-  --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.06), 0 2px 4px -2px hsl(0 0% 0% / 0.04);
-  --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.06), 0 4px 6px -4px hsl(0 0% 0% / 0.04);
-  --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.08), 0 8px 10px -6px hsl(0 0% 0% / 0.04);
-  --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.2);
-  --shadow-glow-blue: 0 0 20px hsl(221 83% 53% / 0.15);
+  /* ─── Shadows — Light Mode (neutral slate, soft depth) ─────── */
+  --shadow-xs: 0 1px 2px hsl(220 20% 20% / 0.05);
+  --shadow-sm: 0 1px 3px hsl(220 20% 20% / 0.10), 0 1px 2px hsl(220 20% 20% / 0.06);
+  --shadow-md: 0 4px 8px -2px hsl(220 20% 20% / 0.10), 0 2px 4px -2px hsl(220 20% 20% / 0.06);
+  --shadow-lg: 0 12px 20px -4px hsl(220 20% 20% / 0.12), 0 4px 8px -4px hsl(220 20% 20% / 0.06);
+  --shadow-xl: 0 24px 32px -8px hsl(220 20% 20% / 0.14), 0 8px 12px -6px hsl(220 20% 20% / 0.06);
+  --shadow-2xl: 0 28px 56px -12px hsl(220 25% 18% / 0.24);
+  --shadow-glow-blue: 0 0 20px hsl(222 24% 30% / 0.12);
   --shadow-glow-emerald: 0 0 20px hsl(152 69% 41% / 0.15);
 
   /* ─── Spacing Tokens ─────────────────────────────────────── */
@@ -185,10 +209,10 @@
 
     --color-border: hsl(0 0% 100% / 0.08);
     --color-input: hsl(0 0% 100% / 0.08);
-    --color-ring: hsl(217 91% 60%);
+    --color-ring: hsl(0 0% 70%);
 
-    --color-primary: hsl(217 91% 60%);
-    --color-primary-foreground: hsl(0 0% 0%);
+    --color-primary: hsl(357 86% 65%);
+    --color-primary-foreground: hsl(0 0% 100%);
 
     --color-secondary: hsl(0 0% 10%);
     --color-secondary-foreground: hsl(214 32% 91%);
@@ -217,6 +241,8 @@
     --color-sidebar-accent-foreground: hsl(0 0% 100%);
     --color-sidebar-border: hsl(0 0% 100% / 0.06);
     --color-sidebar-muted: hsl(215 20% 45%);
+    --color-sidebar-active: hsl(357 80% 58%);
+    --color-sidebar-active-foreground: hsl(0 0% 100%);
 
     /* Dark semantic scales — brighter + desaturated */
     --color-blue-subtle: hsl(217 60% 12%);
@@ -249,6 +275,20 @@
     --color-purple-emphasis: hsl(271 91% 75%);
     --color-purple-solid: hsl(271 91% 85%);
 
+    /* Brand + status/intent (dark — brighter) */
+    --color-brand: hsl(357 86% 65%);
+    --color-brand-foreground: hsl(0 0% 100%);
+    --color-sale: hsl(217 91% 65%);
+    --color-purchase: hsl(271 91% 70%);
+    --color-stock: hsl(152 69% 50%);
+    --color-payment: hsl(38 92% 60%);
+    --color-up: hsl(152 69% 50%);
+    --color-down: hsl(350 89% 65%);
+    --color-status-out: hsl(0 72% 58%);
+    --color-status-low: hsl(45 95% 55%);
+    --color-status-expired: hsl(38 92% 60%);
+    --color-status-over: hsl(271 91% 70%);
+
     /* Dark shadows — borders replace shadows */
     --shadow-xs: none;
     --shadow-sm: none;
@@ -256,7 +296,7 @@
     --shadow-lg: none;
     --shadow-xl: none;
     --shadow-2xl: 0 25px 50px -12px hsl(0 0% 0% / 0.6);
-    --shadow-glow-blue: 0 0 24px hsl(217 91% 60% / 0.12);
+    --shadow-glow-blue: 0 0 24px hsl(0 0% 70% / 0.10);
     --shadow-glow-emerald: 0 0 24px hsl(152 69% 41% / 0.12);
   }
 }

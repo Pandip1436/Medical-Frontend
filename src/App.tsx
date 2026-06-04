@@ -1,6 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { useRoute, navigate, getRouteConfig } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
+import { userRoles, primaryRole, isAdminish, type User } from '@/types'
 import { useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useUiScale } from '@/hooks/useUiScale'
 import { Toaster } from 'sonner'
@@ -19,11 +20,14 @@ const SalesListPage = lazy(() => import('@/pages/billing/SalesListPage'))
 const QuotationsPage = lazy(() => import('@/pages/billing/QuotationsPage'))
 const SalesReturnsPage = lazy(() => import('@/pages/billing/SalesReturnsPage'))
 const CreditNotesPage = lazy(() => import('@/pages/billing/CreditNotesPage'))
+const CreditNoteDetailPage = lazy(() => import('@/pages/billing/CreditNoteDetailPage'))
 const PurchaseOrdersPage = lazy(() => import('@/pages/purchase/PurchaseOrdersPage'))
 const GRNPage = lazy(() => import('@/pages/purchase/GRNPage'))
 const GRNListPage = lazy(() => import('@/pages/purchase/GRNListPage'))
+const GRNDetailPage = lazy(() => import('@/pages/purchase/GRNDetailPage'))
 const PurchaseReturnsPage = lazy(() => import('@/pages/purchase/PurchaseReturnsPage'))
 const DebitNotesPage = lazy(() => import('@/pages/purchase/DebitNotesPage'))
+const DebitNoteDetailPage = lazy(() => import('@/pages/purchase/DebitNoteDetailPage'))
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
 const SupplierDetailPage = lazy(() => import('@/pages/purchase/SupplierDetailPage'))
 const SupplierOutstandingPage = lazy(() => import('@/pages/purchase/SupplierOutstandingPage'))
@@ -50,6 +54,7 @@ const AuditTrailPage = lazy(() => import('@/pages/audit/AuditTrailPage'))
 const BranchesPage = lazy(() => import('@/pages/branches/BranchesPage'))
 const SalespersonsPage = lazy(() => import('@/pages/salespersons/SalespersonsPage'))
 const SalespersonReportPage = lazy(() => import('@/pages/salespersons/SalespersonReportPage'))
+const SalespersonDetailPage = lazy(() => import('@/pages/salespersons/SalespersonDetailPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 const RemindersPage = lazy(() => import('@/pages/reminders/RemindersPage'))
 const ReminderDetailPage = lazy(() => import('@/pages/reminders/ReminderDetailPage'))
@@ -70,6 +75,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/quotations',
     '/billing/returns',
     '/billing/credit-notes',
+    '/billing/credit-notes/detail',
     '/crm/leads',
     '/crm/leads/analytics',
     '/inventory/products',
@@ -85,6 +91,10 @@ export const rolePermissions: Record<string, string[]> = {
     '/reminders',
     '/reminders/detail',
     '/notifications',
+    // Read-only: requestors open their own approval requests from the
+    // "Request approved/rejected" notification. Approve/Reject stay admin-only
+    // (enforced in the page + backend); the detail view is permitted here.
+    '/admin/approvals/detail',
   ],
   INVENTORY_MANAGER: [
     '/dashboard',
@@ -98,8 +108,10 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/orders',
     '/purchase/grn',
     '/purchase/grn-list',
+    '/purchase/grn/detail',
     '/purchase/returns',
     '/purchase/debit-notes',
+    '/purchase/debit-notes/detail',
     '/purchase/suppliers',
     '/purchase/suppliers/detail',
     '/purchase/suppliers/outstanding',
@@ -113,6 +125,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/quotations',
     '/billing/returns',
     '/billing/credit-notes',
+    '/billing/credit-notes/detail',
     '/customers',
     '/customers/invoices',
     '/customers/invoices/detail',
@@ -120,6 +133,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/product-history',
     '/purchase/orders',
     '/purchase/debit-notes',
+    '/purchase/debit-notes/detail',
     '/purchase/suppliers/outstanding',
     '/accounting/cashbook',
     '/accounting/expenses',
@@ -128,6 +142,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/reports',
     '/salespersons/report',
     '/notifications',
+    // Read-only view of own approval requests from notifications (see PHARMACIST).
+    '/admin/approvals/detail',
   ],
   SALESPERSON: [
     '/dashboard',
@@ -140,26 +156,32 @@ export const rolePermissions: Record<string, string[]> = {
     '/inventory/batches/detail',
     '/billing/sales',
     '/salespersons',
+    '/salespersons/detail',
     '/notifications',
     '/crm/leads',
     '/crm/leads/analytics',
+    // Read-only view of own approval requests from notifications (see PHARMACIST).
+    '/admin/approvals/detail',
   ],
 }
 
-function canAccess(role: string | undefined, path: string): boolean {
-  const normRole = (role ?? '').toUpperCase().replace(/[\s-]/g, '_')
-  if (!normRole || normRole === 'ADMIN') return true
-  const allowed = rolePermissions[normRole] ?? []
-  return allowed.includes(path)
+// A user may reach a path if ANY of their roles grants it. ADMIN / SUPER_ADMIN
+// see everything; other roles contribute the union of their allowed routes.
+function canAccess(user: User | null | undefined, path: string): boolean {
+  if (isAdminish(user)) return true
+  const roles = userRoles(user)
+  if (roles.length === 0) return false
+  return roles.some((r) => (rolePermissions[r] ?? []).includes(path))
 }
 
 // Post-login landing destination. SALESPERSON lands on their dedicated
 // page rather than the company-wide /dashboard, since most dashboard tiles
 // (outstanding, low-stock, total products) are operational metrics they
 // don't drive day-to-day. See BUGS.md SEV-3 (salesperson landing).
-function defaultRouteForRole(role: string | undefined): string {
-  const normRole = (role ?? '').toUpperCase().replace(/[\s-]/g, '_')
-  if (normRole === 'SALESPERSON') return '/salespersons'
+function defaultRouteForRole(user: User | null | undefined): string {
+  // A user whose ONLY role is SALESPERSON lands on their dedicated page; any
+  // broader role lands on the dashboard.
+  if (primaryRole(user) === 'SALESPERSON') return '/salespersons'
   return '/dashboard'
 }
 
@@ -205,7 +227,6 @@ function LoadingFallback() {
 function App() {
   const { path, search } = useRoute()
   const { isAuthenticated, logout, user } = useAuthStore()
-  const userRole = user?.role
 
   // Register global keyboard shortcuts
   useGlobalShortcuts()
@@ -226,9 +247,9 @@ function App() {
       navigate('/login')
     }
     if (isAuthenticated && (path === '/login' || path === '/forgot-password')) {
-      navigate(defaultRouteForRole(userRole))
+      navigate(defaultRouteForRole(user))
     }
-  }, [isAuthenticated, path, isPublicPayRoute, userRole])
+  }, [isAuthenticated, path, isPublicPayRoute, user])
 
   // Handle global 401 from API interceptor — avoids page reload loop
   useEffect(() => {
@@ -270,7 +291,7 @@ function App() {
       <TooltipProvider>
         <Suspense fallback={<LoadingFallback />}>
           <LoginPage
-            onLoginSuccess={() => navigate(defaultRouteForRole(useAuthStore.getState().user?.role))}
+            onLoginSuccess={() => navigate(defaultRouteForRole(useAuthStore.getState().user))}
             onForgotPassword={() => navigate('/forgot-password')}
           />
         </Suspense>
@@ -284,8 +305,8 @@ function App() {
   // Render page content based on route
   const renderPage = () => {
     // Check role-based access before rendering any page
-    if (!canAccess(userRole, path)) {
-      return <AccessDenied role={userRole} />
+    if (!canAccess(user, path)) {
+      return <AccessDenied role={primaryRole(user)} />
     }
 
     switch (path) {
@@ -301,16 +322,22 @@ function App() {
         return <SalesReturnsPage />
       case '/billing/credit-notes':
         return <CreditNotesPage />
+      case '/billing/credit-notes/detail':
+        return <CreditNoteDetailPage />
       case '/purchase/orders':
         return <PurchaseOrdersPage />
       case '/purchase/grn':
         return <GRNPage />
       case '/purchase/grn-list':
         return <GRNListPage />
+      case '/purchase/grn/detail':
+        return <GRNDetailPage />
       case '/purchase/returns':
         return <PurchaseReturnsPage />
       case '/purchase/debit-notes':
         return <DebitNotesPage />
+      case '/purchase/debit-notes/detail':
+        return <DebitNoteDetailPage />
       case '/purchase/suppliers':
         return <SuppliersPage />
       case '/purchase/suppliers/detail':
@@ -363,6 +390,8 @@ function App() {
         return <SalespersonsPage />
       case '/salespersons/report':
         return <SalespersonReportPage />
+      case '/salespersons/detail':
+        return <SalespersonDetailPage />
       case '/notifications':
         return <NotificationsPage />
       case '/reminders':

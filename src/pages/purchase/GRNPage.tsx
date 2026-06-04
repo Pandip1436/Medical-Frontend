@@ -337,7 +337,7 @@ export default function GRNPage() {
           })
         )
       } catch {
-        toast.error('Failed to load Purchase Received for editing')
+        toast.error('Failed to load GRN for editing')
         navigate('/purchase/grn-list')
       }
     })()
@@ -350,7 +350,7 @@ export default function GRNPage() {
   // Placeholder shown until the GRN is saved — the authoritative number is
   // generated atomically on the server and returned in the create response.
   // In edit mode we already know the real number.
-  const grnNumber = editMode ? editGrnNumber || 'PR' : 'PR / pending'
+  const grnNumber = editMode ? editGrnNumber || 'PE' : 'PE / pending'
 
   // ── Selectable POs ──
   const selectablePOs = useMemo(() => {
@@ -633,7 +633,7 @@ export default function GRNPage() {
       // reverses the old stock/payables and reapplies the new values atomically.
       if (editMode) {
         await api.patch(`/grn/${grnId}`, payload)
-        toast.success('Purchase Entry updated', {
+        toast.success('GRN updated', {
           description: `${editGrnNumber} — stock, payables and PO reconciled.`,
         })
         setShowConfirm(false)
@@ -654,12 +654,12 @@ export default function GRNPage() {
             description: `${grnNumber} linked to purchase return. Stock updated.`,
           })
         } catch {
-          toast.success('Purchase Received created. Note: could not auto-settle the debit note — please update it manually.', {
+          toast.success('GRN created. Note: could not auto-settle the debit note — please update it manually.', {
             duration: 6000,
           })
         }
       } else {
-        toast.success('Purchase Entry created successfully!', {
+        toast.success('GRN created successfully!', {
           description: `${grnNumber} — Stock has been updated for ${totalItems} ${totalItems === 1 ? 'item' : 'items'}.`,
         })
       }
@@ -704,7 +704,7 @@ export default function GRNPage() {
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
-      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save Purchase Received. Please try again.'));
+      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save GRN. Please try again.'));
     } finally {
       setIsSubmitting(false)
     }
@@ -778,9 +778,9 @@ export default function GRNPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-lg font-bold tracking-tight">{editMode ? 'Edit Purchase Entry' : 'Purchase Entry'}</h2>
+            <h2 className="text-lg font-bold tracking-tight">{editMode ? 'Edit GRN' : 'New GRN'}</h2>
             <p className="text-[11px] text-muted-foreground">
-              {editMode ? 'Amend a received PR — stock is reconciled on save' : 'Receive and verify incoming goods'}
+              {editMode ? 'Amend a received PE — stock is reconciled on save' : 'Receive and verify incoming goods'}
             </p>
           </div>
         </div>
@@ -790,7 +790,7 @@ export default function GRNPage() {
           <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
             <RotateCcw className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              Receiving replacement goods — this PR will be auto-linked to the debit note and marked Settled.
+              Receiving replacement goods — this PE will be auto-linked to the debit note and marked Settled.
             </span>
           </div>
         )}
@@ -856,7 +856,7 @@ export default function GRNPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div>
-                  <h2 className="text-base font-bold tracking-tight">Review Purchase Entry</h2>
+                  <h2 className="text-base font-bold tracking-tight">Review GRN</h2>
                   <p className="text-[11px] text-muted-foreground">Verify everything below — confirming will update stock</p>
                 </div>
               </div>
@@ -909,8 +909,8 @@ export default function GRNPage() {
                   </div>
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
-                    <p className="mt-0.5 text-sm font-medium truncate" title={selectedPO?.supplierName || '—'}>
-                      {selectedPO?.supplierName || '—'}
+                    <p className="mt-0.5 text-sm font-medium truncate" title={selectedPO?.supplierName || directSupplierName || '—'}>
+                      {selectedPO?.supplierName || directSupplierName || '—'}
                     </p>
                   </div>
                   <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
@@ -1754,7 +1754,7 @@ export default function GRNPage() {
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handlePrintGrn}>
                     <Printer className="mr-1.5 h-3.5 w-3.5" />
-                    Print PR
+                    Print PE
                   </Button>
                   <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handleDownloadGrn}>
                     <Download className="mr-1.5 h-3.5 w-3.5" />
@@ -1778,8 +1778,8 @@ export default function GRNPage() {
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
               )}
               {showConfirm
-                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update PR' : 'Confirm & Create PR')
-                : editMode ? 'Review & Update PR' : 'Review & Confirm PR'}
+                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update PE' : 'Confirm & Create PE')
+                : editMode ? 'Review & Update PE' : 'Review & Confirm PE'}
             </Button>
             {showConfirm ? (
               <Button
@@ -1831,7 +1831,7 @@ export default function GRNPage() {
                 <div>
                   <h2 className="text-base font-bold">Short Delivery Detected</h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Purchase Received saved. {shortActionDialog.shortItems.length} product(s) received less than ordered.
+                    GRN saved. {shortActionDialog.shortItems.length} product(s) received less than ordered.
                   </p>
                 </div>
               </div>
@@ -1872,7 +1872,7 @@ export default function GRNPage() {
                 <button
                   onClick={() => {
                     setShortActionDialog(null)
-                    toast.info('PO marked as Partially Received. You can raise another PR against this PO when the remaining items arrive.', { duration: 6000 })
+                    toast.info('PO marked as Partially Received. You can raise another PE against this PO when the remaining items arrive.', { duration: 6000 })
                     navigate('/purchase/grn-list')
                   }}
                   className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
@@ -1882,7 +1882,7 @@ export default function GRNPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold">Expect Supplementary Delivery</p>
-                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another PR when goods arrive.</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another PE when goods arrive.</p>
                   </div>
                 </button>
 

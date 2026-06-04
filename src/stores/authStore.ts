@@ -57,7 +57,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
 
       // Preference state
-      theme: 'system' as Theme,
+      // Default to the light (Zoho-style) look; users can switch via the header toggle.
+      theme: 'light' as Theme,
       sidebarCollapsed: false,
       expandedSection: null,
       mobileSidebarOpen: false,
@@ -90,19 +91,22 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
           });
 
-          // If user has an assigned branch, lock the active branch to it.
-          // `skipNavigate` keeps the post-login redirect in App.tsx in charge
-          // of the landing route (role-aware) — without it, setActiveBranch's
-          // soft-switch redirect to /dashboard would race in and override the
-          // role-aware destination. See BUGS.md SEV-3.
-          if (user.branchId) {
-            try {
-              const { useBranchStore } = await import('@/stores/branchStore');
-              const branchStore = useBranchStore.getState();
-              await branchStore.fetchBranches();
-              branchStore.setActiveBranch(user.branchId, { skipNavigate: true });
-            } catch { /* ignore */ }
-          }
+          // Pick the active branch: the user's home branch, else the first of
+          // their allowed set. Super Admins (no assigned branches) fall through
+          // to branchStore's default-branch auto-select. `skipNavigate` keeps
+          // the post-login redirect in App.tsx in charge of the landing route
+          // (role-aware) — without it, setActiveBranch's soft-switch redirect to
+          // /dashboard would race in and override it. See BUGS.md SEV-3.
+          const homeBranch: string | undefined =
+            user.branchId || (Array.isArray(user.branchIds) ? user.branchIds[0] : undefined);
+          try {
+            const { useBranchStore } = await import('@/stores/branchStore');
+            const branchStore = useBranchStore.getState();
+            await branchStore.fetchBranches();
+            if (homeBranch) {
+              branchStore.setActiveBranch(homeBranch, { skipNavigate: true });
+            }
+          } catch { /* ignore */ }
 
           return true;
         } catch {

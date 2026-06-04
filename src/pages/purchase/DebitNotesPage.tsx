@@ -1,32 +1,26 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import {
   ChevronRight,
   FileText,
   RotateCcw,
   Plus,
-  Printer,
-  Download,
   CheckCircle2,
   Receipt,
   IndianRupee,
   AlertTriangle,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { DatePicker } from '@/components/ui/date-picker'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import {
@@ -40,9 +34,7 @@ import {
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
-import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
-import { useSettingsStore } from '@/stores/settingsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // ─────────────────────────────────────────────────────────────
@@ -51,7 +43,7 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // Minimal API row + UI detail shape — kept loose because the API returns a
 // nested object graph we don't fully type elsewhere.
-type ApiReturnItem = {
+export type ApiReturnItem = {
   id: string; productId: string; productName: string;
   batchNumber: string; expiryDate: string; returnedQty: number;
   purchaseRate: number | string; rate?: number | string;
@@ -67,9 +59,10 @@ type ApiReturn = {
   replacementGrnId?: string | null; notes?: string;
   grn?: { grnNumber: string; items: ApiReturnItem[] };
 }
-type ReturnDetail = {
+export type ReturnDetail = {
   id: string; noteNo: string; date: string;
   partyName: string; supplierId: string;
+  supplierPhone?: string | null; supplierAddress?: string | null;
   referenceValue: string; reason: string;
   items: ApiReturnItem[]; grnItems: ApiReturnItem[];
   subtotal: number | string; cgst?: number | string; sgst?: number | string;
@@ -99,64 +92,54 @@ const STATUS_OPTIONS = [
   { value: 'SETTLED', label: 'Settled' },
 ] as const
 
+const DEBIT_NOTE_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'supplier', label: 'Supplier', required: true, defaultVisible: true },
+  { id: 'noteNumber', label: 'Note Number', defaultVisible: true },
+  { id: 'type', label: 'Type', defaultVisible: true },
+  { id: 'pe', label: 'PE', defaultVisible: true },
+  { id: 'amount', label: 'Amount', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
+
 export default function DebitNotesPage() {
-  const businessProfile = useSettingsStore(s => s.businessProfile)
+  const cols = useColumnVisibility('purchase.debitNotes', DEBIT_NOTE_COLUMNS)
   const [pastReturns, setPastReturns] = useState<ApiReturn[]>([])
   const [allReturns, setAllReturns] = useState<ApiReturn[]>([])
   const [returnsLoading, setReturnsLoading] = useState(true)
-  const [selectedReturnDetails, setSelectedReturnDetails] = useState<ReturnDetail | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:purchase.debitNotes:search', '')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
 
-  // ── Filters ──
-  const [period, setPeriod] = useState('all')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedType, setSelectedType] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
-  const [selectedSupplier, setSelectedSupplier] = useState('all')
-  const [amountMin, setAmountMin] = useState('')
-  const [amountMax, setAmountMax] = useState('')
+  // ── Filters (period defaults to "today", mirroring the Invoice List).
+  // Persisted to sessionStorage so they survive refresh + navigate-back. ──
+  const [period, setPeriod] = usePersistedState('filters:purchase.debitNotes:period', 'today')
+  const [dateFrom, setDateFrom] = usePersistedState('filters:purchase.debitNotes:dateFrom', '')
+  const [dateTo, setDateTo] = usePersistedState('filters:purchase.debitNotes:dateTo', '')
+  const [selectedType, setSelectedType] = usePersistedState('filters:purchase.debitNotes:type', 'all')
+  const [selectedStatus, setSelectedStatus] = usePersistedState('filters:purchase.debitNotes:status', 'all')
+  const [selectedSupplier, setSelectedSupplier] = usePersistedState('filters:purchase.debitNotes:supplier', 'all')
+  // Stat-card drill-down: clicking a summary card narrows the list to that
+  // subset (short-billing / settled) on top of the period. Kept separate from
+  // the Type/Status enum filters so a card click and the dropdowns can coexist.
+  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'short-billing' | 'settled'>('filters:purchase.debitNotes:card', 'all')
 
   // Master data — Supplier filter pulls from the full suppliers list
   const { suppliers, fetchMasterData } = useMasterDataStore()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchMasterData() }, [])
 
-  // Deep-link support: open the debit-note drawer when arrived with `?id=<id>`
-  // (e.g. from the Supplier Detail page's Debit Notes tab). Builds the same
-  // ReturnDetail shape used by the row click handler so the drawer fields all
-  // populate identically.
+  // Deep-link support: the detail is now its own page. Legacy links that land
+  // on the list with `?id=<id>` (Supplier Detail → Debit Notes tab,
+  // notifications) redirect to the standalone detail page.
   const { search } = useRoute()
   useEffect(() => {
-    const params = new URLSearchParams(search)
-    const target = params.get('id')
-    if (!target || allReturns.length === 0) return
-    if (selectedReturnDetails?.id === target) return
-    const pr = allReturns.find((r) => r.id === target)
-    if (!pr) return
-    setSelectedReturnDetails({
-      id: pr.id,
-      noteNo: pr.debitNoteNo,
-      date: pr.date,
-      partyName: pr.supplierName,
-      supplierId: pr.supplierId,
-      referenceValue: pr.grn?.grnNumber ?? 'Direct',
-      reason: pr.reason,
-      items: pr.items,
-      grnItems: pr.grn?.items ?? [],
-      subtotal: pr.subtotal,
-      cgst: pr.cgst,
-      sgst: pr.sgst,
-      totalAmount: pr.totalAmount,
-      status: pr.status,
-      settlementMode: pr.settlementMode ?? 'REFUND',
-      replacementGrnId: pr.replacementGrnId ?? null,
-      notes: pr.notes,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, allReturns])
+    const target = new URLSearchParams(search).get('id')
+    // `replace` so the intermediate `?id=` URL never lands in the back stack —
+    // otherwise Back returns here and immediately re-redirects ("press back
+    // twice" bug).
+    if (target) navigate(`/purchase/debit-notes/detail?id=${target}`, { replace: true })
+  }, [search])
 
   const supplierFetcher = useCallback(
     async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
@@ -195,11 +178,11 @@ export default function DebitNotesPage() {
   useEffect(() => { fetchReturns() }, [fetchReturns])
   useBranchRefresh(fetchReturns)
 
-  // Client-side search + filters
-  useEffect(() => {
+  // Debit notes within the selected period only — drives both the summary
+  // cards and the list, so the cards always reflect the period independent of
+  // the card-click / search / type / status narrowing applied below.
+  const periodReturns = useMemo(() => {
     let result = [...allReturns]
-
-    // Period filter
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10)
     switch (period) {
@@ -227,6 +210,19 @@ export default function DebitNotesPage() {
         if (dateTo)   result = result.filter(r => r.date?.slice(0, 10) <= dateTo)
         break
     }
+    return result
+  }, [allReturns, period, dateFrom, dateTo])
+
+  // Client-side card drill-down + search + filters (on top of the period base)
+  useEffect(() => {
+    let result = [...periodReturns]
+
+    // Stat-card drill-down
+    if (cardFilter === 'short-billing') {
+      result = result.filter(r => /short/i.test(r.reason || ''))
+    } else if (cardFilter === 'settled') {
+      result = result.filter(r => /settl/i.test(r.status || ''))
+    }
 
     // Type filter (matched against `reason`)
     if (selectedType === 'short-billing') {
@@ -245,10 +241,6 @@ export default function DebitNotesPage() {
       result = result.filter(r => r.supplierId === selectedSupplier)
     }
 
-    // Amount range
-    if (amountMin) result = result.filter(r => Number(r.totalAmount || 0) >= parseFloat(amountMin))
-    if (amountMax) result = result.filter(r => Number(r.totalAmount || 0) <= parseFloat(amountMax))
-
     // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
@@ -260,62 +252,50 @@ export default function DebitNotesPage() {
 
     setPastReturns(result)
     setCurrentPage(1)
-  }, [searchQuery, allReturns, period, dateFrom, dateTo, selectedType, selectedStatus, selectedSupplier, amountMin, amountMax])
+  }, [searchQuery, periodReturns, cardFilter, selectedType, selectedStatus, selectedSupplier])
 
-  // Active filters count + clear
+  // Active filters count + clear ("today" is the default baseline)
   const activeFilterCount = [
-    period !== 'all' ? period : '',
+    period !== 'today' ? period : '',
+    cardFilter !== 'all' ? cardFilter : '',
     dateFrom, dateTo,
     selectedType !== 'all' ? selectedType : '',
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedSupplier !== 'all' ? selectedSupplier : '',
-    amountMin, amountMax,
   ].filter(Boolean).length
 
   const clearFilters = () => {
-    setPeriod('all')
+    setPeriod('today')
+    setCardFilter('all')
     setDateFrom('')
     setDateTo('')
     setSelectedType('all')
     setSelectedStatus('all')
     setSelectedSupplier('all')
-    setAmountMin('')
-    setAmountMax('')
   }
 
   const totalPages = Math.max(1, Math.ceil(pastReturns.length / PAGE_SIZE))
   const paginatedReturns = pastReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  // ── Summary stats ──
+  // ── Summary stats ── (reflect the selected period, independent of card/list filters)
   const stats = useMemo(() => {
     const isShortBilling = (r: ApiReturn) => /short/i.test(r.reason || '')
     const isSettled = (r: ApiReturn) => /settl/i.test(r.status || '')
-    const totalAmount = allReturns.reduce((s, r) => s + Number(r.totalAmount || 0), 0)
-    const shortBillingCount = allReturns.filter(isShortBilling).length
-    const shortBillingTotal = allReturns.filter(isShortBilling).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
-    const settledCount = allReturns.filter(isSettled).length
-    const settledTotal = allReturns.filter(isSettled).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const totalAmount = periodReturns.reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const shortBillingCount = periodReturns.filter(isShortBilling).length
+    const shortBillingTotal = periodReturns.filter(isShortBilling).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const settledCount = periodReturns.filter(isSettled).length
+    const settledTotal = periodReturns.filter(isSettled).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
     return {
-      totalCount: allReturns.length,
+      totalCount: periodReturns.length,
       totalAmount,
       shortBillingCount,
       shortBillingTotal,
       settledCount,
       settledTotal,
     }
-  }, [allReturns])
+  }, [periodReturns])
 
-  const handleStatusUpdate = async (newStatus: string) => {
-    if (!selectedReturnDetails) return
-    try {
-      await api.patch(`/purchase-returns/${selectedReturnDetails.id}`, { status: newStatus })
-      toast.success(`Debit Note marked as ${newStatus}`)
-      setSelectedReturnDetails((prev) => prev ? { ...prev, status: newStatus } : prev)
-      fetchReturns()
-    } catch {
-      toast.error('Failed to update status')
-    }
-  }
 
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
@@ -324,16 +304,18 @@ export default function DebitNotesPage() {
       <div className="flex-1 overflow-hidden bg-muted/20">
         {/* ── List View ── */}
         <div className="flex flex-col h-full">
-            {/* Summary cards */}
+            {/* Summary cards — click Short-Billing / Settled to drill the list */}
             <div className="grid grid-cols-2 gap-3 border-b border-border/40 bg-background px-4 py-4 sm:px-6 lg:grid-cols-4">
-              {[
+              {([
                 {
                   label: 'Total Notes',
                   value: stats.totalCount.toString(),
-                  subtitle: 'all time',
+                  subtitle: 'this period',
                   icon: Receipt,
                   iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
                   borderAccent: 'border-l-blue-500',
+                  filterKey: 'all',
+                  activeRing: 'ring-2 ring-blue-500/50',
                 },
                 {
                   label: 'Total Debit',
@@ -342,6 +324,8 @@ export default function DebitNotesPage() {
                   icon: IndianRupee,
                   iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
                   borderAccent: 'border-l-rose-500',
+                  filterKey: 'all',
+                  activeRing: 'ring-2 ring-rose-500/50',
                 },
                 {
                   label: 'Short-Billing',
@@ -350,6 +334,8 @@ export default function DebitNotesPage() {
                   icon: AlertTriangle,
                   iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
                   borderAccent: 'border-l-amber-500',
+                  filterKey: 'short-billing',
+                  activeRing: 'ring-2 ring-amber-500/50',
                 },
                 {
                   label: 'Settled',
@@ -358,9 +344,22 @@ export default function DebitNotesPage() {
                   icon: CheckCircle2,
                   iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
                   borderAccent: 'border-l-emerald-500',
+                  filterKey: 'settled',
+                  activeRing: 'ring-2 ring-emerald-500/50',
                 },
-              ].map((s) => (
-                <Card key={s.label} hover className={cn('border-l-[3px]', s.borderAccent)}>
+              ] as const).map((s) => {
+                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                return (
+                <Card
+                  key={s.label}
+                  hover
+                  role="button"
+                  tabIndex={0}
+                  title={s.filterKey === 'all' ? 'Show all debit notes in this period' : `Filter list to ${s.label.toLowerCase()}`}
+                  onClick={() => { setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short-billing' | 'settled')); setCurrentPage(1) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short-billing' | 'settled')); setCurrentPage(1) } }}
+                  className={cn('border-l-[3px] cursor-pointer transition-shadow', s.borderAccent, active && s.activeRing)}
+                >
                   <CardContent className="flex items-center gap-3 p-3">
                     <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.iconBg)}>
                       <s.icon className="h-4 w-4" />
@@ -372,7 +371,8 @@ export default function DebitNotesPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                )
+              })}
             </div>
 
             {/* Search bar + filters + actions */}
@@ -384,16 +384,19 @@ export default function DebitNotesPage() {
                 resultsCount={pastReturns.length}
                 activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
+                columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
+                  <div className="flex items-center gap-1.5">
                   <Button
                     size="sm"
-                    className="shrink-0 bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+                    className="shrink-0"
                     onClick={() => navigate('/purchase/returns')}
                   >
                     <Plus className="mr-1.5 h-4 w-4" />
                     <span className="hidden sm:inline">New Return</span>
                     <span className="sm:hidden">New</span>
                   </Button>
+                  </div>
                 }
               >
                 {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
@@ -402,7 +405,7 @@ export default function DebitNotesPage() {
                     label="Period"
                     value={period}
                     onValueChange={setPeriod}
-                    onClear={() => setPeriod('all')}
+                    onClear={() => setPeriod('today')}
                     options={PERIOD_OPTIONS}
                   />
 
@@ -432,30 +435,6 @@ export default function DebitNotesPage() {
                     selectedLabel={selectedSupplierLabel}
                     pageSize={10}
                   />
-
-                  {/* Amount range */}
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Amount Range
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        placeholder="Min"
-                        value={amountMin}
-                        onChange={(e) => setAmountMin(e.target.value)}
-                        className="w-full"
-                      />
-                      <span className="text-muted-foreground text-xs">-</span>
-                      <Input
-                        type="number"
-                        placeholder="Max"
-                        value={amountMax}
-                        onChange={(e) => setAmountMax(e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
 
                   {/* Custom date range — only when period is 'custom' */}
                   {period === 'custom' && (
@@ -514,29 +493,18 @@ export default function DebitNotesPage() {
                         <div
                           key={pr.id}
                           className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors"
-                          onClick={() => setSelectedReturnDetails({
-                            id: pr.id,
-                            noteNo: pr.debitNoteNo,
-                            date: pr.date,
-                            partyName: pr.supplierName,
-                            supplierId: pr.supplierId,
-                            referenceValue: pr.grn?.grnNumber ?? 'Direct',
-                            reason: pr.reason,
-                            items: pr.items,
-                            grnItems: pr.grn?.items ?? [],
-                            subtotal: pr.subtotal,
-                            cgst: pr.cgst,
-                            sgst: pr.sgst,
-                            totalAmount: pr.totalAmount,
-                            status: pr.status,
-                            settlementMode: pr.settlementMode ?? 'REFUND',
-                            replacementGrnId: pr.replacementGrnId ?? null,
-                            notes: pr.notes,
-                          })}
+                          onClick={() => navigate(`/purchase/debit-notes/detail?id=${pr.id}`)}
                         >
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <p className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</p>
-                            <p className="truncate text-sm font-medium">{pr.supplierName}</p>
+                            <p
+                              role="link"
+                              tabIndex={0}
+                              title="View supplier details"
+                              className="truncate text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) } }}
+                            >{pr.supplierName}</p>
                             <div className="flex flex-wrap items-center gap-1 pt-0.5">
                               <Badge
                                 variant={pr.status === 'SETTLED' ? 'success' : pr.status === 'SENT' ? 'info' : 'secondary'}
@@ -564,13 +532,13 @@ export default function DebitNotesPage() {
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead className="w-27.5">Date</TableHead>
+                        {cols.isVisible('date') && <TableHead className="w-27.5">Date</TableHead>}
                         <TableHead>Supplier</TableHead>
-                        <TableHead className="w-47.5">Note Number</TableHead>
-                        <TableHead className="w-30">Type</TableHead>
-                        <TableHead className="whitespace-nowrap">PR</TableHead>
-                        <TableHead className="text-right w-30">Amount</TableHead>
-                        <TableHead className="w-25">Status</TableHead>
+                        {cols.isVisible('noteNumber') && <TableHead className="w-47.5">Note Number</TableHead>}
+                        {cols.isVisible('type') && <TableHead className="w-30">Type</TableHead>}
+                        {cols.isVisible('pe') && <TableHead className="whitespace-nowrap">PE</TableHead>}
+                        {cols.isVisible('amount') && <TableHead className="text-right w-30">Amount</TableHead>}
+                        {cols.isVisible('status') && <TableHead className="w-25">Status</TableHead>}
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -579,29 +547,21 @@ export default function DebitNotesPage() {
                         <TableRow
                           key={pr.id}
                           className="group cursor-pointer hover:bg-muted/40 transition-colors"
-                          onClick={() => setSelectedReturnDetails({
-                            id: pr.id,
-                            noteNo: pr.debitNoteNo,
-                            date: pr.date,
-                            partyName: pr.supplierName,
-                            supplierId: pr.supplierId,
-                            referenceValue: pr.grn?.grnNumber ?? 'Direct',
-                            reason: pr.reason,
-                            items: pr.items,
-                            grnItems: pr.grn?.items ?? [],
-                            subtotal: pr.subtotal,
-                            cgst: pr.cgst,
-                            sgst: pr.sgst,
-                            totalAmount: pr.totalAmount,
-                            status: pr.status,
-                            settlementMode: pr.settlementMode ?? 'REFUND',
-                            replacementGrnId: pr.replacementGrnId ?? null,
-                            notes: pr.notes,
-                          })}
+                          onClick={() => navigate(`/purchase/debit-notes/detail?id=${pr.id}`)}
                         >
-                          <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>
-                          <TableCell className="font-medium text-sm">{pr.supplierName}</TableCell>
-                          <TableCell className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</TableCell>
+                          {cols.isVisible('date') && <TableCell className="text-xs text-muted-foreground">{formatDate(pr.date)}</TableCell>}
+                          <TableCell className="text-sm font-bold">
+                            <span
+                              role="link"
+                              tabIndex={0}
+                              title="View supplier details"
+                              className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) } }}
+                            >{pr.supplierName}</span>
+                          </TableCell>
+                          {cols.isVisible('noteNumber') && <TableCell className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</TableCell>}
+                          {cols.isVisible('type') && (
                           <TableCell>
                             {/short.*delivery|short.*supply/i.test(pr.reason ?? '') ? (
                               <span className="inline-flex items-center gap-1 rounded-md bg-amber-100/70 dark:bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
@@ -613,10 +573,14 @@ export default function DebitNotesPage() {
                               </span>
                             )}
                           </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.grn?.grnNumber ?? '—'}</TableCell>
+                          )}
+                          {cols.isVisible('pe') && <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.grn?.grnNumber ?? '—'}</TableCell>}
+                          {cols.isVisible('amount') && (
                           <TableCell className="text-right font-mono font-semibold text-rose-600 dark:text-rose-400">
                             {formatCurrency(pr.totalAmount)}
                           </TableCell>
+                          )}
+                          {cols.isVisible('status') && (
                           <TableCell>
                             <Badge
                               variant={
@@ -630,6 +594,7 @@ export default function DebitNotesPage() {
                               {pr.status}
                             </Badge>
                           </TableCell>
+                          )}
                           <TableCell className="text-right">
                             <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
                           </TableCell>
@@ -652,211 +617,6 @@ export default function DebitNotesPage() {
           </div>
       </div>
 
-      {/* ── Detail Drawer ── */}
-      <Sheet open={!!selectedReturnDetails} onOpenChange={(open) => { if (!open) setSelectedReturnDetails(null) }}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-160 lg:max-w-190 p-0 gap-0 flex flex-col"
-        >
-          {selectedReturnDetails && (() => {
-            const d = selectedReturnDetails
-            const settlementMode = d.settlementMode ?? 'REFUND'
-            const isReplacement = settlementMode === 'REPLACEMENT'
-            const isSettled = d.status === 'SETTLED'
-            const hasReplacementGrn = !!d.replacementGrnId
-            const displaySettlement = isSettled
-              ? settlementMode === 'REFUND'
-                ? 'Money Refunded'
-                : settlementMode === 'REPLACEMENT'
-                  ? 'Replacement Received'
-                  : 'Adjusted against Outstanding'
-              : settlementMode === 'REFUND'
-                ? 'Pending Refund'
-                : settlementMode === 'REPLACEMENT'
-                  ? (hasReplacementGrn ? 'Replacement PR Received' : 'Awaiting Replacement')
-                  : settlementMode === 'ADJUST'
-                    ? 'Pending Adjustment'
-                    : 'Pending'
-
-            const pdfData = {
-              noteNo: d.noteNo,
-              date: d.date,
-              partyLabel: 'Supplier',
-              partyName: d.partyName,
-              referenceLabel: 'PR No',
-              referenceValue: d.referenceValue,
-              reason: d.reason,
-              items: (d.items || []).map((it) => ({
-                productName: it.productName,
-                batchNumber: it.batchNumber,
-                expiryDate: it.expiryDate,
-                returnedQty: it.returnedQty,
-                rate: Number(it.purchaseRate || it.rate || 0),
-                gstPercent: Number(it.gstPercent || 0),
-                amount: Number(it.amount || 0),
-              })),
-              subtotal: Number(d.subtotal),
-              cgst: d.cgst != null ? Number(d.cgst) : undefined,
-              sgst: d.sgst != null ? Number(d.sgst) : undefined,
-              totalAmount: Number(d.totalAmount),
-              footerLine: `Settlement: ${displaySettlement}`,
-              company: businessProfile ? {
-                name: businessProfile.name,
-                address: businessProfile.address,
-                phone: businessProfile.phone,
-                email: businessProfile.email,
-                gstin: businessProfile.gstin,
-              } : undefined,
-            }
-
-            return (
-              <>
-                {/* ── Sticky Header ── */}
-                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
-                  <div className="flex items-center justify-between gap-3 pr-8">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <SheetTitle className="font-mono text-base font-semibold truncate">
-                        {d.noteNo}
-                      </SheetTitle>
-                      <span className="text-muted-foreground/40">·</span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDate(d.date)}
-                      </span>
-                    </div>
-                    <Badge
-                      variant={d.status === 'SETTLED' ? 'success' : d.status === 'SENT' ? 'info' : 'secondary'}
-                      size="sm"
-                      dot
-                    >
-                      {d.status}
-                    </Badge>
-                  </div>
-                </SheetHeader>
-
-                {/* ── Scrollable Body ── */}
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                  {/* Supplier / GRN / Reason / Settlement — single row info strip */}
-                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
-                      <p className="mt-0.5 text-sm font-medium truncate" title={d.partyName}>{d.partyName}</p>
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">PR Reference</p>
-                      <p className="mt-0.5 font-mono text-xs font-medium truncate" title={d.referenceValue}>{d.referenceValue}</p>
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Return Reason</p>
-                      <p className="mt-0.5 text-sm font-medium truncate" title={d.reason}>{d.reason}</p>
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
-                      <p className={cn(
-                        'mt-0.5 text-sm font-medium truncate',
-                        isSettled ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
-                      )} title={displaySettlement}>
-                        {displaySettlement}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Items table */}
-                  <div className="overflow-x-auto rounded-xl border border-border/40">
-                    <Table>
-                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                        <TableRow className="border-b border-border/40 hover:bg-transparent">
-                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Expiry</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">GST%</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(d.items || []).map((it, idx) => {
-                          const rate = Number(it.purchaseRate || it.rate || 0)
-                          const gst = Number(it.gstPercent || 0)
-                          const amount = Number(it.amount) || it.returnedQty * rate
-                          return (
-                            <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
-                              <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                              <TableCell className="px-3 py-2.5 text-sm font-medium">{it.productName}</TableCell>
-                              <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{it.batchNumber || '—'}</TableCell>
-                              <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                                {it.expiryDate ? formatDate(it.expiryDate) : '—'}
-                              </TableCell>
-                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{it.returnedQty}</TableCell>
-                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(rate)}</TableCell>
-                              <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{gst}%</TableCell>
-                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">
-                                {formatCurrency(amount)}
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-
-                {/* ── Sticky Footer: total + actions ── */}
-                <div className="shrink-0 border-t border-border/40 bg-background">
-                  <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Debit Amount</p>
-                    <p className="font-mono text-base font-bold text-primary">{formatCurrency(d.totalAmount)}</p>
-                  </div>
-                  <div className="px-5 py-3 flex gap-2">
-                    {!isSettled && isReplacement && (
-                      <Button
-                        className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        onClick={() => {
-                          const params = new URLSearchParams({
-                            replacementReturnId: d.id,
-                            supplierId: d.supplierId ?? '',
-                            supplierName: d.partyName ?? '',
-                          })
-                          navigate(`/purchase/grn?${params.toString()}`)
-                        }}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Receive Replacement
-                      </Button>
-                    )}
-                    {!isSettled && !isReplacement && (
-                      <Button
-                        variant="outline"
-                        className="flex-1 gap-2"
-                        onClick={() => handleStatusUpdate('SETTLED')}
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        Mark as Settled
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      className="flex-1 gap-2"
-                      onClick={() => printDebitNotePdf(pdfData)}
-                    >
-                      <Printer className="h-4 w-4" />
-                      Print
-                    </Button>
-                    <Button
-                      className="flex-1 gap-2"
-                      onClick={() => downloadDebitNotePdf(pdfData)}
-                    >
-                      <Download className="h-4 w-4" />
-                      Download PDF
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )
-          })()}
-        </SheetContent>
-      </Sheet>
     </div>
   )
 }

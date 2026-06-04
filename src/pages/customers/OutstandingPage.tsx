@@ -16,6 +16,9 @@ import {
 } from 'lucide-react'
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
@@ -50,6 +53,7 @@ import {
 } from '@/components/ui/select'
 
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 
@@ -104,15 +108,30 @@ const MIN_OUTSTANDING_OPTIONS = [
 // Page
 // ─────────────────────────────────────────────────────────────
 
+const OUTSTANDING_COLUMNS: ColumnDef[] = [
+  { id: 'customer', label: 'Customer', required: true, defaultVisible: true },
+  { id: 'invoices', label: 'Invoices', defaultVisible: true },
+  { id: 'total', label: 'Total Outstanding', required: true, defaultVisible: true },
+  { id: 'age0_30', label: '0–30 Days', defaultVisible: true },
+  { id: 'age30_60', label: '30–60 Days', defaultVisible: true },
+  { id: 'age60plus', label: '60+ Days', defaultVisible: true },
+]
+
 export default function OutstandingPage() {
+  const cols = useColumnVisibility('customers.outstanding', OUTSTANDING_COLUMNS)
   // List state
   const [rows, setRows] = useState<OutstandingRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [bucketFilter, setBucketFilter] = useState<string>('all')
-  const [minOutstandingFilter, setMinOutstandingFilter] = useState<string>('all')
+  // Filters (persisted to sessionStorage so they survive refresh + back)
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:customers.outstanding:search', '')
+  const [bucketFilter, setBucketFilter] = usePersistedState<string>('filters:customers.outstanding:bucket', 'all')
+  const [minOutstandingFilter, setMinOutstandingFilter] = usePersistedState<string>('filters:customers.outstanding:min', 'all')
+  // Stat-card drill-down: clicking an aging card narrows the table to rows that
+  // carry a balance in that bucket. Client-side (on top of the server-filtered
+  // rows) since the cards are aging aggregates, not a separate query. Kept
+  // separate from the Aging Bucket enum filter ('all'/early/mid/late buckets).
+  const [cardFilter, setCardFilter] = useState<'all' | 'early' | 'mid' | 'late'>('all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -181,13 +200,23 @@ export default function OutstandingPage() {
   useEffect(() => {
     setCurrentPage(1)
     setSelectedIds(new Set())
-  }, [searchQuery, bucketFilter, minOutstandingFilter])
+  }, [searchQuery, bucketFilter, minOutstandingFilter, cardFilter])
 
   // ── Derived ──
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  // Card drill-down narrows the rows to those carrying a balance in the clicked
+  // aging band. Applied on top of the server-side rows; the summary cards below
+  // keep reflecting the whole dataset.
+  const filteredRows = useMemo(() => {
+    if (cardFilter === 'early') return rows.filter((r) => r.current + r['0-30'] > 0)
+    if (cardFilter === 'mid') return rows.filter((r) => r['31-60'] > 0)
+    if (cardFilter === 'late') return rows.filter((r) => r['61-90'] + r['90+'] > 0)
+    return rows
+  }, [rows, cardFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
   const paginatedRows = useMemo(
-    () => rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [rows, currentPage],
+    () => filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filteredRows, currentPage],
   )
 
   // Summary cards reflect the filtered set so the user understands what's on screen.
@@ -201,11 +230,13 @@ export default function OutstandingPage() {
 
   const activeFilterCount =
     (bucketFilter !== 'all' ? 1 : 0) +
-    (minOutstandingFilter !== 'all' ? 1 : 0)
+    (minOutstandingFilter !== 'all' ? 1 : 0) +
+    (cardFilter !== 'all' ? 1 : 0)
 
   const clearFilters = () => {
     setBucketFilter('all')
     setMinOutstandingFilter('all')
+    setCardFilter('all')
   }
 
   // ── Bulk selection helpers ──
@@ -374,6 +405,9 @@ export default function OutstandingPage() {
   }
 
   // ── Stat card config ──
+  // filterKey drives the click drill-down (Total clears it; aging cards narrow
+  // the table to rows with a balance in that band). activeRing matches the
+  // card's accent so the selected card reads as "on".
   const kpiCards = [
     {
       label: 'Total Outstanding',
@@ -382,6 +416,8 @@ export default function OutstandingPage() {
       icon: IndianRupee,
       iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
       accent: 'border-l-rose-500',
+      filterKey: 'all' as const,
+      activeRing: 'ring-2 ring-rose-500/50',
     },
     {
       label: '0–30 Days',
@@ -390,6 +426,8 @@ export default function OutstandingPage() {
       icon: Clock,
       iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
       accent: 'border-l-amber-500',
+      filterKey: 'early' as const,
+      activeRing: 'ring-2 ring-amber-500/50',
     },
     {
       label: '30–60 Days',
@@ -398,6 +436,8 @@ export default function OutstandingPage() {
       icon: AlertTriangle,
       iconBg: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
       accent: 'border-l-orange-500',
+      filterKey: 'mid' as const,
+      activeRing: 'ring-2 ring-orange-500/50',
     },
     {
       label: '60+ Days',
@@ -406,6 +446,8 @@ export default function OutstandingPage() {
       icon: AlertTriangle,
       iconBg: 'bg-red-500/10 text-red-700 dark:text-red-400',
       accent: 'border-l-red-500',
+      filterKey: 'late' as const,
+      activeRing: 'ring-2 ring-red-500/50',
     },
   ]
 
@@ -416,10 +458,21 @@ export default function OutstandingPage() {
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5"
     >
-      {/* ── Summary cards ── */}
+      {/* ── Summary cards (click to drill the table by aging band) ── */}
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {kpiCards.map((kpi) => (
-          <Card key={kpi.label} hover className={cn('border-l-[3px]', kpi.accent)}>
+        {kpiCards.map((kpi) => {
+          const active = kpi.filterKey !== 'all' && cardFilter === kpi.filterKey
+          return (
+          <Card
+            key={kpi.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={kpi.filterKey === 'all' ? 'Show all outstanding customers' : `Filter to customers with a balance in ${kpi.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : kpi.filterKey); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : kpi.filterKey); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', kpi.accent, active && kpi.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>
                 <kpi.icon className="h-5 w-5" />
@@ -431,7 +484,8 @@ export default function OutstandingPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Filters ── */}
@@ -439,10 +493,12 @@ export default function OutstandingPage() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search customer…"
-        resultsCount={rows.length}
+        resultsCount={filteredRows.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
+        columnsNode={<ColumnsToggle columns={OUTSTANDING_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
+          <div className="flex items-center gap-1.5">
           <Button
             size="sm"
             onClick={handleBulkReminders}
@@ -455,6 +511,7 @@ export default function OutstandingPage() {
                 ? `Bulk Reminders (${selectedIds.size})`
                 : 'Bulk Reminders'}
           </Button>
+          </div>
         }
       >
         <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -480,7 +537,7 @@ export default function OutstandingPage() {
         <div className="flex items-center justify-center py-20">
           <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
-      ) : rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <Card>
           <CardContent className="p-0">
             <EmptyState
@@ -527,7 +584,11 @@ export default function OutstandingPage() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <CustomerNameLine name={row.customer} phone={row.customerPhone} />
+                    <CustomerNameLine
+                      name={row.customer}
+                      phone={row.customerPhone}
+                      onNameClick={row.customerId ? () => navigate(`/customers/detail?customerId=${row.customerId}`) : undefined}
+                    />
                     <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
                     {overdue60 > 0 && (
                       <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(overdue60)}</p>
@@ -553,11 +614,11 @@ export default function OutstandingPage() {
                     />
                   </TableHead>
                   <TableHead>Customer</TableHead>
-                  <TableHead className="text-center">Invoices</TableHead>
+                  {cols.isVisible('invoices') && <TableHead className="text-center">Invoices</TableHead>}
                   <TableHead className="text-right">Total Outstanding</TableHead>
-                  <TableHead className="text-right">0–30 Days</TableHead>
-                  <TableHead className="text-right">30–60 Days</TableHead>
-                  <TableHead className="text-right">60+ Days</TableHead>
+                  {cols.isVisible('age0_30') && <TableHead className="text-right">0–30 Days</TableHead>}
+                  {cols.isVisible('age30_60') && <TableHead className="text-right">30–60 Days</TableHead>}
+                  {cols.isVisible('age60plus') && <TableHead className="text-right">60+ Days</TableHead>}
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -582,23 +643,35 @@ export default function OutstandingPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <CustomerNameLine name={row.customer} phone={row.customerPhone} />
+                        <CustomerNameLine
+                          name={row.customer}
+                          phone={row.customerPhone}
+                          onNameClick={row.customerId ? () => navigate(`/customers/detail?customerId=${row.customerId}`) : undefined}
+                        />
                       </TableCell>
+                      {cols.isVisible('invoices') && (
                       <TableCell className="text-center text-sm text-muted-foreground">
                         {row.invoiceCount}
                       </TableCell>
-                      <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 text-sm whitespace-nowrap">
+                      )}
+                      <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 text-[15px] whitespace-nowrap">
                         {formatCurrency(row.outstanding)}
                       </TableCell>
+                      {cols.isVisible('age0_30') && (
                       <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {formatCurrency(row.current + row['0-30'])}
                       </TableCell>
+                      )}
+                      {cols.isVisible('age30_60') && (
                       <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {formatCurrency(row['31-60'])}
                       </TableCell>
+                      )}
+                      {cols.isVisible('age60plus') && (
                       <TableCell className="text-right font-mono text-sm font-semibold text-rose-500 whitespace-nowrap">
                         {formatCurrency(row['61-90'] + row['90+'])}
                       </TableCell>
+                      )}
                       <TableCell onClick={(e) => e.stopPropagation()} className="w-12">
                         <DataTableRowActions
                           onView={row.customerId ? () => openDrawer(row) : undefined}
@@ -634,7 +707,7 @@ export default function OutstandingPage() {
             currentPage={currentPage}
             totalPages={totalPages}
             onPageChange={setCurrentPage}
-            totalItems={rows.length}
+            totalItems={filteredRows.length}
             itemsPerPage={PAGE_SIZE}
             className="border-t border-border/40 px-4"
           />

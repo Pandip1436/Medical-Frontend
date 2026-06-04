@@ -3,7 +3,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import {
   CheckCircle2, XCircle, Clock, UserPlus, CreditCard,
   RotateCcw, Truck, RefreshCw, ListFilter, ChevronRight, Search,
-  AlertTriangle, X, ChevronDown, ChevronUp,
+  AlertTriangle, ArrowLeft, Phone, SlidersHorizontal,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -13,14 +13,20 @@ import { Input } from '@/components/ui/input'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 import { Label } from '@/components/ui/label'
 import api from '@/lib/api'
+import { navigate } from '@/lib/router'
 import { cn, formatCurrency, timeAgo, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { useMasterDataStore } from '@/stores/masterDataStore'
+import { isAdminish } from '@/types'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
 // ─── Types ────────────────────────────────────────────────────
-type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN'
+type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'INVENTORY_ADJUSTMENT'
 type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 type TypeKey = ApprovalType | 'all'
 type StatusKey = ApprovalStatus | 'all'
@@ -45,6 +51,7 @@ const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; acce
   { key: 'CREDIT_BILL',     label: 'Credit Bill',     icon: CreditCard, accent: 'text-amber-600 dark:text-amber-400' },
   { key: 'SALES_RETURN',    label: 'Sales Return',    icon: RotateCcw,  accent: 'text-rose-600 dark:text-rose-400' },
   { key: 'PURCHASE_RETURN', label: 'Purchase Return', icon: Truck,      accent: 'text-purple-600 dark:text-purple-400' },
+  { key: 'INVENTORY_ADJUSTMENT', label: 'Stock Adjustment', icon: SlidersHorizontal, accent: 'text-cyan-600 dark:text-cyan-400' },
 ]
 
 const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; tone: string; border: string }> = {
@@ -52,6 +59,7 @@ const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; t
   CREDIT_BILL:     { label: 'Credit Bill',     icon: CreditCard, tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',  border: 'border-l-amber-500' },
   SALES_RETURN:    { label: 'Sales Return',    icon: RotateCcw,  tone: 'text-rose-600 dark:text-rose-400 bg-rose-500/10',     border: 'border-l-rose-500' },
   PURCHASE_RETURN: { label: 'Purchase Return', icon: Truck,      tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10', border: 'border-l-purple-500' },
+  INVENTORY_ADJUSTMENT: { label: 'Stock Adjustment', icon: SlidersHorizontal, tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10', border: 'border-l-cyan-500' },
 }
 
 const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
@@ -76,6 +84,10 @@ function inlineSummary(req: ApprovalRequest): string {
     case 'PURCHASE_RETURN':
       return [p.supplierName, p.totalAmount != null && formatCurrency(p.totalAmount), p.reason]
         .filter(Boolean).join(' · ')
+    case 'INVENTORY_ADJUSTMENT': {
+      const n = Array.isArray(p.items) ? p.items.length : 0
+      return [`${n} batch${n === 1 ? '' : 'es'}`, p.requestedByName].filter(Boolean).join(' · ')
+    }
   }
 }
 
@@ -128,7 +140,7 @@ const itemVariants: Variants = {
 // ─── Page ─────────────────────────────────────────────────────
 export default function ApprovalsPage() {
   const { user } = useAuthStore()
-  const isAdmin = user?.role === 'ADMIN'
+  const isAdmin = isAdminish(user)
 
   const [allRequests, setAllRequests] = useState<ApprovalRequest[]>([])
   const [loading, setLoading] = useState(false)
@@ -155,11 +167,16 @@ export default function ApprovalsPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Customers — used by the detail panel to resolve a request's customer id +
+  // phone (for the clickable name / phone) when the payload predates them.
+  const fetchMasterData = useMasterDataStore(s => s.fetchMasterData)
+  useEffect(() => { fetchMasterData() }, [fetchMasterData])
+
   // Sidebar counts — reflect current status filter so badges show actionable totals
   const typeCounts = useMemo(() => {
     const base = statusFilter === 'all' ? allRequests : allRequests.filter(r => r.status === statusFilter)
     const counts: Record<TypeKey, number> = {
-      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0,
+      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0, INVENTORY_ADJUSTMENT: 0,
     }
     for (const r of base) counts[r.type]++
     return counts
@@ -347,7 +364,7 @@ export default function ApprovalsPage() {
                           />
                         )}
                         <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
-                        <span className="flex-1 truncate">{cat.label}</span>
+                        <span className="flex-1 truncate text-[13px]">{cat.label}</span>
                         {count > 0 && (
                           <span className={cn(
                             'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
@@ -368,8 +385,9 @@ export default function ApprovalsPage() {
               {/* List column */}
               <div className={cn(
                 'flex min-w-0 flex-1 flex-col',
-                // On mobile when the side panel is open, hide the list entirely
-                selectedReq && 'hidden lg:flex',
+                // Hidden on all sizes when a request is open so the detail goes full-width
+                // (matches the Reminders master-detail layout).
+                selectedReq && 'hidden',
               )}>
                 <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
                   <div className="relative flex-1">
@@ -441,7 +459,7 @@ export default function ApprovalsPage() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: 24, opacity: 0 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="flex min-w-0 flex-1 flex-col bg-background lg:w-md lg:flex-none lg:border-l lg:border-border/60 xl:w-lg"
+                    className="flex min-w-0 flex-1 flex-col bg-background"
                   >
                     <ApprovalDetailPanel
                       req={selectedReq}
@@ -532,40 +550,40 @@ function ApprovalRow({
         }
       }}
       className={cn(
-        'group flex cursor-pointer items-start gap-2.5 border-b border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
+        'group flex cursor-pointer items-start gap-3 border-b border-border/30 px-4 py-4 transition-colors hover:bg-muted/40',
         isSelected && 'bg-accent/60',
         highlighted && 'bg-emerald-500/10 ring-1 ring-emerald-500/40',
         !isPending && 'opacity-80',
       )}
     >
-      <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
-        <Icon className="h-3.5 w-3.5" />
+      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', cfg.tone)}>
+        <Icon className="h-5 w-5" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <p className={cn(
-            'truncate text-[13px] leading-tight',
+            'truncate text-base leading-tight',
             isPending ? 'font-semibold text-foreground' : 'font-normal text-foreground/80',
           )}>
             {cfg.label}
           </p>
           <Badge variant={statusVariant} size="sm">{req.status}</Badge>
           {stale && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="h-2.5 w-2.5" /> Stale
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-3 w-3" /> Stale
             </span>
           )}
         </div>
-        {summary && <p className="mt-0.5 truncate text-xs text-muted-foreground">{summary}</p>}
-        <p className="mt-1 text-[10px] text-muted-foreground/60">
+        {summary && <p className="mt-1 truncate text-sm text-muted-foreground">{summary}</p>}
+        <p className="mt-1.5 text-xs text-muted-foreground/60">
           {req.requestedBy?.name ?? 'Unknown'} · {timeAgo(req.requestedAt)}
           {req.reviewedBy && req.reviewedAt && (
             <> · {req.status === 'APPROVED' ? 'Approved' : 'Rejected'} by {req.reviewedBy.name} · {timeAgo(req.reviewedAt)}</>
           )}
         </p>
         {req.reviewNote && !isPending && (
-          <p className="mt-1 truncate text-[11px] italic text-muted-foreground/80">
+          <p className="mt-1.5 truncate text-xs italic text-muted-foreground/80">
             Note: {req.reviewNote}
           </p>
         )}
@@ -627,13 +645,26 @@ function ApprovalDetailPanel({
   const Icon = cfg.icon
   const isPending = req.status === 'PENDING'
   const statusVariant = isPending ? 'warning' : req.status === 'APPROVED' ? 'success' : 'destructive'
-  const [showRawPayload, setShowRawPayload] = useState(false)
+  // Resolve the request's customer (id + phone) so the detail can link to the
+  // customer page and show their number. New requests carry these in the
+  // payload; older ones fall back to a unique name match from master data.
+  const customers = useMasterDataStore(s => s.customers)
+  const { customerId, customerPhone } = resolveCustomerRef(req.payload, customers)
 
   return (
     <>
-      {/* Header */}
-      <div className={cn('flex items-start gap-3 border-b border-border/60 border-l-[3px] px-4 py-3', cfg.border)}>
-        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', cfg.tone)}>
+      {/* Header — back arrow returns to the list (full-width master-detail). */}
+      <div className={cn('flex items-start gap-3 border-b border-l-[3px] border-border/60 px-4 py-3', cfg.border)}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="-ml-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={onClose}
+          aria-label="Back to list"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', cfg.tone)}>
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -646,16 +677,13 @@ function ApprovalDetailPanel({
             {' · '}{formatDateTime(req.requestedAt)}
           </p>
         </div>
-        <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
-          <X className="h-3.5 w-3.5" />
-        </Button>
       </div>
 
       {/* Body */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="flex-1 space-y-5 overflow-y-auto p-5">
         {/* Reviewer trail */}
         {req.reviewedBy && (
-          <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs">
+          <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
             <p className="font-medium">
               {req.status === 'APPROVED' ? 'Approved' : 'Rejected'} by {req.reviewedBy.name}
               {req.reviewedAt && <> · {formatDateTime(req.reviewedAt)}</>}
@@ -668,33 +696,35 @@ function ApprovalDetailPanel({
           </div>
         )}
 
-        {/* Payload */}
-        <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        {/* Request details — full field set, no raw JSON */}
+        <div className="rounded-xl border border-border/40 bg-muted/20 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
             Request Details
           </p>
-          <div className="mt-3">
-            <PayloadDetail type={req.type} payload={req.payload} />
+          <div className="mt-4">
+            <PayloadDetail
+              type={req.type}
+              payload={req.payload}
+              customerId={customerId}
+              customerPhone={customerPhone}
+            />
           </div>
-          <button
-            type="button"
-            onClick={() => setShowRawPayload(v => !v)}
-            className="mt-3 flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {showRawPayload ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            {showRawPayload ? 'Hide' : 'Show'} raw payload
-          </button>
-          {showRawPayload && (
-            <pre className="mt-2 max-h-64 overflow-x-auto rounded-md bg-muted/50 p-2 text-[10px]">
-              {JSON.stringify(req.payload, null, 2)}
-            </pre>
-          )}
         </div>
+
+        {/* Line items — the full set of products/quantities involved so the
+            reviewer can verify exactly what they're approving. Stock
+            adjustments use their own card (current → new qty); everything else
+            (returns, credit bills) shares the line-item + totals table. */}
+        {Array.isArray(req.payload.items) && req.payload.items.length > 0 && (
+          req.type === 'INVENTORY_ADJUSTMENT'
+            ? <AdjustmentItemsCard items={req.payload.items} />
+            : <ReturnItemsCard type={req.type} items={req.payload.items} payload={req.payload} />
+        )}
 
         {/* Status hint when no longer actionable */}
         {!isPending && (
-          <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
             This request is no longer pending.
           </div>
         )}
@@ -724,58 +754,274 @@ function ApprovalDetailPanel({
   )
 }
 
-// Two-column grid used inside the detail panel
-function PayloadDetail({ type, payload }: { type: ApprovalType; payload: Record<string, any> }) {
-  const Row = ({ label, value, mono, accent }: { label: string; value: React.ReactNode; mono?: boolean; accent?: string }) => (
-    <>
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn('font-medium', mono && 'font-mono', accent)}>{value}</span>
-    </>
+// Resolve a request's customer id + phone. New requests carry these in the
+// payload; for older ones we fall back to a UNIQUE name match from master data
+// (never guess when two customers share a name).
+function resolveCustomerRef(
+  payload: Record<string, any>,
+  customers: { id: string; name: string; phone?: string | null }[],
+): { customerId: string | null; customerPhone: string | null } {
+  if (payload?.customerId) {
+    return { customerId: payload.customerId, customerPhone: payload.customerPhone ?? null }
+  }
+  const name = (payload?.customerName || '').trim().toLowerCase()
+  if (name) {
+    const matches = customers.filter(c => (c.name || '').trim().toLowerCase() === name)
+    if (matches.length === 1) {
+      return { customerId: matches[0].id, customerPhone: payload?.customerPhone ?? matches[0].phone ?? null }
+    }
+  }
+  return { customerId: null, customerPhone: payload?.customerPhone ?? null }
+}
+
+// A labelled value block. Arranged in a responsive grid so the details fill
+// the full-width detail area instead of hugging the top-left corner.
+function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={cn(wide && 'sm:col-span-2 lg:col-span-3')}>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{label}</p>
+      <div className="mt-1 text-sm font-medium text-foreground">{children}</div>
+    </div>
   )
+}
+
+// Customer value — a blue link to the customer detail page (with phone below)
+// when we know the id; plain text otherwise (e.g. a not-yet-created customer).
+function CustomerField({
+  name, customerId, phone, label = 'Customer',
+}: { name: string; customerId: string | null; phone: string | null; label?: string }) {
+  return (
+    <Field label={label}>
+      {customerId ? (
+        <button
+          type="button"
+          onClick={() => navigate(`/customers/detail?customerId=${customerId}`)}
+          className="text-left font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          {name}
+        </button>
+      ) : (
+        <span className="font-semibold">{name}</span>
+      )}
+      {phone && (
+        <p className="mt-0.5 flex items-center gap-1 text-xs font-normal text-muted-foreground">
+          <Phone className="h-3 w-3" /> {phone}
+        </p>
+      )}
+    </Field>
+  )
+}
+
+// Per-type field set rendered inside the Request Details card.
+function PayloadDetail({
+  type, payload, customerId, customerPhone,
+}: {
+  type: ApprovalType
+  payload: Record<string, any>
+  customerId: string | null
+  customerPhone: string | null
+}) {
+  const gridCls = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'
 
   switch (type) {
     case 'NEW_CUSTOMER':
+      // The customer doesn't exist yet — this request creates it, so no link.
       return (
-        <div className="grid grid-cols-[110px_1fr] gap-y-1.5 text-xs">
-          <Row label="Name" value={payload.name} />
-          <Row label="Phone" value={payload.phone} />
-          {payload.email && <Row label="Email" value={payload.email} />}
-          {payload.type && <Row label="Type" value={payload.type} />}
-          {payload.creditLimit > 0 && <Row label="Credit Limit" value={formatCurrency(payload.creditLimit)} />}
+        <div className={gridCls}>
+          <Field label="Name">{payload.name}</Field>
+          <Field label="Phone">{payload.phone || '—'}</Field>
+          {payload.email && <Field label="Email">{payload.email}</Field>}
+          {payload.type && <Field label="Type">{payload.type}</Field>}
+          {payload.creditLimit > 0 && <Field label="Credit Limit">{formatCurrency(payload.creditLimit)}</Field>}
         </div>
       )
     case 'CREDIT_BILL':
       return (
-        <div className="grid grid-cols-[110px_1fr] gap-y-1.5 text-xs">
-          <Row label="Customer" value={payload.customerName} />
-          <Row label="Invoice #" value={payload.invoiceNumber} mono />
-          <Row label="Amount" value={formatCurrency(payload.grandTotal)} />
-          <Row label="Existing Credits" value={`${payload.pendingCount} unpaid`} accent="text-amber-600 dark:text-amber-400" />
+        <div className={gridCls}>
+          <CustomerField name={payload.customerName} customerId={customerId} phone={customerPhone} />
+          <Field label="Invoice #"><span className="font-mono">{payload.invoiceNumber}</span></Field>
+          <Field label="Amount">{formatCurrency(payload.grandTotal)}</Field>
+          <Field label="Existing Credits">
+            <span className="text-amber-600 dark:text-amber-400">{payload.pendingCount} unpaid</span>
+          </Field>
         </div>
       )
     case 'SALES_RETURN':
       return (
-        <div className="grid grid-cols-[110px_1fr] gap-y-1.5 text-xs">
-          <Row label="Customer" value={payload.customerName} />
-          <Row label="Invoice #" value={payload.invoiceNumber} mono />
-          <Row label="Return Amount" value={formatCurrency(payload.totalAmount)} />
-          <Row label="Settlement" value={payload.settlementMode} />
-          <Row label="Reason" value={payload.reason} />
-          {payload.items?.length > 0 && (
-            <Row label="Items" value={`${payload.items.length} item${payload.items.length !== 1 ? 's' : ''}`} />
-          )}
+        <div className={gridCls}>
+          <CustomerField name={payload.customerName} customerId={customerId} phone={customerPhone} />
+          <Field label="Invoice #"><span className="font-mono">{payload.invoiceNumber}</span></Field>
+          <Field label="Settlement">{payload.settlementMode ?? '—'}</Field>
+          <Field label="Return Reason" wide>{payload.reason || '—'}</Field>
         </div>
       )
     case 'PURCHASE_RETURN':
       return (
-        <div className="grid grid-cols-[110px_1fr] gap-y-1.5 text-xs">
-          <Row label="Supplier" value={payload.supplierName} />
-          <Row label="Return Amount" value={formatCurrency(payload.totalAmount)} />
-          <Row label="Reason" value={payload.reason} />
-          {payload.items?.length > 0 && (
-            <Row label="Items" value={`${payload.items.length} item${payload.items.length !== 1 ? 's' : ''}`} />
-          )}
+        <div className={gridCls}>
+          <Field label="Supplier"><span className="font-semibold">{payload.supplierName}</span></Field>
+          <Field label="Return Reason" wide>{payload.reason || '—'}</Field>
+        </div>
+      )
+    case 'INVENTORY_ADJUSTMENT':
+      return (
+        <div className={gridCls}>
+          <Field label="Requested By">{payload.requestedByName || '—'}</Field>
+          <Field label="Batches">
+            {Array.isArray(payload.items) ? payload.items.length : 0} batch
+            {(Array.isArray(payload.items) ? payload.items.length : 0) === 1 ? '' : 'es'}
+          </Field>
         </div>
       )
   }
+}
+
+// The products being returned — full line-item table + tax/total breakdown so
+// the reviewer sees exactly what's coming back before approving.
+function ReturnItemsCard({
+  type, items, payload,
+}: {
+  type: ApprovalType
+  items: any[]
+  payload: Record<string, any>
+}) {
+  const title = type === 'CREDIT_BILL' ? 'Billed Products'
+    : type === 'PURCHASE_RETURN' ? 'Items to Return'
+    : 'Products to Return'
+  // Credit bills carry `grandTotal`; returns carry `totalAmount`.
+  const grandTotal = payload.totalAmount ?? payload.grandTotal
+  const totalLabel = type === 'CREDIT_BILL' ? 'Invoice Total' : 'Return Total'
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/40">
+      <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2.5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">{title}</p>
+        <p className="text-xs text-muted-foreground">{items.length} item{items.length !== 1 ? 's' : ''}</p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-8">#</TableHead>
+            <TableHead>Product</TableHead>
+            <TableHead>Batch</TableHead>
+            <TableHead className="text-right">Qty</TableHead>
+            <TableHead className="text-right">Rate</TableHead>
+            <TableHead className="text-right">GST%</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((it, i) => (
+            <TableRow key={i}>
+              <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+              <TableCell className="text-sm font-medium">
+                {it.productId ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/inventory/product-history?productId=${it.productId}`)}
+                    className="text-left text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {it.productName ?? '—'}
+                  </button>
+                ) : (
+                  it.productName ?? '—'
+                )}
+              </TableCell>
+              <TableCell className="font-mono text-xs text-muted-foreground">{it.batchNumber ?? '—'}</TableCell>
+              <TableCell className="text-right text-sm font-semibold">{it.returnedQty ?? it.quantity ?? '—'}</TableCell>
+              <TableCell className="text-right text-sm">{it.rate != null ? formatCurrency(it.rate) : '—'}</TableCell>
+              <TableCell className="text-right text-xs text-muted-foreground">
+                {it.gstPercent != null ? `${Number(it.gstPercent).toFixed(0)}%` : '—'}
+              </TableCell>
+              <TableCell className="text-right text-sm font-medium">{it.amount != null ? formatCurrency(it.amount) : '—'}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {grandTotal != null && (
+        <div className="ml-auto w-full max-w-xs space-y-1 border-t border-border/40 px-4 py-3 text-sm">
+          {payload.subtotal != null && <TotalRow label="Subtotal" value={payload.subtotal} />}
+          {Number(payload.cgst) > 0 && <TotalRow label="CGST" value={payload.cgst} />}
+          {Number(payload.sgst) > 0 && <TotalRow label="SGST" value={payload.sgst} />}
+          {Number(payload.igst) > 0 && <TotalRow label="IGST" value={payload.igst} />}
+          <div className="flex justify-between border-t border-border/40 pt-2 font-semibold">
+            <span>{totalLabel}</span>
+            <span className="font-mono">{formatCurrency(grandTotal)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TotalRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between text-muted-foreground">
+      <span>{label}</span>
+      <span className="font-mono">{formatCurrency(value)}</span>
+    </div>
+  )
+}
+
+// The batches being adjusted — full detail (current → new qty, delta, reason)
+// so the approver can verify each change before approving the stock movement.
+function AdjustmentItemsCard({ items }: { items: any[] }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/40">
+      <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2.5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Batches to Adjust</p>
+        <p className="text-xs text-muted-foreground">{items.length} batch{items.length !== 1 ? 'es' : ''}</p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-8">#</TableHead>
+            <TableHead>Product</TableHead>
+            <TableHead>Batch</TableHead>
+            <TableHead className="text-right">Current</TableHead>
+            <TableHead className="text-right">New</TableHead>
+            <TableHead className="text-right">Δ</TableHead>
+            <TableHead>Reason</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((it, i) => {
+            const prev = it.previousQty
+            const next = it.adjustedQty
+            const diff = (prev != null && next != null) ? Number(next) - Number(prev) : null
+            return (
+              <TableRow key={i}>
+                <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                <TableCell className="text-sm font-medium">
+                  {it.productId ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/inventory/product-history?productId=${it.productId}`)}
+                      className="text-left text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {it.productName ?? '—'}
+                    </button>
+                  ) : (
+                    it.productName ?? '—'
+                  )}
+                </TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">{it.batchNumber ?? '—'}</TableCell>
+                <TableCell className="text-right text-sm font-mono">{prev ?? '—'}</TableCell>
+                <TableCell className="text-right text-sm font-mono font-semibold">{next ?? '—'}</TableCell>
+                <TableCell className={cn(
+                  'text-right text-sm font-mono font-semibold',
+                  diff != null && diff < 0 && 'text-rose-600 dark:text-rose-400',
+                  diff != null && diff > 0 && 'text-emerald-600 dark:text-emerald-400',
+                )}>
+                  {diff == null ? '—' : diff > 0 ? `+${diff}` : diff}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {it.reason || '—'}
+                  {it.notes && <span className="block text-[11px] text-muted-foreground/70">{it.notes}</span>}
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }

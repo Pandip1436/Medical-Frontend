@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment, createContext, useContext } from 'react'
+import { useState, useMemo, useEffect, useCallback, Fragment, createContext, useContext } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
@@ -19,6 +19,7 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import type { Notification } from '@/types'
+import { isSuperAdmin } from '@/types'
 
 // ─── Category config ──────────────────────────────────────────
 type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL' | 'REMINDER'
@@ -37,6 +38,16 @@ const CATEGORIES: {
   { key: 'APPROVAL',    label: 'Requests',    icon: ShieldCheck,   accent: 'text-emerald-600 dark:text-emerald-400', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'REMINDER',    label: 'Follow-ups',  icon: CalendarClock, accent: 'text-cyan-600 dark:text-cyan-400',      roles: null },
 ]
+
+const CATEGORY_KEYS: CategoryKey[] = CATEGORIES.map((c) => c.key)
+
+// The active folder is mirrored in the URL (?folder=PAYMENT_DUE) so that
+// deep-linking out to an invoice and pressing Back returns to the same folder
+// instead of resetting to "All". Reads + validates that param on mount.
+function readFolderFromUrl(): CategoryKey {
+  const v = new URLSearchParams(window.location.search).get('folder')
+  return v && (CATEGORY_KEYS as string[]).includes(v) ? (v as CategoryKey) : 'all'
+}
 
 const typeConfig: Record<Notification['type'], { label: string; icon: typeof Package; tone: string }> = {
   LOW_STOCK:   { label: 'Low Stock',   icon: Package,       tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
@@ -93,9 +104,23 @@ const URL_REWRITES: Record<string, string> = {
   // (CustomerInvoicesPage's deep-link redirects to the old full-page detail).
   '/customers/invoices/detail':  '/billing/sales',
   '/customers/invoices':         '/billing/sales',
-  '/inventory/batches/detail':   '/inventory/expiry',
-  '/reminders/detail':           '/reminders',
-  '/admin/approvals/detail':     '/admin/approvals',
+  // Expiry alerts open the full-page batch detail so that pressing Back returns
+  // to wherever the user came from (the notifications page) in one step. The
+  // bare expiry-list path is rewritten to the detail route too (the batchId
+  // comes from the message marker); no-id links fall back to the list below.
+  '/inventory/expiry':           '/inventory/batches/detail',
+  // Reminder / Approval alerts keep their dedicated full-page detail (same
+  // rationale as expiry): a clean, consistent detail view whose Back button
+  // returns to the exact notification folder in one step — instead of the
+  // cramped split-panel list. The bare list paths are upgraded to the detail
+  // route too (the id comes from the message marker / query).
+  '/reminders':                  '/reminders/detail',
+  '/admin/approvals':            '/admin/approvals/detail',
+  // Credit-note review alerts → the standalone CN detail page directly, so
+  // Back returns to the notification folder in one step. Going via the list
+  // (`/billing/credit-notes?id=`) would push an extra history entry that the
+  // list then redirects past, breaking Back.
+  '/billing/credit-notes':       '/billing/credit-notes/detail',
   // Low Stock: ProductsPage has no detail Sheet, so /inventory/product-history
   // remains the canonical destination (full-page history view).
   '/inventory/products':         '/inventory/product-history',
@@ -106,13 +131,14 @@ const URL_REWRITES: Record<string, string> = {
 // fallback in resolveActionUrl().
 const MARKER_FOR_PATH: Record<string, { marker: string; param: string }> = {
   '/inventory/product-history':  { marker: 'productId',  param: 'productId' },
-  '/inventory/expiry':           { marker: 'batchId',    param: 'batchId' },
+  '/inventory/batches/detail':   { marker: 'batchId',    param: 'id' },
   '/billing/sales':              { marker: 'invoiceId',  param: 'invoiceId' },
-  '/reminders':                  { marker: 'reminderId', param: 'reminderId' },
-  // Approvals never had a message marker — the id was set on actionUrl only.
-  // We still register an entry so extractIdFromQuery can pick up the legacy
-  // `?id=` and emit the new canonical `?requestId=` for the inline panel.
-  '/admin/approvals':            { marker: 'requestId',  param: 'requestId' },
+  // Reminder / Approval detail pages both read a canonical `?id=`. The marker
+  // lets pre-actionUrl notifications (id embedded only in the message) resolve
+  // too; the legacy bare list paths upgrade to these via URL_REWRITES above.
+  '/reminders/detail':           { marker: 'reminderId', param: 'id' },
+  '/admin/approvals/detail':     { marker: 'requestId',  param: 'id' },
+  '/billing/credit-notes/detail':{ marker: 'creditNoteId', param: 'id' },
 }
 function extractMarker(message: string, marker: string): string | null {
   const m = message.match(new RegExp(`\\[${marker}:([^\\]]+)\\]`))
@@ -144,6 +170,9 @@ function resolveActionUrl(n: Notification): string | null {
   if (!id && spec) id = extractMarker(n.message, spec.marker)
 
   if (id && spec) return `${rewrittenPath}?${spec.param}=${id}`
+  // A batch-detail link with no id is useless (renders "Batch not found"), so
+  // send those to the expiry list instead.
+  if (rewrittenPath === '/inventory/batches/detail') return '/inventory/expiry'
   // Fallback: preserve the original query (unlikely to match anymore, but safer than dropping).
   if (existingQuery) return `${rewrittenPath}?${existingQuery}`
   return rewrittenPath
@@ -511,6 +540,8 @@ export default function NotificationsPage() {
     markAsRead, markAllAsRead, snooze, resolve, removeNotification,
   } = useNotificationStore()
   const userRole = useAuthStore((s) => s.user?.role ?? 'PHARMACIST')
+  // Super Admin sees every folder regardless of the per-category role lists.
+  const isSuper = useAuthStore((s) => isSuperAdmin(s.user))
 
   // Customer phone lookup for the notification rows. Loaded lazily; rows fall
   // back to name-only until it arrives.
@@ -542,11 +573,26 @@ export default function NotificationsPage() {
   }, [customers])
 
   const visibleCategories = useMemo(
-    () => CATEGORIES.filter((c) => c.roles === null || c.roles.includes(userRole)),
-    [userRole]
+    () => CATEGORIES.filter((c) => c.roles === null || isSuper || c.roles.includes(userRole)),
+    [userRole, isSuper]
   )
 
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>('all')
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>(() => readFolderFromUrl())
+
+  // Switch folders and mirror the choice into the URL. Uses replaceState (not a
+  // pushState navigate) so flipping between folders doesn't pile up history
+  // entries — but the current entry still carries ?folder=…, so when the user
+  // clicks a notification (a pushState navigate) and later presses Back, this
+  // folder is restored instead of falling back to "All".
+  const selectCategory = useCallback((key: CategoryKey) => {
+    setActiveCategory(key)
+    const params = new URLSearchParams(window.location.search)
+    if (key === 'all') params.delete('folder')
+    else params.set('folder', key)
+    const qs = params.toString()
+    window.history.replaceState(window.history.state, '', `/notifications${qs ? `?${qs}` : ''}`)
+  }, [])
+
   const [searchQuery, setSearchQuery] = useState('')
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all')
   // Folder view defaults to unread-only so the table size matches the sidebar
@@ -759,7 +805,7 @@ export default function NotificationsPage() {
                       <button
                         key={cat.key}
                         type="button"
-                        onClick={() => setActiveCategory(cat.key)}
+                        onClick={() => selectCategory(cat.key)}
                         className={cn(
                           'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
                           isActive
@@ -775,7 +821,7 @@ export default function NotificationsPage() {
                           />
                         )}
                         <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
-                        <span className="flex-1 truncate">{cat.label}</span>
+                        <span className="flex-1 truncate text-[13px]">{cat.label}</span>
                         {count > 0 && (
                           <span className={cn(
                             'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',

@@ -37,6 +37,7 @@ import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -267,7 +268,7 @@ function useSupplierDetail(supplierId: string | null) {
       })
     } catch (err: any) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
-      setGrns({ data: null, loading: false, error: err?.message ?? 'Failed to load Purchase Received records', attempted: true })
+      setGrns({ data: null, loading: false, error: err?.message ?? 'Failed to load goods received notes', attempted: true })
     }
   }, [supplierId, grns.attempted])
 
@@ -511,7 +512,7 @@ export default function SupplierDetailPage() {
   const supplierId = new URLSearchParams(search).get('supplierId') ?? ''
 
   const d = useSupplierDetail(supplierId)
-  const [activeTab, setActiveTab] = useState<'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches'>('ledger')
+  const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches'>('overview')
   const [editOpen, setEditOpen] = useState(false)
 
   // Activity tab UI state — type filter, dialog target, edit target.
@@ -739,8 +740,8 @@ export default function SupplierDetailPage() {
       </div>
 
       {/* ── KPI Strip ── */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/10">
-        <div className="grid grid-cols-2 lg:grid-cols-4">
+      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiCell
             icon={TrendingUp}
             label="Total Purchases"
@@ -775,76 +776,8 @@ export default function SupplierDetailPage() {
         </div>
       </div>
 
-      {/* ── Two-pane: Overview (left, 30%) + Tabs (right) ── */}
+      {/* ── Full-width Tabs (Overview is now the first tab) ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ── LEFT: Persistent Overview panel ── */}
-        <aside className="hidden lg:flex lg:w-[30%] shrink-0 flex-col overflow-hidden border-r border-border/40 bg-muted/5">
-          <div className="shrink-0 border-b border-border/40 bg-background px-5 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Supplier Overview
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-5">
-            {d.supplier.loading && !sup ? (
-              <OverviewPanelSkeleton />
-            ) : d.supplier.error && !sup ? (
-              <InlineError message={d.supplier.error} onRetry={d.supplier.refetch} />
-            ) : sup ? (
-              <>
-                <OverviewSection icon={Building2} title="Contact">
-                  <Row label="Company" value={sup.name} />
-                  <Row label="Person" value={sup.contactPerson || '—'} />
-                  <Row label="Phone" value={sup.phone || '—'} mono />
-                  <Row label="Email" value={sup.email || '—'} />
-                </OverviewSection>
-
-                <OverviewSection icon={MapPin} title="Address">
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{sup.address || '—'}</p>
-                </OverviewSection>
-
-                <OverviewSection icon={FileBadge} title="Compliance">
-                  <Row
-                    label="GSTIN"
-                    value={sup.gstin || <span className="text-muted-foreground/40">Not provided</span>}
-                    mono
-                  />
-                  <Row
-                    label="Drug Lic."
-                    value={sup.drugLicense || <span className="text-muted-foreground/40">Not provided</span>}
-                    mono
-                  />
-                </OverviewSection>
-
-                <OverviewSection icon={Banknote} title="Commercial">
-                  <Row
-                    label="Terms"
-                    value={<Badge variant="secondary" size="sm">{sup.paymentTerms}</Badge>}
-                  />
-                  <Row
-                    label="Outstanding"
-                    value={
-                      Number(sup.currentOutstanding) > 0 ? (
-                        <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-                          {formatCurrency(Number(sup.currentOutstanding))}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/60">₹0</span>
-                      )
-                    }
-                  />
-                  {sup.bankDetails && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-muted-foreground">Bank</span>
-                      <span className="text-xs font-mono font-medium wrap-break-word">{sup.bankDetails}</span>
-                    </div>
-                  )}
-                </OverviewSection>
-              </>
-            ) : null}
-          </div>
-        </aside>
-
-        {/* ── RIGHT: Tabs + tab content ── */}
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as typeof activeTab)}
@@ -855,10 +788,11 @@ export default function SupplierDetailPage() {
             <div className="flex-1 min-w-0 overflow-x-auto">
               <TabsList className="h-auto justify-start gap-0 rounded-none bg-transparent p-0">
                 {[
+                  { value: 'overview', label: 'Overview', icon: Building2 },
                   { value: 'ledger', label: 'Ledger', icon: FileText },
                   { value: 'activity', label: 'Activity', icon: MessageSquare },
                   { value: 'pos', label: 'POs', icon: ClipboardList },
-                  { value: 'grns', label: 'PRs', icon: Receipt },
+                  { value: 'grns', label: 'PEs', icon: Receipt },
                   { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                   { value: 'batches', label: 'Batches', icon: Layers },
                 ].map((t) => (
@@ -866,12 +800,12 @@ export default function SupplierDetailPage() {
                     key={t.value}
                     value={t.value}
                     className={cn(
-                      'gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2.5 text-xs font-medium text-muted-foreground shadow-none transition-colors',
-                      'hover:text-foreground hover:bg-muted/30',
-                      'data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:shadow-none',
+                      'gap-2 rounded-none border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground shadow-none transition-colors',
+                      'hover:text-foreground hover:bg-muted/40',
+                      'data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary data-[state=active]:font-semibold data-[state=active]:shadow-none',
                     )}
                   >
-                    <t.icon className="h-3.5 w-3.5" />
+                    <t.icon className="h-4 w-4" />
                     {t.label}
                   </TabsTrigger>
                 ))}
@@ -994,6 +928,67 @@ export default function SupplierDetailPage() {
 
         {/* Tab content area — only this scrolls */}
         <div className="flex-1 overflow-hidden">
+          {/* ── Overview ── full-width supplier profile (was the left sidebar) */}
+          <TabsContent value="overview" className="m-0 h-full flex flex-col">
+            <div className="flex-1 overflow-auto p-4 lg:p-6">
+              {d.supplier.loading && !sup ? (
+                <OverviewPanelSkeleton />
+              ) : d.supplier.error && !sup ? (
+                <InlineError message={d.supplier.error} onRetry={d.supplier.refetch} />
+              ) : sup ? (
+                <Card>
+                  <CardContent className="p-5 lg:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-6 items-start">
+                      <OverviewSection icon={Building2} title="Contact">
+                        <Row label="Company" value={sup.name} />
+                        <Row label="Person" value={sup.contactPerson || '—'} />
+                        <Row label="Phone" value={sup.phone || '—'} mono />
+                        <Row label="Email" value={sup.email || '—'} />
+                      </OverviewSection>
+
+                      <OverviewSection icon={MapPin} title="Address">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap wrap-break-word">{sup.address || '—'}</p>
+                      </OverviewSection>
+
+                      <OverviewSection icon={FileBadge} title="Compliance">
+                        <Row
+                          label="GSTIN"
+                          value={sup.gstin || <span className="text-muted-foreground/40">Not provided</span>}
+                          mono
+                        />
+                        <Row
+                          label="Drug Lic."
+                          value={sup.drugLicense || <span className="text-muted-foreground/40">Not provided</span>}
+                          mono
+                        />
+                      </OverviewSection>
+
+                      <OverviewSection icon={Banknote} title="Commercial">
+                        <Row
+                          label="Terms"
+                          value={<Badge variant="secondary" size="sm">{sup.paymentTerms}</Badge>}
+                        />
+                        <Row
+                          label="Outstanding"
+                          value={
+                            Number(sup.currentOutstanding) > 0 ? (
+                              <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                                {formatCurrency(Number(sup.currentOutstanding))}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/60">₹0</span>
+                            )
+                          }
+                        />
+                        {sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />}
+                      </OverviewSection>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          </TabsContent>
+
           {/* ── Ledger ── (toolbar moved to the tab row above) */}
           <TabsContent value="ledger" className="m-0 h-full flex flex-col">
             <div className="flex-1 overflow-auto">
@@ -1007,12 +1002,12 @@ export default function SupplierDetailPage() {
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                     <TableRow>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1032,12 +1027,12 @@ export default function SupplierDetailPage() {
                           className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
                           onClick={target ? () => navigate(target) : undefined}
                         >
-                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2 font-mono text-xs">{r.ref ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatLedgerBalance(balance, 'supplier')}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 font-mono text-sm">{r.ref ?? '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm">{r.description ?? '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'supplier')}</TableCell>
                         </TableRow>
                       )
                     })}
@@ -1094,15 +1089,15 @@ export default function SupplierDetailPage() {
                     className="cursor-pointer hover:bg-muted/20"
                     onClick={() => navigate(`/purchase/orders?poId=${po.id}`)}
                   >
-                    <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{po.poNumber}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{po.date ? formatDate(po.date) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{po.expectedDelivery ? formatDate(po.expectedDelivery) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-center text-xs">{po.items?.length ?? 0}</TableCell>
-                    <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(Number(po.totalAmount ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-2"><StatusPill status={po.status} /></TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{po.date ? formatDate(po.date) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{po.poNumber}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{po.expectedDelivery ? formatDate(po.expectedDelivery) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-center text-sm">{po.items?.length ?? 0}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(po.totalAmount ?? 0))}</TableCell>
+                    <TableCell className="px-3 py-2.5"><StatusPill status={po.status} /></TableCell>
                   </TableRow>
                 )}
-                columns={['PO #', 'Date', 'Expected', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
+                columns={['Date', 'PO #', 'Expected', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
               />
             </div>
             {posFiltered.length > PAGE_SIZE && (
@@ -1134,15 +1129,15 @@ export default function SupplierDetailPage() {
                     className="cursor-pointer hover:bg-muted/20"
                     onClick={() => navigate(`/purchase/grn-list?grnId=${g.id}`)}
                   >
-                    <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{g.grnNumber}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{g.date ? formatDate(g.date) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 font-mono text-xs">{g.supplierInvoiceNo || '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-center text-xs">{g.items?.length ?? 0}</TableCell>
-                    <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(Number(g.totalAmount ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-2"><StatusPill status={g.status} /></TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{g.date ? formatDate(g.date) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{g.grnNumber}</TableCell>
+                    <TableCell className="px-3 py-2.5 font-mono text-sm">{g.supplierInvoiceNo || '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-center text-sm">{g.items?.length ?? 0}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(g.totalAmount ?? 0))}</TableCell>
+                    <TableCell className="px-3 py-2.5"><StatusPill status={g.status} /></TableCell>
                   </TableRow>
                 )}
-                columns={['PR #', 'Date', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
+                columns={['Date', 'GRN #', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
               />
             </div>
             {grnsFiltered.length > PAGE_SIZE && (
@@ -1174,15 +1169,15 @@ export default function SupplierDetailPage() {
                     className="cursor-pointer hover:bg-muted/20"
                     onClick={() => navigate(`/purchase/debit-notes?id=${r.id}`)}
                   >
-                    <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{r.debitNoteNo}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs">{r.reason || '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs"><Badge variant="secondary" size="sm">{r.settlementMode || '—'}</Badge></TableCell>
-                    <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(r.totalAmount ?? 0))}</TableCell>
-                    <TableCell className="px-3 py-2"><StatusPill status={r.status} /></TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{r.debitNoteNo}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm">{r.reason || '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm"><Badge variant="secondary" size="sm">{r.settlementMode || '—'}</Badge></TableCell>
+                    <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(r.totalAmount ?? 0))}</TableCell>
+                    <TableCell className="px-3 py-2.5"><StatusPill status={r.status} /></TableCell>
                   </TableRow>
                 )}
-                columns={['DN #', 'Date', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
+                columns={['Date', 'DN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
               />
             </div>
             {dnsFiltered.length > PAGE_SIZE && (
@@ -1210,14 +1205,14 @@ export default function SupplierDetailPage() {
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                     <TableRow>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch #</TableHead>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Mfg</TableHead>
-                      <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Batch #</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mfg</TableHead>
+                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
                       <TableHead className="h-9 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Stock Value</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
+                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stock Value</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1228,17 +1223,17 @@ export default function SupplierDetailPage() {
                       return (
                         <TableRow key={b.id} className="hover:bg-muted/20">
                           <TableCell className="px-3 py-2 text-sm">{b.productName || b.product?.name || '—'}</TableCell>
-                          <TableCell className="px-3 py-2 font-mono text-xs">{b.batchNumber}</TableCell>
-                          <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{b.mfgDate ? formatDate(b.mfgDate) : '—'}</TableCell>
-                          <TableCell className={cn('px-3 py-2 text-xs font-semibold whitespace-nowrap', expiryColor)}>
+                          <TableCell className="px-3 py-2.5 font-mono text-sm">{b.batchNumber}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{b.mfgDate ? formatDate(b.mfgDate) : '—'}</TableCell>
+                          <TableCell className={cn('px-3 py-2.5 text-sm font-semibold whitespace-nowrap', expiryColor)}>
                             {b.expiryDate ? formatDate(b.expiryDate) : '—'}
                             {days !== null && days < 0 && ' (expired)'}
                             {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
                           </TableCell>
                           <TableCell className="px-3 py-2 text-center font-mono text-xs">{b.quantity}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs">{formatCurrency(Number(b.purchaseRate ?? 0))}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">{formatCurrency(Number(b.mrp ?? 0))}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(stockValue)}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{formatCurrency(Number(b.purchaseRate ?? 0))}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm text-muted-foreground">{formatCurrency(Number(b.mrp ?? 0))}</TableCell>
+                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>
                         </TableRow>
                       )
                     })}
@@ -1300,7 +1295,7 @@ function pickKpi(kpis: Kpi[], label: string): string {
 
 /** Right-aligned record count text for the slim strip under the tabs. */
 function currentTabCountLabel(
-  activeTab: 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches',
+  activeTab: 'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches',
   ledgerCount: number,
   posCount: number,
   grnsCount: number,
@@ -1311,7 +1306,7 @@ function currentTabCountLabel(
   switch (activeTab) {
     case 'ledger':   return d.ledger.loading     ? 'Loading…' : `${ledgerCount} transaction${ledgerCount !== 1 ? 's' : ''}`
     case 'pos':      return d.pos.loading        ? 'Loading…' : `${posCount} PO${posCount !== 1 ? 's' : ''}`
-    case 'grns':     return d.grns.loading       ? 'Loading…' : `${grnsCount} PR${grnsCount !== 1 ? 's' : ''}`
+    case 'grns':     return d.grns.loading       ? 'Loading…' : `${grnsCount} PE${grnsCount !== 1 ? 's' : ''}`
     case 'dns':      return d.dns.loading        ? 'Loading…' : `${dnsCount} debit note${dnsCount !== 1 ? 's' : ''}`
     case 'activity': return d.activities.loading ? 'Loading…' : `${activityCount} activit${activityCount !== 1 ? 'ies' : 'y'}`
     default: return ''
@@ -1324,7 +1319,6 @@ function KpiCell({
   value,
   tone,
   loading,
-  borderLeft,
 }: {
   icon: typeof Package
   label: string
@@ -1341,7 +1335,7 @@ function KpiCell({
     purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
   }
   return (
-    <div className={cn('flex items-center gap-3 px-4 py-3', borderLeft && 'lg:border-l border-border/40')}>
+    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
       <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', toneMap[tone])}>
         <Icon className="h-5 w-5" />
       </div>
@@ -1353,15 +1347,17 @@ function KpiCell({
   )
 }
 
-/** Borderless, compact section for the left Overview rail. */
+/** Section header + fields for an Overview card. */
 function OverviewSection({ icon: Icon, title, children }: { icon: typeof Package; title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
+    <div className="space-y-3.5">
+      <div className="flex items-center gap-2.5 border-b border-border/50 pb-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </span>
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
       </div>
-      <div className="space-y-1.5 pl-5">{children}</div>
+      <div className="space-y-3">{children}</div>
     </div>
   )
 }
@@ -1382,9 +1378,9 @@ function OverviewPanelSkeleton() {
 
 function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[11px] text-muted-foreground whitespace-nowrap">{label}</span>
-      <span className={cn('text-sm font-medium text-right truncate', mono && 'font-mono text-xs')}>{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={cn('text-sm font-medium wrap-break-word', mono && 'font-mono')}>{value}</span>
     </div>
   )
 }
@@ -1464,7 +1460,7 @@ function TabListContent({
             const label = isObj ? c.label : c
             const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
             return (
-              <TableHead key={i} className={cn('h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground', align)}>
+              <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
                 {label}
               </TableHead>
             )
@@ -1548,36 +1544,9 @@ function ActivityTabContent({
   const types: SAType[] = ['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'REMINDER']
   return (
     <div className="flex h-full flex-col">
-      {/* Timeline body — Type filter now lives in the main tab row alongside
-          the period dropdown, so this panel goes straight to the timeline. */}
-      <div className="flex-1 overflow-auto">
-        {state.error && !state.data ? (
-          <InlineError message={state.error} onRetry={() => state.refetch?.()} />
-        ) : state.loading && !state.data ? (
-          <TableSkeleton rows={6} />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={MessageSquare}
-            title="No activity logged yet"
-            subtitle="Use the buttons below to log a call, WhatsApp, email, note, or schedule a reminder."
-          />
-        ) : (
-          <ol className="divide-y divide-border/40">
-            {filtered.map((a) => (
-              <ActivityRow
-                key={a.id}
-                activity={a}
-                onEdit={() => onOpenDialog(a.type, a)}
-                onMarkDone={() => onMarkDone(a.id)}
-                onDelete={() => onDelete(a.id)}
-              />
-            ))}
-          </ol>
-        )}
-      </div>
-
-      {/* Quick-log footer — buttons wrap on narrow viewports; pinned to bottom. */}
-      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
+      {/* Quick-log toolbar — pinned to the TOP so the timeline flows from here
+          without a large mid-page void when only a few activities exist. */}
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
         {types.map((t) => {
           const meta = ACTIVITY_META[t]
           const Icon = meta.icon
@@ -1594,6 +1563,32 @@ function ActivityTabContent({
             </Button>
           )
         })}
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {state.error && !state.data ? (
+          <InlineError message={state.error} onRetry={() => state.refetch?.()} />
+        ) : state.loading && !state.data ? (
+          <TableSkeleton rows={6} />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={MessageSquare}
+            title="No activity logged yet"
+            subtitle="Use the buttons above to log a call, WhatsApp, email, note, or schedule a reminder."
+          />
+        ) : (
+          <ol className="divide-y divide-border/40">
+            {filtered.map((a) => (
+              <ActivityRow
+                key={a.id}
+                activity={a}
+                onEdit={() => onOpenDialog(a.type, a)}
+                onMarkDone={() => onMarkDone(a.id)}
+                onDelete={() => onDelete(a.id)}
+              />
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   )

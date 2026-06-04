@@ -1,15 +1,53 @@
-export type UserRole = 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON'
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON'
+
+export interface UserBranchRef {
+  id: string
+  name: string
+  code: string
+}
 
 export interface User {
   id: string
   name: string
   email: string
   phone: string
-  role: UserRole
+  role: UserRole // primary role (highest-precedence of `roles`) — kept for display
+  roles?: UserRole[] // full role set — drives all permission checks
+  branchId?: string | null // home/default branch
+  branchIds?: string[] // allowed branch set (empty for SUPER_ADMIN = all)
+  branches?: UserBranchRef[]
+  isSuperAdmin?: boolean
   avatar?: string
   isActive: boolean
   lastLogin?: string
   commissionRate?: number
+}
+
+// Highest privilege first — mirrors the backend ROLE_PRECEDENCE.
+export const ROLE_PRECEDENCE: UserRole[] = [
+  'SUPER_ADMIN', 'ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER', 'ACCOUNTANT', 'SALESPERSON',
+]
+
+/** The full role set for a user, falling back to the singular `role`. */
+export function userRoles(user: Pick<User, 'roles' | 'role'> | null | undefined): UserRole[] {
+  if (!user) return []
+  return user.roles?.length ? user.roles : (user.role ? [user.role] : [])
+}
+
+/** Highest-precedence role — used for display and default landing route. */
+export function primaryRole(user: Pick<User, 'roles' | 'role'> | null | undefined): UserRole | undefined {
+  const roles = userRoles(user)
+  return ROLE_PRECEDENCE.find((r) => roles.includes(r)) ?? roles[0]
+}
+
+/** True if the user has ADMIN or SUPER_ADMIN — gates admin-only UI. */
+export function isAdminish(user: Pick<User, 'roles' | 'role'> | null | undefined): boolean {
+  const roles = userRoles(user)
+  return roles.includes('ADMIN') || roles.includes('SUPER_ADMIN')
+}
+
+export function isSuperAdmin(user: Pick<User, 'roles' | 'role'> | null | undefined): boolean {
+  return userRoles(user).includes('SUPER_ADMIN')
 }
 
 export interface Salesperson {
@@ -145,6 +183,10 @@ export interface Invoice {
   // because legacy / DRAFT records may pre-date the join, and walk-in flows
   // can have no customer attached.
   customerPhone?: string | null
+  // Customer address / GSTIN — populated on the New Sale print path from the
+  // selected customer so the printed PDF carries full bill-to details.
+  customerAddress?: string | null
+  customerGstin?: string | null
   doctorName?: string
   items: InvoiceItem[]
   subtotal: number
@@ -157,6 +199,8 @@ export interface Invoice {
   roundOff: number
   grandTotal: number
   paymentMode: 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
+  // Credit-sale payment due date (ISO). Set on CREDIT invoices.
+  dueDate?: string | null
   paymentDetails?: Record<string, unknown>
   status: 'DRAFT' | 'PAID' | 'UNPAID' | 'PARTIAL' | 'RETURNED' | 'CANCELLED'
   amountPaid: number

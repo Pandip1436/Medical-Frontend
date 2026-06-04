@@ -1071,7 +1071,7 @@ function BatchDetailPanel({
             </button>
           </div>
           <p className="text-center text-[10px] text-muted-foreground">
-            Write-offs only — additions go through Purchase Received.
+            Write-offs only — additions go through a Goods Received Note (GRN).
           </p>
         </div>
 

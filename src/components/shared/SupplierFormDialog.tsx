@@ -145,18 +145,27 @@ export function SupplierFormDialog({
 
   async function onSubmit(data: SupplierFormValues) {
     try {
+      // Suppress the global axios toast so we can surface the server's specific
+      // reason ourselves (e.g. "Another supplier already uses GSTIN … in this
+      // branch") rather than a generic failure message.
+      const opts = { suppressGlobalToast: true } as Record<string, unknown>
       if (editingSupplier) {
-        await api.patch(`/suppliers/${editingSupplier.id}`, data)
+        await api.patch(`/suppliers/${editingSupplier.id}`, data, opts)
         toast.success(`Supplier "${data.name}" updated successfully`)
         onSaved?.(data, 'update')
       } else {
-        await api.post('/suppliers', data)
+        await api.post('/suppliers', data, opts)
         toast.success(`Supplier "${data.name}" added successfully`)
         onSaved?.(data, 'create')
       }
       onOpenChange(false)
-    } catch {
-      toast.error('Failed to save supplier. Please try again.')
+    } catch (err: unknown) {
+      // The backend returns a clear 409 message for duplicate GSTIN/phone and
+      // 400 for validation — show it so the user knows what to fix.
+      const resp = (err as { response?: { data?: { message?: string | string[] } } })?.response
+      const raw = resp?.data?.message
+      const message = Array.isArray(raw) ? raw[0] : raw
+      toast.error(message || 'Failed to save supplier. Please try again.')
     }
   }
 

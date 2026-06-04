@@ -35,6 +35,7 @@ import {
   FileImage,
   CalendarClock,
   Pencil,
+  MapPin,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
@@ -98,7 +99,10 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { cn, formatCurrency, generateInvoiceNumber, formatDate } from '@/lib/utils'
+// Billing screen shows exact paise (formatCurrencyFull) so the GST breakdown
+// and line amounts are never rounded/hidden — the figures visibly add up to the
+// grand total. Aliased to `formatCurrency` to keep the call sites unchanged.
+import { cn, formatCurrencyFull as formatCurrency, generateInvoiceNumber, formatDate } from '@/lib/utils'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 
@@ -393,7 +397,7 @@ function BillingRow({
   const productBatches = useMemo(() => {
     if (!item.productId) return []
     return batches
-      .filter((b) => b.productId === item.productId && b.quantity > 0)
+      .filter((b) => b.productId === item.productId && b.quantity > 0 && !isExpired(b.expiryDate))
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
   }, [item.productId])
 
@@ -422,7 +426,7 @@ function BillingRow({
       // store before we read FEFO/MRP from them.
       syncProductBatchesIntoStore(product)
       const productBatches = useMasterDataStore.getState().batches
-        .filter((b) => b.productId === product.id && b.quantity > 0)
+        .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
       const firstBatch = productBatches[0]
@@ -991,7 +995,7 @@ function BillingRow({
                     {isModified ? (
                       <span className="line-through">{formatCurrency(originalRate)}</span>
                     ) : (
-                      <span>orig {formatCurrency(originalRate)}</span>
+                      <span>Rate A {formatCurrency(originalRate)}</span>
                     )}
                   </span>
                 )}
@@ -1234,7 +1238,7 @@ function MobileBillingCard({
   const productBatches = useMemo(() => {
     if (!item.productId) return []
     return batches
-      .filter((b) => b.productId === item.productId && b.quantity > 0)
+      .filter((b) => b.productId === item.productId && b.quantity > 0 && !isExpired(b.expiryDate))
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
   }, [item.productId, batches])
 
@@ -1259,7 +1263,7 @@ function MobileBillingCard({
   const handleProductSelect = (product: Product) => {
     syncProductBatchesIntoStore(product)
     const pBatches = useMasterDataStore.getState().batches
-      .filter((b) => b.productId === product.id && b.quantity > 0)
+      .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
     const firstBatch = pBatches[0]
@@ -1681,11 +1685,13 @@ function PaymentPanel({
           })()}
           <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Due Date
+              Due Date <span className="text-rose-500">*</span>
             </label>
             <DatePicker
               value={details.creditDueDate}
               onChange={(v) => onDetailsChange({ creditDueDate: v })}
+              min={new Date().toISOString().slice(0, 10)}
+              error={!details.creditDueDate}
               className="h-9 text-xs"
             />
           </div>
@@ -1851,6 +1857,12 @@ export default function NewSalePage() {
     if (prefillId) {
       api.get(`/billing/${prefillId}`).then((res) => {
         const inv = res.data
+        // Paid invoices are locked — block edit even via a direct ?editId= URL.
+        if (editId && inv.status === 'PAID') {
+          toast.error('Paid invoices can’t be edited.')
+          navigate('/billing/sales')
+          return
+        }
         // Pre-fill items from the original/draft invoice
         if (Array.isArray(inv.items) && inv.items.length > 0) {
           setItems(inv.items.map((it: Record<string, unknown>) => ({
@@ -2179,7 +2191,7 @@ export default function NewSalePage() {
           if (!product) return it
           syncProductBatchesIntoStore(product)
           const productBatches = useMasterDataStore.getState().batches
-            .filter((b) => b.productId === product.id && b.quantity > 0)
+            .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
             .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
           const batch = productBatches[0]
           const rate = it.rate || product.sellingRate || 0
@@ -2386,26 +2398,41 @@ export default function NewSalePage() {
   const [customerReminders, setCustomerReminders] = useState<any[]>([])
   const [customerRemindersLoading, setCustomerRemindersLoading] = useState(false)
 
+  // Fetch this customer's reminders. Extracted into a callback so the create /
+  // edit / delete / log-contact actions can refresh the list immediately —
+  // previously a new reminder only appeared after a full page reload.
+  const fetchCustomerReminders = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!selectedCustomer || !selectedCustomer.id) {
+      setCustomerReminders([])
+      return
+    }
+    if (!opts?.silent) setCustomerRemindersLoading(true)
+    try {
+      // Server-side customer filter — the previous implementation fetched every
+      // reminder in the branch and discarded all but this customer's, which got
+      // expensive once the branch accumulated thousands of reminders.
+      const res = await api.get('/reminders', {
+        params: {
+          branchId: activeBranchId || undefined,
+          customerId: selectedCustomer.id,
+        },
+      })
+      setCustomerReminders(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setCustomerReminders([])
+    } finally {
+      setCustomerRemindersLoading(false)
+    }
+  }, [selectedCustomer, activeBranchId])
+
   useEffect(() => {
     // Stub quotation customer (id='') has no reminders in DB. Skip fetch.
     if (tableView !== 'customer-reminders' || !selectedCustomer || !selectedCustomer.id) {
       setCustomerReminders([])
       return
     }
-    setCustomerRemindersLoading(true)
-    // Server-side customer filter — the previous implementation fetched every
-    // reminder in the branch and discarded all but this customer's, which got
-    // expensive once the branch accumulated thousands of reminders.
-    api.get('/reminders', {
-      params: {
-        branchId: activeBranchId || undefined,
-        customerId: selectedCustomer.id,
-      },
-    })
-      .then(res => setCustomerReminders(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setCustomerReminders([]))
-      .finally(() => setCustomerRemindersLoading(false))
-  }, [tableView, selectedCustomer, activeBranchId])
+    fetchCustomerReminders()
+  }, [tableView, selectedCustomer, activeBranchId, fetchCustomerReminders])
 
 
   // Fetch customer invoices whenever customer changes — used for both history panel and last-rate cache
@@ -2497,9 +2524,16 @@ export default function NewSalePage() {
   const [showHeroResults, setShowHeroResults] = useState(false)
   const [heroSelectedIdx, setHeroSelectedIdx] = useState(0)
 
-  // ── Auto-focus hero search on mount ──────────────────────
+  // ── On mount: customer-first flow ─────────────────────────
+  // No customer yet → open the customer dropdown (its search input
+  // autoFocuses). Customer already set (edit-invoice / draft-restore) →
+  // focus the product search so the operator can scan items immediately.
   useEffect(() => {
-    setTimeout(() => heroSearchRef.current?.focus(), 100)
+    setTimeout(() => {
+      if (selectedCustomer) heroSearchRef.current?.focus()
+      else setShowCustomerDropdown(true)
+    }, 100)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Close dropdowns on outside click ──────────────────────
@@ -2607,7 +2641,7 @@ export default function NewSalePage() {
       } else {
         // Create new pre-filled item
         const productBatches = useMasterDataStore.getState().batches
-          .filter((b) => b.productId === product.id && b.quantity > 0)
+          .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
           .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
         const firstBatch = productBatches[0]
@@ -2890,6 +2924,10 @@ export default function NewSalePage() {
     billingType: billingType.toUpperCase() as 'RETAIL' | 'WHOLESALE',
     customerId: selectedCustomer?.id,
     customerName: selectedCustomer?.name ?? '—',
+    customerPhone: selectedCustomer?.phone ?? null,
+    customerAddress: selectedCustomer?.address ?? null,
+    customerGstin: selectedCustomer?.gstin ?? null,
+    dueDate: paymentMode === 'CREDIT' ? (paymentDetails.creditDueDate || null) : null,
     items: items
       .filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
       .map((i) => ({
@@ -2912,6 +2950,7 @@ export default function NewSalePage() {
     cgst: totals.cgst,
     sgst: totals.sgst,
     igst: 0,
+    deliveryCharge: totals.deliveryCharge,
     roundOff: totals.roundOff,
     grandTotal: totals.grandTotal,
     paymentMode: paymentMode as Invoice['paymentMode'],
@@ -2929,6 +2968,27 @@ export default function NewSalePage() {
   const [reminderTitle, setReminderTitle] = useState('')
   const [reminderNotes, setReminderNotes] = useState('')
   const [reminderSaving, setReminderSaving] = useState(false)
+  // When set, the dialog edits this existing reminder (PATCH) instead of
+  // creating a new one (POST).
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(null)
+
+  // Open the dialog in "create" mode with an optional pre-filled title.
+  const openNewReminder = (title = '') => {
+    setEditingReminderId(null)
+    setReminderDay('')
+    setReminderTitle(title)
+    setReminderNotes('')
+    setReminderOpen(true)
+  }
+
+  // Open the dialog in "edit" mode, pre-filled from an existing reminder.
+  const openEditReminder = (r: any) => {
+    setEditingReminderId(r.id)
+    setReminderDay(String(r.dayOfMonth ?? ''))
+    setReminderTitle(r.title ?? '')
+    setReminderNotes(r.notes ?? '')
+    setReminderOpen(true)
+  }
 
   const handleSaveReminder = async () => {
     if (!selectedCustomer || !reminderDay || !reminderTitle) {
@@ -2937,22 +2997,103 @@ export default function NewSalePage() {
     }
     setReminderSaving(true)
     try {
-      await api.post('/reminders', {
-        customerId: selectedCustomer.id,
-        dayOfMonth: parseInt(reminderDay),
-        title: reminderTitle,
-        notes: reminderNotes || undefined,
-        branchId: activeBranchId || undefined,
-      })
-      toast.success(`Reminder set for ${selectedCustomer.name} on day ${reminderDay} of every month`)
+      if (editingReminderId) {
+        await api.patch(`/reminders/${editingReminderId}`, {
+          dayOfMonth: parseInt(reminderDay),
+          title: reminderTitle,
+          notes: reminderNotes || null,
+        })
+        toast.success('Reminder updated')
+      } else {
+        await api.post('/reminders', {
+          customerId: selectedCustomer.id,
+          dayOfMonth: parseInt(reminderDay),
+          title: reminderTitle,
+          notes: reminderNotes || undefined,
+          branchId: activeBranchId || undefined,
+        })
+        toast.success(`Reminder set for ${selectedCustomer.name} on day ${reminderDay} of every month`)
+      }
       setReminderOpen(false)
+      setEditingReminderId(null)
       setReminderDay('')
       setReminderTitle('')
       setReminderNotes('')
+      fetchCustomerReminders({ silent: true })
     } catch {
-      toast.error('Failed to set reminder')
+      toast.error(editingReminderId ? 'Failed to update reminder' : 'Failed to set reminder')
     } finally {
       setReminderSaving(false)
+    }
+  }
+
+  // Discard (delete) a reminder.
+  const [deletingReminderId, setDeletingReminderId] = useState<string | null>(null)
+  const handleDeleteReminder = async (r: any) => {
+    if (!window.confirm(`Discard the reminder "${r.title}"? This cannot be undone.`)) return
+    setDeletingReminderId(r.id)
+    try {
+      await api.delete(`/reminders/${r.id}`)
+      toast.success('Reminder discarded')
+      fetchCustomerReminders({ silent: true })
+    } catch {
+      toast.error('Failed to discard reminder')
+    } finally {
+      setDeletingReminderId(null)
+    }
+  }
+
+  // ── Log contact / schedule follow-up ──────────────────────
+  // Mirrors the Reminders tab: log how the contact went and optionally schedule
+  // a one-off follow-up date that overrides the monthly cycle until next contact.
+  type ContactStatus = 'TALKED' | 'NOT_RESPONDED' | 'DENIED' | 'NEED_TO_TALK' | 'SCHEDULED'
+  const CONTACT_STATUS_LABELS: Record<ContactStatus, string> = {
+    TALKED: 'Talked',
+    NOT_RESPONDED: 'Not Responded',
+    DENIED: 'Denied',
+    NEED_TO_TALK: 'Need to Talk',
+    SCHEDULED: 'Scheduled',
+  }
+  const [logReminder, setLogReminder] = useState<any | null>(null)
+  const [logStatus, setLogStatus] = useState<ContactStatus>('TALKED')
+  const [logNotes, setLogNotes] = useState('')
+  const [logFollowUp, setLogFollowUp] = useState('')
+  const [logSaving, setLogSaving] = useState(false)
+
+  const openLogContact = (r: any) => {
+    setLogReminder(r)
+    setLogStatus('TALKED')
+    setLogNotes('')
+    setLogFollowUp('')
+  }
+
+  const handleLogContact = async () => {
+    if (!logReminder) return
+    setLogSaving(true)
+    try {
+      await api.post(`/reminders/${logReminder.id}/contacts`, {
+        status: logStatus,
+        notes: logNotes.trim() || undefined,
+        followUpDate: logFollowUp || undefined,
+      })
+      toast.success(logFollowUp ? 'Contact logged · follow-up scheduled' : 'Contact logged')
+      setLogReminder(null)
+      fetchCustomerReminders({ silent: true })
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to log contact')
+    } finally {
+      setLogSaving(false)
+    }
+  }
+
+  // Clear an active one-off follow-up, reverting to the plain monthly cycle.
+  const handleClearFollowUp = async (r: any) => {
+    try {
+      await api.patch(`/reminders/${r.id}`, { followUpDate: null })
+      toast.success('Follow-up cleared')
+      fetchCustomerReminders({ silent: true })
+    } catch {
+      toast.error('Failed to clear follow-up')
     }
   }
   // Save the current bill as a server-side draft (no stock movement, no
@@ -3102,6 +3243,15 @@ export default function NewSalePage() {
       return
     }
 
+    // Credit sales must carry a payment due date — it drives the WhatsApp
+    // payment reminder and the receivables follow-up. Quotations are exempt
+    // (no money is owed yet).
+    if (invoiceType !== 'quotation' && effectivePaymentMode === 'CREDIT' && !paymentDetails.creditDueDate) {
+      toast.error('Select a due date for this credit sale')
+      setPaymentMode('CREDIT')
+      return
+    }
+
     // Validate qty against batch stock — skipped for quotations because the
     // product may not be in inventory yet (the whole point of quoting first).
     if (invoiceType !== 'quotation') {
@@ -3150,6 +3300,10 @@ export default function NewSalePage() {
                 : (Number(paymentDetails.amountReceived) || Number(totals.grandTotal) || 0),
         changeReturned: invoiceType === 'quotation' ? 0 : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
         status: invoiceType === 'quotation' ? 'DRAFT' : effectivePaymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
+
+        // Credit-sale payment due date (yyyy-MM-dd from the DatePicker). Only
+        // sent for CREDIT sales; the backend stores it on Invoice.dueDate.
+        ...(effectivePaymentMode === 'CREDIT' && paymentDetails.creditDueDate && { dueDate: paymentDetails.creditDueDate }),
 
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
@@ -3265,7 +3419,12 @@ export default function NewSalePage() {
           try { await api.patch(`/quotations/${quotationSource.id}/status`, { status: 'CONVERTED' }) } catch { /* non-critical */ }
         }
         const autoPrint = useSettingsStore.getState().generalSettings.autoPrint
-        if (autoPrint) printInvoicePdf(savedInvoice)
+        if (autoPrint) printInvoicePdf({
+          ...savedInvoice,
+          customerPhone: selectedCustomer?.phone ?? savedInvoice.customerPhone,
+          customerAddress: selectedCustomer?.address ?? null,
+          customerGstin: selectedCustomer?.gstin ?? null,
+        })
         toast.success(
           editingInvoiceId
             ? (autoPrint ? 'Invoice updated and sent to printer' : 'Invoice updated')
@@ -3497,7 +3656,7 @@ export default function NewSalePage() {
       }
       const res = await api.post('/products', payload)
       const newProduct: Product | undefined = res.data
-      toast.success(`Product "${values.name}" added — add stock via Purchase Received to bill this item`)
+      toast.success(`Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`)
       await fetchMasterData()
       // Auto-fill the row that triggered the create. The new product has no
       // batches yet, so we set the product reference + pricing only; the
@@ -3546,6 +3705,130 @@ export default function NewSalePage() {
   // Re-derive when the form opens (cheap; lists are small) and when master data refreshes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addProductDialogOpen])
+
+  // POS action bar — Held / Hold / Share / Preview / Save & Print.
+  // Defined once and rendered in two places (see render): inside the left
+  // column at lg+ so it spans only the table width and lets the order-summary
+  // sidebar use the full height beside it (no scroll), and as a full-width bar
+  // on md tablets where the two panels stack through the step flow.
+  const actionBarInner = (
+    <div className="border-t border-border bg-background/95 backdrop-blur-sm">
+      {/* responsive: kbd badges (F7/F8/F9/F10) hidden on md tablets to keep cells from overflowing. 6-wide grid: Held + Hold + Share + Preview (4) + Save & Print (spans 2) = 6, so the bar fills with no empty column. */}
+      <div className="grid grid-cols-6 divide-x divide-border/60">
+        {/* Held — with count badge */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setHeldBillsOpen(true)}
+              className="group relative inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+            >
+              <Receipt className="h-4 w-4 shrink-0" />
+              <span>Held</span>
+              {heldBills.length > 0 && (
+                <span className="inline-flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white tabular-nums">
+                  {heldBills.length}
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>View held bills</TooltipContent>
+        </Tooltip>
+
+        {/* Hold (F10) */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={holdCurrentBill}
+              className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+            >
+              <Pause className="h-4 w-4 shrink-0" />
+              <span>Hold</span>
+              <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Hold bill for later (F10)</TooltipContent>
+        </Tooltip>
+
+        {/* Save as Draft — hidden for now (not needed in this flow). */}
+
+        {/* Share (F9) */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
+              className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+            >
+              <Share2 className="h-4 w-4 shrink-0" />
+              <span>Share</span>
+              <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
+        </Tooltip>
+
+        {/* Preview (F7) */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              disabled={!selectedCustomer || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
+              className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
+              <FileText className="h-4 w-4 shrink-0" />
+              <span>Preview</span>
+              <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F7</kbd>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Preview invoice (F7)</TooltipContent>
+        </Tooltip>
+
+        {/* Save & Print (F8) — primary hero, spans 2 cols */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
+              disabled={isSubmitting || !selectedCustomer}
+              className={cn(
+                'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
+                isCreditBlocked && isPharmacist
+                  ? 'bg-amber-500 hover:bg-amber-600'
+                  : 'bg-primary hover:bg-primary/90'
+              )}
+            >
+              {isCreditBlocked && isPharmacist
+                ? <ShieldCheck className="h-5 w-5 shrink-0" />
+                : <Printer className="h-5 w-5 shrink-0" />
+              }
+              <div className="flex flex-col items-start leading-tight min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90 truncate">
+                  {isCreditBlocked && isPharmacist
+                    ? 'Request'
+                    : editingInvoiceId
+                      ? 'Update & Print'
+                      : editingDraftId
+                        ? 'Finalize & Print'
+                        : 'Save & Print'}
+                </span>
+                <span className="text-sm font-semibold tabular-nums truncate">
+                  {isSubmitting
+                    ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving…')
+                    : (isCreditBlocked && isPharmacist ? 'Approval' : formatCurrency(totals.grandTotal))
+                  }
+                </span>
+              </div>
+              <kbd className="hidden lg:inline-flex ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold shrink-0">F8</kbd>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Save and print invoice (F8)</TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+  )
 
   // ── Render ──────────────────────────────────────────────
   return (
@@ -3850,41 +4133,6 @@ export default function NewSalePage() {
                     {formatCurrency(Math.abs(Number(selectedCustomer.currentOutstanding)))} credit
                   </Badge>
                 )}
-                {selectedCustomer && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="ml-1 p-1 rounded hover:bg-accent text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors cursor-pointer"
-                    onClick={(e) => { e.stopPropagation(); setTableView('customer-history') }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setTableView('customer-history') } }}
-                    title="View purchase history"
-                  >
-                    <History className="h-3.5 w-3.5" />
-                  </span>
-                )}
-                {selectedCustomer && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="p-1 rounded hover:bg-accent text-muted-foreground/60 hover:text-foreground shrink-0 transition-colors cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                      setReminderOpen(true)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                        setReminderOpen(true)
-                      }
-                    }}
-                    title="Set monthly reminder for this customer"
-                  >
-                    <CalendarClock className="h-3.5 w-3.5" />
-                  </span>
-                )}
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
               </button>
               <AnimatePresence>
@@ -4036,10 +4284,7 @@ export default function NewSalePage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                  setReminderOpen(true)
-                }}
+                onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
                 className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
                 title="Set monthly reminder for this customer"
               >
@@ -4061,6 +4306,65 @@ export default function NewSalePage() {
             </Button>
           </div>
         </div>
+
+        {/* ── Selected Customer Details (verify the right customer) ── */}
+        <AnimatePresence>
+          {selectedCustomer && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden mb-2"
+            >
+              {/* Neutral strip (no colored fill) so it doesn't clash with the
+                  rose credit-block banner when both are on screen. */}
+              <div className="border-b border-border/40 px-4 py-2">
+                {/* Detail fields (name shown in the selector pill above) */}
+                <div className="flex flex-wrap items-start gap-x-8 gap-y-2.5">
+                  {selectedCustomer.phone && selectedCustomer.phone !== '0000000000' && (
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">Phone</div>
+                        <div className="text-sm font-medium text-foreground tabular-nums">
+                          {selectedCustomer.phone}
+                          {selectedCustomer.alternatePhone && <span className="text-muted-foreground"> / {selectedCustomer.alternatePhone}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedCustomer.address && (
+                    <div className="flex items-start gap-2 min-w-0 max-w-md">
+                      <MapPin className="h-4 w-4 shrink-0 text-muted-foreground/60 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">Address</div>
+                        <div className="text-sm font-medium text-foreground leading-snug">{selectedCustomer.address}</div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedCustomer.gstin && (
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">GSTIN</div>
+                        <div className="text-sm font-medium text-foreground font-mono">{selectedCustomer.gstin}</div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedCustomer.dlNumber && (
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">DL No.</div>
+                        <div className="text-sm font-medium text-foreground font-mono">{selectedCustomer.dlNumber}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Credit Block Warning ── */}
         <AnimatePresence>
@@ -4344,7 +4648,7 @@ export default function NewSalePage() {
                     <div className="min-w-0">
                       <h2 className="text-sm font-bold">Add New Product</h2>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        Saves to product master. Stock will be 0 until a Purchase Received entry is made — add stock to bill this item.
+                        Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded — add stock to bill this item.
                       </p>
                     </div>
                   </div>
@@ -4894,27 +5198,21 @@ export default function NewSalePage() {
                         <button
                           type="button"
                           className="text-xs text-violet-600 font-semibold hover:underline"
-                          onClick={() => {
-                            setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                            setReminderOpen(true)
-                          }}
+                          onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
                         >
                           + Set a reminder
                         </button>
                       </div>
                     ) : (
                       <div className="flex-1 overflow-y-auto">
-                        <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/20">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40 bg-muted/20">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             {customerReminders.length} reminder{customerReminders.length !== 1 ? 's' : ''} — {selectedCustomer.name}
                           </p>
                           <button
                             type="button"
-                            className="text-[10px] text-violet-600 font-semibold hover:underline"
-                            onClick={() => {
-                              setReminderTitle(`Monthly order follow-up — ${selectedCustomer.name}`)
-                              setReminderOpen(true)
-                            }}
+                            className="text-xs text-violet-600 font-semibold hover:underline"
+                            onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
                           >
                             + Add
                           </button>
@@ -4929,26 +5227,74 @@ export default function NewSalePage() {
                               NEED_TO_TALK: 'text-blue-600',
                               SCHEDULED: 'text-muted-foreground',
                             }
+                            // Active one-off follow-up overrides the monthly cycle until the next contact is logged.
+                            const activeFollowUp = r.followUpDate ? new Date(r.followUpDate) : null
+                            const followUpOverdue = activeFollowUp ? activeFollowUp.setHours(0,0,0,0) < new Date().setHours(0,0,0,0) : false
                             return (
-                              <div key={r.id} className="flex items-start gap-3 px-3 py-3 hover:bg-muted/20 transition-colors">
+                              <div key={r.id} className="group flex items-start gap-3.5 px-4 py-3.5 hover:bg-muted/20 transition-colors">
                                 <div className={cn(
-                                  'flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl text-center',
+                                  'flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl text-center',
                                   r.dayOfMonth === new Date().getDate()
                                     ? 'bg-amber-500 text-white'
                                     : 'bg-violet-500/10 text-violet-600'
                                 )}>
-                                  <span className="text-sm font-black leading-none">{r.dayOfMonth}</span>
-                                  <span className="text-[7px] font-bold uppercase opacity-70">mo</span>
+                                  <span className="text-base font-black leading-none">{r.dayOfMonth}</span>
+                                  <span className="text-[8px] font-bold uppercase opacity-70">mo</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-semibold truncate">{r.title}</p>
-                                  <p className="text-[10px] text-muted-foreground">Every {r.dayOfMonth}{['st','nd','rd'][r.dayOfMonth-1] ?? 'th'} of month</p>
+                                  <p className="text-sm font-semibold truncate">{r.title}</p>
+                                  <p className="text-xs text-muted-foreground">Every {r.dayOfMonth}{['st','nd','rd'][r.dayOfMonth-1] ?? 'th'} of month</p>
                                   {lastContact && (
-                                    <p className={cn('text-[10px] font-medium mt-0.5', statusColors[lastContact.status] ?? 'text-muted-foreground')}>
+                                    <p className={cn('text-[11px] font-medium mt-0.5', statusColors[lastContact.status] ?? 'text-muted-foreground')}>
                                       Last: {lastContact.status.replace('_', ' ')} · {new Date(lastContact.contactedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                                     </p>
                                   )}
-                                  {r.notes && <p className="text-[10px] text-muted-foreground/60 truncate">{r.notes}</p>}
+                                  {activeFollowUp && (
+                                    <p className={cn(
+                                      'mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold',
+                                      followUpOverdue ? 'text-rose-600' : 'text-violet-600',
+                                    )}>
+                                      <CalendarClock className="h-3 w-3" />
+                                      {followUpOverdue ? 'Follow-up overdue' : 'Follow-up'} {activeFollowUp.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                      <button
+                                        type="button"
+                                        className="ml-1 text-muted-foreground/60 hover:text-foreground"
+                                        title="Clear follow-up"
+                                        onClick={() => handleClearFollowUp(r)}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </p>
+                                  )}
+                                  {r.notes && <p className="text-[11px] text-muted-foreground/60 truncate">{r.notes}</p>}
+                                </div>
+                                {/* Row actions — log follow-up, edit, discard */}
+                                <div className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+                                  <button
+                                    type="button"
+                                    title="Log contact / schedule follow-up"
+                                    className="flex h-9 w-9 items-center justify-center rounded-md text-violet-600 hover:bg-violet-500/10"
+                                    onClick={() => openLogContact(r)}
+                                  >
+                                    <CalendarClock className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Edit reminder"
+                                    className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                                    onClick={() => openEditReminder(r)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Discard reminder"
+                                    disabled={deletingReminderId === r.id}
+                                    className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-40"
+                                    onClick={() => handleDeleteReminder(r)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
                                 </div>
                               </div>
                             )
@@ -5384,6 +5730,13 @@ export default function NewSalePage() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Desktop action bar — rendered inside the left column (lg+ only)
+                so it spans just the table width, leaving the order-summary
+                sidebar free to use the full height beside it without scrolling. */}
+            <div className="hidden lg:block shrink-0 mt-2">
+              {actionBarInner}
+            </div>
           </div>
 
           {/* ── RIGHT: Sticky Sidebar ────────────────── */}
@@ -5516,8 +5869,10 @@ export default function NewSalePage() {
                   </div>
                 </div>
 
-                {/* Payment Section — now second. No inner scroll: the parent CardContent is the single scroll region. */}
-                <div className="p-3">
+                {/* Payment Section — now second. No inner scroll: the parent CardContent is the single scroll region.
+                    Extra bottom padding (pb-6) leaves breathing room above the Save & Print bar so the
+                    last fields (e.g. credit-mode Due Date) are easy to reach and aren't jammed against it. */}
+                <div className="p-3 pb-6">
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
                     <CreditCard className="h-3.5 w-3.5" />
                     Payment
@@ -5539,148 +5894,18 @@ export default function NewSalePage() {
         </div>
 
         {/* ═══════════════════════════════════════════════════
-            ACTIONS FOOTER — Fixed bottom POS-style action bar
+            ACTIONS FOOTER (md tablets only) — full-width bar. At lg+ the
+            same bar is rendered inside the left column (see above) so it
+            spans just the table width and the order-summary sidebar can use
+            the full height beside it without scrolling.
         ═══════════════════════════════════════════════════ */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] as const }}
-          className="hidden md:block shrink-0 -mx-2 sm:-mx-3 md:-mx-4 lg:-mx-6 mt-2"
+          className="hidden md:block lg:hidden shrink-0 -mx-2 sm:-mx-3 md:-mx-4 mt-2"
         >
-          <div className="border-t border-border bg-background/95 backdrop-blur-sm">
-            {/* responsive: kbd badges (F7/F8/F9/F10) hidden on md tablets to keep cells from overflowing; columns still 7-wide because Save & Print spans 2 — but cell padding shrinks at md */}
-            <div className="grid grid-cols-7 divide-x divide-border/60">
-              {/* Held — with count badge */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setHeldBillsOpen(true)}
-                    className="group relative inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-                  >
-                    <Receipt className="h-4 w-4 shrink-0" />
-                    <span>Held</span>
-                    {heldBills.length > 0 && (
-                      <span className="inline-flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white tabular-nums">
-                        {heldBills.length}
-                      </span>
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>View held bills</TooltipContent>
-              </Tooltip>
-
-              {/* Hold (F10) */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={holdCurrentBill}
-                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-                  >
-                    <Pause className="h-4 w-4 shrink-0" />
-                    <span>Hold</span>
-                    {/* responsive: kbd hidden below xl to free up column space at md/lg */}
-                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Hold bill for later (F10)</TooltipContent>
-              </Tooltip>
-
-              {/* Save as Draft — persists to server, resumable across devices */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={saveAsDraft}
-                    disabled={isSavingDraft || isSubmitting}
-                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                  >
-                    <Save className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{isSavingDraft ? 'Saving…' : (editingDraftId ? 'Update Draft' : 'Draft')}</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {editingDraftId ? 'Re-save this draft' : 'Save as draft — finish later from Sales list'}
-                </TooltipContent>
-              </Tooltip>
-
-              {/* Share (F9) */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
-                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-                  >
-                    <Share2 className="h-4 w-4 shrink-0" />
-                    <span>Share</span>
-                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
-              </Tooltip>
-
-              {/* Preview (F7) */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(true)}
-                    disabled={!selectedCustomer || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
-                    className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                  >
-                    <FileText className="h-4 w-4 shrink-0" />
-                    <span>Preview</span>
-                    <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F7</kbd>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Preview invoice (F7)</TooltipContent>
-              </Tooltip>
-
-              {/* Save & Print (F8) — primary hero, spans 2 cols */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
-                    disabled={isSubmitting || !selectedCustomer}
-                    className={cn(
-                      'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
-                      isCreditBlocked && isPharmacist
-                        ? 'bg-amber-500 hover:bg-amber-600'
-                        : 'bg-primary hover:bg-primary/90'
-                    )}
-                  >
-                    {isCreditBlocked && isPharmacist
-                      ? <ShieldCheck className="h-5 w-5 shrink-0" />
-                      : <Printer className="h-5 w-5 shrink-0" />
-                    }
-                    <div className="flex flex-col items-start leading-tight min-w-0">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90 truncate">
-                        {isCreditBlocked && isPharmacist
-                          ? 'Request'
-                          : editingInvoiceId
-                            ? 'Update & Print'
-                            : editingDraftId
-                              ? 'Finalize & Print'
-                              : 'Save & Print'}
-                      </span>
-                      <span className="text-sm font-semibold tabular-nums truncate">
-                        {isSubmitting
-                          ? (isCreditBlocked && isPharmacist ? 'Sending…' : 'Saving…')
-                          : (isCreditBlocked && isPharmacist ? 'Approval' : formatCurrency(totals.grandTotal))
-                        }
-                      </span>
-                    </div>
-                    {/* responsive: F8 kbd hidden below lg to keep amount visible at md */}
-                    <kbd className="hidden lg:inline-flex ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold shrink-0">F8</kbd>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Save and print invoice (F8)</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
+          {actionBarInner}
         </motion.div>
       </div>
       </div>
@@ -5840,6 +6065,7 @@ export default function NewSalePage() {
                           ...(prev.productDiscount > 0 ? [{ label: 'Discount', value: `− ${formatCurrency(prev.productDiscount)}`, rose: true }] : []),
                           { label: 'Taxable Value', value: formatCurrency(prev.taxableAmount) },
                           ...(prev.cgst > 0 ? [{ label: 'CGST', value: formatCurrency(prev.cgst) }, { label: 'SGST', value: formatCurrency(prev.sgst) }] : []),
+                          ...(Number(prev.deliveryCharge) > 0 ? [{ label: 'Delivery / Packaging', value: formatCurrency(Number(prev.deliveryCharge)) }] : []),
                           ...(prev.roundOff !== 0 ? [{ label: 'Round Off', value: `${prev.roundOff > 0 ? '+' : ''}${prev.roundOff.toFixed(2)}`, dim: true }] : []),
                         ].map((row: any) => (
                           <div key={row.label} className="flex justify-between text-sm">
@@ -6024,14 +6250,14 @@ export default function NewSalePage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Quick Reminder Dialog ── */}
-      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+      {/* ── Quick Reminder Dialog (create + edit) ── */}
+      <Dialog open={reminderOpen} onOpenChange={(open) => { setReminderOpen(open); if (!open) setEditingReminderId(null) }}>
         {/* responsive: clamp width on tiny phones */}
         <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-violet-500" />
-              Set Monthly Reminder
+              {editingReminderId ? 'Edit Reminder' : 'Set Monthly Reminder'}
             </DialogTitle>
             <DialogDescription>
               {selectedCustomer?.name} · {selectedCustomer?.phone}
@@ -6078,9 +6304,69 @@ export default function NewSalePage() {
             <Button
               onClick={handleSaveReminder}
               disabled={reminderSaving || !reminderDay || !reminderTitle}
-              className="bg-violet-600 hover:bg-violet-700"
             >
-              {reminderSaving ? 'Saving...' : 'Set Reminder'}
+              {reminderSaving ? 'Saving...' : editingReminderId ? 'Update Reminder' : 'Set Reminder'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Log Contact / Follow-up Dialog ── */}
+      <Dialog open={!!logReminder} onOpenChange={(open) => { if (!open) setLogReminder(null) }}>
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-violet-500" />
+              Log Contact
+            </DialogTitle>
+            <DialogDescription>
+              {logReminder?.title}
+              {selectedCustomer && <> · {selectedCustomer.name}</>}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Status</Label>
+              <Select value={logStatus} onValueChange={(v) => setLogStatus(v as ContactStatus)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(CONTACT_STATUS_LABELS) as ContactStatus[]).map((k) => (
+                    <SelectItem key={k} value={k}>{CONTACT_STATUS_LABELS[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Notes (optional)</Label>
+              <Textarea
+                placeholder="What was discussed, what was ordered, next steps…"
+                rows={2}
+                value={logNotes}
+                onChange={(e) => setLogNotes(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">
+                Follow up on <span className="font-normal text-muted-foreground/60">· optional</span>
+              </Label>
+              <DatePicker
+                value={logFollowUp}
+                onChange={setLogFollowUp}
+                placeholder="Pick a date the customer asked for"
+              />
+              {logFollowUp && (
+                <p className="text-[10px] text-muted-foreground">
+                  A one-off follow-up on this date overrides the monthly cycle until the next contact is logged.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLogReminder(null)}>Cancel</Button>
+            <Button onClick={handleLogContact} disabled={logSaving}>
+              {logSaving ? 'Saving...' : 'Log Contact'}
             </Button>
           </DialogFooter>
         </DialogContent>

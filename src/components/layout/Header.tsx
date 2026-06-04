@@ -19,6 +19,7 @@ import { navigate as routerNavigate, href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useBranchStore } from '@/stores/branchStore'
+import { isSuperAdmin } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
@@ -54,8 +55,14 @@ export function Header({ breadcrumbs }: HeaderProps) {
   const { unreadCount, fetchNotifications, startPolling } = useNotificationStore()
   const { branches, activeBranch, setActiveBranch, fetchBranches } = useBranchStore()
 
-  const isAdmin = user?.role?.toUpperCase() === 'ADMIN'
-  const userHasFixedBranch = !!(user as any)?.branchId
+  // Branches this user may switch between. Super Admins reach every active
+  // branch; everyone else is limited to their assigned set (branchIds).
+  const superAdmin = isSuperAdmin(user)
+  const allowedBranchIds = (user?.branchIds ?? []) as string[]
+  const allowedBranches = branches.filter(
+    (b) => b.isActive && (superAdmin || allowedBranchIds.includes(b.id)),
+  )
+  const canSwitchBranch = allowedBranches.length > 1
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches() }, [])
@@ -139,9 +146,10 @@ export function Header({ breadcrumbs }: HeaderProps) {
             Hidden on mobile (the pill won't fit the header bar). */}
         <HeaderSearch />
 
-        {/* Branch indicator/selector — non-admins see a locked badge; admins get a switcher */}
+        {/* Branch selector — a switcher when the user may reach >1 branch
+            (Super Admins and multi-branch staff), a locked badge otherwise. */}
         {activeBranch && (
-          isAdmin && branches.length > 1 ? (
+          canSwitchBranch ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -156,7 +164,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuLabel>Switch Branch</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {branches.filter(b => b.isActive).map((b) => (
+                {allowedBranches.map((b) => (
                   <DropdownMenuItem
                     key={b.id}
                     onClick={() => setActiveBranch(b.id)}
@@ -173,12 +181,12 @@ export function Header({ breadcrumbs }: HeaderProps) {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : userHasFixedBranch ? (
+          ) : (
             <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex">
               <Building2 className="h-3.5 w-3.5 text-primary" />
               <span className="max-w-30 truncate">{activeBranch.name}</span>
             </div>
-          ) : null
+          )
         )}
 
         {/* Notification Bell — navigates straight to notifications page */}

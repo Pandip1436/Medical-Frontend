@@ -18,6 +18,7 @@ import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { isAdminish } from '@/types'
 
 type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN'
 type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -52,7 +53,7 @@ export default function ApprovalDetailPage() {
   // Accept either `?id=` (new) or `?requestId=` (legacy).
   const params = new URLSearchParams(search)
   const id = params.get('id') ?? params.get('requestId')
-  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
+  const isAdmin = useAuthStore((s) => isAdminish(s.user))
 
   const [req, setReq] = useState<ApprovalRequest | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -103,7 +104,7 @@ export default function ApprovalDetailPage() {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={goBack}>
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to approvals
+        <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
 
       <Card>
@@ -192,14 +193,14 @@ function ApprovalDetailBody({
 
   return (
     <>
-      <CardHeader className={cn('border-l-[3px] border-b border-border/40', cfg.border)}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl', cfg.bg)}>
+      <CardHeader className="border-b border-border/40">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={cn('flex h-11 w-11 items-center justify-center rounded-xl', cfg.bg)}>
               <Icon className={cn('h-5 w-5', cfg.color)} />
             </div>
             <div>
-              <p className="text-base font-semibold">{cfg.label}</p>
+              <p className="text-base font-semibold leading-snug">{cfg.label}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Requested by <span className="font-medium text-foreground">{req.requestedBy.name}</span>
                 {' · '}{formatDateTime(req.requestedAt)}

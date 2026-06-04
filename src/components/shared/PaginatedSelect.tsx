@@ -230,7 +230,7 @@ export function PaginatedSelect({
           >
             <SelectPrimitive.Viewport
               ref={viewportRefCallback}
-              className="p-1 max-h-[260px] overflow-y-auto min-w-(--radix-select-trigger-width)"
+              className="p-1 max-h-65 overflow-y-auto min-w-(--radix-select-trigger-width)"
             >
               {pinnedOption && (
                 <PaginatedItem option={pinnedOption} />
@@ -268,7 +268,7 @@ function PaginatedItem({ option }: { option: PaginatedOption }) {
       className={cn(
         'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none',
         'focus:bg-accent focus:text-accent-foreground',
-        'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'data-disabled:pointer-events-none data-disabled:opacity-50',
       )}
     >
       <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">

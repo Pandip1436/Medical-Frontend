@@ -8,10 +8,26 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatCurrency(amount: any): string {
   const num = Number(amount) || 0
+  // Whole rupees only — sales are billed at rounded grand totals, so paise
+  // (₹…​.4 / ₹…​.6) are never shown anywhere (invoice, ledger, payment history…).
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
     minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(num)
+}
+
+// Same as formatCurrency but ALWAYS shows paise (2 decimals). Used where the
+// exact figure matters and rounding would hide it — e.g. the billing screen's
+// GST breakdown (CGST ₹14.25) and line amounts, so the totals visibly add up
+// to the grand total + round-off.
+export function formatCurrencyFull(amount: any): string {
+  const num = Number(amount) || 0
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(num)
 }

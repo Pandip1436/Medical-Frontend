@@ -46,12 +46,15 @@ export default function InvoiceDetailPage() {
     else { setIsLoading(false); setError('No invoice id provided') }
   }, [id, fetchInvoice])
 
+  // One step back — returns to wherever the user came from (notification,
+  // sales list, customer detail…). Falls back to the invoices list only when
+  // there's no in-app history (a direct deep-link / refresh).
   const goBack = () => routerGoBack('/customers/invoices')
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={goBack}>
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to invoices
+        <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
 
       <Card>

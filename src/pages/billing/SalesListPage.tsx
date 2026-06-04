@@ -20,8 +20,21 @@ import {
   Send,
   QrCode,
   RefreshCw,
+  ChevronDown,
+  Plus,
+  FileSpreadsheet,
+  FileCode2,
+  Eye,
+  ArrowLeft,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
@@ -43,14 +56,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -58,6 +68,7 @@ import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import type { Invoice } from '@/types'
 import {
   downloadInvoicePdf,
@@ -114,19 +125,34 @@ const paymentModeLabels: Record<string, string> = {
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
-export default function SalesListPage() {
-  // Search
-  const [searchQuery, setSearchQuery] = useState('')
+const SALES_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'customer', label: 'Customer', defaultVisible: true },
+  { id: 'invoice', label: 'Invoice #', required: true, defaultVisible: true },
+  { id: 'items', label: 'Items', defaultVisible: true },
+  { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'payment', label: 'Payment', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
 
-  // Filters
-  const [period, setPeriod] = useState('all')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<string>('all')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [amountMin, setAmountMin] = useState('')
-  const [amountMax, setAmountMax] = useState('')
-  const [selectedSalespersonId, setSelectedSalespersonId] = useState<string>('all')
+export default function SalesListPage() {
+  const cols = useColumnVisibility('billing.sales', SALES_COLUMNS)
+  // Search
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:billing.sales:search', '')
+
+  // Filters — period defaults to "today" so the page opens on today's sales.
+  // Persisted to sessionStorage so they survive refresh + navigate-back.
+  const [period, setPeriod] = usePersistedState('filters:billing.sales:period', 'today')
+  // Stat-card drill-down: clicking a summary card narrows the list to that
+  // subset (all sales / collected / outstanding / returns) on top of the
+  // period. Kept separate from the Status enum filter because "outstanding"
+  // spans two statuses (UNPAID + PARTIAL).
+  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'paid' | 'pending' | 'returns'>('filters:billing.sales:card', 'all')
+  const [dateFrom, setDateFrom] = usePersistedState('filters:billing.sales:dateFrom', '')
+  const [dateTo, setDateTo] = usePersistedState('filters:billing.sales:dateTo', '')
+  const [selectedPaymentMode, setSelectedPaymentMode] = usePersistedState<string>('filters:billing.sales:paymentMode', 'all')
+  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:billing.sales:status', 'all')
+  const [selectedSalespersonId, setSelectedSalespersonId] = usePersistedState<string>('filters:billing.sales:salesperson', 'all')
   const [salespersonsList, setSalespersonsList] = useState<{ id: string; name: string }[]>([])
 
   // Pagination
@@ -173,10 +199,11 @@ export default function SalesListPage() {
         { label: 'Resume editing', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?draftId=${inv.id}`) },
       ]
     }
-    // PAID, UNPAID, and PARTIAL are all editable from this list. CANCELLED
+    // Only UNPAID and PARTIAL invoices are editable. PAID invoices are locked
+    // (fully settled — editing them would desync collected payment). CANCELLED
     // and RETURNED are terminal financial states. DRAFT goes through its own
     // "Resume editing" path higher up in this function.
-    const canEdit = inv.status === 'PAID' || inv.status === 'UNPAID' || inv.status === 'PARTIAL'
+    const canEdit = inv.status === 'UNPAID' || inv.status === 'PARTIAL'
     return [
       ...(canEdit
         ? [{ label: 'Edit invoice', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?editId=${inv.id}`) }]
@@ -229,131 +256,35 @@ export default function SalesListPage() {
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Detail dialog
-  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null)
-
-  // Auto-open drawer when arriving with ?invoiceId=… (e.g. from a Credit Note's "View Invoice")
+  // Legacy deep-links (?invoiceId=…, from notifications / credit notes / other
+  // pages) now redirect to the standalone invoice detail page instead of
+  // opening an in-list drawer.
   const { search } = useRoute()
   useEffect(() => {
-    const params = new URLSearchParams(search)
-    const target = params.get('invoiceId')
-    if (!target || invoices.length === 0) return
-    const match = invoices.find((inv) => inv.id === target)
-    if (match) setDetailInvoice(match)
-  }, [search, invoices])
-
-  // Collect payment
-  const [collectAmount, setCollectAmount] = useState('')
-  const [collectMode, setCollectMode] = useState('CASH')
-  const [collectSubmitting, setCollectSubmitting] = useState(false)
-
-  const handleCollectPayment = async () => {
-    if (!detailInvoice || !collectAmount) return
-    const amount = parseFloat(collectAmount)
-    const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
-    if (isNaN(amount) || amount <= 0) return
-    // Never collect more than what's due. Backend enforces this too; blocking
-    // here gives instant feedback and avoids the round-trip.
-    if (amount > balanceDue + 0.01) {
-      toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(balanceDue)}`)
-      return
-    }
-    setCollectSubmitting(true)
-    try {
-      const res = await api.patch(`/billing/${detailInvoice.id}/collect-payment`, {
-        amountReceived: parseFloat(collectAmount),
-        paymentMode: collectMode,
-      })
-      toast.success('Payment collected successfully')
-      setCollectAmount('')
-      setDetailInvoice(res.data)
-      fetchInvoices()
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to collect payment')
-    } finally {
-      setCollectSubmitting(false)
-    }
-  }
-
-  // ─── Server-side WhatsApp + Razorpay QR actions ─────────────────
-  // Distinct from `shareInvoiceViaWhatsApp` (the wa.me deeplink share). These
-  // call the backend, which talks to Meta Cloud API + Razorpay directly.
-  const [sendingWhatsApp, setSendingWhatsApp] = useState(false)
-  const [regeneratingQr, setRegeneratingQr] = useState(false)
-  const [reconciling, setReconciling] = useState(false)
-
-  const handleSendWhatsApp = async () => {
-    if (!detailInvoice) return
-    setSendingWhatsApp(true)
-    try {
-      await api.post(`/billing/${detailInvoice.id}/send-whatsapp`)
-      toast.success('Queued — WhatsApp message will be sent shortly')
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to queue WhatsApp send')
-    } finally {
-      setSendingWhatsApp(false)
-    }
-  }
-
-  const handleRegenerateQr = async () => {
-    if (!detailInvoice) return
-    setRegeneratingQr(true)
-    try {
-      const res = await api.post(`/billing/${detailInvoice.id}/payment-link`)
-      if (res.data == null) {
-        toast.info('Invoice fully paid — no payment QR needed')
-      } else {
-        toast.success('Payment QR generated')
-      }
-    } catch (err: any) {
-      const msg = err.response?.data?.message ?? 'Failed to generate payment QR'
-      toast.error(typeof msg === 'string' ? msg : 'Failed to generate payment QR')
-    } finally {
-      setRegeneratingQr(false)
-    }
-  }
-
-  const handleReconcile = async () => {
-    if (!detailInvoice) return
-    setReconciling(true)
-    try {
-      const res = await api.post(`/billing/${detailInvoice.id}/reconcile-payment-link`)
-      const applied = res.data?.applied ?? []
-      const newPayments = applied.filter((a: any) => !a.duplicate)
-      if (newPayments.length === 0) {
-        toast.info('No new payments found at the gateway')
-      } else {
-        toast.success(`Reconciled ${newPayments.length} payment(s) from gateway`)
-        try {
-          const fresh = await api.get(`/billing/${detailInvoice.id}`)
-          setDetailInvoice(fresh.data)
-          fetchInvoices()
-        } catch { /* swallow */ }
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to reconcile payment')
-    } finally {
-      setReconciling(false)
-    }
-  }
+    const target = new URLSearchParams(search).get('invoiceId')
+    // Replace (not push) so this redirecting URL never enters the back stack —
+    // back from the detail page returns to wherever the user came from
+    // (notification, reminder, etc.) instead of bouncing back here.
+    if (target) navigate(`/customers/invoices/detail?id=${target}`, { replace: true })
+  }, [search])
 
   const clearFilters = () => {
-    setPeriod('all')
+    setPeriod('today')
+    setCardFilter('all')
     setDateFrom('')
     setDateTo('')
     setSelectedPaymentMode('all')
     setSelectedStatus('all')
-    setAmountMin('')
-    setAmountMax('')
     setSelectedSalespersonId('all')
   }
 
   // ── Filtering logic ──
 
-  const filteredInvoices = useMemo(() => {
+  // Invoices within the selected period only — drives both the summary cards
+  // and the list (so the cards always reflect the period, independent of the
+  // card-click / search / status narrowing applied to the table below).
+  const periodInvoices = useMemo(() => {
     let result = [...invoices]
-
-    // Period filter
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10)
     switch (period) {
@@ -383,6 +314,20 @@ export default function SalesListPage() {
         if (dateTo) result = result.filter((inv) => inv.date.slice(0, 10) <= dateTo)
         break
     }
+    return result
+  }, [invoices, period, dateFrom, dateTo])
+
+  const filteredInvoices = useMemo(() => {
+    let result = [...periodInvoices]
+
+    // Stat-card drill-down
+    if (cardFilter === 'paid') {
+      result = result.filter((inv) => inv.status === 'PAID')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+    } else if (cardFilter === 'returns') {
+      result = result.filter((inv) => inv.status === 'RETURNED')
+    }
 
     // Search
     if (searchQuery.trim()) {
@@ -410,32 +355,20 @@ export default function SalesListPage() {
       result = result.filter((inv) => inv.salespersonId === selectedSalespersonId)
     }
 
-    // Amount range
-    if (amountMin) {
-      result = result.filter((inv) => inv.grandTotal >= parseFloat(amountMin))
-    }
-    if (amountMax) {
-      result = result.filter((inv) => inv.grandTotal <= parseFloat(amountMax))
-    }
-
     return result
   }, [
-    invoices,
+    periodInvoices,
+    cardFilter,
     searchQuery,
-    period,
-    dateFrom,
-    dateTo,
     selectedPaymentMode,
     selectedStatus,
-    amountMin,
-    amountMax,
     selectedSalespersonId,
   ])
 
-  // ── Stats ──
+  // ── Stats ── (reflect the selected period, independent of card/table filters)
 
   const stats = useMemo(() => {
-    const invs = invoices.filter((inv) => inv.type === 'INVOICE')
+    const invs = periodInvoices.filter((inv) => inv.type === 'INVOICE')
     const totalSales = invs.reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
     const paidTotal = invs
       .filter((inv) => inv.status === 'PAID')
@@ -452,7 +385,7 @@ export default function SalesListPage() {
       pendingTotal,
       returnsCount: invs.filter((inv) => inv.status === 'RETURNED').length,
     }
-  }, [invoices])
+  }, [periodInvoices])
 
   // ── Pagination ──
 
@@ -499,13 +432,12 @@ export default function SalesListPage() {
 
   // ── Active filters count ──
   const activeFilterCount = [
-    period !== 'all' ? period : '',
+    period !== 'today' ? period : '', // "today" is the default baseline
+    cardFilter !== 'all' ? cardFilter : '',
     dateFrom,
     dateTo,
     selectedPaymentMode !== 'all' ? selectedPaymentMode : '',
     selectedStatus !== 'all' ? selectedStatus : '',
-    amountMin,
-    amountMax,
     selectedSalespersonId !== 'all' ? selectedSalespersonId : '',
   ].filter(Boolean).length
 
@@ -518,7 +450,7 @@ export default function SalesListPage() {
     >
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Sales',
             value: formatCurrency(stats.totalSales),
@@ -526,6 +458,8 @@ export default function SalesListPage() {
             icon: IndianRupee,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Collected',
@@ -534,6 +468,8 @@ export default function SalesListPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'paid',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Outstanding',
@@ -542,6 +478,8 @@ export default function SalesListPage() {
             icon: Clock,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'pending',
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
             label: 'Returns',
@@ -550,9 +488,22 @@ export default function SalesListPage() {
             icon: Undo2,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            filterKey: 'returns',
+            activeRing: 'ring-2 ring-rose-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all sales in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -566,7 +517,8 @@ export default function SalesListPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Search + Filter Row ── */}
@@ -577,70 +529,108 @@ export default function SalesListPage() {
         resultsCount={filteredInvoices.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={SALES_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={() => {
-                if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
-                const exported = exportToCsv(filteredInvoices.map((inv) => ({
-                  Invoice: inv.invoiceNumber,
-                  Date: formatDate(inv.date),
-                  Customer: inv.customerName,
-                  Total: inv.grandTotal,
-                  Paid: inv.amountPaid,
-                  Status: inv.status,
-                })), 'sales-invoices')
-                // Bug #6: surface the row count so the user can reconcile
-                // the file vs the on-screen list. The list filter is whatever
-                // is currently active — if it's narrower than the dataset,
-                // make that visible rather than silently dropping rows.
-                toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
-              }}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">CSV</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-400 dark:border-amber-800/60 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300 dark:hover:border-amber-700"
-              onClick={async () => {
-                try {
-                  const token = localStorage.getItem('auth_token')
-                  const res = await fetch('/api/v1/billing/export/tally-xml', {
-                    headers: { Authorization: `Bearer ${token}` },
-                  })
-                  if (!res.ok) throw new Error('Export failed')
-                  const blob = await res.blob()
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = 'tally-export.xml'
-                  a.click()
-                  URL.revokeObjectURL(url)
-                  toast.success('Tally XML downloaded')
-                } catch {
-                  toast.error('Failed to export Tally XML')
-                }
-              }}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Tally XML</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => {
-                if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
-                filteredInvoices.forEach((inv) => printInvoicePdf(inv))
-              }}
-            >
-              <Printer className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Print All</span>
+          <div className="flex items-center gap-1.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Download className="mr-1.5 h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-1.5">
+                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Export {filteredInvoices.length} {filteredInvoices.length === 1 ? 'invoice' : 'invoices'}
+                </p>
+                <DropdownMenuItem
+                  className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
+                  onClick={() => {
+                    if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
+                    // Prints the on-screen sales LIST as a report table (not each
+                    // invoice individually). Mirrors the CSV column set.
+                    printReport(filteredInvoices.map((inv) => ({
+                      Invoice: inv.invoiceNumber,
+                      Date: formatDate(inv.date),
+                      Customer: inv.customerName,
+                      Total: formatCurrency(inv.grandTotal),
+                      Paid: formatCurrency(inv.amountPaid),
+                      Status: inv.status,
+                    })), 'Sales Invoices')
+                  }}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                    <Printer className="h-4 w-4" />
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-sm font-semibold">Print List</span>
+                    <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1" />
+                <DropdownMenuItem
+                  className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
+                  onClick={() => {
+                    if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
+                    const exported = exportToCsv(filteredInvoices.map((inv) => ({
+                      Invoice: inv.invoiceNumber,
+                      Date: formatDate(inv.date),
+                      Customer: inv.customerName,
+                      Total: inv.grandTotal,
+                      Paid: inv.amountPaid,
+                      Status: inv.status,
+                    })), 'sales-invoices')
+                    // Bug #6: surface the row count so the user can reconcile
+                    // the file vs the on-screen list. The list filter is whatever
+                    // is currently active — if it's narrower than the dataset,
+                    // make that visible rather than silently dropping rows.
+                    toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
+                  }}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <FileSpreadsheet className="h-4 w-4" />
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-sm font-semibold">CSV</span>
+                    <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
+                  onClick={async () => {
+                    try {
+                      const token = localStorage.getItem('auth_token')
+                      const res = await fetch('/api/v1/billing/export/tally-xml', {
+                        headers: { Authorization: `Bearer ${token}` },
+                      })
+                      if (!res.ok) throw new Error('Export failed')
+                      const blob = await res.blob()
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = 'tally-export.xml'
+                      a.click()
+                      URL.revokeObjectURL(url)
+                      toast.success('Tally XML downloaded')
+                    } catch {
+                      toast.error('Failed to export Tally XML')
+                    }
+                  }}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <FileCode2 className="h-4 w-4" />
+                  </span>
+                  <span className="flex flex-col">
+                    <span className="text-sm font-semibold">Tally XML</span>
+                    <span className="text-[11px] text-muted-foreground">Import file for Tally</span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="sm" onClick={() => navigate('/billing/new')}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">New Sale</span>
             </Button>
           </div>
         }
@@ -681,30 +671,6 @@ export default function SalesListPage() {
             ]}
           />
         )}
-
-        {/* Amount range */}
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Amount Range
-          </Label>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              placeholder="Min"
-              value={amountMin}
-              onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
-              className="w-full"
-            />
-            <span className="text-muted-foreground text-xs">-</span>
-            <Input
-              type="number"
-              placeholder="Max"
-              value={amountMax}
-              onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
-              className="w-full"
-            />
-          </div>
-        </div>
 
         {/* Custom date range — only when period is 'custom' */}
         {period === 'custom' && (
@@ -812,7 +778,7 @@ export default function SalesListPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.15, delay: idx * 0.02 }}
                   className="flex flex-col gap-2 p-4 cursor-pointer active:bg-muted/30"
-                  onClick={() => setDetailInvoice(inv)}
+                  onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                 >
                   {/* Row 1: Invoice # + Status */}
                   <div className="flex items-center justify-between">
@@ -825,7 +791,11 @@ export default function SalesListPage() {
                   </div>
                   {/* Row 2: Customer + Doctor */}
                   <div>
-                    <CustomerNameLine name={inv.customerName} phone={inv.customerPhone} />
+                    <CustomerNameLine
+                      name={inv.customerName}
+                      phone={inv.customerPhone}
+                      onNameClick={inv.customerId ? () => navigate(`/customers/detail?customerId=${inv.customerId}`) : undefined}
+                    />
                     {inv.doctorName && (
                       <p className="text-[11px] text-muted-foreground">{inv.doctorName}</p>
                     )}
@@ -844,10 +814,10 @@ export default function SalesListPage() {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{formatCurrency(inv.grandTotal)}</span>
+                      <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(inv.grandTotal)}</span>
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
-                          onView={() => setDetailInvoice(inv)}
+                          onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                           onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                           onDelete={() => removeOrCancel(inv)}
                           deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
@@ -873,13 +843,13 @@ export default function SalesListPage() {
                   onCheckedChange={toggleSelectAll}
                 />
               </TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Invoice #</TableHead>
-              <TableHead className="text-center">Items</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Status</TableHead>
+              {cols.isVisible('date') && <TableHead>Date</TableHead>}
+              {cols.isVisible('customer') && <TableHead>Customer</TableHead>}
+              {cols.isVisible('invoice') && <TableHead>Invoice #</TableHead>}
+              {cols.isVisible('items') && <TableHead className="text-center">Items</TableHead>}
+              {cols.isVisible('total') && <TableHead className="text-right">Total</TableHead>}
+              {cols.isVisible('payment') && <TableHead>Payment</TableHead>}
+              {cols.isVisible('status') && <TableHead>Status</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -887,7 +857,7 @@ export default function SalesListPage() {
             <AnimatePresence mode="popLayout">
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
                       <p className="text-sm text-muted-foreground animate-pulse">Fetching invoices...</p>
@@ -896,7 +866,7 @@ export default function SalesListPage() {
                 </TableRow>
               ) : paginatedInvoices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                         <FileX2 className="h-6 w-6 text-muted-foreground/60" />
@@ -921,7 +891,7 @@ export default function SalesListPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => setDetailInvoice(inv)}
+                    onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -929,19 +899,28 @@ export default function SalesListPage() {
                         onCheckedChange={() => toggleSelectOne(inv.id)}
                       />
                     </TableCell>
+                    {cols.isVisible('date') && (
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">
                         {formatDate(inv.date)}
                       </span>
                     </TableCell>
+                    )}
+                    {cols.isVisible('customer') && (
                     <TableCell className="max-w-45">
-                      <CustomerNameLine name={inv.customerName} phone={inv.customerPhone} />
+                      <CustomerNameLine
+                        name={inv.customerName}
+                        phone={inv.customerPhone}
+                        onNameClick={inv.customerId ? () => navigate(`/customers/detail?customerId=${inv.customerId}`) : undefined}
+                      />
                       {inv.doctorName && (
                         <p className="truncate text-[11px] text-muted-foreground">
                           {inv.doctorName}
                         </p>
                       )}
                     </TableCell>
+                    )}
+                    {cols.isVisible('invoice') && (
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Receipt className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -950,14 +929,20 @@ export default function SalesListPage() {
                         </span>
                       </div>
                     </TableCell>
+                    )}
+                    {cols.isVisible('items') && (
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
                         {inv.items?.length ?? 0}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold">
+                    )}
+                    {cols.isVisible('total') && (
+                    <TableCell className="text-right font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
                       {formatCurrency(inv.grandTotal)}
                     </TableCell>
+                    )}
+                    {cols.isVisible('payment') && (
                     <TableCell>
                       <Badge
                         variant={inv.paymentMode === 'CREDIT' ? 'warning' : 'outline'}
@@ -968,12 +953,15 @@ export default function SalesListPage() {
                         {paymentModeLabels[inv.paymentMode] || inv.paymentMode}
                       </Badge>
                     </TableCell>
+                    )}
+                    {cols.isVisible('status') && (
                     <TableCell>
                       <StatusBadge status={inv.status} />
                     </TableCell>
+                    )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => setDetailInvoice(inv)}
+                        onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                         onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                         onDelete={() => removeOrCancel(inv)}
                         deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
@@ -998,309 +986,6 @@ export default function SalesListPage() {
         />
       </Card>
 
-      {/* ── Invoice Detail Drawer ── */}
-      <Sheet open={!!detailInvoice} onOpenChange={(open) => { if (!open) setDetailInvoice(null) }}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-160 lg:max-w-190 p-0 gap-0 flex flex-col"
-        >
-          {detailInvoice && (() => {
-            const balanceDue = detailInvoice.grandTotal - detailInvoice.amountPaid
-            // Typed collect amount overshoots the balance due — drives the
-            // inline error + disabled Collect button below.
-            const collectNum = parseFloat(collectAmount)
-            const collectExceeds = !isNaN(collectNum) && collectNum > balanceDue + 0.01
-            return (
-              <>
-                {/* ── Sticky Header ── */}
-                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
-                  <div className="flex items-center justify-between gap-3 pr-8">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <SheetTitle className="font-mono text-base font-semibold truncate">
-                        {formatInvoiceNumber(detailInvoice)}
-                      </SheetTitle>
-                      <span className="text-muted-foreground/40">·</span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDate(detailInvoice.date)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="info" size="sm" className="gap-1">
-                        <Package className="h-3 w-3" />
-                        {detailInvoice.items.length} {detailInvoice.items.length === 1 ? 'item' : 'items'}
-                      </Badge>
-                      <StatusBadge status={detailInvoice.status} />
-                    </div>
-                  </div>
-                </SheetHeader>
-
-                {/* ── Scrollable Body ── */}
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                  {/* DRAFT banner — drafts aren't real invoices yet. Skip the
-                      usual Print/Share/Collect actions; the only meaningful
-                      next step is to reopen the form and finish the bill. */}
-                  {detailInvoice.status === 'DRAFT' && (
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/30">
-                      <div className="flex items-start gap-2.5">
-                        <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <div>
-                          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                            This is a draft
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-amber-800/80 dark:text-amber-300/80">
-                            Stock isn&apos;t reserved yet. Resume editing to finalize.
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        className="gap-1.5 bg-amber-600 text-white hover:bg-amber-700"
-                        onClick={() => {
-                          setDetailInvoice(null)
-                          navigate(`/billing/new?draftId=${detailInvoice.id}`)
-                        }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Resume editing
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Meta block — single horizontal row. The Customer cell
-                      uses CustomerNameLine so the phone appears underneath
-                      the name (same disambiguation pattern as the list rows). */}
-                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-                    {([
-                      {
-                        label: 'Customer',
-                        value: detailInvoice.customerName,
-                        node: <CustomerNameLine name={detailInvoice.customerName} phone={detailInvoice.customerPhone} nameClassName="text-sm font-medium truncate" />,
-                      },
-                      { label: 'Payment', value: paymentModeLabels[detailInvoice.paymentMode] || detailInvoice.paymentMode },
-                      detailInvoice.doctorName ? { label: 'Doctor', value: detailInvoice.doctorName } : null,
-                      { label: 'Billing Type', value: detailInvoice.billingType },
-                    ].filter(Boolean) as Array<{ label: string; value: string; node?: ReactNode }>).map((cell, i) => (
-                      <div
-                        key={cell.label}
-                        className={cn(
-                          'flex min-w-0 flex-1 flex-col justify-center px-4 py-3',
-                          i > 0 && 'border-l border-border/40'
-                        )}
-                      >
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{cell.label}</p>
-                        {cell.node ?? (
-                          <p className="mt-0.5 text-sm font-medium truncate" title={cell.value}>{cell.value}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Items — proper table with sticky header, scales for many products */}
-                  <div className="overflow-hidden rounded-xl border border-border/40">
-                    <Table>
-                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                        <TableRow className="border-b border-border/40 hover:bg-transparent">
-                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST%</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detailInvoice.items.map((item, idx) => (
-                          <TableRow key={idx} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
-                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-sm font-medium">{item.productName}</TableCell>
-                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{item.batchNumber}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.quantity}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Collect Payment — shown only for unpaid invoices */}
-                  {(detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                        Collect Payment — Outstanding: {formatCurrency(balanceDue)}
-                      </p>
-                      <div className="flex gap-2">
-                        <Select value={collectMode} onValueChange={setCollectMode}>
-                          <SelectTrigger className="w-32 h-9 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          type="number"
-                          placeholder="Amount"
-                          className={cn(
-                            'h-9 text-sm',
-                            collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
-                          )}
-                          value={collectAmount}
-                          onChange={(e) => setCollectAmount(e.target.value)}
-                          min={0}
-                          max={balanceDue}
-                        />
-                        <Button
-                          size="sm"
-                          className="gap-1.5 shrink-0"
-                          disabled={collectSubmitting || !collectAmount || collectExceeds}
-                          onClick={handleCollectPayment}
-                        >
-                          <Wallet className="h-4 w-4" />
-                          {collectSubmitting ? 'Saving...' : 'Collect'}
-                        </Button>
-                      </div>
-                      {collectExceeds && (
-                        <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
-                          Amount can't exceed the outstanding {formatCurrency(balanceDue)}.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* ── Sticky Footer: totals strip + actions ── */}
-                <div className="shrink-0 border-t border-border/40 bg-background">
-                  {/* Balance Due hero strip — only when there's outstanding.
-                      Sits above the totals breakdown so the customer's eye
-                      lands on what they still owe first. Amber-tinted, large
-                      currency, takes the full footer width. */}
-                  {balanceDue > 0.01 && (
-                    <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">
-                          Balance Due
-                        </span>
-                        <span className="text-[10px] text-amber-700/70 dark:text-amber-400/70">
-                          {formatCurrency(Number(detailInvoice.amountPaid))} paid of {formatCurrency(Number(detailInvoice.grandTotal))}
-                        </span>
-                      </div>
-                      <span className="font-mono text-2xl font-black tabular-nums text-amber-700 dark:text-amber-400">
-                        {formatCurrency(balanceDue)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Totals strip — single horizontal row */}
-                  <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
-                    {([
-                      { label: 'Subtotal', value: detailInvoice.subtotal },
-                      detailInvoice.productDiscount > 0 ? { label: 'Discount', value: -detailInvoice.productDiscount, tone: 'rose' as const } : null,
-                      { label: 'Taxable', value: detailInvoice.taxableAmount },
-                      { label: 'CGST', value: detailInvoice.cgst },
-                      { label: 'SGST', value: detailInvoice.sgst },
-                      detailInvoice.igst > 0 ? { label: 'IGST', value: detailInvoice.igst } : null,
-                      Math.abs(detailInvoice.roundOff) > 0 ? { label: 'Round Off', value: detailInvoice.roundOff } : null,
-                      { label: 'Grand Total', value: detailInvoice.grandTotal, highlight: true as const },
-                      detailInvoice.amountPaid > 0 ? { label: 'Paid', value: detailInvoice.amountPaid, tone: 'emerald' as const } : null,
-                    ].filter(Boolean) as Array<{ label: string; value: number; tone?: 'emerald' | 'rose'; highlight?: boolean }>).map((row, i) => (
-                      <div
-                        key={row.label}
-                        className={cn(
-                          'flex flex-1 min-w-18 flex-col justify-center whitespace-nowrap px-3 py-2',
-                          i > 0 && 'border-l border-border/40',
-                          row.highlight && 'bg-primary/5'
-                        )}
-                      >
-                        <p className={cn(
-                          'text-[9px] font-semibold uppercase tracking-wider',
-                          row.tone === 'emerald' && 'text-emerald-700 dark:text-emerald-400',
-                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400',
-                          !row.tone && 'text-muted-foreground'
-                        )}>{row.label}</p>
-                        <p className={cn(
-                          'mt-0.5 font-mono text-xs',
-                          row.highlight && 'text-sm font-bold',
-                          row.tone === 'emerald' && 'text-emerald-700 dark:text-emerald-400',
-                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400'
-                        )}>{formatCurrency(row.value)}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="px-5 py-3 flex gap-2">
-                    <Button className="flex-1 gap-2" onClick={() => printInvoicePdf(detailInvoice)}>
-                      <Printer className="h-4 w-4" />
-                      Print
-                    </Button>
-                    <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadInvoicePdf(detailInvoice)}>
-                      <Download className="h-4 w-4" />
-                      <span className="hidden sm:inline">Download PDF</span>
-                      <span className="sm:hidden">PDF</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="shrink-0"
-                      onClick={() => shareInvoiceViaWhatsApp(detailInvoice, phoneFor(detailInvoice))}
-                      title="Share via WhatsApp"
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  {/* Server-side WhatsApp + Razorpay QR actions. Distinct
-                      row so admins don't confuse them with the wa.me share
-                      icon above. These hit the backend, which talks to Meta
-                      Cloud API + Razorpay directly. Hidden for draft and
-                      cancelled invoices. */}
-                  {detailInvoice.status !== 'DRAFT' && detailInvoice.status !== 'CANCELLED' && (
-                    <div className="px-5 pb-4 flex flex-wrap gap-2 border-t border-dashed border-border/60 pt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40"
-                        onClick={handleSendWhatsApp}
-                        disabled={sendingWhatsApp}
-                        title="Re-send the invoice PDF + payment QR to the customer's WhatsApp via Meta Cloud API"
-                      >
-                        <Send className={cn('h-4 w-4', sendingWhatsApp && 'animate-pulse')} />
-                        {sendingWhatsApp ? 'Sending…' : 'Send WhatsApp'}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40"
-                        onClick={handleRegenerateQr}
-                        disabled={regeneratingQr}
-                        title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
-                      >
-                        <QrCode className={cn('h-4 w-4', regeneratingQr && 'animate-pulse')} />
-                        {regeneratingQr ? 'Generating…' : 'Generate QR'}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                        onClick={handleReconcile}
-                        disabled={reconciling}
-                        title="Poll Razorpay for payments captured against this invoice's QR. Use if a webhook was missed."
-                      >
-                        <RefreshCw className={cn('h-4 w-4', reconciling && 'animate-spin')} />
-                        {reconciling ? 'Syncing…' : 'Sync Payment'}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )
-          })()}
-        </SheetContent>
-      </Sheet>
     </motion.div>
   )
 }

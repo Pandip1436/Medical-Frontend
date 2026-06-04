@@ -133,7 +133,7 @@ const reasonVariantMap: Record<string, 'destructive' | 'warning' | 'info' | 'pur
 }
 
 const STEPS = [
-  { number: 1, label: 'Select PR', icon: FileText },
+  { number: 1, label: 'Select PE', icon: FileText },
   { number: 2, label: 'Return Items', icon: Package },
   { number: 3, label: 'Debit Note', icon: Receipt },
 ] as const
@@ -214,7 +214,7 @@ export default function PurchaseReturnsPage() {
         }))
         setGrns(mapped)
       } catch {
-        if (!cancelled) toast.error('Failed to load Purchase Received records')
+        if (!cancelled) toast.error('Failed to load goods received notes')
         setGrns([])
       } finally {
         if (!cancelled) setGrnsLoading(false)
@@ -333,7 +333,14 @@ export default function PurchaseReturnsPage() {
         (g.supplierInvoiceNo ?? '').toLowerCase().includes(q) ||
         g.grnNumber.toLowerCase().includes(q) ||
         (g.poNumber ?? '').toLowerCase().includes(q) ||
-        g.supplierName.toLowerCase().includes(q)
+        g.supplierName.toLowerCase().includes(q) ||
+        // Match by any contained product name or batch number so users can find
+        // the PE to return against by typing a product / batch they received.
+        g.items.some(
+          (it) =>
+            (it.productName ?? '').toLowerCase().includes(q) ||
+            (it.batchNumber ?? '').toLowerCase().includes(q),
+        )
     )
   }, [grnSearch, grns])
 
@@ -452,7 +459,7 @@ export default function PurchaseReturnsPage() {
     const unresolved = payloadItems.filter((it) => !it.batchId)
     if (unresolved.length > 0) {
       const names = unresolved.map((it) => `${it.productName} (batch ${it.batchNumber || '—'})`).join(', ')
-      toast.error(`Could not resolve batch for: ${names}. Refresh master data and retry, or pick a different PR.`, {
+      toast.error(`Could not resolve batch for: ${names}. Refresh master data and retry, or pick a different PE.`, {
         duration: 8000,
       })
       return
@@ -520,7 +527,7 @@ export default function PurchaseReturnsPage() {
         date: res.data.date ?? new Date().toISOString(),
         partyLabel: 'Supplier',
         partyName: selectedGRN.supplierName,
-        referenceLabel: 'PR No',
+        referenceLabel: 'PE No',
         referenceValue: selectedGRN.grnNumber,
         reason: payload.reason,
         items: payloadItems.map((it) => ({
@@ -648,7 +655,7 @@ export default function PurchaseReturnsPage() {
                       <DataTableFilterBar
                         searchQuery={grnSearch}
                         onSearchChange={setGrnSearch}
-                        searchPlaceholder="Search by PR number, PO number, or supplier..."
+                        searchPlaceholder="Search by PE, PO, supplier, product, or batch..."
                         resultsCount={matchingGRNs.length}
                       />
                     </div>
@@ -673,7 +680,7 @@ export default function PurchaseReturnsPage() {
                               <AlertCircle className="h-6 w-6 text-muted-foreground/40" />
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              No PR records found for &ldquo;{grnSearch}&rdquo;
+                              No PE records found for &ldquo;{grnSearch}&rdquo;
                             </p>
                           </div>
                         )}
@@ -738,14 +745,14 @@ export default function PurchaseReturnsPage() {
                         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30 dark:bg-muted/15">
                           <Receipt className="h-7 w-7 text-muted-foreground/30" />
                         </div>
-                        <p className="text-sm text-muted-foreground">Select a PR to see details</p>
+                        <p className="text-sm text-muted-foreground">Select a PE to see details</p>
                       </div>
                     ) : (
                       <div className="flex h-full flex-col">
                         <div className="shrink-0 border-b border-border/40 p-5">
                           <div className="grid grid-cols-1 sm:grid-cols-[11rem_minmax(0,1fr)_6rem_5rem] items-end gap-x-6 gap-y-3">
                             <div className="min-w-0">
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selected PR</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selected PE</p>
                               <p className="mt-0.5 font-mono text-sm font-bold truncate" title={selectedGRN.grnNumber}>{selectedGRN.grnNumber}</p>
                             </div>
                             <div className="min-w-0">
@@ -1030,11 +1037,11 @@ export default function PurchaseReturnsPage() {
                           <p className="mt-0.5 font-medium truncate" title={selectedGRN.supplierName}>{selectedGRN.supplierName}</p>
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against PR</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Against PE</p>
                           <p className="mt-0.5 font-mono font-medium whitespace-nowrap" title={selectedGRN.grnNumber}>{selectedGRN.grnNumber}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PR Date</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PE Date</p>
                           <p className="mt-0.5 whitespace-nowrap">{formatDate(selectedGRN.date)}</p>
                         </div>
                         <div>
@@ -1149,7 +1156,7 @@ export default function PurchaseReturnsPage() {
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Return Summary</p>
                           <div className="space-y-3">
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">PR Reference</span>
+                              <span className="text-muted-foreground">PE Reference</span>
                               <span className="font-mono text-xs font-medium">{selectedGRN.grnNumber}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">

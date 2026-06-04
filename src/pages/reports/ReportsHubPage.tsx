@@ -68,7 +68,7 @@ const allReports: ReportDef[] = [
   { id: 'customer-sales', name: 'Customer-wise Sales', description: 'Sales volume and outstanding per customer', icon: Users, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
   { id: 'category-sales', name: 'Category-wise Sales', description: 'Sales distribution across product categories', icon: PieChart, iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400', category: 'Sales' },
   // Purchase
-  { id: 'purchase-summary', name: 'Purchase Summary', description: 'Total purchases and PR reconciliation', icon: ShoppingCart, iconBg: 'bg-purple-500/10', iconColor: 'text-purple-600 dark:text-purple-400', category: 'Purchase', popular: true },
+  { id: 'purchase-summary', name: 'Purchase Summary', description: 'Total purchases and PE reconciliation', icon: ShoppingCart, iconBg: 'bg-purple-500/10', iconColor: 'text-purple-600 dark:text-purple-400', category: 'Purchase', popular: true },
   { id: 'supplier-purchase', name: 'Supplier-wise Purchase', description: 'Purchase volumes and payables per supplier', icon: Truck, iconBg: 'bg-purple-500/10', iconColor: 'text-purple-600 dark:text-purple-400', category: 'Purchase' },
   { id: 'purchase-vs-sales', name: 'Purchase vs Sales', description: 'Comparative analysis of inflow and outflow', icon: ArrowLeftRight, iconBg: 'bg-purple-500/10', iconColor: 'text-purple-600 dark:text-purple-400', category: 'Purchase' },
   // Inventory

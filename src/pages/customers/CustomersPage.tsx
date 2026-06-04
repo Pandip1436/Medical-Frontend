@@ -30,6 +30,9 @@ import {
 import { useBranchStore } from '@/stores/branchStore'
 import { ImportCustomersDrawer } from '@/components/customers/ImportCustomersDrawer'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -82,6 +85,7 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Customer } from '@/types'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
@@ -207,7 +211,15 @@ function outstandingColor(outstanding: number) {
 // Component
 // ─────────────────────────────────────────────────────────────
 
+const CUSTOMER_COLUMNS: ColumnDef[] = [
+  { id: 'name', label: 'Name', required: true, defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'type', label: 'Type', defaultVisible: true },
+  { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
+]
+
 export default function CustomersPage() {
+  const cols = useColumnVisibility('customers.list', CUSTOMER_COLUMNS)
   // The store is still the cache used by other pages' customer dropdowns.
   // We don't read its list here anymore — this page drives its own paginated
   // fetch — but we keep `fetchCustomers` to refresh the cache after CRUD.
@@ -232,12 +244,13 @@ export default function CustomersPage() {
     totalOutstanding: 0,
   })
 
-  // Filters + pagination
-  const [searchQuery, setSearchQuery] = useState('')
+  // Filters + pagination. Filters persisted to sessionStorage so they survive
+  // refresh + navigate-back.
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:customers.list:search', '')
   const [currentPage, setCurrentPage] = useState(1)
-  const [customerTypeFilter, setCustomerTypeFilter] = useState<string>('all')
-  const [outstandingFilter, setOutstandingFilter] = useState<string>('all')
-  const [gstinFilter, setGstinFilter] = useState<string>('all')
+  const [customerTypeFilter, setCustomerTypeFilter] = usePersistedState<string>('filters:customers.list:type', 'all')
+  const [outstandingFilter, setOutstandingFilter] = usePersistedState<string>('filters:customers.list:outstanding', 'all')
+  const [gstinFilter, setGstinFilter] = usePersistedState<string>('filters:customers.list:gstin', 'all')
 
   // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -245,6 +258,19 @@ export default function CustomersPage() {
   // Customer queued for deletion — null when the dialog is closed.
   const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+
+  // Auto-open the Add Customer dialog when arrived at with `?add=1` (sidebar
+  // quick-add). Strips the param so a refresh doesn't re-trigger it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === '1') {
+      setAddDialogOpen(true)
+      params.delete('add')
+      const qs = params.toString()
+      window.history.replaceState(null, '', `/customers${qs ? `?${qs}` : ''}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Multi-sheet history import — handled in its own drawer.
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
@@ -586,9 +612,9 @@ export default function CustomersPage() {
       animate="visible"
       className="space-y-6"
     >
-      {/* ─── Summary Cards ─── */}
+      {/* ─── Summary Cards (clickable drill-down → drives the Outstanding filter) ─── */}
       <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-        {[
+        {([
           {
             label: 'Total Customers',
             value: summary.total.toString(),
@@ -596,6 +622,9 @@ export default function CustomersPage() {
             icon: Users,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            // "Total" clears the outstanding narrowing back to all customers.
+            filterKey: 'all' as const,
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'With Outstanding',
@@ -604,6 +633,8 @@ export default function CustomersPage() {
             icon: AlertCircle,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'has' as const,
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
             label: 'Total Outstanding',
@@ -612,9 +643,27 @@ export default function CustomersPage() {
             icon: IndianRupee,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            // Same server filter as "With Outstanding" — both narrow to
+            // customers carrying dues (hasOutstanding=true).
+            filterKey: 'has' as const,
+            activeRing: 'ring-2 ring-rose-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ]).map((stat) => {
+          const active = stat.filterKey === 'all'
+            ? outstandingFilter === 'all'
+            : outstandingFilter === stat.filterKey
+          const apply = () => { setOutstandingFilter(stat.filterKey); setCurrentPage(1) }
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all customers' : 'Filter to customers with outstanding dues'}
+            onClick={apply}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -628,7 +677,8 @@ export default function CustomersPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </motion.div>
 
       {/* ─── Search + Filters ─── */}
@@ -639,8 +689,9 @@ export default function CustomersPage() {
         resultsCount={total}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
+        columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
@@ -779,16 +830,16 @@ export default function CustomersPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Outstanding</TableHead>
+                  {cols.isVisible('phone') && <TableHead>Phone</TableHead>}
+                  {cols.isVisible('type') && <TableHead>Type</TableHead>}
+                  {cols.isVisible('outstanding') && <TableHead className="text-right">Outstanding</TableHead>}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!isLoading && pageRows.length === 0 && (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={5} className="p-0">
+                    <TableCell colSpan={cols.visible.length + 1} className="p-0">
                       <EmptyState
                         icon={Users}
                         title={searchQuery || activeFilterCount > 0 ? 'No customers found' : 'No customers yet'}
@@ -820,9 +871,18 @@ export default function CustomersPage() {
                     )}
                     onClick={() => handleViewDetails(customer)}
                   >
-                    <TableCell className="font-medium">
+                    <TableCell className="text-sm font-bold">
                       <span className="flex items-center gap-2">
-                        {customer.name}
+                        <span
+                          role="link"
+                          tabIndex={0}
+                          title="View customer details"
+                          className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer truncate"
+                          onClick={(e) => { e.stopPropagation(); handleViewDetails(customer) }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleViewDetails(customer) } }}
+                        >
+                          {customer.name}
+                        </span>
                         {Number(customer.pendingCreditCount ?? 0) > 0 && (
                           <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
                             {customer.pendingCreditCount} pending
@@ -830,7 +890,8 @@ export default function CustomersPage() {
                         )}
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{customer.phone}</TableCell>
+                    {cols.isVisible('phone') && <TableCell className="text-muted-foreground">{customer.phone}</TableCell>}
+                    {cols.isVisible('type') && (
                     <TableCell>
                       <Badge
                         variant={typeBadgeVariant[customer.type] || 'secondary'}
@@ -840,14 +901,17 @@ export default function CustomersPage() {
                         {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                       </Badge>
                     </TableCell>
+                    )}
+                    {cols.isVisible('outstanding') && (
                     <TableCell
                       className={cn(
-                        'text-right font-mono text-sm font-semibold',
+                        'text-right font-mono text-[15px] font-bold',
                         outstandingColor(customer.currentOutstanding)
                       )}
                     >
                       {formatCurrency(customer.currentOutstanding)}
                     </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions

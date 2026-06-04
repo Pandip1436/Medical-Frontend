@@ -59,7 +59,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
-import { goBack } from '@/lib/router'
+import { goBack, navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
@@ -577,6 +577,7 @@ export default function SalesReturnsPage() {
     }
 
     let okCount = 0
+    let approvalCount = 0
     const failedInvoices: string[] = []
 
     for (const [invoiceId, items] of byInvoice) {
@@ -621,27 +622,45 @@ export default function SalesReturnsPage() {
       }
 
       try {
-        await api.post('/credit-notes', payload)
-        okCount++
+        const res = await api.post('/credit-notes', payload)
+        // Non-super-admins get Gate 1: the return is filed as a SALES_RETURN
+        // approval request and only becomes a real CN once a Super Admin
+        // approves. Super admins create the PENDING_REVIEW CN directly.
+        if (res.data?.approvalRequested) approvalCount++
+        else okCount++
       } catch {
         // api.ts already surfaces the error toast; record which invoice failed.
         failedInvoices.push(items[0].invoiceNumber)
       }
     }
 
-    // Every CN lands in PENDING_REVIEW — goods are physically inspected before
-    // any inventory/balance change fires; the reviewer approves (with optional
-    // settlement override) or rejects on the CN detail page.
-    if (okCount > 0) {
-      toast.success(
-        `${okCount} credit note${okCount !== 1 ? 's' : ''} submitted — awaiting review`,
-        {
-          description: failedInvoices.length
-            ? `Could not file for: ${failedInvoices.join(', ')}. Please retry those.`
-            : `${formatCurrency(creditSummary.total)} held pending inspection. Reviewer will finalise the ${settlementMode.toLowerCase()} settlement.`,
-          duration: 6000,
-        },
-      )
+    if (okCount > 0 || approvalCount > 0) {
+      if (approvalCount > 0) {
+        // Gate 1 — awaiting Super Admin authorization (before product review).
+        toast.success(
+          `${approvalCount} return${approvalCount !== 1 ? 's' : ''} sent to Super Admin for approval`,
+          {
+            description: failedInvoices.length
+              ? `Could not file for: ${failedInvoices.join(', ')}. Please retry those.`
+              : 'Once a Super Admin approves, it moves to product review. Track it in Approvals.',
+            duration: 7000,
+            action: { label: 'View approvals', onClick: () => navigate('/admin/approvals') },
+          },
+        )
+      } else {
+        // Super-admin path: every CN lands in PENDING_REVIEW — goods are
+        // physically inspected before any inventory/balance change fires; the
+        // reviewer approves (with optional settlement override) or rejects.
+        toast.success(
+          `${okCount} credit note${okCount !== 1 ? 's' : ''} submitted — awaiting review`,
+          {
+            description: failedInvoices.length
+              ? `Could not file for: ${failedInvoices.join(', ')}. Please retry those.`
+              : `${formatCurrency(creditSummary.total)} held pending inspection. Reviewer will finalise the ${settlementMode.toLowerCase()} settlement.`,
+            duration: 6000,
+          },
+        )
+      }
       setCurrentStep(1)
       setDirection(-1)
       setSelectedCustomer(null)

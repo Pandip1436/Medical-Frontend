@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
@@ -119,10 +120,16 @@ const expenseCategories = [
 // ─────────────────────────────────────────────────────────────
 
 export default function CashBookPage() {
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
+  const [selectedDate, setSelectedDate] = usePersistedState(
+    'filters:accounting.cashbook:date',
+    new Date().toISOString().split('T')[0],
   )
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:accounting.cashbook:search', '')
+  // Stat-card drill-down: clicking the Cash In / Cash Out card narrows the
+  // table to that direction. Opening/Closing are running-balance aggregates,
+  // so they map to 'all' (no drill-down). The cards still show the full-day
+  // totals regardless of this filter.
+  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'in' | 'out'>('filters:accounting.cashbook:card', 'all')
   const [addExpenseOpen, setAddExpenseOpen] = useState(false)
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
@@ -187,7 +194,9 @@ export default function CashBookPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 15
 
-  // Compute running balance column
+  // Compute running balance column. Built from the full (search-filtered) set
+  // so the running balance stays correct even when a card drill-down hides
+  // some rows below.
   const transactionsWithBalance = useMemo(() => {
     let balance = summary.openingBalance
     return transactions.map((t) => {
@@ -196,13 +205,22 @@ export default function CashBookPage() {
     })
   }, [transactions, summary.openingBalance])
 
-  // Reset pagination on search or date change
-  useEffect(() => { setCurrentPage(1) }, [searchQuery, selectedDate])
+  // Apply the stat-card drill-down to the displayed list only. Cash In keeps
+  // debit rows; Cash Out keeps credit rows. Export still uses the full
+  // `transactionsWithBalance`.
+  const displayedTransactions = useMemo(() => {
+    if (cardFilter === 'in') return transactionsWithBalance.filter((t) => t.debit > 0)
+    if (cardFilter === 'out') return transactionsWithBalance.filter((t) => t.credit > 0)
+    return transactionsWithBalance
+  }, [transactionsWithBalance, cardFilter])
 
-  const totalPages = Math.ceil(transactionsWithBalance.length / PAGE_SIZE)
+  // Reset pagination on search, date, or card-filter change
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, selectedDate, cardFilter])
+
+  const totalPages = Math.ceil(displayedTransactions.length / PAGE_SIZE)
   const paginatedTransactions = useMemo(() => {
-    return transactionsWithBalance.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [transactionsWithBalance, currentPage])
+    return displayedTransactions.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  }, [displayedTransactions, currentPage])
 
   // ── Export ───────────────────────────────────────────────────
   // Cash book is fully in-memory after the day fetch — we can export directly
@@ -319,7 +337,7 @@ export default function CashBookPage() {
     >
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Opening Balance',
             value: formatCurrency(summary.openingBalance),
@@ -327,6 +345,8 @@ export default function CashBookPage() {
             iconBg: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
             borderAccent: 'border-l-slate-400',
             valueClass: '',
+            filterKey: 'all' as const,
+            activeRing: '',
           },
           {
             label: 'Cash In',
@@ -335,6 +355,8 @@ export default function CashBookPage() {
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
             valueClass: 'text-emerald-600 dark:text-emerald-400',
+            filterKey: 'in' as const,
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Cash Out',
@@ -343,6 +365,8 @@ export default function CashBookPage() {
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
             valueClass: 'text-rose-600 dark:text-rose-400',
+            filterKey: 'out' as const,
+            activeRing: 'ring-2 ring-rose-500/50',
           },
           {
             label: 'Closing Balance',
@@ -355,9 +379,23 @@ export default function CashBookPage() {
             valueClass: summary.closingBalance >= 0
               ? 'text-emerald-600 dark:text-emerald-400'
               : 'text-rose-600 dark:text-rose-400',
+            filterKey: 'all' as const,
+            activeRing: '',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ]).map((stat) => {
+          const clickable = stat.filterKey !== 'all'
+          const active = clickable && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            title={clickable ? `Filter list to ${stat.label.toLowerCase()} entries` : undefined}
+            onClick={clickable ? () => setCardFilter(active ? 'all' : stat.filterKey) : undefined}
+            onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey) } } : undefined}
+            className={cn('border-l-[3px] transition-shadow', stat.borderAccent, clickable && 'cursor-pointer', active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -372,7 +410,8 @@ export default function CashBookPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Unified Toolbar Row: Date · Search · Export · Add Expense · Manage ── */}
@@ -496,7 +535,7 @@ export default function CashBookPage() {
                 <div className="h-4 w-16 rounded bg-muted animate-pulse" />
               </div>
             ))}
-            {!isLoading && transactionsWithBalance.length === 0 && (
+            {!isLoading && displayedTransactions.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
                   <BookOpen className="h-6 w-6 text-muted-foreground" />
@@ -652,7 +691,7 @@ export default function CashBookPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!isLoading && transactionsWithBalance.length === 0 && (
+              {!isLoading && displayedTransactions.length === 0 && (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={7} className="p-0">
                     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">

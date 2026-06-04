@@ -28,6 +28,9 @@ import {
 } from 'lucide-react'
 import { useDebounce } from '@/hooks/useDebounce'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -74,6 +77,7 @@ import {
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import type { Expense } from '@/types'
 import {
   BarChart,
@@ -162,16 +166,25 @@ type MonthlySummary = {
 }
 const EMPTY_SUMMARY: MonthlySummary = { thisMonthTotal: 0, lastMonthTotal: 0, difference: 0, average: 0 }
 
+const EXPENSE_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'category', label: 'Category', defaultVisible: true },
+  { id: 'description', label: 'Description', required: true, defaultVisible: true },
+  { id: 'amount', label: 'Amount', defaultVisible: true },
+  { id: 'paymentMode', label: 'Payment Mode', defaultVisible: true },
+]
+
 export default function ExpensesPage() {
+  const cols = useColumnVisibility('accounting.expenses', EXPENSE_COLUMNS)
   // View toggle: table is the default list; chart shows the category breakdown
   // chart in place of the table (replacing the old "always below" placement).
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table')
 
-  // Filters
-  const [search, setSearch] = useState('')
+  // Filters (persisted to sessionStorage so they survive refresh + back)
+  const [search, setSearch] = usePersistedState('filters:accounting.expenses:search', '')
   const debouncedSearch = useDebounce(search, 300)
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [paymentModeFilter, setPaymentModeFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = usePersistedState('filters:accounting.expenses:category', 'all')
+  const [paymentModeFilter, setPaymentModeFilter] = usePersistedState('filters:accounting.expenses:paymentMode', 'all')
 
   // Pagination — driven by the server, not by slicing locally.
   const [currentPage, setCurrentPage] = useState(1)
@@ -541,6 +554,7 @@ export default function ExpensesPage() {
           setCategoryFilter('all')
           setPaymentModeFilter('all')
         }}
+        columnsNode={viewMode === 'table' ? <ColumnsToggle columns={EXPENSE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} /> : undefined}
         actionNode={
           <div className="flex items-center gap-1.5">
             <div className="flex items-center rounded-xl border border-border/60 p-1">
@@ -687,31 +701,39 @@ export default function ExpensesPage() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                {cols.isVisible('date') && (
                 <TableHead>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Date
                   </span>
                 </TableHead>
+                )}
+                {cols.isVisible('category') && (
                 <TableHead>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Category
                   </span>
                 </TableHead>
+                )}
                 <TableHead>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Description
                   </span>
                 </TableHead>
+                {cols.isVisible('amount') && (
                 <TableHead className="text-right">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Amount
                   </span>
                 </TableHead>
+                )}
+                {cols.isVisible('paymentMode') && (
                 <TableHead>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Payment Mode
                   </span>
                 </TableHead>
+                )}
                 <TableHead className="text-right">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Actions
@@ -722,9 +744,12 @@ export default function ExpensesPage() {
             <TableBody>
               {expenses.map((expense) => (
                 <TableRow key={expense.id}>
+                  {cols.isVisible('date') && (
                   <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                     {formatDate(expense.date)}
                   </TableCell>
+                  )}
+                  {cols.isVisible('category') && (
                   <TableCell>
                     <Badge
                       variant={categoryBadgeVariant[expense.category] || 'secondary'}
@@ -734,6 +759,7 @@ export default function ExpensesPage() {
                       {expense.category}
                     </Badge>
                   </TableCell>
+                  )}
                   <TableCell className="text-sm font-medium">
                     <span className="inline-flex items-center gap-1.5">
                       {expense.description}
@@ -752,10 +778,12 @@ export default function ExpensesPage() {
                       )}
                     </span>
                   </TableCell>
+                  {cols.isVisible('amount') && (
                   <TableCell className="text-right font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
                     {formatCurrency(expense.amount)}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{expense.paymentMode}</TableCell>
+                  )}
+                  {cols.isVisible('paymentMode') && <TableCell className="text-sm text-muted-foreground">{expense.paymentMode}</TableCell>}
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <DataTableRowActions
                       customActions={[
@@ -777,7 +805,7 @@ export default function ExpensesPage() {
               ))}
               {expenses.length === 0 && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6} className="p-0">
+                  <TableCell colSpan={cols.visible.length + 1} className="p-0">
                     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50">
                         <Receipt className="h-6 w-6 text-muted-foreground" />

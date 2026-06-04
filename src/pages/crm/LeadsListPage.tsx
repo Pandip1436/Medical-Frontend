@@ -194,7 +194,7 @@ export default function LeadsListPage() {
               </Button>
               <Button
                 size="sm"
-                className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+                className="gap-1.5"
                 onClick={() => setAddLeadOpen(true)}
               >
                 <Plus className="h-4 w-4" />

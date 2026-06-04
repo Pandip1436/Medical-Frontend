@@ -3,6 +3,7 @@ import api from '@/lib/api'
 import { createPortal } from 'react-dom'
 import { useSettingsStore, type DateFormat } from '@/stores/settingsStore'
 import { useAuthStore } from '@/stores/authStore'
+import { isAdminish } from '@/types'
 import { motion, type Variants } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -77,7 +78,7 @@ interface SettingsSection {
 
 const settingsSections: SettingsSection[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, description: 'Company details & invoicing' },
-  { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PR formats' },
+  { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PE formats' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
@@ -143,10 +144,10 @@ function SettingToggleRow({
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('business')
   const { fetchSettings } = useSettingsStore()
-  const userRole = useAuthStore((s) => s.user?.role)
+  const isAdmin = useAuthStore((s) => isAdminish(s.user))
   const visibleSections = useMemo(
-    () => settingsSections.filter((s) => !s.adminOnly || userRole === 'ADMIN'),
-    [userRole],
+    () => settingsSections.filter((s) => !s.adminOnly || isAdmin),
+    [isAdmin],
   )
 
   useEffect(() => {
@@ -267,7 +268,7 @@ export default function SettingsPage() {
                 {activeSection === 'business' && <BusinessProfileSection />}
                 {activeSection === 'numbering' && <NumberingSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
-                {activeSection === 'integrations' && userRole === 'ADMIN' && <IntegrationsSection />}
+                {activeSection === 'integrations' && isAdmin && <IntegrationsSection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
             </div>

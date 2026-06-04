@@ -44,6 +44,9 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
@@ -59,6 +62,7 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -137,20 +141,33 @@ const statusLabel: Record<QuotationStatus, string> = {
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
+const QUOTATION_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'customer', label: 'Customer', defaultVisible: true },
+  { id: 'quotation', label: 'Quotation #', required: true, defaultVisible: true },
+  { id: 'items', label: 'Items', defaultVisible: true },
+  { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
+
 export default function QuotationsPage() {
+  const cols = useColumnVisibility('billing.quotations', QUOTATION_COLUMNS)
   const { path, search: routeSearch } = useRoute()
 
   // Search
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:billing.quotations:search', '')
 
-  // Filters
-  const [period, setPeriod] = useState('all')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
-  const [amountMin, setAmountMin] = useState('')
-  const [amountMax, setAmountMax] = useState('')
+  // Filters — period defaults to "today". Persisted to sessionStorage so they
+  // survive refresh + navigate-back.
+  const [period, setPeriod] = usePersistedState('filters:billing.quotations:period', 'today')
+  // Stat-card drill-down: clicking a status card narrows the list to that
+  // status on top of the period. Kept separate from the Status enum filter
+  // so the card click and the dropdown stay independent.
+  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'converted' | 'pending' | 'rejected'>('filters:billing.quotations:card', 'all')
+  const [dateFrom, setDateFrom] = usePersistedState('filters:billing.quotations:dateFrom', '')
+  const [dateTo, setDateTo] = usePersistedState('filters:billing.quotations:dateTo', '')
+  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:billing.quotations:status', 'all')
+  const [selectedCustomer, setSelectedCustomer] = usePersistedState<string>('filters:billing.quotations:customer', 'all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -259,21 +276,21 @@ export default function QuotationsPage() {
   }
 
   const clearFilters = () => {
-    setPeriod('all')
+    setPeriod('today')
+    setCardFilter('all')
     setDateFrom('')
     setDateTo('')
     setSelectedStatus('all')
     setSelectedCustomer('all')
-    setAmountMin('')
-    setAmountMax('')
   }
 
   // ── Filtering logic ──
 
-  const filteredQuotations = useMemo(() => {
+  // Quotations within the selected period only — drives both the summary cards
+  // and the list (so the cards always reflect the period, independent of the
+  // card-click / search / status narrowing applied to the table below).
+  const periodQuotations = useMemo(() => {
     let result = [...quotations]
-
-    // Period filter
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10)
     switch (period) {
@@ -297,6 +314,20 @@ export default function QuotationsPage() {
         if (dateTo) result = result.filter((qt) => qt.date.slice(0, 10) <= dateTo)
         break
     }
+    return result
+  }, [quotations, period, dateFrom, dateTo])
+
+  const filteredQuotations = useMemo(() => {
+    let result = [...periodQuotations]
+
+    // Stat-card drill-down
+    if (cardFilter === 'converted') {
+      result = result.filter((qt) => qt.status === 'CONVERTED')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED')
+    } else if (cardFilter === 'rejected') {
+      result = result.filter((qt) => qt.status === 'REJECTED')
+    }
 
     // Search
     if (searchQuery.trim()) {
@@ -318,16 +349,8 @@ export default function QuotationsPage() {
       result = result.filter((qt) => qt.customerName === selectedCustomer)
     }
 
-    // Amount range
-    if (amountMin) {
-      result = result.filter((qt) => qt.total >= parseFloat(amountMin))
-    }
-    if (amountMax) {
-      result = result.filter((qt) => qt.total <= parseFloat(amountMax))
-    }
-
     return result
-  }, [quotations, searchQuery, period, dateFrom, dateTo, selectedStatus, selectedCustomer, amountMin, amountMax])
+  }, [periodQuotations, cardFilter, searchQuery, selectedStatus, selectedCustomer])
 
   // Backend-paginated customer fetcher. Quotations match by customerName,
   // so we keep value === name for compatibility with the existing filter.
@@ -349,25 +372,25 @@ export default function QuotationsPage() {
   const selectedCustomerLabel =
     selectedCustomer && selectedCustomer !== 'all' ? selectedCustomer : undefined
 
-  // ── Stats ──
+  // ── Stats ── (reflect the selected period, independent of card/table filters)
 
   const stats = useMemo(() => {
-    const total = quotations.reduce((sum, qt) => sum + qt.total, 0)
-    const convertedCount = quotations.filter((qt) => qt.status === 'CONVERTED').length
-    const convertedTotal = quotations.filter((qt) => qt.status === 'CONVERTED').reduce((sum, qt) => sum + qt.total, 0)
-    const pendingCount = quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').length
-    const pendingTotal = quotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').reduce((sum, qt) => sum + qt.total, 0)
-    const rejectedCount = quotations.filter((qt) => qt.status === 'REJECTED').length
+    const total = periodQuotations.reduce((sum, qt) => sum + qt.total, 0)
+    const convertedCount = periodQuotations.filter((qt) => qt.status === 'CONVERTED').length
+    const convertedTotal = periodQuotations.filter((qt) => qt.status === 'CONVERTED').reduce((sum, qt) => sum + qt.total, 0)
+    const pendingCount = periodQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').length
+    const pendingTotal = periodQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').reduce((sum, qt) => sum + qt.total, 0)
+    const rejectedCount = periodQuotations.filter((qt) => qt.status === 'REJECTED').length
     return {
       total,
-      totalCount: quotations.length,
+      totalCount: periodQuotations.length,
       convertedCount,
       convertedTotal,
       pendingCount,
       pendingTotal,
       rejectedCount,
     }
-  }, [quotations])
+  }, [periodQuotations])
 
   // ── Pagination ──
 
@@ -408,13 +431,12 @@ export default function QuotationsPage() {
 
   // ── Active filters count ──
   const activeFilterCount = [
-    period !== 'all' ? period : '',
+    period !== 'today' ? period : '', // "today" is the default baseline
+    cardFilter !== 'all' ? cardFilter : '',
     dateFrom,
     dateTo,
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedCustomer !== 'all' ? selectedCustomer : '',
-    amountMin,
-    amountMax,
   ].filter(Boolean).length
 
   return (
@@ -427,7 +449,7 @@ export default function QuotationsPage() {
     >
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Quotations',
             value: formatCurrency(stats.total),
@@ -435,6 +457,8 @@ export default function QuotationsPage() {
             icon: IndianRupee,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Converted',
@@ -443,6 +467,8 @@ export default function QuotationsPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'converted',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Pending',
@@ -451,6 +477,8 @@ export default function QuotationsPage() {
             icon: Clock,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'pending',
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
             label: 'Rejected',
@@ -459,9 +487,22 @@ export default function QuotationsPage() {
             icon: XCircle,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            filterKey: 'rejected',
+            activeRing: 'ring-2 ring-rose-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all quotations in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -475,7 +516,8 @@ export default function QuotationsPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Search + Filter Row ── */}
@@ -486,11 +528,11 @@ export default function QuotationsPage() {
         resultsCount={filteredQuotations.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={QUOTATION_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={() => navigate('/billing/new?type=quotation')}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -537,30 +579,6 @@ export default function QuotationsPage() {
             selectedLabel={selectedCustomerLabel}
             pageSize={10}
           />
-
-          {/* Amount range */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Amount Range
-            </Label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                placeholder="Min"
-                value={amountMin}
-                onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
-                className="w-full"
-              />
-              <span className="text-muted-foreground text-xs">-</span>
-              <Input
-                type="number"
-                placeholder="Max"
-                value={amountMax}
-                onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
-                className="w-full"
-              />
-            </div>
-          </div>
 
           {/* Custom date range — only when period is 'custom', full-width row below */}
           {period === 'custom' && (
@@ -675,7 +693,11 @@ export default function QuotationsPage() {
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-mono text-[11px] font-medium">{qt.quotationNumber}</p>
-                  <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
+                  <CustomerNameLine
+                    name={qt.customerName}
+                    phone={qt.customerPhone}
+                    onNameClick={qt.customerId ? () => navigate(`/customers/detail?customerId=${qt.customerId}`) : undefined}
+                  />
                   <div className="mt-0.5 flex items-center gap-2">
                     <Badge variant={statusBadgeVariant[qt.status]} size="sm" dot>
                       {statusLabel[qt.status]}
@@ -683,7 +705,7 @@ export default function QuotationsPage() {
                     <span className="text-[10px] text-muted-foreground">{formatDate(qt.date)}</span>
                   </div>
                 </div>
-                <p className="font-mono text-sm font-semibold shrink-0">{formatCurrency(qt.total)}</p>
+                <p className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{formatCurrency(qt.total)}</p>
               </div>
             ))}
           </div>
@@ -699,12 +721,12 @@ export default function QuotationsPage() {
                   onCheckedChange={toggleSelectAll}
                 />
               </TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Quotation #</TableHead>
-              <TableHead className="text-center">Items</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Status</TableHead>
+              {cols.isVisible('date') && <TableHead>Date</TableHead>}
+              {cols.isVisible('customer') && <TableHead>Customer</TableHead>}
+              {cols.isVisible('quotation') && <TableHead>Quotation #</TableHead>}
+              {cols.isVisible('items') && <TableHead className="text-center">Items</TableHead>}
+              {cols.isVisible('total') && <TableHead className="text-right">Total</TableHead>}
+              {cols.isVisible('status') && <TableHead>Status</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -712,7 +734,7 @@ export default function QuotationsPage() {
             <AnimatePresence mode="popLayout">
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
                       <p className="text-sm text-muted-foreground animate-pulse">Fetching quotations...</p>
@@ -721,7 +743,7 @@ export default function QuotationsPage() {
                 </TableRow>
               ) : paginatedQuotations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                         <FileText className="h-6 w-6 text-muted-foreground/60" />
@@ -754,14 +776,23 @@ export default function QuotationsPage() {
                         onCheckedChange={() => toggleSelectOne(qt.id)}
                       />
                     </TableCell>
+                    {cols.isVisible('date') && (
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">
                         {formatDate(qt.date)}
                       </span>
                     </TableCell>
+                    )}
+                    {cols.isVisible('customer') && (
                     <TableCell className="max-w-50">
-                      <CustomerNameLine name={qt.customerName} phone={qt.customerPhone} />
+                      <CustomerNameLine
+                        name={qt.customerName}
+                        phone={qt.customerPhone}
+                        onNameClick={qt.customerId ? () => navigate(`/customers/detail?customerId=${qt.customerId}`) : undefined}
+                      />
                     </TableCell>
+                    )}
+                    {cols.isVisible('quotation') && (
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -770,14 +801,20 @@ export default function QuotationsPage() {
                         </span>
                       </div>
                     </TableCell>
+                    )}
+                    {cols.isVisible('items') && (
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">
                         {qt.items.length}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold">
+                    )}
+                    {cols.isVisible('total') && (
+                    <TableCell className="text-right font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
                       {formatCurrency(qt.total)}
                     </TableCell>
+                    )}
+                    {cols.isVisible('status') && (
                     <TableCell>
                       <Badge
                         variant={statusBadgeVariant[qt.status]}
@@ -787,6 +824,7 @@ export default function QuotationsPage() {
                         {statusLabel[qt.status]}
                       </Badge>
                     </TableCell>
+                    )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => setDetailQt(qt)}

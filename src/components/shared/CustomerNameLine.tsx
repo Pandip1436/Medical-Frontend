@@ -9,6 +9,13 @@ interface CustomerNameLineProps {
   nameClassName?: string
   /** Override class on the phone <p>. */
   phoneClassName?: string
+  /**
+   * When provided, the name becomes a clickable blue link — e.g. to navigate
+   * to the party's detail page. The click is isolated from the surrounding
+   * row's own onClick (stopPropagation), so it opens the party rather than the
+   * row's drawer.
+   */
+  onNameClick?: () => void
 }
 
 // Renders a customer's display name with their phone shown directly beneath
@@ -25,11 +32,30 @@ export function CustomerNameLine({
   className,
   nameClassName,
   phoneClassName,
+  onNameClick,
 }: CustomerNameLineProps) {
   const visiblePhone = phone && phone !== '0000000000' ? phone : null
+  const clickable = !!onNameClick
   return (
     <div className={cn('min-w-0', className)}>
-      <p className={cn('text-sm font-medium leading-tight truncate', nameClassName)}>{name}</p>
+      <p
+        className={cn(
+          'text-sm font-bold leading-tight truncate',
+          clickable && 'text-blue-600 dark:text-blue-400 hover:underline cursor-pointer',
+          nameClassName,
+        )}
+        {...(clickable && {
+          role: 'link',
+          tabIndex: 0,
+          title: 'View party details',
+          onClick: (e: React.MouseEvent) => { e.stopPropagation(); onNameClick!() },
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onNameClick!() }
+          },
+        })}
+      >
+        {name}
+      </p>
       {visiblePhone && (
         <p className={cn('text-[11px] text-muted-foreground font-mono leading-tight tabular-nums', phoneClassName)}>
           {visiblePhone}

@@ -79,6 +79,9 @@ interface LedgerEntry {
   particular: string
   debit: number
   credit: number
+  // Refund / replacement returns are shown for visibility but must NOT move the
+  // running balance, totals, or trend — they're cash/goods-neutral to the party.
+  neutral?: boolean
 }
 
 type Period = 'year' | 'month'
@@ -131,9 +134,12 @@ function sumInWindow(entries: LedgerEntry[], from: string, to: string) {
   for (const e of entries) {
     if (from && e.date < from) continue
     if (to && e.date > to) continue
+    count++
+    // Neutral rows (refund/replacement returns) are counted as transactions but
+    // excluded from the debit/credit totals so the net reconciles with balance.
+    if (e.neutral) continue
     debit += e.debit
     credit += e.credit
-    count++
   }
   return { debit, credit, net: debit - credit, count }
 }
@@ -154,12 +160,14 @@ function buildDailySeries(entries: LedgerEntry[], from: string, to: string): Day
   const dayOf = (d: string) => d.slice(0, 10)
 
   let bal = 0
-  for (const e of entries) if (dayOf(e.date) < from) bal += e.debit - e.credit
+  for (const e of entries) if (dayOf(e.date) < from && !e.neutral) bal += e.debit - e.credit
 
   const dayMap = new Map<string, { debit: number; credit: number }>()
   for (const e of entries) {
     const ed = dayOf(e.date)
     if (ed < from || ed > to) continue
+    // Neutral rows don't contribute to the trend's debit/credit/balance.
+    if (e.neutral) continue
     const cur = dayMap.get(ed) ?? { debit: 0, credit: 0 }
     cur.debit += e.debit
     cur.credit += e.credit
@@ -331,6 +339,7 @@ export default function LedgerPage() {
             particular: `${r.description} (${r.ref})`,
             debit: Number(r.debit),
             credit: Number(r.credit),
+            neutral: !!r.neutral,
           })),
         )
       })
@@ -348,7 +357,7 @@ export default function LedgerPage() {
     let openingBal = 0
     if (dateFrom) {
       for (const e of sorted) {
-        if (e.date < dateFrom) openingBal += e.debit - e.credit
+        if (e.date < dateFrom) { if (!e.neutral) openingBal += e.debit - e.credit }
         else break
       }
     }
@@ -361,7 +370,9 @@ export default function LedgerPage() {
 
     let bal = openingBal
     const withBal = inRange.map((e) => {
-      bal += e.debit - e.credit
+      // Neutral rows (refund/replacement returns) display their amount but don't
+      // move the running balance.
+      if (!e.neutral) bal += e.debit - e.credit
       return { ...e, balance: bal }
     })
     const closingBal = withBal.length > 0 ? withBal[withBal.length - 1].balance : openingBal

@@ -68,6 +68,7 @@ import api from '@/lib/api'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
+import { isAdminish, userRoles } from '@/types'
 import { useBranchStore, type Branch } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 
@@ -124,9 +125,8 @@ const VIEW_STORAGE_KEY = 'branches:view'
 
 export default function BranchesPage() {
   const { user } = useAuthStore()
-  const role = user?.role ?? ''
-  const isAdmin = role === 'ADMIN'
-  const canSeeStats = role === 'ADMIN' || role === 'ACCOUNTANT'
+  const isAdmin = isAdminish(user)
+  const canSeeStats = isAdmin || userRoles(user).includes('ACCOUNTANT')
 
   const { activeBranchId, fetchBranches: refreshSwitcher, setActiveBranch } = useBranchStore()
 

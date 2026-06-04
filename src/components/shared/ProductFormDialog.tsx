@@ -92,7 +92,7 @@ export function ProductFormDialog({
         categoryId: values.categoryId || undefined,
       }
       const res = await api.post('/products', payload)
-      toast.success(`Product "${values.name}" added — add stock via Purchase Received to bill this item`)
+      toast.success(`Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`)
       onSaved?.(res.data as Product)
       onOpenChange(false)
     } catch (error: unknown) {
@@ -134,7 +134,7 @@ export function ProductFormDialog({
                 Add New Product
               </SheetTitle>
               <SheetDescription className="text-sm">
-                Saves to product master. Stock will be 0 until a Purchase Received entry is made.
+                Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded.
               </SheetDescription>
             </div>
             <div className="hidden md:flex shrink-0 items-center gap-1.5 max-w-full overflow-x-auto">

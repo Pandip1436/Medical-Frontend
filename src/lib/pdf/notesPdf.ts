@@ -41,6 +41,8 @@ interface NoteData {
   date: string
   partyLabel: string
   partyName: string
+  partyPhone?: string
+  partyAddress?: string
   referenceLabel: string
   referenceValue: string
   reason: string
@@ -93,6 +95,17 @@ function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: bo
   y += 5
   doc.text(`${note.partyLabel}: ${note.partyName}`, leftX, y)
   doc.text(`${note.referenceLabel}: ${note.referenceValue}`, rightX, y)
+  // Full party contact under the name — phone then (wrapped) address.
+  if (note.partyPhone) {
+    y += 4.5
+    doc.text(`Phone: ${note.partyPhone}`, leftX, y)
+  }
+  if (note.partyAddress) {
+    y += 4.5
+    const addrLines = doc.splitTextToSize(`Address: ${note.partyAddress}`, pageWidth - 28) as string[]
+    doc.text(addrLines, leftX, y)
+    y += (addrLines.length - 1) * 4.5
+  }
   y += 5
   doc.text(`Reason: ${note.reason}`, leftX, y, { maxWidth: pageWidth - 28 })
 

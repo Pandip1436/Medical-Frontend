@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { exportToExcel } from '@/lib/excelUtils'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -132,10 +133,10 @@ export default function StockOverviewPage() {
   const fetchCategories = useMasterDataStore((s) => s.fetchCategories)
   const PAGE_SIZE = 15
 
-  const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
-  const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [viewMode, setViewMode] = usePersistedState<'table' | 'card'>('filters:inventory.stock:view', 'table')
+  const [search, setSearch] = usePersistedState('filters:inventory.stock:search', '')
+  const [categoryFilter, setCategoryFilter] = usePersistedState('filters:inventory.stock:category', 'all')
+  const [statusFilter, setStatusFilter] = usePersistedState('filters:inventory.stock:status', 'all')
   const [currentPage, setCurrentPage] = useState(1)
   const [exporting, setExporting] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -336,12 +337,31 @@ export default function StockOverviewPage() {
   // Visible row count for the filter bar header — depends on which view is active.
   const filteredRowsCount = viewMode === 'table' ? batchTotal : productTotal
 
+  // Clicking a card with a `filterKey` switches to the table view (where the
+  // status filter actually narrows the /batches query — card view ignores it)
+  // and sets the existing `statusFilter` to that status, toggling off if it's
+  // already active. Cards without a filterKey are pure aggregates (Total
+  // Products / Sellable Value) and just clear any active card filter.
+  const applyCardFilter = (filterKey: StockStatus | null) => {
+    if (!filterKey) {
+      setStatusFilter('all')
+      setCurrentPage(1)
+      return
+    }
+    const active = statusFilter === filterKey
+    if (!active) setViewMode('table')
+    setStatusFilter(active ? 'all' : filterKey)
+    setCurrentPage(1)
+  }
+
   // KPI config — matches the SalesList card pattern: left border accent,
-  // colored icon square, font-mono value, lowercase subtitle.
+  // colored icon square, font-mono value, lowercase subtitle. `filterKey`
+  // maps the actionable cards onto the existing `statusFilter` state;
+  // `activeRing` highlights the card when its filter is active.
   const kpiCards: Array<{
     title: string; value: string; subtitle: string
     icon: typeof Package; iconBg: string; borderAccent: string
-    onClick?: () => void
+    filterKey: StockStatus | null; activeRing: string
   }> = [
     {
       title: 'Total Products',
@@ -350,6 +370,8 @@ export default function StockOverviewPage() {
       icon: Package,
       iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
       borderAccent: 'border-l-blue-500',
+      filterKey: null,
+      activeRing: '',
     },
     {
       title: 'Sellable Stock Value',
@@ -358,6 +380,8 @@ export default function StockOverviewPage() {
       icon: IndianRupee,
       iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
       borderAccent: 'border-l-emerald-500',
+      filterKey: null,
+      activeRing: '',
     },
     {
       title: 'Low Stock Items',
@@ -366,6 +390,8 @@ export default function StockOverviewPage() {
       icon: AlertTriangle,
       iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
       borderAccent: 'border-l-amber-500',
+      filterKey: 'low_stock',
+      activeRing: 'ring-2 ring-amber-500/50',
     },
     {
       title: 'Near Expiry',
@@ -374,7 +400,8 @@ export default function StockOverviewPage() {
       icon: Clock,
       iconBg: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
       borderAccent: 'border-l-orange-500',
-      onClick: () => navigate('/inventory/expiry'),
+      filterKey: 'near_expiry',
+      activeRing: 'ring-2 ring-orange-500/50',
     },
     {
       title: 'Expired Stock',
@@ -385,7 +412,8 @@ export default function StockOverviewPage() {
       icon: PackageX,
       iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
       borderAccent: 'border-l-rose-500',
-      onClick: () => navigate('/inventory/expiry'),
+      filterKey: 'expired',
+      activeRing: 'ring-2 ring-rose-500/50',
     },
   ]
 
@@ -400,12 +428,17 @@ export default function StockOverviewPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {kpiCards.map((kpi) => {
           const Icon = kpi.icon
+          const active = kpi.filterKey !== null && statusFilter === kpi.filterKey
           return (
             <Card
               key={kpi.title}
               hover
-              onClick={kpi.onClick}
-              className={cn('border-l-[3px]', kpi.borderAccent, kpi.onClick && 'cursor-pointer')}
+              role="button"
+              tabIndex={0}
+              title={kpi.filterKey === null ? 'Show all stock' : `Filter to ${kpi.title.toLowerCase()}`}
+              onClick={() => applyCardFilter(kpi.filterKey)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyCardFilter(kpi.filterKey) } }}
+              className={cn('border-l-[3px] cursor-pointer transition-shadow', kpi.borderAccent, active && kpi.activeRing)}
             >
               <CardContent className="flex items-center gap-4 p-4">
                 <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>

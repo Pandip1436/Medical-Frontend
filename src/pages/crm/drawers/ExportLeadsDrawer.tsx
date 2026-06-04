@@ -418,7 +418,7 @@ export function ExportLeadsDrawer({
           <Button
             onClick={startExport}
             disabled={busy || pickedKeys.length === 0 || scopeCount === 0}
-            className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+            className="gap-1.5"
           >
             {busy ? (
               <>

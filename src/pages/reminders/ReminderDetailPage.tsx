@@ -130,7 +130,7 @@ export default function ReminderDetailPage() {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={goBack}>
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to reminders
+        <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
 
       <Card>

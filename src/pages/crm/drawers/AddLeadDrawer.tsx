@@ -457,7 +457,7 @@ export function AddLeadDrawer({
           <div className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-background px-5 py-3">
             <Button
               type="submit"
-              className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+              className="gap-1.5"
               disabled={form.formState.isSubmitting}
               onClick={() => setKeepOpenAfterSave(false)}
             >

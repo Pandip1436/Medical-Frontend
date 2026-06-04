@@ -4,11 +4,10 @@ import {
   Pill,
   LayoutDashboard,
   Zap,
-  PlusCircle,
+  Plus,
   FileText,
   FileCheck,
   FileCheck2,
-  RotateCcw,
   ShoppingCart,
   PackageCheck,
   Truck,
@@ -34,7 +33,6 @@ import {
   Bell,
   CalendarClock,
   ShieldCheck,
-  ClipboardList,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -43,6 +41,7 @@ import { href as hashHref, navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
+import { userRoles, primaryRole, isAdminish } from '@/types'
 import {
   Tooltip,
   TooltipContent,
@@ -60,6 +59,9 @@ interface NavItem {
   // Highlighted shortcut (e.g. Quick Sale): rendered as an accent action
   // button rather than a plain link, and skips active-state styling.
   action?: boolean
+  // When set, renders a trailing "+" quick-add button that navigates here
+  // (the entity's create flow / ?add=1 deep-link) without opening the page.
+  quickAdd?: string
 }
 
 interface NavGroup {
@@ -86,30 +88,28 @@ const navigationGroups: NavGroup[] = [
   {
     title: 'BILLING',
     items: [
-      { label: 'New Sale', icon: PlusCircle, href: '/billing/new' },
-      { label: 'Invoice List', icon: FileText, href: '/billing/sales' },
-      { label: 'Quotations', icon: FileCheck, href: '/billing/quotations' },
-      { label: 'Sales Returns', icon: RotateCcw, href: '/billing/returns' },
-      { label: 'Credit Notes', icon: FileCheck2, href: '/billing/credit-notes' },
+      { label: 'Invoices', icon: FileText, href: '/billing/sales', quickAdd: '/billing/new' },
+      { label: 'Quotations', icon: FileCheck, href: '/billing/quotations', quickAdd: '/billing/new?type=quotation' },
+      { label: 'Credit Notes', icon: FileCheck2, href: '/billing/credit-notes', quickAdd: '/billing/returns' },
+      { label: 'Customers', icon: Users, href: '/customers', quickAdd: '/customers?add=1' },
+      { label: 'Customer Outstanding', icon: IndianRupee, href: '/customers/outstanding' },
     ],
   },
   {
     title: 'PURCHASE',
     items: [
-      { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders' },
-      { label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn' },
-      { label: 'Purchase Received', icon: ClipboardList, href: '/purchase/grn-list' },
-      { label: 'Purchase Returns', icon: RotateCcw, href: '/purchase/returns' },
-      { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes' },
-      { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers' },
+      { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders', quickAdd: '/purchase/orders?add=1' },
+      { label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn-list', quickAdd: '/purchase/grn' },
+      { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes', quickAdd: '/purchase/returns' },
+      { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers', quickAdd: '/purchase/suppliers?add=1' },
       { label: 'Supplier Outstanding', icon: IndianRupee, href: '/purchase/suppliers/outstanding' },
     ],
   },
   {
     title: 'INVENTORY',
     items: [
-      { label: 'Products', icon: Package, href: '/inventory/products' },
-      { label: 'Categories', icon: Tag, href: '/inventory/categories' },
+      { label: 'Products', icon: Package, href: '/inventory/products', quickAdd: '/inventory/products?add=1' },
+      { label: 'Categories', icon: Tag, href: '/inventory/categories', quickAdd: '/inventory/categories?add=1' },
       { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
       { label: 'Expiry Management', icon: Clock, href: '/inventory/expiry' },
       { label: 'Stock Adjustment', icon: Settings2, href: '/inventory/adjustment' },
@@ -119,14 +119,6 @@ const navigationGroups: NavGroup[] = [
     title: 'CRM',
     items: [
       { label: 'Leads', icon: Sparkles, href: '/crm/leads' },
-    ],
-  },
-  {
-    title: 'CUSTOMERS',
-    items: [
-      { label: 'Customer List', icon: Users, href: '/customers' },
-      { label: 'Invoices', icon: Receipt, href: '/customers/invoices' },
-      { label: 'Outstanding', icon: IndianRupee, href: '/customers/outstanding' },
     ],
   },
   {
@@ -248,8 +240,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
     if (!user) return
     // Only admins can ever see the approvals badge — don't poll for the
     // other roles. Saves ~60 API calls/hour per non-admin user.
-    const role = (user.role ?? '').toUpperCase().replace(/[\s-]/g, '_')
-    if (role !== 'ADMIN') {
+    if (!isAdminish(user)) {
       setPendingApprovals(0)
       return
     }
@@ -307,9 +298,12 @@ export function Sidebar({ currentPath }: SidebarProps) {
   }, [touchStart])
 
   const filteredGroups = useMemo(() => {
-    const role = (user?.role ?? '').toUpperCase().replace(/[\s-]/g, '_')
-    // Admin sees everything; other roles are filtered by rolePermissions
-    const allowedPaths = (role === 'ADMIN' || !role) ? null : (rolePermissions[role] ?? [])
+    // Admin / Super Admin see everything; other roles get the UNION of every
+    // assigned role's allowed routes.
+    const admin = isAdminish(user)
+    const allowedPaths = admin
+      ? null
+      : new Set(userRoles(user).flatMap((r) => rolePermissions[r] ?? []))
 
     return navigationGroups
       .map((group) => ({
@@ -317,11 +311,11 @@ export function Sidebar({ currentPath }: SidebarProps) {
         items: group.items.filter((item) => {
           if (allowedPaths === null) return true // Admin: all items
           if (item.adminOnly) return false // non-admin never sees adminOnly items
-          return allowedPaths.includes(item.href)
+          return allowedPaths.has(item.href)
         }),
       }))
       .filter((group) => group.items.length > 0)
-  }, [user?.role])
+  }, [user])
 
   // rem (not px) so the sidebar scales with the display-scale font-size.
   const sidebarWidth = sidebarCollapsed ? '4rem' : '16.25rem'
@@ -357,7 +351,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
       onClick={handleNavLinkClick('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand shadow-lg shadow-brand/20">
         <Pill className="h-4 w-4 text-white" />
       </div>
       {!collapsed && (
@@ -395,28 +389,14 @@ export function Sidebar({ currentPath }: SidebarProps) {
         className={cn(
           'group relative flex h-9 items-center rounded-lg px-3 text-[13px] font-medium transition-all duration-150',
           isAction
-            ? 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/15'
+            ? 'bg-brand/10 text-brand hover:bg-brand/15'
             : active
-              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-              : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent',
+              ? 'bg-sidebar-active text-sidebar-active-foreground font-semibold'
+              : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent',
           collapsed && 'justify-center px-0'
         )}
         style={{ gap: collapsed ? 0 : 12 }}
       >
-        {active && (
-          <motion.div
-            layoutId="sidebar-indicator"
-            className="absolute left-0 top-1.5 bottom-1.5 w-0.75 rounded-r-full bg-blue-500"
-            style={{
-              boxShadow: '0 0 8px 1px rgba(59, 130, 246, 0.4)',
-            }}
-            transition={{
-              type: 'spring',
-              stiffness: 350,
-              damping: 30,
-            }}
-          />
-        )}
         <Icon className="h-4.5 w-4.5 shrink-0" />
         {!collapsed && (
           <motion.span
@@ -428,22 +408,40 @@ export function Sidebar({ currentPath }: SidebarProps) {
           >
             {item.label}
             {item.href === '/notifications' && unreadCount > 0 && (
-              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-white">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
             {item.href === '/admin/approvals' && pendingApprovals > 0 && (
-              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+              <span className="ml-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-white">
                 {pendingApprovals > 99 ? '99+' : pendingApprovals}
               </span>
+            )}
+            {item.quickAdd && (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(item.quickAdd!) }}
+                className={cn(
+                  'ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors',
+                  // On the active (solid red) row the brand-red icon would vanish,
+                  // so use the row's white foreground there; brand red elsewhere.
+                  active
+                    ? 'text-sidebar-active-foreground hover:bg-white/20'
+                    : 'text-brand hover:bg-brand/15',
+                )}
+                aria-label={`Add new — ${item.label}`}
+                title={`Add new — ${item.label}`}
+              >
+                <Plus className="h-4.5 w-4.5" strokeWidth={2.75} />
+              </button>
             )}
           </motion.span>
         )}
         {collapsed && item.href === '/notifications' && unreadCount > 0 && (
-          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-rose-500" />
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
         )}
         {collapsed && item.href === '/admin/approvals' && pendingApprovals > 0 && (
-          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-500" />
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-warning" />
         )}
       </a>
     )
@@ -503,19 +501,21 @@ export function Sidebar({ currentPath }: SidebarProps) {
           const open = expandedSection === group.title
           const hasActiveChild = group.items.some((it) => isActive(it))
           return (
-            <div key={group.title} className="mb-0.5">
+            // A top divider + spacing visually separates each section
+            // (Billing / Purchase / Inventory …) from the one above it.
+            <div key={group.title} className="mb-0.5 mt-2 border-t border-sidebar-border/60 pt-2">
               <button
                 onClick={() => toggleSection(group.title)}
                 className={cn(
-                  'mt-3 flex w-full items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-[10px] font-semibold uppercase transition-colors hover:bg-sidebar-accent/50',
-                  hasActiveChild && !open ? 'text-sidebar-foreground' : 'text-sidebar-muted'
+                  'flex w-full items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase transition-colors hover:bg-sidebar-accent/50',
+                  hasActiveChild && !open ? 'text-brand' : 'text-sidebar-foreground/70'
                 )}
-                style={{ letterSpacing: '0.1em' }}
+                style={{ letterSpacing: '0.12em' }}
               >
                 <span className="flex items-center gap-1.5">
                   {group.title}
                   {hasActiveChild && !open && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-brand" />
                   )}
                 </span>
                 <motion.div
@@ -577,7 +577,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
                 variant="secondary"
                 className="mt-0.5 w-fit border-0 bg-sidebar-accent px-1.5 py-0 text-[10px] capitalize text-sidebar-muted"
               >
-                {user.role.replace('_', ' ')}
+                {(primaryRole(user) ?? '').toLowerCase().replace('_', ' ')}
+                {userRoles(user).length > 1 ? ` +${userRoles(user).length - 1}` : ''}
               </Badge>
             </motion.div>
           )}
@@ -739,7 +740,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
                 className={cn(
                   'flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
                   active
-                    ? 'text-blue-500'
+                    ? 'text-brand'
                     : 'text-sidebar-foreground/50'
                 )}
               >

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   Bell, Plus, Phone, CheckCircle2, XCircle, X, Clock, MessageSquare,
   Trash2, User, AlertCircle, RefreshCw, Mail, Search, ChevronRight,
-  ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock,
+  ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock, Pencil, ArrowLeft,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -209,8 +209,10 @@ export default function RemindersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // Add Reminder dialog state
+  // Add / Edit Reminder dialog state. editingId !== null → the dialog edits
+  // that existing reminder (PATCH) instead of creating a new one (POST).
   const [addOpen, setAddOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ customerId: '', dayOfMonth: '', title: '', notes: '' })
   const [customerSearch, setCustomerSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -307,6 +309,15 @@ export default function RemindersPage() {
     || c.phone.includes(customerSearch),
   )
 
+  // Open the dialog pre-filled to edit an existing reminder. The customer is
+  // locked (the backend update can't reassign a reminder to another customer).
+  const openEdit = (r: Reminder) => {
+    setEditingId(r.id)
+    setForm({ customerId: r.customerId, dayOfMonth: String(r.dayOfMonth), title: r.title, notes: r.notes ?? '' })
+    setCustomerSearch(r.customer.name)
+    setAddOpen(true)
+  }
+
   const handleAdd = async () => {
     if (!form.customerId || !form.dayOfMonth || !form.title) {
       toast.error('Customer, day and title are required')
@@ -314,20 +325,30 @@ export default function RemindersPage() {
     }
     setSaving(true)
     try {
-      await api.post('/reminders', {
-        customerId: form.customerId,
-        dayOfMonth: parseInt(form.dayOfMonth),
-        title: form.title,
-        notes: form.notes || undefined,
-        branchId: activeBranchId || undefined,
-      })
-      toast.success('Reminder created')
+      if (editingId) {
+        await api.patch(`/reminders/${editingId}`, {
+          dayOfMonth: parseInt(form.dayOfMonth),
+          title: form.title,
+          notes: form.notes || null,
+        })
+        toast.success('Reminder updated')
+      } else {
+        await api.post('/reminders', {
+          customerId: form.customerId,
+          dayOfMonth: parseInt(form.dayOfMonth),
+          title: form.title,
+          notes: form.notes || undefined,
+          branchId: activeBranchId || undefined,
+        })
+        toast.success('Reminder created')
+      }
       setAddOpen(false)
+      setEditingId(null)
       setForm({ customerId: '', dayOfMonth: '', title: '', notes: '' })
       setCustomerSearch('')
       fetchReminders()
     } catch {
-      toast.error('Failed to create reminder')
+      toast.error(editingId ? 'Failed to update reminder' : 'Failed to create reminder')
     } finally {
       setSaving(false)
     }
@@ -429,6 +450,7 @@ export default function RemindersPage() {
             {/* ── Sidebar: customer-type folders ── */}
             <aside className={cn(
               'shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r',
+              // Keep the folder rail visible on desktop; only hide it on mobile where the detail goes full-screen.
               selectedReq && 'hidden lg:block',
             )}>
               <div className="px-3 py-3">
@@ -460,7 +482,7 @@ export default function RemindersPage() {
                           />
                         )}
                         <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
-                        <span className="flex-1 truncate">{cat.label}</span>
+                        <span className="flex-1 truncate text-[13px]">{cat.label}</span>
                         {count > 0 && (
                           <span className={cn(
                             'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
@@ -480,7 +502,8 @@ export default function RemindersPage() {
             <section className="flex min-h-0 flex-1 flex-row">
               <div className={cn(
                 'flex min-w-0 flex-1 flex-col',
-                selectedReq && 'hidden lg:flex',
+                // Hidden on all sizes when a reminder is open so the detail goes full-width.
+                selectedReq && 'hidden',
               )}>
                 <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
                   <div className="relative flex-1">
@@ -554,11 +577,12 @@ export default function RemindersPage() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: 24, opacity: 0 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="flex min-w-0 flex-1 flex-col bg-background lg:w-md lg:flex-none lg:border-l lg:border-border/60 xl:w-lg"
+                    className="flex min-w-0 flex-1 flex-col bg-background"
                   >
                     <ReminderDetailPanel
                       reminder={selectedReq}
                       onClose={() => setSelectedId(null)}
+                      onEdit={() => openEdit(selectedReq)}
                       onDelete={() => handleDelete(selectedReq.id)}
                       onContactLogged={fetchReminders}
                     />
@@ -570,15 +594,17 @@ export default function RemindersPage() {
         </Card>
       </motion.div>
 
-      {/* ── Add Reminder dialog (kept verbatim from the previous page) ── */}
+      {/* ── Add / Edit Reminder dialog ── */}
       <Dialog open={addOpen} onOpenChange={(open) => {
-        if (!open) { setForm({ customerId: '', dayOfMonth: '', title: '', notes: '' }); setCustomerSearch('') }
+        if (!open) { setForm({ customerId: '', dayOfMonth: '', title: '', notes: '' }); setCustomerSearch(''); setEditingId(null) }
         setAddOpen(open)
       }}>
         <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-md">
           <DialogHeader className="shrink-0">
-            <DialogTitle>Add Reminder</DialogTitle>
-            <DialogDescription>Set a monthly follow-up reminder for a customer.</DialogDescription>
+            <DialogTitle>{editingId ? 'Edit Reminder' : 'Add Reminder'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? 'Update this monthly follow-up reminder.' : 'Set a monthly follow-up reminder for a customer.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="flex-1 space-y-4 overflow-y-auto pr-1">
             {/* Customer combobox */}
@@ -591,10 +617,11 @@ export default function RemindersPage() {
                     placeholder="Search by name or phone..."
                     value={customerSearch}
                     onChange={e => { setCustomerSearch(e.target.value); setForm(f => ({ ...f, customerId: '' })) }}
-                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/40"
+                    disabled={!!editingId}
+                    className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/40 disabled:opacity-70"
                     autoComplete="off"
                   />
-                  {form.customerId && (
+                  {form.customerId && !editingId && (
                     <button
                       type="button"
                       onClick={() => { setCustomerSearch(''); setForm(f => ({ ...f, customerId: '' })) }}
@@ -683,7 +710,7 @@ export default function RemindersPage() {
           <DialogFooter className="shrink-0 pt-2">
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button onClick={handleAdd} disabled={saving}>
-              {saving ? 'Saving...' : 'Create Reminder'}
+              {saving ? 'Saving...' : editingId ? 'Update Reminder' : 'Create Reminder'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -812,10 +839,11 @@ function ReminderRow({
 
 // ─── Side detail panel ────────────────────────────────────────
 function ReminderDetailPanel({
-  reminder: r, onClose, onDelete, onContactLogged,
+  reminder: r, onClose, onEdit, onDelete, onContactLogged,
 }: {
   reminder: Reminder
   onClose: () => void
+  onEdit: () => void
   onDelete: () => void
   onContactLogged: () => void
 }) {
@@ -884,6 +912,15 @@ function ReminderDetailPanel({
     <>
       {/* Header */}
       <div className={cn('flex items-start gap-3 border-b border-l-[3px] border-border/60 px-4 py-3', tone.border)}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="-ml-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={onClose}
+          aria-label="Back to list"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <div className={cn(
           'flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl text-center',
           isDueToday ? 'bg-amber-500 text-white' : 'bg-muted text-foreground',
@@ -902,171 +939,137 @@ function ReminderDetailPanel({
           <p className="mt-0.5 text-[10px] text-muted-foreground/70">
             Recurs on the {ORDINAL(r.dayOfMonth)} of every month
           </p>
+          {r.notes && <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground/80">{r.notes}</p>}
         </div>
-        <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={onClose} aria-label="Close panel">
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {/* Active follow-up banner */}
-        {activeFollowUp && (
-          <div className={cn(
-            'flex items-center gap-2.5 rounded-lg border px-3 py-2.5',
-            followUpOverdue
-              ? 'border-rose-300/60 bg-rose-500/10 dark:border-rose-900/50'
-              : 'border-violet-300/60 bg-violet-500/10 dark:border-violet-900/50',
-          )}>
-            <CalendarClock className={cn(
-              'h-4 w-4 shrink-0',
-              followUpOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-violet-600 dark:text-violet-400',
-            )} />
-            <div className="min-w-0 flex-1">
-              <p className={cn(
-                'text-xs font-semibold',
-                followUpOverdue ? 'text-rose-700 dark:text-rose-400' : 'text-violet-700 dark:text-violet-400',
-              )}>
-                {followUpOverdue ? 'Follow-up overdue' : 'Follow-up scheduled'}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {activeFollowUp.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-              onClick={handleClearFollowUp}
-              disabled={clearingFollowUp}
-            >
-              <X className="h-3 w-3" /> {clearingFollowUp ? 'Clearing…' : 'Clear'}
-            </Button>
-          </div>
-        )}
-
-        {/* Customer card */}
-        <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Customer</p>
-          <div className="mt-2 space-y-1 text-xs">
-            <div className="flex items-center gap-2">
-              <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-              <span className="font-mono">{r.customer.phone}</span>
-            </div>
-            {r.customer.email && (
-              <div className="flex items-center gap-2">
-                <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                <span className="truncate">{r.customer.email}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Quick actions */}
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={`tel:${r.customer.phone}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-          >
-            <Phone className="h-3.5 w-3.5" /> Call
+        {/* Customer contact — fills the space at the top-right */}
+        <div className="hidden shrink-0 flex-col items-end gap-1 text-xs sm:flex">
+          <a href={`tel:${r.customer.phone}`} className="inline-flex items-center gap-1.5 font-mono text-foreground hover:text-primary">
+            <Phone className="h-3.5 w-3.5 text-muted-foreground/60" /> {r.customer.phone}
           </a>
-          <a
-            href={waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium transition-colors hover:bg-green-50 dark:hover:bg-green-950/30"
-            style={{ color: '#25D366' }}
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-            </svg>
-            WhatsApp
-          </a>
-          {mailUrl && (
-            <a
-              href={mailUrl}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
-            >
-              <Mail className="h-3.5 w-3.5" /> Email
+          {r.customer.email && (
+            <a href={`mailto:${r.customer.email}`} className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary">
+              <Mail className="h-3.5 w-3.5 text-muted-foreground/60" /> <span className="max-w-56 truncate">{r.customer.email}</span>
             </a>
           )}
         </div>
+      </div>
 
-        {/* Notes */}
-        {r.notes && (
-          <div className="rounded-lg border border-border/40 bg-muted/10 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Notes</p>
-            <p className="mt-1.5 whitespace-pre-wrap text-xs">{r.notes}</p>
-          </div>
-        )}
-
-        {/* Contact history */}
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Contact history · {r.contacts.length}
-          </p>
-          <div className="mt-2 space-y-2">
-            {r.contacts.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border/40 px-3 py-4 text-center text-xs text-muted-foreground">
-                No contacts logged yet.
-              </p>
-            ) : r.contacts.map(c => {
-              const cfg = STATUS_CONFIG[c.status]
-              const SIcon = cfg.icon
-              return (
-                <div key={c.id} className="flex items-start gap-2.5 rounded-lg border border-border/40 bg-muted/10 p-2.5">
-                  <Badge variant={cfg.variant} size="sm" className="shrink-0 gap-1">
-                    <SIcon className="h-3 w-3" /> {cfg.label}
-                  </Badge>
-                  <div className="min-w-0 flex-1">
-                    {c.notes && <p className="text-xs text-foreground/80">{c.notes}</p>}
-                    {c.followUpDate && (
-                      <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 dark:text-violet-400">
-                        <CalendarClock className="h-2.5 w-2.5" />
-                        Follow-up set for {new Date(c.followUpDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </p>
-                    )}
-                    <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                      {new Date(c.contactedAt).toLocaleString('en-IN', {
-                        day: '2-digit', month: 'short', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Inline log form — replaces the previous standalone modal */}
-        <div className="rounded-lg border border-border/40 bg-muted/10 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Log new contact
-          </p>
-          <div className="mt-2 space-y-2">
-            <div className="space-y-1">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</Label>
-              <Select value={logStatus} onValueChange={v => setLogStatus(v as ContactStatus)}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(STATUS_CONFIG) as ContactStatus[]).map(k => {
-                    const cfg = STATUS_CONFIG[k]
-                    const SIcon = cfg.icon
-                    return (
-                      <SelectItem key={k} value={k}>
-                        <div className="flex items-center gap-2">
-                          <SIcon className="h-3.5 w-3.5" /> {cfg.label}
-                        </div>
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
+      {/* Body — full-width detail; content laid out in two columns to use the space */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="mx-auto max-w-5xl space-y-4">
+          {/* Active follow-up banner (full width) */}
+          {activeFollowUp && (
+            <div className={cn(
+              'flex items-center gap-2.5 rounded-lg border px-3 py-2.5',
+              followUpOverdue
+                ? 'border-rose-300/60 bg-rose-500/10 dark:border-rose-900/50'
+                : 'border-violet-300/60 bg-violet-500/10 dark:border-violet-900/50',
+            )}>
+              <CalendarClock className={cn(
+                'h-4 w-4 shrink-0',
+                followUpOverdue ? 'text-rose-600 dark:text-rose-400' : 'text-violet-600 dark:text-violet-400',
+              )} />
+              <div className="min-w-0 flex-1">
+                <p className={cn(
+                  'text-xs font-semibold',
+                  followUpOverdue ? 'text-rose-700 dark:text-rose-400' : 'text-violet-700 dark:text-violet-400',
+                )}>
+                  {followUpOverdue ? 'Follow-up overdue' : 'Follow-up scheduled'}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {activeFollowUp.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={handleClearFollowUp}
+                disabled={clearingFollowUp}
+              >
+                <X className="h-3 w-3" /> {clearingFollowUp ? 'Clearing…' : 'Clear'}
+              </Button>
             </div>
-            <div className="space-y-1">
+          )}
+
+          {/* Quick actions — Call / WhatsApp / Email */}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Quick actions</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <a
+                href={`tel:${r.customer.phone}`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+              >
+                <Phone className="h-3.5 w-3.5" /> Call
+              </a>
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium transition-colors hover:bg-green-50 dark:hover:bg-green-950/30"
+                style={{ color: '#25D366' }}
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                </svg>
+                WhatsApp
+              </a>
+              {mailUrl && (
+                <a
+                  href={mailUrl}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                >
+                  <Mail className="h-3.5 w-3.5" /> Email
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Log new contact — Follow-up + Status on one row, Notes below */}
+          <div className="rounded-lg border border-border/40 bg-muted/10 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Log new contact</p>
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Follow-up + date picker */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Follow up on <span className="font-normal normal-case text-muted-foreground/60">· optional</span>
+                </Label>
+                <div className="flex items-center gap-1.5">
+                  <CalendarClock className="h-4 w-4 shrink-0 text-violet-500" />
+                  <DatePicker
+                    value={logFollowUp}
+                    onChange={setLogFollowUp}
+                    min={toISODate(new Date())}
+                    placeholder="Set follow-up date"
+                    className="h-8 flex-1 text-xs"
+                  />
+                </div>
+              </div>
+              {/* Status */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</Label>
+                <Select value={logStatus} onValueChange={v => setLogStatus(v as ContactStatus)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(STATUS_CONFIG) as ContactStatus[]).map(k => {
+                      const cfg = STATUS_CONFIG[k]
+                      const SIcon = cfg.icon
+                      return (
+                        <SelectItem key={k} value={k}>
+                          <div className="flex items-center gap-2">
+                            <SIcon className="h-3.5 w-3.5" /> {cfg.label}
+                          </div>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {/* Notes — below the follow-up + status row */}
+            <div className="mt-3 space-y-1">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
               <Textarea
                 placeholder="What was discussed, what was ordered, next steps…"
@@ -1076,33 +1079,70 @@ function ReminderDetailPanel({
                 className="text-xs"
               />
             </div>
-            <div className="space-y-1">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Follow up on <span className="font-normal normal-case text-muted-foreground/60">· optional</span>
-              </Label>
-              <DatePicker
-                value={logFollowUp}
-                onChange={setLogFollowUp}
-                min={toISODate(new Date())}
-                placeholder="Pick a date the customer asked for"
-                className="h-8 text-xs"
-              />
-              {logFollowUp && (
-                <p className="text-[10px] text-violet-600 dark:text-violet-400">
-                  Reminder will resurface on this date instead of its monthly day.
+            {logFollowUp && (
+              <p className="mt-1.5 text-[10px] text-violet-600 dark:text-violet-400">
+                Reminder will resurface on this date instead of its monthly day (saved with the contact log).
+              </p>
+            )}
+          </div>
+
+          {/* Contact history */}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              Contact history · {r.contacts.length}
+            </p>
+            <div className="mt-2 space-y-2">
+              {r.contacts.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border/40 px-3 py-4 text-center text-xs text-muted-foreground">
+                  No contacts logged yet.
                 </p>
-              )}
+              ) : r.contacts.map(c => {
+                const cfg = STATUS_CONFIG[c.status]
+                const SIcon = cfg.icon
+                return (
+                  <div key={c.id} className="flex items-start gap-2.5 rounded-lg border border-border/40 bg-muted/10 p-2.5">
+                    <Badge variant={cfg.variant} size="sm" className="shrink-0 gap-1">
+                      <SIcon className="h-3 w-3" /> {cfg.label}
+                    </Badge>
+                    <div className="min-w-0 flex-1">
+                      {c.notes && <p className="text-xs text-foreground/80">{c.notes}</p>}
+                      {c.followUpDate && (
+                        <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 dark:text-violet-400">
+                          <CalendarClock className="h-2.5 w-2.5" />
+                          Follow-up set for {new Date(c.followUpDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                        {new Date(c.contactedAt).toLocaleString('en-IN', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <Button size="sm" className="w-full gap-1.5" onClick={handleLog} disabled={logSaving}>
-              <MessageSquare className="h-3.5 w-3.5" />
-              {logSaving ? 'Saving…' : 'Save contact log'}
-            </Button>
           </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end border-t border-border/60 bg-muted/10 px-4 py-2.5">
+      {/* Footer — Edit + Save contact log on the left, Delete on the right */}
+      <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/10 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onEdit}
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit reminder
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={handleLog} disabled={logSaving}>
+            <MessageSquare className="h-3.5 w-3.5" />
+            {logSaving ? 'Saving…' : 'Save contact log'}
+          </Button>
+        </div>
         <Button
           size="sm"
           variant="ghost"

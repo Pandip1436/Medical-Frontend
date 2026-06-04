@@ -596,7 +596,6 @@ export function ImportLeadsDrawer({
               </Button>
               <Button
                 onClick={() => handleClose(false)}
-                className="bg-blue-600 text-white hover:bg-blue-700"
               >
                 Done
               </Button>
@@ -611,7 +610,7 @@ export function ImportLeadsDrawer({
                 disabled={
                   !file || rows.length === 0 || !titleMapped || submitting
                 }
-                className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+                className="gap-1.5"
               >
                 {submitting ? (
                   <>

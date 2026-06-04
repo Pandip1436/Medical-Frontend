@@ -2,9 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useAuthStore } from '@/stores/authStore'
 import { RETURN_REASONS } from './SalesReturnsPage'
-import { printHtmlInPage } from '@/lib/printUtils'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   FileX2,
@@ -17,13 +15,9 @@ import {
   Wallet,
   RefreshCw,
   BadgeCheck,
-  Package,
-  ExternalLink,
   Hourglass,
-  ShieldCheck,
   XCircle,
   CheckCircle2,
-  CircleSlash,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -39,13 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
@@ -55,6 +46,7 @@ import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv } from '@/lib/exportUtils'
 import { navigate, useRoute } from '@/lib/router'
+import { printCreditNote } from './CreditNoteDetailContent'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -71,9 +63,9 @@ interface CreditNoteItem {
   amount: number
 }
 
-type CreditNoteStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
+export type CreditNoteStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
 
-interface CreditNote {
+export interface CreditNote {
   id: string
   creditNoteNo: string
   date: string
@@ -131,15 +123,6 @@ const settlementConfig: Record<string, { label: string; variant: 'success' | 'wa
   REPLACEMENT: { label: 'Store Credit',  variant: 'info',    icon: RefreshCw },
 }
 
-// Settlement-mode picker options used inside the detail dialog when the
-// reviewer wants to override the customer's original choice before approving.
-// Subset / re-labelling of SETTLEMENT_OPTIONS without the "all" filter value.
-const SETTLEMENT_PICKER_OPTIONS: Array<{ value: 'REFUND' | 'CREDIT' | 'REPLACEMENT'; label: string; sublabel: string }> = [
-  { value: 'REFUND', label: 'Refund to Customer', sublabel: 'Cash/card refund via original payment method' },
-  { value: 'CREDIT', label: 'Adjust Against Outstanding', sublabel: 'Deduct credit amount from existing balance' },
-  { value: 'REPLACEMENT', label: 'Replacement', sublabel: 'Replace with equivalent product(s)' },
-]
-
 // Status filter options + per-status visual config. Keep the visual variants
 // distinct from settlement variants so a "Refund + Pending" row reads at a
 // glance.
@@ -160,48 +143,36 @@ const statusConfig: Record<CreditNoteStatus, { label: string; variant: 'warning'
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
+const CREDIT_NOTE_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'customer', label: 'Customer', defaultVisible: true },
+  { id: 'creditNote', label: 'Credit Note #', required: true, defaultVisible: true },
+  { id: 'invoice', label: 'Against Invoice', defaultVisible: true },
+  { id: 'reason', label: 'Reason', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'settlement', label: 'Settlement', defaultVisible: true },
+  { id: 'amount', label: 'Amount', defaultVisible: true },
+]
+
 export default function CreditNotesPage() {
+  const cols = useColumnVisibility('billing.creditNotes', CREDIT_NOTE_COLUMNS)
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [period, setPeriod] = useState('all')
+  // period defaults to "today" so the page opens on today's credit notes.
+  const [period, setPeriod] = useState('today')
+  // Stat-card drill-down: clicking a summary card narrows the list to that
+  // subset (pending review / refunds / adjustments) on top of the period.
+  // Kept separate from the Status / Settlement enum filters.
+  const [cardFilter, setCardFilter] = useState<'all' | 'pending' | 'refund' | 'adjust'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedSettlement, setSelectedSettlement] = useState('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedCustomer, setSelectedCustomer] = useState('all')
   const [selectedReason, setSelectedReason] = useState('all')
-  const [amountMin, setAmountMin] = useState('')
-  const [amountMax, setAmountMax] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
-  const [detailNote, setDetailNote] = useState<CreditNote | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-
-  // Detail-dialog review state. Reviewer can override settlement on approve;
-  // both approve and reject can attach a free-text inspection note. Both
-  // values reset whenever a different CN is opened (see useEffect below).
-  const [reviewSettlementOverride, setReviewSettlementOverride] = useState<'REFUND' | 'CREDIT' | 'REPLACEMENT'>('REFUND')
-  const [reviewNote, setReviewNote] = useState('')
-  const [reviewSubmitting, setReviewSubmitting] = useState(false)
-  const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
-
-  const openDetail = useCallback(async (cn: CreditNote) => {
-    setDetailNote(cn) // show dialog immediately with list data
-    // Seed the review state from the row's existing values so the reviewer
-    // sees the customer's original settlement choice + any prior note.
-    setReviewSettlementOverride(cn.settlementMode)
-    setReviewNote(cn.reviewNote ?? '')
-    setDetailLoading(true)
-    try {
-      const res = await api.get(`/credit-notes/${cn.id}`)
-      setDetailNote(res.data)
-    } catch {
-      // keep showing list data, items will just be missing
-    } finally {
-      setDetailLoading(false)
-    }
-  }, [])
 
   const fetchCreditNotes = useCallback(async () => {
     setIsLoading(true)
@@ -218,19 +189,17 @@ export default function CreditNotesPage() {
   useEffect(() => { fetchCreditNotes() }, [fetchCreditNotes])
   useBranchRefresh(fetchCreditNotes)
 
-  // Deep-link support: open the credit-note drawer when arrived with `?id=<id>`
-  // (e.g. from the Customer Detail page's Credit Notes tab). Runs only when
-  // the URL param or the loaded list changes.
+  // Deep-link support: the detail is now its own page. Legacy links that land
+  // on the list with `?id=<id>` (Customer Detail → Credit Notes tab,
+  // notifications, Approvals) redirect to the standalone detail page.
+  // `replace: true` so this intermediate list entry doesn't linger in history —
+  // otherwise the detail page's Back lands here and bounces forward again
+  // instead of returning to the caller (e.g. the notification folder).
   const { search: routeSearch } = useRoute()
   useEffect(() => {
-    const params = new URLSearchParams(routeSearch)
-    const target = params.get('id')
-    if (!target || creditNotes.length === 0) return
-    if (detailNote?.id === target) return
-    const match = creditNotes.find((c) => c.id === target)
-    if (match) void openDetail(match)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeSearch, creditNotes])
+    const target = new URLSearchParams(routeSearch).get('id')
+    if (target) navigate(`/billing/credit-notes/detail?id=${target}`, { replace: true })
+  }, [routeSearch])
 
   // Master data — for filters that should list ALL options
   const { customers, fetchMasterData } = useMasterDataStore()
@@ -238,7 +207,11 @@ export default function CreditNotesPage() {
   useEffect(() => { fetchMasterData() }, [])
 
   // ── Filtering ──
-  const filtered = useMemo(() => {
+
+  // Credit notes within the selected period only — drives both the summary
+  // cards and the list (so the cards always reflect the period, independent of
+  // the card-click / search / status narrowing applied to the table below).
+  const periodNotes = useMemo(() => {
     let result = [...creditNotes]
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10)
@@ -267,6 +240,20 @@ export default function CreditNotesPage() {
         if (dateFrom) result = result.filter(cn => cn.date.slice(0, 10) >= dateFrom)
         if (dateTo)   result = result.filter(cn => cn.date.slice(0, 10) <= dateTo)
         break
+    }
+    return result
+  }, [creditNotes, period, dateFrom, dateTo])
+
+  const filtered = useMemo(() => {
+    let result = [...periodNotes]
+
+    // Stat-card drill-down
+    if (cardFilter === 'pending') {
+      result = result.filter(cn => cn.status === 'PENDING_REVIEW')
+    } else if (cardFilter === 'refund') {
+      result = result.filter(cn => cn.settlementMode === 'REFUND')
+    } else if (cardFilter === 'adjust') {
+      result = result.filter(cn => cn.settlementMode === 'CREDIT')
     }
 
     if (searchQuery.trim()) {
@@ -298,11 +285,8 @@ export default function CreditNotesPage() {
       result = result.filter(cn => (cn.reason || '').toLowerCase().startsWith(sel))
     }
 
-    if (amountMin) result = result.filter(cn => Number(cn.totalAmount) >= parseFloat(amountMin))
-    if (amountMax) result = result.filter(cn => Number(cn.totalAmount) <= parseFloat(amountMax))
-
     return result
-  }, [creditNotes, searchQuery, period, dateFrom, dateTo, selectedSettlement, selectedCustomer, selectedReason, amountMin, amountMax])
+  }, [periodNotes, cardFilter, searchQuery, selectedSettlement, selectedStatus, selectedCustomer, selectedReason])
 
   // Backend-paginated customer fetcher. CreditNotes filter by customerName,
   // so value === name.
@@ -338,139 +322,34 @@ export default function CreditNotesPage() {
   // and confuse anyone reconciling against accounting. Pending count gets
   // its own tile.
   const stats = useMemo(() => {
-    const approved = creditNotes.filter(cn => cn.status === 'APPROVED')
-    const pendingCount = creditNotes.filter(cn => cn.status === 'PENDING_REVIEW').length
+    const approved = periodNotes.filter(cn => cn.status === 'APPROVED')
+    const pendingCount = periodNotes.filter(cn => cn.status === 'PENDING_REVIEW').length
     const total = approved.reduce((s, cn) => s + Number(cn.totalAmount), 0)
     const refunds = approved.filter(cn => cn.settlementMode === 'REFUND').reduce((s, cn) => s + Number(cn.totalAmount), 0)
     const adjustments = approved.filter(cn => cn.settlementMode === 'CREDIT').reduce((s, cn) => s + Number(cn.totalAmount), 0)
-    return { count: creditNotes.length, total, refunds, adjustments, pendingCount }
-  }, [creditNotes])
+    return { count: periodNotes.length, total, refunds, adjustments, pendingCount }
+  }, [periodNotes])
 
   // ── Pagination ──
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const activeFilterCount = [
-    period !== 'all' ? period : '',
+    period !== 'today' ? period : '', // "today" is the default baseline
+    cardFilter !== 'all' ? cardFilter : '',
     dateFrom, dateTo,
     selectedSettlement !== 'all' ? selectedSettlement : '',
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedCustomer !== 'all' ? selectedCustomer : '',
     selectedReason !== 'all' ? selectedReason : '',
-    amountMin, amountMax,
   ].filter(Boolean).length
 
   const clearFilters = () => {
-    setPeriod('all'); setDateFrom(''); setDateTo('')
+    setPeriod('today'); setCardFilter('all'); setDateFrom(''); setDateTo('')
     setSelectedSettlement('all')
     setSelectedStatus('all')
     setSelectedCustomer('all')
     setSelectedReason('all')
-    setAmountMin(''); setAmountMax('')
-  }
-
-  // ── Approve / Reject handlers ──
-  // Both refresh the list, refetch the detail (so the dialog updates in-place
-  // to show the new APPROVED/REJECTED state + reviewer/timestamp), and surface
-  // a toast. The dialog stays open so the user can verify what they just did.
-  const handleApprove = useCallback(async () => {
-    if (!detailNote) return
-    setReviewSubmitting(true)
-    try {
-      const body: { settlementMode?: string; reviewNote?: string } = {}
-      if (reviewSettlementOverride !== detailNote.settlementMode) {
-        body.settlementMode = reviewSettlementOverride
-      }
-      if (reviewNote.trim()) body.reviewNote = reviewNote.trim()
-      const res = await api.post(`/credit-notes/${detailNote.id}/approve`, body)
-      setDetailNote(res.data)
-      await fetchCreditNotes()
-      toast.success(`${detailNote.creditNoteNo} approved`, {
-        description: body.settlementMode
-          ? `Settlement set to ${body.settlementMode.toLowerCase()}. Side effects executed.`
-          : 'Stock restored and settlement applied.',
-      })
-    } catch {
-      // api.ts surfaces the error toast
-    } finally {
-      setReviewSubmitting(false)
-    }
-  }, [detailNote, reviewSettlementOverride, reviewNote, fetchCreditNotes])
-
-  const handleReject = useCallback(async () => {
-    if (!detailNote) return
-    if (!reviewNote.trim()) {
-      toast.error('Please describe what you found on inspection before rejecting.')
-      return
-    }
-    setReviewSubmitting(true)
-    try {
-      const res = await api.post(`/credit-notes/${detailNote.id}/reject`, {
-        reviewNote: reviewNote.trim(),
-      })
-      setDetailNote(res.data)
-      await fetchCreditNotes()
-      toast.success(`${detailNote.creditNoteNo} rejected`, {
-        description: 'No stock or balance changes were applied.',
-      })
-    } catch {
-      // api.ts surfaces the error toast
-    } finally {
-      setReviewSubmitting(false)
-    }
-  }, [detailNote, reviewNote, fetchCreditNotes])
-
-  const handlePrint = (cn: CreditNote) => {
-    printHtmlInPage(`
-      <html><head><title>Credit Note ${cn.creditNoteNo}</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 24px; color: #111; font-size: 12px; }
-        h1 { font-size: 20px; margin-bottom: 4px; }
-        .sub { color: #666; font-size: 11px; margin-bottom: 16px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-        .label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
-        .value { font-size: 13px; font-weight: 600; margin-top: 2px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        th { background: #f5f5f5; padding: 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-        td { padding: 8px; border-bottom: 1px solid #eee; }
-        .totals { margin-top: 16px; text-align: right; }
-        .totals .row { display: flex; justify-content: flex-end; gap: 32px; margin-bottom: 4px; }
-        .grand { font-size: 16px; font-weight: 700; color: #1a56db; }
-        @media print { button { display: none; } }
-      </style></head><body>
-      <h1>CREDIT NOTE</h1>
-      <div class="sub">${businessProfile?.name ?? 'Hospital Suppliers'}${businessProfile?.address ? ` · ${businessProfile.address.split(',').slice(-2).join(',').trim()}` : ''}</div>
-      <div class="grid">
-        <div><div class="label">Credit Note No</div><div class="value">${cn.creditNoteNo}</div></div>
-        <div><div class="label">Date</div><div class="value">${formatDate(cn.date)}</div></div>
-        <div><div class="label">Customer</div><div class="value">${cn.customerName}</div></div>
-        <div><div class="label">Against Invoice</div><div class="value">${cn.invoiceNumber}</div></div>
-        <div><div class="label">Settlement</div><div class="value">${settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode}</div></div>
-        <div><div class="label">Reason</div><div class="value">${cn.reason}</div></div>
-      </div>
-      <table>
-        <thead><tr>
-          <th>Product</th><th>Batch</th><th>Qty</th><th>Rate</th><th>GST%</th><th style="text-align:right">Amount</th>
-        </tr></thead>
-        <tbody>
-          ${cn.items.map(item => `<tr>
-            <td>${item.productName}</td>
-            <td>${item.batchNumber}</td>
-            <td>${item.returnedQty}</td>
-            <td>₹${Number(item.rate).toFixed(2)}</td>
-            <td>${item.gstPercent}%</td>
-            <td style="text-align:right">₹${Number(item.amount).toFixed(2)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-      <div class="totals">
-        <div class="row"><span>Subtotal</span><span>₹${Number(cn.subtotal).toFixed(2)}</span></div>
-        <div class="row"><span>CGST</span><span>₹${Number(cn.cgst).toFixed(2)}</span></div>
-        <div class="row"><span>SGST</span><span>₹${Number(cn.sgst).toFixed(2)}</span></div>
-        <div class="row grand"><span>Total Credit</span><span>₹${Number(cn.totalAmount).toFixed(2)}</span></div>
-      </div>
-      </body></html>
-    `)
   }
 
   return (
@@ -482,7 +361,7 @@ export default function CreditNotesPage() {
     >
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {[
+        {([
           {
             label: 'Pending Review',
             value: stats.pendingCount.toString(),
@@ -490,14 +369,18 @@ export default function CreditNotesPage() {
             icon: Hourglass,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'pending',
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
             label: 'Total Notes',
             value: stats.count.toString(),
-            subtitle: 'all time',
+            subtitle: 'this period',
             icon: Receipt,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             // Financials below count APPROVED only — see stats memo.
@@ -507,6 +390,8 @@ export default function CreditNotesPage() {
             icon: IndianRupee,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-rose-500/50',
           },
           {
             label: 'Refunds',
@@ -515,6 +400,8 @@ export default function CreditNotesPage() {
             icon: Wallet,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'refund',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Adjustments',
@@ -523,9 +410,22 @@ export default function CreditNotesPage() {
             icon: BadgeCheck,
             iconBg: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
             borderAccent: 'border-l-violet-500',
+            filterKey: 'adjust',
+            activeRing: 'ring-2 ring-violet-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all credit notes in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -537,7 +437,8 @@ export default function CreditNotesPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Filters ── */}
@@ -548,6 +449,7 @@ export default function CreditNotesPage() {
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={CREDIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
             <Button
@@ -575,7 +477,6 @@ export default function CreditNotesPage() {
             </Button>
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={() => navigate('/billing/returns')}
             >
               <RotateCcw className="mr-1.5 h-4 w-4" />
@@ -630,30 +531,6 @@ export default function CreditNotesPage() {
             pageSize={10}
           />
 
-          {/* Amount range */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Amount Range
-            </Label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                placeholder="Min"
-                value={amountMin}
-                onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }}
-                className="w-full"
-              />
-              <span className="text-muted-foreground text-xs">-</span>
-              <Input
-                type="number"
-                placeholder="Max"
-                value={amountMax}
-                onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }}
-                className="w-full"
-              />
-            </div>
-          </div>
-
           {/* Custom date range — only when period is 'custom', full-width row below */}
           {period === 'custom' && (
             <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
@@ -694,11 +571,15 @@ export default function CreditNotesPage() {
                 <div
                   key={cn.id}
                   className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/30"
-                  onClick={() => openDetail(cn)}
+                  onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</p>
-                    <CustomerNameLine name={cn.customerName} phone={cn.customerPhone} />
+                    <CustomerNameLine
+                      name={cn.customerName}
+                      phone={cn.customerPhone}
+                      onNameClick={cn.customerId ? () => navigate(`/customers/detail?customerId=${cn.customerId}`) : undefined}
+                    />
                     <div className="mt-0.5 flex items-center gap-2 flex-wrap">
                       <Badge variant={status?.variant ?? 'secondary'} size="sm" dot>
                         {status?.label ?? cn.status}
@@ -709,7 +590,7 @@ export default function CreditNotesPage() {
                       <span className="text-[10px] text-muted-foreground">{formatDate(cn.date)}</span>
                     </div>
                   </div>
-                  <p className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400 shrink-0">
+                  <p className="font-mono text-[15px] font-bold text-rose-600 dark:text-rose-400 shrink-0">
                     {formatCurrency(cn.totalAmount)}
                   </p>
                 </div>
@@ -722,14 +603,14 @@ export default function CreditNotesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Credit Note #</TableHead>
-              <TableHead>Against Invoice</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Settlement</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
+              {cols.isVisible('date') && <TableHead>Date</TableHead>}
+              {cols.isVisible('customer') && <TableHead>Customer</TableHead>}
+              {cols.isVisible('creditNote') && <TableHead>Credit Note #</TableHead>}
+              {cols.isVisible('invoice') && <TableHead>Against Invoice</TableHead>}
+              {cols.isVisible('reason') && <TableHead>Reason</TableHead>}
+              {cols.isVisible('status') && <TableHead>Status</TableHead>}
+              {cols.isVisible('settlement') && <TableHead>Settlement</TableHead>}
+              {cols.isVisible('amount') && <TableHead className="text-right">Amount</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -737,7 +618,7 @@ export default function CreditNotesPage() {
             <AnimatePresence mode="popLayout">
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 1} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
                       <p className="text-sm text-muted-foreground animate-pulse">Loading credit notes...</p>
@@ -746,7 +627,7 @@ export default function CreditNotesPage() {
                 </TableRow>
               ) : paginated.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-48">
+                  <TableCell colSpan={cols.visible.length + 1} className="h-48">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
                         <FileX2 className="h-7 w-7 text-muted-foreground/50" />
@@ -780,47 +661,67 @@ export default function CreditNotesPage() {
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.15, delay: idx * 0.02 }}
                       className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                      onClick={() => openDetail(cn)}
+                      onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}
                     >
+                      {cols.isVisible('date') && (
                       <TableCell className="whitespace-nowrap">
                         <span className="text-[11px] text-muted-foreground">{formatDate(cn.date)}</span>
                       </TableCell>
+                      )}
+                      {cols.isVisible('customer') && (
                       <TableCell className="max-w-40">
-                        <CustomerNameLine name={cn.customerName} phone={cn.customerPhone} />
+                        <CustomerNameLine
+                          name={cn.customerName}
+                          phone={cn.customerPhone}
+                          onNameClick={cn.customerId ? () => navigate(`/customers/detail?customerId=${cn.customerId}`) : undefined}
+                        />
                       </TableCell>
+                      )}
+                      {cols.isVisible('creditNote') && (
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                           <span className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</span>
                         </div>
                       </TableCell>
+                      )}
+                      {cols.isVisible('invoice') && (
                       <TableCell>
                         <span className="font-mono text-[11px] text-muted-foreground">{cn.invoiceNumber}</span>
                       </TableCell>
+                      )}
+                      {cols.isVisible('reason') && (
                       <TableCell className="max-w-35">
                         <p className="truncate text-[11px] text-muted-foreground">{cn.reason}</p>
                       </TableCell>
+                      )}
+                      {cols.isVisible('status') && (
                       <TableCell>
                         <Badge variant={status?.variant ?? 'secondary'} size="sm" dot>
                           <StatusIcon className="mr-1 h-2.5 w-2.5" />
                           {status?.label ?? cn.status}
                         </Badge>
                       </TableCell>
+                      )}
+                      {cols.isVisible('settlement') && (
                       <TableCell>
                         <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
                           <SettlementIcon className="mr-1 h-2.5 w-2.5" />
                           {settlement?.label ?? cn.settlementMode}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
+                      )}
+                      {cols.isVisible('amount') && (
+                      <TableCell className="text-right font-mono text-[15px] font-bold text-rose-600 dark:text-rose-400">
                         {formatCurrency(cn.totalAmount)}
                       </TableCell>
+                      )}
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon-sm" onClick={() => openDetail(cn)}>
+                          <Button variant="ghost" size="icon-sm" onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon-sm" onClick={() => handlePrint(cn)}>
+                          <Button variant="ghost" size="icon-sm" onClick={() => printCreditNote(cn, businessProfile)}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -843,312 +744,6 @@ export default function CreditNotesPage() {
           className="border-t border-border/40 px-4"
         />
       </Card>
-
-      {/* ── Detail Drawer ── */}
-      <Sheet open={!!detailNote} onOpenChange={(open) => { if (!open) setDetailNote(null) }}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-160 lg:max-w-190 p-0 gap-0 flex flex-col"
-        >
-          {detailNote && (() => {
-            const settlement = settlementConfig[detailNote.settlementMode]
-            const status = statusConfig[detailNote.status]
-            const StatusIcon = status?.icon ?? Hourglass
-            const isPending = detailNote.status === 'PENDING_REVIEW'
-            const canReview = isPending && isAdmin
-            // Bug #9: while the items query is still in flight, `detailNote.items`
-            // is undefined (the dialog opens immediately with list-data only).
-            // Show a placeholder instead of a hard "0 items" that contradicts
-            // the "Loading items…" row in the body and looks like a data error.
-            const itemsLoaded = Array.isArray(detailNote.items)
-            const itemCount = itemsLoaded ? detailNote.items!.length : null
-            return (
-              <>
-                {/* ── Sticky Header ── */}
-                <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 space-y-0">
-                  <div className="flex items-center justify-between gap-3 pr-8 flex-wrap">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <SheetTitle className="font-mono text-base font-semibold truncate">
-                        {detailNote.creditNoteNo}
-                      </SheetTitle>
-                      <span className="text-muted-foreground/40">·</span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDate(detailNote.date)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={status?.variant ?? 'secondary'} size="sm" className="gap-1">
-                        <StatusIcon className="h-3 w-3" />
-                        {status?.label ?? detailNote.status}
-                      </Badge>
-                      <Badge variant="info" size="sm" className="gap-1">
-                        <Package className="h-3 w-3" />
-                        {itemCount === null
-                          ? '— items'
-                          : `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
-                      </Badge>
-                    </div>
-                  </div>
-                </SheetHeader>
-
-                {/* ── Scrollable Body ── */}
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                  {/* Customer / Against Invoice / Reason / Settlement — single row, equal width */}
-                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
-                      <CustomerNameLine name={detailNote.customerName} phone={detailNote.customerPhone} className="mt-0.5" />
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Against Invoice</p>
-                      <p className="mt-0.5 font-mono text-xs font-medium truncate" title={detailNote.invoiceNumber}>{detailNote.invoiceNumber}</p>
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Reason</p>
-                      <p className="mt-0.5 text-sm font-medium truncate" title={detailNote.reason}>{detailNote.reason}</p>
-                    </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
-                      <div className="mt-0.5">
-                        <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
-                          {settlement?.label ?? detailNote.settlementMode}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Notes — conditional, full width */}
-                  {detailNote.notes && (
-                    <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</p>
-                      <p className="mt-0.5 text-sm">{detailNote.notes}</p>
-                    </div>
-                  )}
-
-                  {/* ── Review panel ──
-                      PENDING_REVIEW + admin → editable: settlement-mode override
-                        + inspection note + Approve / Reject buttons.
-                      APPROVED / REJECTED → read-only: who, when, what they wrote.
-                      PENDING_REVIEW + non-admin → read-only "awaiting review" banner. */}
-                  {canReview ? (
-                    <div className="rounded-xl border-2 border-amber-300/60 bg-amber-50/60 dark:border-amber-700/40 dark:bg-amber-950/20 px-4 py-3 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Hourglass className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                        <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Awaiting your review</p>
-                      </div>
-                      <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80">
-                        No inventory, customer balance, or invoice status has changed yet. Confirm or override the
-                        settlement method, write an inspection note, then approve or reject.
-                      </p>
-
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Settlement Method
-                        </Label>
-                        <div className="grid gap-2">
-                          {SETTLEMENT_PICKER_OPTIONS.map((opt) => {
-                            const checked = reviewSettlementOverride === opt.value
-                            return (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => setReviewSettlementOverride(opt.value)}
-                                disabled={reviewSubmitting}
-                                className={cn(
-                                  'flex items-start gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors',
-                                  checked
-                                    ? 'border-primary bg-primary/5'
-                                    : 'border-border/40 bg-background hover:border-border/80',
-                                  reviewSubmitting && 'opacity-50 cursor-not-allowed'
-                                )}
-                              >
-                                <div className={cn(
-                                  'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
-                                  checked ? 'border-primary bg-primary' : 'border-muted-foreground/40'
-                                )}>
-                                  {checked && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold">{opt.label}</p>
-                                  <p className="text-[11px] text-muted-foreground">{opt.sublabel}</p>
-                                </div>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="cn-review-note" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Inspection Note <span className="font-normal normal-case text-muted-foreground/70">(required to reject)</span>
-                        </Label>
-                        <textarea
-                          id="cn-review-note"
-                          value={reviewNote}
-                          onChange={(e) => setReviewNote(e.target.value)}
-                          disabled={reviewSubmitting}
-                          rows={3}
-                          maxLength={2000}
-                          placeholder="What did you find on inspection?"
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                        />
-                      </div>
-                    </div>
-                  ) : isPending ? (
-                    <div className="rounded-xl border border-amber-300/60 bg-amber-50/40 dark:border-amber-700/40 dark:bg-amber-950/10 px-4 py-3 flex items-center gap-2">
-                      <Hourglass className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                      <p className="text-sm text-amber-900 dark:text-amber-200">
-                        Awaiting review by an admin. No inventory or balance changes have fired yet.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className={cn(
-                      'rounded-xl border px-4 py-3',
-                      detailNote.status === 'APPROVED'
-                        ? 'border-emerald-300/60 bg-emerald-50/40 dark:border-emerald-700/40 dark:bg-emerald-950/10'
-                        : 'border-rose-300/60 bg-rose-50/40 dark:border-rose-700/40 dark:bg-rose-950/10'
-                    )}>
-                      <div className="flex items-center gap-2">
-                        <StatusIcon className={cn(
-                          'h-4 w-4',
-                          detailNote.status === 'APPROVED'
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : 'text-rose-600 dark:text-rose-400'
-                        )} />
-                        <p className={cn(
-                          'text-sm font-semibold',
-                          detailNote.status === 'APPROVED'
-                            ? 'text-emerald-900 dark:text-emerald-200'
-                            : 'text-rose-900 dark:text-rose-200'
-                        )}>
-                          {status?.label ?? detailNote.status}
-                          {detailNote.reviewedBy ? ` by ${detailNote.reviewedBy.name}` : ''}
-                          {detailNote.reviewedAt ? ` · ${formatDate(detailNote.reviewedAt)}` : ''}
-                        </p>
-                      </div>
-                      {detailNote.reviewNote && (
-                        <p className="mt-1 text-[12px] whitespace-pre-wrap">{detailNote.reviewNote}</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Items — proper table with sticky header */}
-                  <div className="overflow-hidden rounded-xl border border-border/40">
-                    <Table>
-                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                        <TableRow className="border-b border-border/40 hover:bg-transparent">
-                          <TableHead className="h-9 w-10 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST%</TableHead>
-                          <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detailLoading ? (
-                          <TableRow>
-                            <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground animate-pulse">
-                              Loading items…
-                            </TableCell>
-                          </TableRow>
-                        ) : (detailNote.items ?? []).map((item, idx) => (
-                          <TableRow key={item.id} className="border-b border-border/30 last:border-b-0 hover:bg-muted/20">
-                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-sm font-medium">{item.productName}</TableCell>
-                            <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{item.batchNumber}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.returnedQty}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-xs text-muted-foreground">{item.gstPercent}%</TableCell>
-                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-
-                {/* ── Sticky Footer: totals strip + actions ── */}
-                <div className="shrink-0 border-t border-border/40 bg-background">
-                  {/* Totals strip — single horizontal row */}
-                  <div className="flex items-stretch overflow-x-auto border-b border-border/40 bg-muted/20">
-                    {([
-                      { label: 'Subtotal', value: detailNote.subtotal },
-                      { label: 'CGST', value: detailNote.cgst },
-                      { label: 'SGST', value: detailNote.sgst },
-                      detailNote.igst > 0 ? { label: 'IGST', value: detailNote.igst } : null,
-                      { label: 'Total Credit', value: detailNote.totalAmount, highlight: true as const, tone: 'rose' as const },
-                    ].filter(Boolean) as Array<{ label: string; value: number; tone?: 'rose'; highlight?: boolean }>).map((row, i) => (
-                      <div
-                        key={row.label}
-                        className={cn(
-                          'flex flex-1 min-w-18 flex-col justify-center whitespace-nowrap px-3 py-2',
-                          i > 0 && 'border-l border-border/40',
-                          row.highlight && 'bg-rose-50 dark:bg-rose-950/20'
-                        )}
-                      >
-                        <p className={cn(
-                          'text-[9px] font-semibold uppercase tracking-wider',
-                          row.tone === 'rose' ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'
-                        )}>{row.label}</p>
-                        <p className={cn(
-                          'mt-0.5 font-mono text-xs',
-                          row.highlight && 'text-sm font-bold',
-                          row.tone === 'rose' && 'text-rose-700 dark:text-rose-400'
-                        )}>{formatCurrency(row.value)}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Action buttons */}
-                  {canReview ? (
-                    <div className="px-5 py-3 flex flex-col sm:flex-row gap-2">
-                      {/* Keep the button enabled even when the inspection
-                          note is empty — handleReject toasts a friendly
-                          "describe what you found" message instead, so the
-                          user gets feedback rather than a dead click. */}
-                      <Button
-                        variant="destructive"
-                        className="flex-1 gap-2"
-                        onClick={handleReject}
-                        disabled={reviewSubmitting}
-                      >
-                        <CircleSlash className="h-4 w-4" />
-                        Reject Return
-                      </Button>
-                      <Button
-                        className="flex-1 gap-2 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                        onClick={handleApprove}
-                        disabled={reviewSubmitting}
-                      >
-                        <ShieldCheck className="h-4 w-4" />
-                        Approve &amp; Settle
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="px-5 py-3 flex gap-2">
-                      <Button className="flex-1 gap-2" onClick={() => handlePrint(detailNote)}>
-                        <Printer className="h-4 w-4" />
-                        Print
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="flex-1 gap-2"
-                        onClick={() => { setDetailNote(null); navigate(`/billing/sales?invoiceId=${encodeURIComponent(detailNote.invoiceId)}`) }}
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        <span className="hidden sm:inline">View Invoice</span>
-                        <span className="sm:hidden">Invoice</span>
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )
-          })()}
-        </SheetContent>
-      </Sheet>
     </motion.div>
   )
 }

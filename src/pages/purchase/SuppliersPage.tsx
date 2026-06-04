@@ -32,6 +32,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -57,6 +60,7 @@ import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ImportSuppliersDrawer } from '@/components/suppliers/ImportSuppliersDrawer'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import type { Supplier } from '@/types'
@@ -96,7 +100,18 @@ const GSTIN_OPTIONS = [
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
+const SUPPLIER_COLUMNS: ColumnDef[] = [
+  { id: 'supplier', label: 'Supplier', required: true, defaultVisible: true },
+  { id: 'contactPerson', label: 'Contact Person', defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'gstin', label: 'GSTIN', defaultVisible: true },
+  { id: 'paymentTerms', label: 'Payment Terms', defaultVisible: true },
+  { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
+
 export default function SuppliersPage() {
+  const cols = useColumnVisibility('purchase.suppliers', SUPPLIER_COLUMNS)
   // Master store is kept only for the directory-wide stats cards (counts that
   // don't change with filters), and for the importSuppliers action.
   const {
@@ -114,17 +129,17 @@ export default function SuppliersPage() {
   const [isLoading, setIsLoading] = useState(false)
 
   // Search
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:purchase.suppliers:search', '')
 
   // Multi-sheet history import — handled in its own drawer.
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
-  // ── Filters ──
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [selectedPaymentTerms, setSelectedPaymentTerms] = useState<string>('all')
-  const [selectedGstin, setSelectedGstin] = useState<string>('all')
-  const [outstandingMin, setOutstandingMin] = useState('')
-  const [outstandingMax, setOutstandingMax] = useState('')
+  // ── Filters (persisted to sessionStorage so they survive refresh + back) ──
+  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:purchase.suppliers:status', 'all')
+  const [selectedPaymentTerms, setSelectedPaymentTerms] = usePersistedState<string>('filters:purchase.suppliers:paymentTerms', 'all')
+  const [selectedGstin, setSelectedGstin] = usePersistedState<string>('filters:purchase.suppliers:gstin', 'all')
+  const [outstandingMin, setOutstandingMin] = usePersistedState('filters:purchase.suppliers:outMin', '')
+  const [outstandingMax, setOutstandingMax] = usePersistedState('filters:purchase.suppliers:outMax', '')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -285,6 +300,18 @@ export default function SuppliersPage() {
     setDialogOpen(true)
   }
 
+  // Auto-open the Add Supplier dialog via `?add=1` (sidebar quick-add).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === '1') {
+      openAddDialog()
+      params.delete('add')
+      const qs = params.toString()
+      window.history.replaceState(null, '', `/purchase/suppliers${qs ? `?${qs}` : ''}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Supplier queued for deactivate/activate confirmation. Null when dialog
   // is closed.
   const [statusToggleCandidate, setStatusToggleCandidate] = useState<Supplier | null>(null)
@@ -313,9 +340,9 @@ export default function SuppliersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary Cards ── */}
+      {/* ── Summary Cards (clickable cards drive the existing server filters) ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Suppliers',
             value: stats.totalCount.toString(),
@@ -323,6 +350,12 @@ export default function SuppliersPage() {
             icon: Users,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            // "Total" clears the status + outstanding narrowing back to all.
+            clickable: true,
+            active: selectedStatus === 'all' && !outstandingMin,
+            activeRing: 'ring-2 ring-blue-500/50',
+            apply: () => { setSelectedStatus('all'); setOutstandingMin(''); setCurrentPage(1) },
+            title: 'Show all suppliers',
           },
           {
             label: 'Active',
@@ -331,14 +364,27 @@ export default function SuppliersPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            // Drives the Status filter → server param isActive=true.
+            clickable: true,
+            active: selectedStatus === 'ACTIVE',
+            activeRing: 'ring-2 ring-emerald-500/50',
+            apply: () => { setSelectedStatus(selectedStatus === 'ACTIVE' ? 'all' : 'ACTIVE'); setCurrentPage(1) },
+            title: 'Filter to active suppliers',
           },
           {
+            // Total Purchases has no value and no matching server param — not
+            // clickable. (Per-supplier purchase totals load on the detail page.)
             label: 'Total Purchases',
             value: '—',
             subtitle: 'open supplier to view',
             icon: IndianRupee,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            clickable: false,
+            active: false,
+            activeRing: '',
+            apply: () => {},
+            title: undefined,
           },
           {
             label: 'Pending Payments',
@@ -347,9 +393,35 @@ export default function SuppliersPage() {
             icon: AlertCircle,
             iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400',
             borderAccent: 'border-l-red-500',
+            // No directory-wide count available, but the list supports an
+            // outstanding range — drill to suppliers with any balance via
+            // the existing outstandingMin server param.
+            clickable: true,
+            active: !!outstandingMin,
+            activeRing: 'ring-2 ring-red-500/50',
+            apply: () => { setOutstandingMin(outstandingMin ? '' : '1'); setCurrentPage(1) },
+            title: 'Filter to suppliers with outstanding balance',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ]).map((stat) => (
+          <Card
+            key={stat.label}
+            hover
+            {...(stat.clickable
+              ? {
+                  role: 'button' as const,
+                  tabIndex: 0,
+                  title: stat.title,
+                  onClick: stat.apply,
+                  onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); stat.apply() } },
+                }
+              : {})}
+            className={cn(
+              'border-l-[3px]',
+              stat.borderAccent,
+              stat.clickable && 'cursor-pointer transition-shadow',
+              stat.active && stat.activeRing,
+            )}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -372,8 +444,9 @@ export default function SuppliersPage() {
         resultsCount={totalSuppliers}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -394,7 +467,6 @@ export default function SuppliersPage() {
             </Button>
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={openAddDialog}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -545,7 +617,7 @@ export default function SuppliersPage() {
                   onClick={() => navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`)}
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
-                    <p className="truncate font-medium text-sm">{supplier.name}</p>
+                    <p className="truncate text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">{supplier.name}</p>
                     <p className="text-xs text-muted-foreground">{supplier.contactPerson} · {supplier.phone}</p>
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
                       <Badge variant={supplier.isActive ? 'success' : 'destructive'} dot size="sm">
@@ -572,12 +644,12 @@ export default function SuppliersPage() {
                 <Checkbox checked={allOnPageSelected} onCheckedChange={toggleSelectAll} />
               </TableHead>
               <TableHead>Supplier</TableHead>
-              <TableHead>Contact Person</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>GSTIN</TableHead>
-              <TableHead>Payment Terms</TableHead>
-              <TableHead className="text-center">Outstanding</TableHead>
-              <TableHead>Status</TableHead>
+              {cols.isVisible('contactPerson') && <TableHead>Contact Person</TableHead>}
+              {cols.isVisible('phone') && <TableHead>Phone</TableHead>}
+              {cols.isVisible('gstin') && <TableHead>GSTIN</TableHead>}
+              {cols.isVisible('paymentTerms') && <TableHead>Payment Terms</TableHead>}
+              {cols.isVisible('outstanding') && <TableHead className="text-center">Outstanding</TableHead>}
+              {cols.isVisible('status') && <TableHead>Status</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -585,7 +657,7 @@ export default function SuppliersPage() {
             <AnimatePresence mode="popLayout">
               {paginatedSuppliers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                         <Building2 className="h-6 w-6 text-muted-foreground/60" />
@@ -616,24 +688,36 @@ export default function SuppliersPage() {
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                           <Building2 className="h-3.5 w-3.5 text-primary" />
                         </div>
-                        <span className="font-medium">{supplier.name}</span>
+                        <span
+                          role="link"
+                          tabIndex={0}
+                          title="View supplier details"
+                          className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`) }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`) } }}
+                        >{supplier.name}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">{supplier.contactPerson}</TableCell>
-                    <TableCell className="font-mono text-[11px]">{supplier.phone}</TableCell>
-                    <TableCell className="font-mono text-[11px]">{supplier.gstin}</TableCell>
+                    {cols.isVisible('contactPerson') && <TableCell className="text-sm">{supplier.contactPerson}</TableCell>}
+                    {cols.isVisible('phone') && <TableCell className="font-mono text-[11px]">{supplier.phone}</TableCell>}
+                    {cols.isVisible('gstin') && <TableCell className="font-mono text-[11px]">{supplier.gstin}</TableCell>}
+                    {cols.isVisible('paymentTerms') && (
                     <TableCell>
                       <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
                     </TableCell>
-                    <TableCell className="text-center font-mono text-xs">
+                    )}
+                    {cols.isVisible('outstanding') && (
+                    <TableCell className="text-center font-mono text-[15px]">
                       {Number(supplier.currentOutstanding ?? 0) > 0 ? (
-                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                        <span className="font-bold text-amber-600 dark:text-amber-400">
                           {formatCurrency(Number(supplier.currentOutstanding))}
                         </span>
                       ) : (
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </TableCell>
+                    )}
+                    {cols.isVisible('status') && (
                     <TableCell>
                       <Badge
                         variant={supplier.isActive ? 'success' : 'destructive'}
@@ -643,6 +727,7 @@ export default function SuppliersPage() {
                         {supplier.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </TableCell>
+                    )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => navigate(`/purchase/suppliers/detail?supplierId=${supplier.id}`)}

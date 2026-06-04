@@ -12,11 +12,14 @@ import {
   Download,
   Printer,
   Building2,
+  ChevronDown,
 } from 'lucide-react'
 
 import api from '@/lib/api'
 import { cn, formatDateTime } from '@/lib/utils'
 import { useBranchStore } from '@/stores/branchStore'
+import { useAuthStore } from '@/stores/authStore'
+import { isSuperAdmin } from '@/types'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 
 import { Button } from '@/components/ui/button'
@@ -42,6 +45,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -60,11 +70,14 @@ interface ApiUserRow {
   email: string
   phone?: string
   role: string
+  roles?: string[]
   isActive?: boolean
   lastLogin?: string
   updatedAt?: string
   branchId?: string
+  branchIds?: string[]
   branch?: { id: string; name: string; code: string } | null
+  branches?: { id: string; name: string; code: string }[]
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -72,14 +85,16 @@ interface ApiUserRow {
 const PAGE_SIZE = 10
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Admin',
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Branch Admin',
   PHARMACIST: 'Pharmacist',
   INVENTORY_MANAGER: 'Inventory Manager',
   ACCOUNTANT: 'Accountant',
   SALESPERSON: 'Salesperson',
 }
 
-const ROLE_BADGE: Record<string, 'purple' | 'info' | 'warning' | 'success' | 'secondary'> = {
+const ROLE_BADGE: Record<string, 'purple' | 'info' | 'warning' | 'success' | 'secondary' | 'default'> = {
+  SUPER_ADMIN: 'default',
   ADMIN: 'purple',
   PHARMACIST: 'info',
   INVENTORY_MANAGER: 'warning',
@@ -89,12 +104,20 @@ const ROLE_BADGE: Record<string, 'purple' | 'info' | 'warning' | 'success' | 'se
 
 const ROLE_OPTIONS = [
   { value: 'all', label: 'All Roles' },
-  { value: 'ADMIN', label: 'Admin' },
+  { value: 'SUPER_ADMIN', label: 'Super Admin' },
+  { value: 'ADMIN', label: 'Branch Admin' },
   { value: 'PHARMACIST', label: 'Pharmacist' },
   { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
   { value: 'ACCOUNTANT', label: 'Accountant' },
   { value: 'SALESPERSON', label: 'Salesperson' },
 ] as const
+
+// Full role set for a user row, falling back to the singular role.
+const rolesOf = (u: { roles?: string[]; role: string }): string[] =>
+  u.roles?.length ? u.roles : (u.role ? [u.role] : [])
+// Assigned branches for a row (empty = Super Admin / all branches).
+const branchesOf = (u: UserDrawerRow): { id: string; name: string; code: string }[] =>
+  u.branches ?? (u.branch ? [u.branch] : [])
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Status' },
@@ -106,6 +129,17 @@ const STATUS_OPTIONS = [
 
 export default function UsersPage() {
   const { branches, fetchBranches } = useBranchStore()
+  const currentUser = useAuthStore((s) => s.user)
+  // A Super Admin manages all branches and can grant any role; a Branch Admin
+  // is limited to the branches they manage and can't mint Super Admins.
+  const canAssignSuperAdmin = isSuperAdmin(currentUser)
+  const assignableBranches = useMemo(
+    () =>
+      canAssignSuperAdmin
+        ? branches
+        : branches.filter((b) => (currentUser?.branchIds ?? []).includes(b.id)),
+    [branches, canAssignSuperAdmin, currentUser?.branchIds],
+  )
 
   const [users, setUsers] = useState<UserDrawerRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -139,10 +173,13 @@ export default function UsersPage() {
           email: u.email,
           phone: u.phone ?? '',
           role: u.role,
+          roles: u.roles ?? (u.role ? [u.role] : []),
           isActive: u.isActive ?? true,
           lastLogin: u.lastLogin ?? u.updatedAt ?? '',
           branchId: u.branchId ?? '',
+          branchIds: u.branchIds ?? (u.branches ?? []).map((b) => b.id),
           branch: u.branch ?? null,
+          branches: u.branches ?? (u.branch ? [u.branch] : []),
         })),
       )
     } catch {
@@ -169,11 +206,11 @@ export default function UsersPage() {
           u.name.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
           u.phone.toLowerCase().includes(q) ||
-          (ROLE_LABELS[u.role] ?? u.role).toLowerCase().includes(q),
+          rolesOf(u).some((r) => (ROLE_LABELS[r] ?? r).toLowerCase().includes(q)),
       )
     }
     if (roleFilter !== 'all') {
-      result = result.filter((u) => u.role === roleFilter)
+      result = result.filter((u) => rolesOf(u).includes(roleFilter))
     }
     if (statusFilter !== 'all') {
       const wantActive = statusFilter === 'active'
@@ -181,9 +218,10 @@ export default function UsersPage() {
     }
     if (branchFilter !== 'all') {
       if (branchFilter === '__none__') {
-        result = result.filter((u) => !u.branchId)
+        // "All-branch" users = Super Admins (no assigned branches).
+        result = result.filter((u) => branchesOf(u).length === 0)
       } else {
-        result = result.filter((u) => u.branchId === branchFilter)
+        result = result.filter((u) => branchesOf(u).some((b) => b.id === branchFilter))
       }
     }
     return result
@@ -195,7 +233,7 @@ export default function UsersPage() {
       total: users.length,
       active: users.filter((u) => u.isActive).length,
       inactive: users.filter((u) => !u.isActive).length,
-      admins: users.filter((u) => u.role === 'ADMIN').length,
+      admins: users.filter((u) => rolesOf(u).some((r) => r === 'ADMIN' || r === 'SUPER_ADMIN')).length,
     }
   }, [users])
 
@@ -279,24 +317,42 @@ export default function UsersPage() {
     }
   }
 
-  // ── Bulk deactivate ──
-  const bulkDeactivate = async () => {
-    const ok = window.confirm(
-      `Deactivate ${selectedIds.size} user${selectedIds.size === 1 ? '' : 's'}? They won't be able to sign in until reactivated.`,
-    )
-    if (!ok) return
-    try {
-      await Promise.all(
-        [...selectedIds].map((id) => api.patch(`/users/${id}`, { isActive: false })),
-      )
-      setUsers((prev) =>
-        prev.map((u) => (selectedIds.has(u.id) ? { ...u, isActive: false } : u)),
-      )
-      toast.success(`${selectedIds.size} user(s) deactivated`)
-      setSelectedIds(new Set())
-    } catch {
-      toast.error('Failed to deactivate users')
+  // ── Export / Print ──
+  // Scope: the selected rows if any are ticked, otherwise every row currently
+  // shown (after filters/search). Returns a fully-detailed, print-friendly row.
+  const buildExportRows = () => {
+    const source =
+      selectedIds.size > 0 ? filteredUsers.filter((u) => selectedIds.has(u.id)) : filteredUsers
+    return source.map((u) => ({
+      Name: u.name,
+      Phone: u.phone || '—',
+      Email: u.email,
+      Roles: rolesOf(u).map((r) => ROLE_LABELS[r] ?? r).join(', '),
+      Branches: branchesOf(u).length
+        ? branchesOf(u).map((b) => `${b.code} (${b.name})`).join(', ')
+        : 'All branches',
+      Status: u.isActive ? 'Active' : 'Inactive',
+      'Last Login': u.lastLogin ? formatDateTime(u.lastLogin) : 'Never',
+    }))
+  }
+
+  const handleExportCsv = () => {
+    const rows = buildExportRows()
+    if (!rows.length) {
+      toast.info('No users to export')
+      return
     }
+    exportToCsv(rows, selectedIds.size > 0 ? 'users-selected' : 'users')
+    toast.success(`Exported ${rows.length} user${rows.length === 1 ? '' : 's'} to CSV`)
+  }
+
+  const handlePrint = () => {
+    const rows = buildExportRows()
+    if (!rows.length) {
+      toast.info('No users to print')
+      return
+    }
+    printReport(rows, 'Users')
   }
 
   // ── Branch filter options ──
@@ -324,9 +380,12 @@ export default function UsersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary cards ── */}
+      {/* ── Summary cards — click Total / Active / Inactive to drill the Status
+          filter. The Admins card counts ADMIN + SUPER_ADMIN together, which the
+          single-value Role filter can't express without mismatching the shown
+          number, so it stays a pure aggregate (not clickable, no ring). ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Users',
             value: stats.total.toString(),
@@ -334,6 +393,8 @@ export default function UsersPage() {
             icon: Users,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Active',
@@ -345,6 +406,8 @@ export default function UsersPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'active',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Admins',
@@ -353,6 +416,8 @@ export default function UsersPage() {
             icon: Shield,
             iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
             borderAccent: 'border-l-purple-500',
+            filterKey: null,
+            activeRing: '',
           },
           {
             label: 'Inactive',
@@ -361,9 +426,29 @@ export default function UsersPage() {
             icon: UserX,
             iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
             borderAccent: 'border-l-rose-500',
+            filterKey: 'inactive',
+            activeRing: 'ring-2 ring-rose-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          // `filterKey: null` (Admins) is a pure aggregate — not clickable, no ring.
+          const clickable = stat.filterKey !== null
+          const active = clickable && statusFilter === stat.filterKey
+          const apply = () => {
+            if (!clickable) return
+            setStatusFilter(active ? 'all' : (stat.filterKey as string))
+            setCurrentPage(1)
+          }
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            title={clickable ? (stat.filterKey === 'all' ? 'Show all users' : `Filter to ${stat.label.toLowerCase()} users`) : undefined}
+            onClick={clickable ? apply : undefined}
+            onKeyDown={clickable ? ((e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }) : undefined}
+            className={cn('border-l-[3px]', stat.borderAccent, clickable && 'cursor-pointer transition-shadow', active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div
                 className={cn(
@@ -382,7 +467,8 @@ export default function UsersPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Filter bar ── */}
@@ -395,35 +481,31 @@ export default function UsersPage() {
         onClearFilters={clearFilters}
         actionNode={
           <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={() => {
-                if (!filteredUsers.length) {
-                  toast.info('No users to export')
-                  return
-                }
-                exportToCsv(
-                  filteredUsers.map((u) => ({
-                    Name: u.name,
-                    Email: u.email,
-                    Phone: u.phone,
-                    Role: ROLE_LABELS[u.role] ?? u.role,
-                    Branch: u.branch ? `${u.branch.code} ${u.branch.name}` : '',
-                    Status: u.isActive ? 'Active' : 'Inactive',
-                    'Last Login': u.lastLogin ? formatDateTime(u.lastLogin) : 'Never',
-                  })),
-                  'users',
-                )
-              }}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={handleExportCsv}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePrint}>
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={openAdd}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -458,82 +540,22 @@ export default function UsersPage() {
         </div>
       </DataTableFilterBar>
 
-      {/* ── Bulk actions bar ── */}
-      <AnimatePresence>
-        {selectedIds.size > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
+      {/* Selection hint — Export uses the ticked rows, or all rows if none. */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <Badge variant="default" size="sm" dot>
+            {selectedIds.size} selected
+          </Badge>
+          <span>Export will include the selected user{selectedIds.size === 1 ? '' : 's'}.</span>
+          <button
+            type="button"
+            className="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => setSelectedIds(new Set())}
           >
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
-              <Badge variant="default" size="sm" dot>
-                {selectedIds.size} selected
-              </Badge>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    const selected = filteredUsers.filter((u) => selectedIds.has(u.id))
-                    exportToCsv(
-                      selected.map((u) => ({
-                        Name: u.name,
-                        Email: u.email,
-                        Phone: u.phone,
-                        Role: ROLE_LABELS[u.role] ?? u.role,
-                        Branch: u.branch ? `${u.branch.code} ${u.branch.name}` : '',
-                        Status: u.isActive ? 'Active' : 'Inactive',
-                      })),
-                      'users-selected',
-                    )
-                  }}
-                >
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                  Export
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    const selected = filteredUsers.filter((u) => selectedIds.has(u.id))
-                    printReport(
-                      selected.map((u) => ({
-                        Name: u.name,
-                        Email: u.email,
-                        Role: ROLE_LABELS[u.role] ?? u.role,
-                        Status: u.isActive ? 'Active' : 'Inactive',
-                      })),
-                      'Users',
-                    )
-                  }}
-                >
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={bulkDeactivate}
-                >
-                  <UserX className="mr-1 h-3.5 w-3.5" />
-                  Deactivate
-                </Button>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="ml-auto"
-                onClick={() => setSelectedIds(new Set())}
-              >
-                <X />
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        </div>
+      )}
 
       {/* ── Table ── */}
       <Card>
@@ -579,16 +601,24 @@ export default function UsersPage() {
                     <p className="truncate text-sm font-medium">{u.name}</p>
                     <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                      <Badge variant={ROLE_BADGE[u.role] ?? 'secondary'} size="sm">
-                        {ROLE_LABELS[u.role] ?? u.role}
-                      </Badge>
+                      {rolesOf(u).map((r) => (
+                        <Badge key={r} variant={ROLE_BADGE[r] ?? 'secondary'} size="sm">
+                          {ROLE_LABELS[r] ?? r}
+                        </Badge>
+                      ))}
                       <Badge variant={u.isActive ? 'success' : 'destructive'} size="sm" dot>
                         {u.isActive ? 'Active' : 'Inactive'}
                       </Badge>
-                      {u.branch && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">
-                          {u.branch.code}
+                      {branchesOf(u).length === 0 ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          All branches
                         </span>
+                      ) : (
+                        branchesOf(u).map((b) => (
+                          <span key={b.id} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                            {b.code}
+                          </span>
+                        ))
                       )}
                     </div>
                   </div>
@@ -725,25 +755,32 @@ export default function UsersPage() {
                         {u.email}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={ROLE_BADGE[u.role] ?? 'secondary'} size="sm">
-                          {ROLE_LABELS[u.role] ?? u.role}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1 max-w-44">
+                          {rolesOf(u).map((r) => (
+                            <Badge key={r} variant={ROLE_BADGE[r] ?? 'secondary'} size="sm">
+                              {ROLE_LABELS[r] ?? r}
+                            </Badge>
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {u.branch ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold">
-                              {u.branch.code}
-                            </span>
-                            <span className="text-muted-foreground truncate max-w-32">
-                              {u.branch.name}
-                            </span>
-                          </span>
-                        ) : (
+                        {branchesOf(u).length === 0 ? (
                           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/60">
                             <Building2 className="h-3 w-3" />
                             All branches
                           </span>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1 max-w-40">
+                            {branchesOf(u).map((b) => (
+                              <span
+                                key={b.id}
+                                title={b.name}
+                                className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold"
+                              >
+                                {b.code}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
@@ -806,7 +843,8 @@ export default function UsersPage() {
           if (!o) setEditing(null)
         }}
         editing={editing}
-        branches={branches}
+        branches={assignableBranches}
+        allowSuperAdmin={canAssignSuperAdmin}
         onSaved={handleSaved}
       />
 

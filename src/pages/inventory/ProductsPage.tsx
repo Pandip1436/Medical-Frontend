@@ -32,10 +32,14 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
@@ -66,7 +70,20 @@ const scheduleBadgeConfig: Record<string, { label: string; variant: 'destructive
 }
 
 // ─── Main Page ─────────────────────────────────────────────────
+const PRODUCT_COLUMNS: ColumnDef[] = [
+  { id: 'name', label: 'Name', required: true, defaultVisible: true },
+  { id: 'generic', label: 'Generic', defaultVisible: true },
+  { id: 'manufacturer', label: 'Manufacturer', defaultVisible: true },
+  { id: 'category', label: 'Category', defaultVisible: true },
+  { id: 'schedule', label: 'Schedule', defaultVisible: true },
+  { id: 'mrp', label: 'MRP', defaultVisible: true },
+  { id: 'stock', label: 'Stock', defaultVisible: true },
+  { id: 'minStock', label: 'Min Stock', defaultVisible: true },
+  { id: 'rack', label: 'Rack', defaultVisible: true },
+]
+
 export default function ProductsPage() {
+  const cols = useColumnVisibility('inventory.products', PRODUCT_COLUMNS)
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const importProducts = useMasterDataStore(s => s.importProducts)
@@ -96,10 +113,10 @@ export default function ProductsPage() {
       .catch(() => {})
   }, [])
 
-  const [search, setSearch] = useState('')
-  const [selectedCategoryId, setSelectedCategoryId] = useState('all')
-  const [selectedSchedule, setSelectedSchedule] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [search, setSearch] = usePersistedState('filters:inventory.products:search', '')
+  const [selectedCategoryId, setSelectedCategoryId] = usePersistedState('filters:inventory.products:category', 'all')
+  const [selectedSchedule, setSelectedSchedule] = usePersistedState('filters:inventory.products:schedule', 'all')
+  const [selectedStatus, setSelectedStatus] = usePersistedState('filters:inventory.products:status', 'all')
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -510,8 +527,9 @@ export default function ProductsPage() {
         resultsCount={totalCount}
         activeFilterCount={(selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)}
         onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={PRODUCT_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -565,7 +583,6 @@ export default function ProductsPage() {
             </DropdownMenu>
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={openAddDialog}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -684,14 +701,14 @@ export default function ProductsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Generic</TableHead>
-                <TableHead>Manufacturer</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Schedule</TableHead>
-                <TableHead className="text-right">MRP</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right">Min Stock</TableHead>
-                <TableHead>Rack</TableHead>
+                {cols.isVisible('generic') && <TableHead>Generic</TableHead>}
+                {cols.isVisible('manufacturer') && <TableHead>Manufacturer</TableHead>}
+                {cols.isVisible('category') && <TableHead>Category</TableHead>}
+                {cols.isVisible('schedule') && <TableHead>Schedule</TableHead>}
+                {cols.isVisible('mrp') && <TableHead className="text-right">MRP</TableHead>}
+                {cols.isVisible('stock') && <TableHead className="text-right">Stock</TableHead>}
+                {cols.isVisible('minStock') && <TableHead className="text-right">Min Stock</TableHead>}
+                {cols.isVisible('rack') && <TableHead>Rack</TableHead>}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -714,15 +731,20 @@ export default function ProductsPage() {
                     onClick={() => { navigate(`/inventory/product-history?productId=${product.id}`) }}
                   >
                     <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{product.genericName}</TableCell>
-                    <TableCell className="text-muted-foreground">{product.manufacturer}</TableCell>
+                    {cols.isVisible('generic') && <TableCell className="text-muted-foreground">{product.genericName}</TableCell>}
+                    {cols.isVisible('manufacturer') && <TableCell className="text-muted-foreground">{product.manufacturer}</TableCell>}
+                    {cols.isVisible('category') && (
                     <TableCell>
                       {cat && <Badge variant="secondary" size="sm">{cat.name}</Badge>}
                     </TableCell>
+                    )}
+                    {cols.isVisible('schedule') && (
                     <TableCell>
                       {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">{formatCurrency(product.mrp)}</TableCell>
+                    )}
+                    {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrency(product.mrp)}</TableCell>}
+                    {cols.isVisible('stock') && (
                     <TableCell className="text-right">
                       <span className={cn(
                         'inline-flex items-center gap-1.5 font-mono text-sm font-semibold',
@@ -737,8 +759,9 @@ export default function ProductsPage() {
                         {product.totalStock}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">{product.minStock}</TableCell>
-                    <TableCell className="text-muted-foreground">{product.rackLocation}</TableCell>
+                    )}
+                    {cols.isVisible('minStock') && <TableCell className="text-right font-mono text-sm">{product.minStock}</TableCell>}
+                    {cols.isVisible('rack') && <TableCell className="text-muted-foreground">{product.rackLocation}</TableCell>}
                     <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => { navigate(`/inventory/product-history?productId=${product.id}`) }}

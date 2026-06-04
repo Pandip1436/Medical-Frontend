@@ -42,6 +42,10 @@ export default function CategoriesPage() {
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedStatus, setSelectedStatus] = useState('all')
+  // Stat-card drill-down: clicking a summary card narrows the list to that
+  // subset. 'withProducts' spans the "With Products" card; 'active' mirrors
+  // the Active card. Kept separate from the Status enum filter above.
+  const [cardFilter, setCardFilter] = useState<'all' | 'active' | 'withProducts'>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -75,6 +79,18 @@ export default function CategoriesPage() {
     form.reset({ name: '', description: '', isActive: true })
     setDialogOpen(true)
   }
+
+  // Auto-open the Add Category dialog via `?add=1` (sidebar quick-add).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === '1') {
+      openAdd()
+      params.delete('add')
+      const qs = params.toString()
+      window.history.replaceState(null, '', `/inventory/categories${qs ? `?${qs}` : ''}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openEdit = (cat: Category) => {
     setEditing(cat)
@@ -138,6 +154,11 @@ export default function CategoriesPage() {
 
   const filtered = useMemo(() => {
     let result = [...categories]
+
+    // Stat-card drill-down
+    if (cardFilter === 'active') result = result.filter(c => c.isActive)
+    else if (cardFilter === 'withProducts') result = result.filter(c => (c._count?.products ?? 0) > 0)
+
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter(c =>
@@ -148,7 +169,7 @@ export default function CategoriesPage() {
     if (selectedStatus === 'active') result = result.filter(c => c.isActive)
     else if (selectedStatus === 'inactive') result = result.filter(c => !c.isActive)
     return result
-  }, [categories, search, selectedStatus])
+  }, [categories, search, selectedStatus, cardFilter])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -165,7 +186,7 @@ export default function CategoriesPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  const activeFilterCount = (selectedStatus !== 'all' ? 1 : 0)
+  const activeFilterCount = (selectedStatus !== 'all' ? 1 : 0) + (cardFilter !== 'all' ? 1 : 0)
 
   return (
     <motion.div
@@ -176,7 +197,7 @@ export default function CategoriesPage() {
     >
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Categories',
             value: String(stats.total),
@@ -184,6 +205,8 @@ export default function CategoriesPage() {
             icon: Tag,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Active',
@@ -192,6 +215,8 @@ export default function CategoriesPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'active',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'With Products',
@@ -200,17 +225,35 @@ export default function CategoriesPage() {
             icon: FolderOpen,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'withProducts',
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
+            // Pure aggregate (sum of products across categories) — there's no
+            // row subset to drill into, so this card just clears any active
+            // card filter back to showing all categories. No active ring.
             label: 'Total Products',
             value: String(stats.totalProducts),
             subtitle: 'across categories',
             icon: Package,
             iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
             borderAccent: 'border-l-purple-500',
+            filterKey: 'all',
+            activeRing: '',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all categories' : `Filter to ${stat.label.toLowerCase()} categories`}
+            onClick={() => { setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'active' | 'withProducts')); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'active' | 'withProducts')); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -224,7 +267,8 @@ export default function CategoriesPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Search + Filter Row ── */}
@@ -234,7 +278,7 @@ export default function CategoriesPage() {
         searchPlaceholder="Search categories by name or description..."
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
-        onClearFilters={() => setSelectedStatus('all')}
+        onClearFilters={() => { setSelectedStatus('all'); setCardFilter('all'); setCurrentPage(1) }}
         actionNode={
           <div className="flex items-center gap-1.5">
             <Button
@@ -265,7 +309,6 @@ export default function CategoriesPage() {
             </DropdownMenu>
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={openAdd}
             >
               <Plus className="mr-1.5 h-4 w-4" />

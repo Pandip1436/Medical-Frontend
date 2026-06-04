@@ -41,9 +41,17 @@ export const COMPANY = DEFAULT_COMPANY
 // `currency: 'INR'` symbol prints as a garbled superscript. Use the "Rs."
 // prefix instead — it renders cleanly and is unambiguous on a printed invoice.
 export const fmtINR = (n: number) =>
-  `Rs. ${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  `Rs. ${Math.round(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
 const fmt = fmtINR
+
+// Two-decimal money formatter for the totals summary. The tax lines carry paise
+// (e.g. CGST 14.25), so rounding them to whole rupees for display hides the
+// paise and makes the round-off look unexplained. Showing 2 decimals here keeps
+// the breakdown self-consistent: Taxable + GST + Delivery ± Round Off = Grand
+// Total, all visible.
+const fmt2 = (n: number) =>
+  `Rs. ${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boolean }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -88,9 +96,28 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   y += 5
   doc.text(`Billing Type: ${invoice.billingType}`, leftX, y)
   doc.text(`Payment Mode: ${invoice.paymentMode}`, rightX, y)
+  if (invoice.dueDate) {
+    y += 5
+    doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, leftX, y)
+  }
   y += 5
   doc.text(`Customer: ${invoice.customerName}`, leftX, y)
   if (invoice.doctorName) doc.text(`Doctor: ${invoice.doctorName}`, rightX, y)
+  if (invoice.customerPhone && invoice.customerPhone !== '0000000000') {
+    y += 5
+    doc.text(`Phone: ${invoice.customerPhone}`, leftX, y)
+  }
+  if (invoice.customerAddress) {
+    y += 5
+    // Wrap long addresses to the usable page width so they don't overflow.
+    const addressLines = doc.splitTextToSize(`Address: ${invoice.customerAddress}`, pageWidth - leftX - 14)
+    doc.text(addressLines, leftX, y)
+    y += (addressLines.length - 1) * 4
+  }
+  if (invoice.customerGstin) {
+    y += 5
+    doc.text(`Customer GSTIN: ${invoice.customerGstin}`, leftX, y)
+  }
   y += 3
 
   autoTable(doc, {
@@ -108,7 +135,8 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
       Number(it.rate).toFixed(2),
       Number(it.discountPercent).toFixed(2),
       Number(it.gstPercent).toFixed(2),
-      Number(it.amount).toFixed(2),
+      // Full line amount with paise — never rounded/hidden.
+      Number(it.amount || 0).toFixed(2),
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
@@ -120,6 +148,14 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
       7: { halign: 'right' },
       8: { halign: 'right' },
       9: { halign: 'right' },
+    },
+    // Right-align the header labels of the numeric columns so they sit directly
+    // above their right-aligned values (columnStyles alone leaves the head cells
+    // left-aligned, which makes the figures look shifted from their headers).
+    didParseCell: (data) => {
+      if (data.section === 'head' && [0, 4, 5, 6, 7, 8, 9].includes(data.column.index)) {
+        data.cell.styles.halign = 'right'
+      }
     },
     margin: { left: 14, right: 14 },
   })
@@ -134,32 +170,32 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   }
 
   let sy = afterTableY
-  row('Subtotal', fmt(Number(invoice.subtotal)), sy); sy += 5
+  row('Subtotal', fmt2(Number(invoice.subtotal)), sy); sy += 5
   if (Number(invoice.productDiscount) > 0) {
-    row('Discount', `- ${fmt(Number(invoice.productDiscount))}`, sy); sy += 5
+    row('Discount', `- ${fmt2(Number(invoice.productDiscount))}`, sy); sy += 5
   }
-  row('Taxable', fmt(Number(invoice.taxableAmount)), sy); sy += 5
-  row('CGST', fmt(Number(invoice.cgst)), sy); sy += 5
-  row('SGST', fmt(Number(invoice.sgst)), sy); sy += 5
+  row('Taxable', fmt2(Number(invoice.taxableAmount)), sy); sy += 5
+  row('CGST', fmt2(Number(invoice.cgst)), sy); sy += 5
+  row('SGST', fmt2(Number(invoice.sgst)), sy); sy += 5
   if (Number(invoice.igst) > 0) {
-    row('IGST', fmt(Number(invoice.igst)), sy); sy += 5
+    row('IGST', fmt2(Number(invoice.igst)), sy); sy += 5
   }
   if (Number(invoice.deliveryCharge) > 0) {
-    row('Delivery / Packaging', fmt(Number(invoice.deliveryCharge)), sy); sy += 5
+    row('Delivery / Packaging', fmt2(Number(invoice.deliveryCharge)), sy); sy += 5
   }
   if (Math.abs(Number(invoice.roundOff)) > 0) {
-    row('Round Off', fmt(Number(invoice.roundOff)), sy); sy += 5
+    row('Round Off', fmt2(Number(invoice.roundOff)), sy); sy += 5
   }
   sy += 2
   doc.setDrawColor(180)
   doc.line(summaryX - 2, sy - 1, pageWidth - 14, sy - 1)
-  row('GRAND TOTAL', fmt(Number(invoice.grandTotal)), sy + 4, true)
+  row('GRAND TOTAL', fmt2(Number(invoice.grandTotal)), sy + 4, true)
   sy += 9
   if (Number(invoice.amountPaid) > 0) {
-    row('Paid', fmt(Number(invoice.amountPaid)), sy); sy += 5
+    row('Paid', fmt2(Number(invoice.amountPaid)), sy); sy += 5
   }
   if (Number(invoice.changeReturned) > 0) {
-    row('Change', fmt(Number(invoice.changeReturned)), sy); sy += 5
+    row('Change', fmt2(Number(invoice.changeReturned)), sy); sy += 5
   }
 
   const footerY = doc.internal.pageSize.getHeight() - 20
@@ -193,6 +229,14 @@ export function printInvoicePdf(invoice: Invoice) {
 export function invoicePdfBlob(invoice: Invoice): Blob {
   const doc = generateInvoicePdf(invoice)
   return doc.output('blob')
+}
+
+// Returns an object URL pointing at the rendered PDF, suitable for an <iframe>
+// preview. Callers own the URL's lifecycle and must URL.revokeObjectURL() it
+// when the preview is dismissed to avoid leaking the blob.
+export function invoicePdfBlobUrl(invoice: Invoice): string {
+  const doc = generateInvoicePdf(invoice)
+  return doc.output('bloburl').toString()
 }
 
 // Build a wa.me link. India default: a bare 10-digit number gets the `91` prefix;

@@ -27,6 +27,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { navigate } from '@/lib/router'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useDeepLinkParam } from '@/hooks/useDeepLinkHighlight'
@@ -135,14 +136,16 @@ export default function CustomerInvoicesPage() {
     outstandingCount: 0,
   })
 
-  // ── Filters + pagination ──
-  const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [paymentFilter, setPaymentFilter] = useState('all')
-  const [salespersonFilter, setSalespersonFilter] = useState('all')
-  const [period, setPeriod] = useState('all')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  // ── Filters + pagination. Filters persisted to sessionStorage so they
+  // survive refresh + navigate-back. ──
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:customers.invoices:search', '')
+  const [statusFilter, setStatusFilter] = usePersistedState('filters:customers.invoices:status', 'all')
+  const [paymentFilter, setPaymentFilter] = usePersistedState('filters:customers.invoices:payment', 'all')
+  const [salespersonFilter, setSalespersonFilter] = usePersistedState('filters:customers.invoices:salesperson', 'all')
+  // Period defaults to "today" so the page opens on today's invoices.
+  const [period, setPeriod] = usePersistedState('filters:customers.invoices:period', 'today')
+  const [fromDate, setFromDate] = usePersistedState('filters:customers.invoices:fromDate', '')
+  const [toDate, setToDate] = usePersistedState('filters:customers.invoices:toDate', '')
   const [currentPage, setCurrentPage] = useState(1)
 
   // Optional drill-down from the Outstanding Receivables page (or any other page)
@@ -405,7 +408,7 @@ export default function CustomerInvoicesPage() {
     setStatusFilter('all')
     setPaymentFilter('all')
     setSalespersonFilter('all')
-    setPeriod('all')
+    setPeriod('today')
     setFromDate('')
     setToDate('')
   }
@@ -414,15 +417,21 @@ export default function CustomerInvoicesPage() {
     statusFilter !== 'all',
     paymentFilter !== 'all',
     salespersonFilter !== 'all',
-    period !== 'all',
+    period !== 'today', // "today" is the default baseline
   ].filter(Boolean).length
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-5">
 
-      {/* ── Summary cards ── */}
+      {/* ── Summary cards ──
+          Clicking a card drives the SERVER `status` query param (via
+          statusFilter) so the drill-down stays consistent with pagination.
+          Total/Amount are aggregates → clear status to 'all' (no ring).
+          Paid → PAID; Outstanding → UNPAID (the server `status` param accepts
+          a single value, so PARTIAL invoices aren't included in that view —
+          the card count still totals UNPAID + PARTIAL). */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total',
             value: summary.totalInvoices.toString(),
@@ -430,6 +439,8 @@ export default function CustomerInvoicesPage() {
             icon: Receipt,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             accent: 'border-l-blue-500',
+            statusKey: 'all' as const,
+            activeRing: '',
           },
           {
             label: 'Amount',
@@ -438,6 +449,8 @@ export default function CustomerInvoicesPage() {
             icon: IndianRupee,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             accent: 'border-l-emerald-500',
+            statusKey: 'all' as const,
+            activeRing: '',
           },
           {
             label: 'Paid',
@@ -446,6 +459,8 @@ export default function CustomerInvoicesPage() {
             icon: CheckCircle2,
             iconBg: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
             accent: 'border-l-teal-500',
+            statusKey: 'PAID' as const,
+            activeRing: 'ring-2 ring-teal-500/50',
           },
           {
             label: 'Outstanding',
@@ -454,9 +469,26 @@ export default function CustomerInvoicesPage() {
             icon: Clock,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             accent: 'border-l-amber-500',
+            statusKey: 'UNPAID' as const,
+            activeRing: 'ring-2 ring-amber-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.accent)}>
+        ]).map((stat) => {
+          // "all" cards (Total/Amount) toggle the status filter off; the
+          // others toggle their status on/off. Active ring only on the
+          // actionable cards while their status is selected.
+          const active = stat.statusKey !== 'all' && statusFilter === stat.statusKey
+          const handleClick = () => setStatusFilter(active ? 'all' : stat.statusKey)
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.statusKey === 'all' ? 'Clear status filter' : `Filter to ${stat.label.toLowerCase()} invoices`}
+            onClick={handleClick}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick() } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.accent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -468,7 +500,8 @@ export default function CustomerInvoicesPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </motion.div>
 
       {/* ── Filters ── */}
@@ -579,7 +612,18 @@ export default function CustomerInvoicesPage() {
                       <span className="font-mono text-sm font-semibold">{inv.invoiceNumber}</span>
                       <StatusBadge status={inv.status} />
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">{inv.customerName}</p>
+                    {inv.customerId ? (
+                      <p
+                        role="link"
+                        tabIndex={0}
+                        title="View customer details"
+                        className="text-sm font-bold truncate text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/customers/detail?customerId=${inv.customerId}`) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/customers/detail?customerId=${inv.customerId}`) } }}
+                      >{inv.customerName}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground truncate">{inv.customerName}</p>
+                    )}
                     <p className="text-[11px] text-muted-foreground/70">
                       {formatDate(inv.date)} · {inv.items.length} item{inv.items.length !== 1 ? 's' : ''}
                     </p>
@@ -634,7 +678,18 @@ export default function CustomerInvoicesPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="text-sm truncate max-w-40">{inv.customerName}</span>
+                          {inv.customerId ? (
+                            <span
+                              role="link"
+                              tabIndex={0}
+                              title="View customer details"
+                              className="text-sm font-bold truncate max-w-40 text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/customers/detail?customerId=${inv.customerId}`) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/customers/detail?customerId=${inv.customerId}`) } }}
+                            >{inv.customerName}</span>
+                          ) : (
+                            <span className="text-sm truncate max-w-40">{inv.customerName}</span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
@@ -847,6 +902,7 @@ export default function CustomerInvoicesPage() {
                       { label: 'CGST', value: Number(detailInvoice.cgst) },
                       { label: 'SGST', value: Number(detailInvoice.sgst) },
                       Number(detailInvoice.igst) > 0 ? { label: 'IGST', value: Number(detailInvoice.igst) } : null,
+                      Number(detailInvoice.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(detailInvoice.deliveryCharge) } : null,
                       Math.abs(Number(detailInvoice.roundOff)) > 0 ? { label: 'Round Off', value: Number(detailInvoice.roundOff) } : null,
                       { label: 'Grand Total', value: Number(detailInvoice.grandTotal), highlight: true as const },
                       Number(detailInvoice.amountPaid) > 0 ? { label: 'Paid', value: Number(detailInvoice.amountPaid), tone: 'emerald' as const } : null,
@@ -877,7 +933,7 @@ export default function CustomerInvoicesPage() {
 
                   {/* Action buttons */}
                   <div className="px-5 py-3 flex gap-2">
-                    {(detailInvoice.status === 'PAID' || detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
+                    {(detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
                       <Button
                         variant="outline"
                         className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"

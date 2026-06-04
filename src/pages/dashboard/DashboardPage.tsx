@@ -81,9 +81,10 @@ function buildActivities(recentInvoices: RecentInvoice[]): ActivityItem[] {
     return {
       id: inv.id ?? inv.invoiceNumber,
       type: 'SALE' as const,
-      // Row shows just the invoice number; the customer surfaces on hover via tooltip.
-      action: inv.invoiceNumber,
-      detail: phone ? `${inv.customerName} · ${phone}` : inv.customerName,
+      // Row shows the customer (+ phone to disambiguate duplicate names); the
+      // invoice number surfaces on hover via tooltip.
+      action: phone ? `${inv.customerName} · ${phone}` : inv.customerName,
+      detail: inv.invoiceNumber,
       timestamp: inv.date ?? new Date().toISOString(),
       // Deep-link to the dedicated invoice detail page (same destination notifications use).
       href: inv.id ? `/customers/invoices/detail?id=${inv.id}` : undefined,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft,
   Edit2,
@@ -40,6 +40,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -82,13 +83,13 @@ import api, { API_SERVER_URL } from '@/lib/api'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import type { Customer } from '@/types'
-import { useCustomerDetail } from '@/hooks/useCustomerDetail'
+import { useCustomerDetail, CUSTOMER_TAB_PAGE_SIZE, type TabRange } from '@/hooks/useCustomerDetail'
 
 // ─────────────────────────────────────────────────────────────
 // Types & constants — kept local to this page (mirrors SupplierDetailPage).
 // ─────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 15
+const PAGE_SIZE = CUSTOMER_TAB_PAGE_SIZE
 
 type PeriodPreset =
   | 'all'
@@ -116,17 +117,6 @@ function presetLabel(p: PeriodPreset): string {
 }
 
 type TabPeriod = { preset: PeriodPreset; from: string; to: string }
-
-function filterByPeriod<T extends { date?: string }>(items: T[], period: TabPeriod): T[] {
-  if (period.preset === 'all' || (!period.from && !period.to)) return items
-  return items.filter((it) => {
-    const day = (it.date ?? '').slice(0, 10)
-    if (!day) return false
-    if (period.from && day < period.from) return false
-    if (period.to && day > period.to) return false
-    return true
-  })
-}
 
 function computeRange(preset: PeriodPreset): { from: string; to: string } {
   if (preset === 'all' || preset === 'custom') return { from: '', to: '' }
@@ -161,6 +151,14 @@ function computeRange(preset: PeriodPreset): { from: string; to: string } {
   }
 }
 
+// Map a tab's period filter to a server date range. Empty → undefined so
+// "All Time" sends no date params and the server returns every row.
+function rangeOf(p: TabPeriod): TabRange {
+  if (p.preset === 'custom') return { from: p.from || undefined, to: p.to || undefined }
+  const r = computeRange(p.preset)
+  return { from: r.from || undefined, to: r.to || undefined }
+}
+
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'secondary',
   SENT: 'info',
@@ -190,8 +188,8 @@ export default function CustomerDetailPage() {
 
   const d = useCustomerDetail(customerId)
   const [activeTab, setActiveTab] = useState<
-    'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx'
-  >('ledger')
+    'overview' | 'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx'
+  >('overview')
   const [editOpen, setEditOpen] = useState(false)
 
   // Activity tab UI state — type filter, dialog target, edit target.
@@ -216,57 +214,70 @@ export default function CustomerDetailPage() {
 
   // Single source of truth for the "what period filter is active on the current tab"
   // question. Same accessor pattern as SupplierDetailPage.
+  // Extra query params for the activity tab (the type filter is now server-side).
+  const activityExtra = useCallback(
+    () => (activityTypeFilter === 'ALL' ? undefined : { type: activityTypeFilter }),
+    [activityTypeFilter],
+  )
+
+  // Single source of truth for "what period filter is active on the current tab".
+  // Changing the period resets to page 1 and refetches that page from the server.
   const currentPeriod: { period: TabPeriod; setPeriod: (next: TabPeriod) => void } | null = (() => {
     if (activeTab === 'ledger') {
       return {
         period: { preset: periodPreset, from: d.ledger.from, to: d.ledger.to },
         setPeriod: (next) => {
+          // Ledger refetches page 1 via the hook's debounced from/to effect.
           setPeriodPreset(next.preset)
           d.ledger.setFrom(next.from)
           d.ledger.setTo(next.to)
         },
       }
     }
-    if (activeTab === 'invoices') return { period: invoicesPeriod, setPeriod: setInvoicesPeriod }
-    if (activeTab === 'creditNotes') return { period: creditNotesPeriod, setPeriod: setCreditNotesPeriod }
-    if (activeTab === 'payments') return { period: paymentsPeriod, setPeriod: setPaymentsPeriod }
-    if (activeTab === 'quotations') return { period: quotationsPeriod, setPeriod: setQuotationsPeriod }
-    if (activeTab === 'activity') return { period: activityPeriod, setPeriod: setActivityPeriod }
+    if (activeTab === 'invoices')
+      return { period: invoicesPeriod, setPeriod: (next) => { setInvoicesPeriod(next); void d.invoices.fetchPage(1, rangeOf(next)) } }
+    if (activeTab === 'creditNotes')
+      return { period: creditNotesPeriod, setPeriod: (next) => { setCreditNotesPeriod(next); void d.creditNotes.fetchPage(1, rangeOf(next)) } }
+    if (activeTab === 'payments')
+      return { period: paymentsPeriod, setPeriod: (next) => { setPaymentsPeriod(next); void d.payments.fetchPage(1, rangeOf(next)) } }
+    if (activeTab === 'quotations')
+      return { period: quotationsPeriod, setPeriod: (next) => { setQuotationsPeriod(next); void d.quotations.fetchPage(1, rangeOf(next)) } }
+    if (activeTab === 'activity')
+      return { period: activityPeriod, setPeriod: (next) => { setActivityPeriod(next); void d.activities.fetchPage(1, rangeOf(next), activityExtra()) } }
     return null
   })()
 
-  // Stable refetch handles. The wrapper objects (d.creditNotes etc.) are
-  // rebuilt every render via spread, but the .refetch functions inside are
-  // now useCallback'd in useCustomerDetail keyed on customerId. Pulling them
-  // into locals keeps the effect deps stable so we don't re-fetch on every
-  // render.
+  // Stable per-tab page fetchers (useCallback'd in the hook, keyed on
+  // customerId) pulled into locals so effect deps stay stable.
+  const fetchLedgerPage = d.ledger.fetchPage
+  const fetchInvoicesPage = d.invoices.fetchPage
+  const fetchCreditNotesPage = d.creditNotes.fetchPage
+  const fetchPaymentsPage = d.payments.fetchPage
+  const fetchQuotationsPage = d.quotations.fetchPage
+  const fetchPrescriptionsPage = d.prescriptions.fetchPage
+  const fetchActivitiesPage = d.activities.fetchPage
+
+  // Load page 1 of a tab when it becomes active (server-paginated, 10/page).
+  // Reads the tab's period at switch time; later period/page changes fetch
+  // directly (via the period accessor / pager), so periods are intentionally
+  // not in the dep list to avoid double fetches.
+  useEffect(() => {
+    if (activeTab === 'ledger') void fetchLedgerPage(1)
+    else if (activeTab === 'invoices') void fetchInvoicesPage(1, rangeOf(invoicesPeriod))
+    else if (activeTab === 'creditNotes') void fetchCreditNotesPage(1, rangeOf(creditNotesPeriod))
+    else if (activeTab === 'payments') void fetchPaymentsPage(1, rangeOf(paymentsPeriod))
+    else if (activeTab === 'quotations') void fetchQuotationsPage(1, rangeOf(quotationsPeriod))
+    else if (activeTab === 'rx') void fetchPrescriptionsPage(1)
+    else if (activeTab === 'activity') void fetchActivitiesPage(1, rangeOf(activityPeriod), activityExtra())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, customerId, fetchLedgerPage, fetchInvoicesPage, fetchCreditNotesPage, fetchPaymentsPage, fetchQuotationsPage, fetchPrescriptionsPage, fetchActivitiesPage])
+
+  // Belt-and-braces: refresh the active tab + ledger when the browser tab
+  // regains focus (alt-tabbing back). `refetch` re-runs each tab's last page.
   const refetchLedger = d.ledger.refetch
   const refetchInvoices = d.invoices.refetch
   const refetchCreditNotes = d.creditNotes.refetch
   const refetchPayments = d.payments.refetch
-  const ensureQuotationsLoaded = d.quotations.ensureLoaded
-  const ensurePrescriptionsLoaded = d.prescriptions.ensureLoaded
-  const ensureActivitiesLoaded = d.activities.ensureLoaded
-
-  // Trigger fetches when their tab becomes active. Server-mutable tabs (CN
-  // status, invoice payment state, payments, ledger) call `refetch` so a
-  // tab click always pulls fresh rows — the user can approve/reject a CN on
-  // /billing/credit-notes, collect a payment on /customers/outstanding, and
-  // the change shows up the moment they switch back to that tab here.
-  // Static-ish tabs (quotations, prescriptions, activity) keep the cheaper
-  // ensureLoaded behaviour.
-  useEffect(() => {
-    if (activeTab === 'ledger') void refetchLedger()
-    if (activeTab === 'invoices') void refetchInvoices()
-    if (activeTab === 'creditNotes') void refetchCreditNotes()
-    if (activeTab === 'payments') void refetchPayments()
-    if (activeTab === 'quotations') void ensureQuotationsLoaded()
-    if (activeTab === 'rx') void ensurePrescriptionsLoaded()
-    if (activeTab === 'activity') void ensureActivitiesLoaded()
-  }, [activeTab, refetchLedger, refetchInvoices, refetchCreditNotes, refetchPayments, ensureQuotationsLoaded, ensurePrescriptionsLoaded, ensureActivitiesLoaded])
-
-  // Belt-and-braces: also refresh whenever the browser tab regains focus
-  // (alt-tabbing back from another window or tab).
   useEffect(() => {
     const refetchActive = () => {
       void refetchLedger()
@@ -289,63 +300,14 @@ export default function CustomerDetailPage() {
   const kpis = d.ledger.data?.kpis ?? []
   const outstanding = cust?.currentOutstanding ?? 0
 
-  // Per-tab pagination state
-  const [ledgerPage, setLedgerPage] = useState(1)
-  const [invoicesPage, setInvoicesPage] = useState(1)
-  const [creditNotesPage, setCreditNotesPage] = useState(1)
-  const [paymentsPage, setPaymentsPage] = useState(1)
-  const [quotationsPage, setQuotationsPage] = useState(1)
-  const [rxPage, setRxPage] = useState(1)
-  useEffect(() => {
-    setLedgerPage(1); setInvoicesPage(1); setCreditNotesPage(1)
-    setPaymentsPage(1); setQuotationsPage(1); setRxPage(1)
-  }, [customerId])
-
-  // Derived/sorted lists (memoised)
+  // Current-page rows — the server already returned just this page (10 rows).
   const ledgerRows = d.ledger.data?.tableData ?? []
-
-  // Period-filtered lists for the per-tab dropdown.
-  const invoicesFiltered = useMemo(
-    () => filterByPeriod(d.invoices.data ?? [], invoicesPeriod),
-    [d.invoices.data, invoicesPeriod],
-  )
-  const creditNotesFiltered = useMemo(
-    () => filterByPeriod(d.creditNotes.data ?? [], creditNotesPeriod),
-    [d.creditNotes.data, creditNotesPeriod],
-  )
-  const paymentsFiltered = useMemo(
-    () => filterByPeriod(
-      (d.payments.data ?? []).map((p) => ({ ...p, date: p.createdAt ?? p.date })),
-      paymentsPeriod,
-    ),
-    [d.payments.data, paymentsPeriod],
-  )
-  const quotationsFiltered = useMemo(
-    () => filterByPeriod(d.quotations.data ?? [], quotationsPeriod),
-    [d.quotations.data, quotationsPeriod],
-  )
-  const activityFiltered = useMemo(() => {
-    const all = d.activities.data ?? []
-    const byType = activityTypeFilter === 'ALL' ? all : all.filter((a) => a.type === activityTypeFilter)
-    return filterByPeriod(
-      byType.map((a) => ({ ...a, date: a.createdAt })),
-      activityPeriod,
-    )
-  }, [d.activities.data, activityTypeFilter, activityPeriod])
-
-  // Reset to first page when its period filter changes
-  useEffect(() => { setInvoicesPage(1) }, [invoicesPeriod])
-  useEffect(() => { setCreditNotesPage(1) }, [creditNotesPeriod])
-  useEffect(() => { setPaymentsPage(1) }, [paymentsPeriod])
-  useEffect(() => { setQuotationsPage(1) }, [quotationsPeriod])
-
-  const ledgerPaged = ledgerRows.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE)
-  const invoicesPaged = invoicesFiltered.slice((invoicesPage - 1) * PAGE_SIZE, invoicesPage * PAGE_SIZE)
-  const creditNotesPaged = creditNotesFiltered.slice((creditNotesPage - 1) * PAGE_SIZE, creditNotesPage * PAGE_SIZE)
-  const paymentsPaged = paymentsFiltered.slice((paymentsPage - 1) * PAGE_SIZE, paymentsPage * PAGE_SIZE)
-  const quotationsPaged = quotationsFiltered.slice((quotationsPage - 1) * PAGE_SIZE, quotationsPage * PAGE_SIZE)
+  const invoicesRows = d.invoices.data ?? []
+  const creditNotesRows = d.creditNotes.data ?? []
+  const paymentsRows = d.payments.data ?? []
+  const quotationsRows = d.quotations.data ?? []
   const rxList = d.prescriptions.data ?? []
-  const rxPaged = rxList.slice((rxPage - 1) * PAGE_SIZE, rxPage * PAGE_SIZE)
+  const activityRows = d.activities.data ?? []
 
   // ── Render guards ──────────────────────────────────────────
   if (!customerId) {
@@ -369,8 +331,21 @@ export default function CustomerDetailPage() {
 
   // Export the current ledger view (PDF / Excel / Print) — period-aware via
   // the same dropdown that filters the on-screen rows.
-  const handleExportLedger = (format: 'PDF' | 'Excel' | 'Print') => {
-    if (!ledgerRows.length) {
+  const handleExportLedger = async (format: 'PDF' | 'Excel' | 'Print') => {
+    // The Ledger tab shows one page (10 rows); export the FULL period by
+    // re-fetching the ledger without skip/take.
+    let fullRows = ledgerRows
+    try {
+      const params = new URLSearchParams()
+      if (d.ledger.from) params.set('from', d.ledger.from)
+      if (d.ledger.to) params.set('to', d.ledger.to)
+      const qs = params.toString()
+      const res = await api.get(`/reports/financial/ledger/${customerId}${qs ? `?${qs}` : ''}`)
+      fullRows = (res.data?.tableData ?? ledgerRows) as typeof ledgerRows
+    } catch {
+      /* fall back to the visible page on failure */
+    }
+    if (!fullRows.length) {
       toast.info('No ledger data to export for the selected period')
       return
     }
@@ -378,7 +353,7 @@ export default function CustomerDetailPage() {
       d.ledger.from && d.ledger.to ? ` (${d.ledger.from} → ${d.ledger.to})` : ''
     const title = `Customer Ledger — ${cust?.name ?? '—'}${periodLabel}`
     const safeName = (cust?.name ?? 'customer').replace(/[^a-z0-9-_]+/gi, '_')
-    const rows = ledgerRows.map((r) => ({
+    const rows = fullRows.map((r) => ({
       Date: r.date ? formatDate(r.date) : '',
       Reference: r.ref ?? '',
       Description: r.description ?? '',
@@ -461,8 +436,8 @@ export default function CustomerDetailPage() {
       </div>
 
       {/* ── KPI Strip ── */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/10">
-        <div className="grid grid-cols-2 lg:grid-cols-4">
+      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiCell
             icon={TrendingUp}
             label="Total Sales"
@@ -497,97 +472,8 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      {/* ── Two-pane: Overview (left, 30%) + Tabs (right) ── */}
+      {/* ── Full-width Tabs (Overview is now the first tab) ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ── LEFT: Persistent Overview panel ── */}
-        <aside className="hidden lg:flex lg:w-[30%] shrink-0 flex-col overflow-hidden border-r border-border/40 bg-muted/5">
-          <div className="shrink-0 border-b border-border/40 bg-background px-5 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-              Customer Overview
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-5">
-            {d.customer.loading && !cust ? (
-              <OverviewPanelSkeleton />
-            ) : d.customer.error && !cust ? (
-              <InlineError message={d.customer.error} onRetry={d.customer.refetch} />
-            ) : cust ? (
-              <>
-                <OverviewSection icon={User} title="Contact">
-                  <Row label="Name" value={cust.name} />
-                  <Row label="Phone" value={cust.phone || '—'} mono />
-                  {cust.alternatePhone && <Row label="Alt Phone" value={cust.alternatePhone} mono />}
-                  <Row label="Email" value={cust.email || '—'} />
-                </OverviewSection>
-
-                <OverviewSection icon={MapPin} title="Address">
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{cust.address || '—'}</p>
-                </OverviewSection>
-
-                {/* Identification fields are type-specific (mirrors CustomerFormDialog):
-                    Wholesale → GSTIN + Drug License, Doctor → Registration #, Retail → none. */}
-                {cust.type !== 'RETAIL' && (
-                  <OverviewSection icon={FileBadge} title="Identification">
-                    {cust.type === 'WHOLESALE' && (
-                      <>
-                        <Row
-                          label="GSTIN"
-                          value={cust.gstin || <span className="text-muted-foreground/40">Not provided</span>}
-                          mono
-                        />
-                        <Row
-                          label="Drug Lic."
-                          value={cust.dlNumber || <span className="text-muted-foreground/40">Not provided</span>}
-                          mono
-                        />
-                      </>
-                    )}
-                    {cust.type === 'DOCTOR' && (
-                      <Row
-                        label="Reg. #"
-                        value={(cust as any).registrationNumber || <span className="text-muted-foreground/40">Not provided</span>}
-                        mono
-                      />
-                    )}
-                  </OverviewSection>
-                )}
-
-                <OverviewSection icon={Banknote} title="Commercial">
-                  <Row
-                    label="Type"
-                    value={<Badge variant={TYPE_BADGE_VARIANT[cust.type] ?? 'secondary'} size="sm">{cust.type}</Badge>}
-                  />
-                  <Row
-                    label="Credit Limit"
-                    value={<span className="font-mono">{formatCurrency(Number(cust.creditLimit ?? 0))}</span>}
-                  />
-                  <Row
-                    label="Outstanding"
-                    value={
-                      Number(cust.currentOutstanding) > 0 ? (
-                        <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-                          {formatCurrency(Number(cust.currentOutstanding))}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/60">₹0</span>
-                      )
-                    }
-                  />
-                  {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
-                  {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
-                </OverviewSection>
-
-                {cust.notes && (
-                  <OverviewSection icon={StickyNote} title="Notes">
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{cust.notes}</p>
-                  </OverviewSection>
-                )}
-              </>
-            ) : null}
-          </div>
-        </aside>
-
-        {/* ── RIGHT: Tabs + tab content ── */}
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as typeof activeTab)}
@@ -598,24 +484,25 @@ export default function CustomerDetailPage() {
             <div className="flex-1 min-w-0 overflow-x-auto">
               <TabsList className="h-auto justify-start gap-0 rounded-none bg-transparent p-0">
                 {[
+                  { value: 'overview', label: 'Overview', icon: User },
                   { value: 'ledger', label: 'Ledger', icon: FileText },
                   { value: 'activity', label: 'Activity', icon: MessageSquare },
                   { value: 'invoices', label: 'Invoices', icon: Receipt },
                   { value: 'creditNotes', label: 'Credit Notes', icon: RotateCcw },
                   { value: 'payments', label: 'Payments', icon: IndianRupee },
                   { value: 'quotations', label: 'Quotations', icon: FileSignature },
-                  { value: 'rx', label: 'Rx', icon: Stethoscope },
+                  { value: 'rx', label: 'Prescription', icon: Stethoscope },
                 ].map((t) => (
                   <TabsTrigger
                     key={t.value}
                     value={t.value}
                     className={cn(
-                      'gap-1.5 rounded-none border-b-2 border-transparent px-3 py-2.5 text-xs font-medium text-muted-foreground shadow-none transition-colors',
-                      'hover:text-foreground hover:bg-muted/30',
-                      'data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:shadow-none',
+                      'gap-2 rounded-none border-b-2 border-transparent px-4 py-3 text-sm font-medium text-muted-foreground shadow-none transition-colors',
+                      'hover:text-foreground hover:bg-muted/40',
+                      'data-[state=active]:border-primary data-[state=active]:bg-primary/5 data-[state=active]:text-primary data-[state=active]:font-semibold data-[state=active]:shadow-none',
                     )}
                   >
-                    <t.icon className="h-3.5 w-3.5" />
+                    <t.icon className="h-4 w-4" />
                     {t.label}
                   </TabsTrigger>
                 ))}
@@ -648,7 +535,10 @@ export default function CustomerDetailPage() {
                     {typeOptions.map((opt) => (
                       <DropdownMenuItem
                         key={opt.value}
-                        onSelect={() => setActivityTypeFilter(opt.value)}
+                        onSelect={() => {
+                          setActivityTypeFilter(opt.value)
+                          void d.activities.fetchPage(1, rangeOf(activityPeriod), opt.value === 'ALL' ? undefined : { type: opt.value })
+                        }}
                         className={cn(
                           'cursor-pointer text-xs',
                           activityTypeFilter === opt.value && 'bg-accent font-semibold',
@@ -672,7 +562,7 @@ export default function CustomerDetailPage() {
                 className="h-8 shrink-0 gap-1.5 my-1.5"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Upload Rx
+                Upload Prescription
               </Button>
             )}
 
@@ -746,13 +636,100 @@ export default function CustomerDetailPage() {
                 </Button>
               )}
               <span className="ml-auto text-[11px] text-muted-foreground whitespace-nowrap">
-                {currentTabCountLabel(activeTab, ledgerRows.length, invoicesFiltered.length, creditNotesFiltered.length, paymentsFiltered.length, quotationsFiltered.length, activityFiltered.length, rxList.length, d)}
+                {currentTabCountLabel(activeTab, d.ledger.total, d.invoices.total, d.creditNotes.total, d.payments.total, d.quotations.total, d.activities.total, d.prescriptions.total, d)}
               </span>
             </div>
           )}
 
           {/* Tab content area — only this scrolls */}
           <div className="flex-1 overflow-hidden">
+            {/* ── Overview ── full-width customer profile (was the left sidebar) */}
+            <TabsContent value="overview" className="m-0 h-full flex flex-col">
+              <div className="flex-1 overflow-auto p-4 lg:p-6">
+                {d.customer.loading && !cust ? (
+                  <OverviewPanelSkeleton />
+                ) : d.customer.error && !cust ? (
+                  <InlineError message={d.customer.error} onRetry={d.customer.refetch} />
+                ) : cust ? (
+                  <Card>
+                    <CardContent className="p-5 lg:p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-6 items-start">
+                        <OverviewSection icon={User} title="Contact">
+                          <Row label="Name" value={cust.name} />
+                          <Row label="Phone" value={cust.phone || '—'} mono />
+                          {cust.alternatePhone && <Row label="Alt Phone" value={cust.alternatePhone} mono />}
+                          <Row label="Email" value={cust.email || '—'} />
+                        </OverviewSection>
+
+                        <OverviewSection icon={MapPin} title="Address">
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap wrap-break-word">{cust.address || '—'}</p>
+                        </OverviewSection>
+
+                        {/* Identification fields are type-specific (mirrors CustomerFormDialog):
+                            Wholesale → GSTIN + Drug License, Doctor → Registration #, Retail → none. */}
+                        {cust.type !== 'RETAIL' && (
+                          <OverviewSection icon={FileBadge} title="Identification">
+                            {cust.type === 'WHOLESALE' && (
+                              <>
+                                <Row
+                                  label="GSTIN"
+                                  value={cust.gstin || <span className="text-muted-foreground/40">Not provided</span>}
+                                  mono
+                                />
+                                <Row
+                                  label="Drug Lic."
+                                  value={cust.dlNumber || <span className="text-muted-foreground/40">Not provided</span>}
+                                  mono
+                                />
+                              </>
+                            )}
+                            {cust.type === 'DOCTOR' && (
+                              <Row
+                                label="Reg. #"
+                                value={(cust as any).registrationNumber || <span className="text-muted-foreground/40">Not provided</span>}
+                                mono
+                              />
+                            )}
+                          </OverviewSection>
+                        )}
+
+                        <OverviewSection icon={Banknote} title="Commercial">
+                          <Row
+                            label="Type"
+                            value={<Badge variant={TYPE_BADGE_VARIANT[cust.type] ?? 'secondary'} size="sm">{cust.type}</Badge>}
+                          />
+                          <Row
+                            label="Credit Limit"
+                            value={<span className="font-mono">{formatCurrency(Number(cust.creditLimit ?? 0))}</span>}
+                          />
+                          <Row
+                            label="Outstanding"
+                            value={
+                              Number(cust.currentOutstanding) > 0 ? (
+                                <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                                  {formatCurrency(Number(cust.currentOutstanding))}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground/60">₹0</span>
+                              )
+                            }
+                          />
+                          {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
+                          {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
+                        </OverviewSection>
+
+                        {cust.notes && (
+                          <OverviewSection icon={StickyNote} title="Notes">
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap wrap-break-word">{cust.notes}</p>
+                          </OverviewSection>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </div>
+            </TabsContent>
+
             {/* ── Ledger ── */}
             <TabsContent value="ledger" className="m-0 h-full flex flex-col">
               <div className="flex-1 overflow-auto">
@@ -766,22 +743,22 @@ export default function CustomerDetailPage() {
                   <Table>
                     <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                       <TableRow>
-                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
-                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
-                        <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
-                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
-                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
-                        <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
+                        <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
+                        <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
+                        <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {ledgerPaged.map((r, i) => {
+                      {ledgerRows.map((r, i) => {
                         const debit = Number(r.debit ?? 0)
                         const credit = Number(r.credit ?? 0)
                         const balance = Number(r.balance ?? 0)
                         const target =
                           r.sourceType === 'INVOICE' && r.sourceId
-                            ? `/billing/sales?invoiceId=${r.sourceId}`
+                            ? `/customers/invoices/detail?id=${r.sourceId}`
                             : r.sourceType === 'CREDIT_NOTE' && r.sourceId
                               ? `/billing/credit-notes?id=${r.sourceId}`
                               : null
@@ -791,12 +768,12 @@ export default function CustomerDetailPage() {
                             className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
                             onClick={target ? () => navigate(target) : undefined}
                           >
-                            <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
-                            <TableCell className="px-3 py-2 font-mono text-xs">{r.ref ?? '—'}</TableCell>
-                            <TableCell className="px-3 py-2 text-xs">{r.description ?? '—'}</TableCell>
-                            <TableCell className="px-3 py-2 text-right font-mono text-xs">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
-                            <TableCell className="px-3 py-2 text-right font-mono text-xs">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
-                            <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatLedgerBalance(balance, 'customer')}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 font-mono text-sm">{r.ref ?? '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm">{r.description ?? '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'customer')}</TableCell>
                           </TableRow>
                         )
                       })}
@@ -804,13 +781,13 @@ export default function CustomerDetailPage() {
                   </Table>
                 )}
               </div>
-              {ledgerRows.length > PAGE_SIZE && (
+              {d.ledger.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={ledgerPage}
-                    totalPages={Math.max(1, Math.ceil(ledgerRows.length / PAGE_SIZE))}
-                    onPageChange={setLedgerPage}
-                    totalItems={ledgerRows.length}
+                    currentPage={d.ledger.page}
+                    totalPages={Math.max(1, Math.ceil(d.ledger.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.ledger.fetchPage(p)}
+                    totalItems={d.ledger.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -822,7 +799,11 @@ export default function CustomerDetailPage() {
             <TabsContent value="activity" className="m-0 h-full flex flex-col">
               <ActivityTabContent
                 state={d.activities}
-                filtered={activityFiltered}
+                filtered={activityRows}
+                total={d.activities.total}
+                page={d.activities.page}
+                pageSize={PAGE_SIZE}
+                onPageChange={(p) => d.activities.fetchPage(p, rangeOf(activityPeriod), activityExtra())}
                 onOpenDialog={(type, editing) =>
                   setActivityDialog({ open: true, type, editing })
                 }
@@ -843,31 +824,31 @@ export default function CustomerDetailPage() {
                   emptyIcon={Receipt}
                   emptyTitle="No invoices"
                   emptySubtitle="This customer has no invoices in the selected period."
-                  rows={invoicesPaged}
+                  rows={invoicesRows}
                   renderRow={(inv: any) => (
                     <TableRow
                       key={inv.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/billing/sales?invoiceId=${inv.id}`)}
+                      onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                     >
-                      <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{inv.invoiceNumber}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{inv.date ? formatDate(inv.date) : '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-center text-xs">{inv.items?.length ?? 0}</TableCell>
-                      <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(Number(inv.grandTotal ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2 text-right font-mono text-xs">{formatCurrency(Number(inv.amountPaid ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{inv.date ? formatDate(inv.date) : '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-center text-sm">{inv.items?.length ?? 0}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal ?? 0))}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{formatCurrency(Number(inv.amountPaid ?? 0))}</TableCell>
+                      <TableCell className="px-3 py-2.5"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
                     </TableRow>
                   )}
-                  columns={['Invoice #', 'Date', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, 'Status']}
+                  columns={['Date', 'Invoice #', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, 'Status']}
                 />
               </div>
-              {invoicesFiltered.length > PAGE_SIZE && (
+              {d.invoices.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={invoicesPage}
-                    totalPages={Math.max(1, Math.ceil(invoicesFiltered.length / PAGE_SIZE))}
-                    onPageChange={setInvoicesPage}
-                    totalItems={invoicesFiltered.length}
+                    currentPage={d.invoices.page}
+                    totalPages={Math.max(1, Math.ceil(d.invoices.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.invoices.fetchPage(p, rangeOf(invoicesPeriod))}
+                    totalItems={d.invoices.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -883,31 +864,31 @@ export default function CustomerDetailPage() {
                   emptyIcon={RotateCcw}
                   emptyTitle="No credit notes"
                   emptySubtitle="No returns / credit notes in this period."
-                  rows={creditNotesPaged}
+                  rows={creditNotesRows}
                   renderRow={(cn: any) => (
                     <TableRow
                       key={cn.id}
                       className="cursor-pointer hover:bg-muted/20"
                       onClick={() => navigate(`/billing/credit-notes?id=${cn.id}`)}
                     >
-                      <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{cn.creditNoteNo}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{cn.date ? formatDate(cn.date) : '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs">{cn.reason || '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs"><Badge variant="secondary" size="sm">{cn.settlementMode || '—'}</Badge></TableCell>
-                      <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(cn.totalAmount ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{cn.date ? formatDate(cn.date) : '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{cn.creditNoteNo}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm">{cn.reason || '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm"><Badge variant="secondary" size="sm">{cn.settlementMode || '—'}</Badge></TableCell>
+                      <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(cn.totalAmount ?? 0))}</TableCell>
+                      <TableCell className="px-3 py-2.5"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></TableCell>
                     </TableRow>
                   )}
-                  columns={['CN #', 'Date', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
+                  columns={['Date', 'CN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
                 />
               </div>
-              {creditNotesFiltered.length > PAGE_SIZE && (
+              {d.creditNotes.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={creditNotesPage}
-                    totalPages={Math.max(1, Math.ceil(creditNotesFiltered.length / PAGE_SIZE))}
-                    onPageChange={setCreditNotesPage}
-                    totalItems={creditNotesFiltered.length}
+                    currentPage={d.creditNotes.page}
+                    totalPages={Math.max(1, Math.ceil(d.creditNotes.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.creditNotes.fetchPage(p, rangeOf(creditNotesPeriod))}
+                    totalItems={d.creditNotes.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -923,26 +904,26 @@ export default function CustomerDetailPage() {
                   emptyIcon={IndianRupee}
                   emptyTitle="No payments recorded"
                   emptySubtitle="No payments received from this customer in the selected period."
-                  rows={paymentsPaged}
+                  rows={paymentsRows}
                   renderRow={(p: any) => (
                     <TableRow key={p.id} className="hover:bg-muted/20">
-                      <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{p.receiptNumber ?? p.id?.slice(0, 8)}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{(p.createdAt ?? p.date) ? formatDate(p.createdAt ?? p.date) : '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs"><Badge variant="secondary" size="sm">{p.mode || p.paymentMode || '—'}</Badge></TableCell>
-                      <TableCell className="px-3 py-2 font-mono text-xs">{p.reference || '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{(p.createdAt ?? p.date) ? formatDate(p.createdAt ?? p.date) : '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{p.receiptNumber ?? p.id?.slice(0, 8)}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm"><Badge variant="secondary" size="sm">{p.mode || p.paymentMode || '—'}</Badge></TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-sm">{p.reference || '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</TableCell>
                     </TableRow>
                   )}
-                  columns={['Receipt #', 'Date', 'Mode', 'Reference', { label: 'Amount', right: true }]}
+                  columns={['Date', 'Receipt #', 'Mode', 'Reference', { label: 'Amount', right: true }]}
                 />
               </div>
-              {paymentsFiltered.length > PAGE_SIZE && (
+              {d.payments.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={paymentsPage}
-                    totalPages={Math.max(1, Math.ceil(paymentsFiltered.length / PAGE_SIZE))}
-                    onPageChange={setPaymentsPage}
-                    totalItems={paymentsFiltered.length}
+                    currentPage={d.payments.page}
+                    totalPages={Math.max(1, Math.ceil(d.payments.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.payments.fetchPage(p, rangeOf(paymentsPeriod))}
+                    totalItems={d.payments.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -958,31 +939,31 @@ export default function CustomerDetailPage() {
                   emptyIcon={FileSignature}
                   emptyTitle="No quotations"
                   emptySubtitle="No quotations issued to this customer in the selected period."
-                  rows={quotationsPaged}
+                  rows={quotationsRows}
                   renderRow={(q: any) => (
                     <TableRow
                       key={q.id}
                       className="cursor-pointer hover:bg-muted/20"
                       onClick={() => navigate(`/billing/quotations?quotationId=${q.id}`)}
                     >
-                      <TableCell className="px-3 py-2 font-mono text-xs font-semibold">{q.quotationNumber}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{q.date ? formatDate(q.date) : '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{q.validUntil ? formatDate(q.validUntil) : '—'}</TableCell>
-                      <TableCell className="px-3 py-2 text-center text-xs">{q.items?.length ?? 0}</TableCell>
-                      <TableCell className="px-3 py-2 text-right font-mono text-xs font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2"><StatusPill status={q.status} /></TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{q.date ? formatDate(q.date) : '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{q.quotationNumber}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{q.validUntil ? formatDate(q.validUntil) : '—'}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-center text-sm">{q.items?.length ?? 0}</TableCell>
+                      <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</TableCell>
+                      <TableCell className="px-3 py-2.5"><StatusPill status={q.status} /></TableCell>
                     </TableRow>
                   )}
-                  columns={['Quote #', 'Date', 'Valid Until', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
+                  columns={['Date', 'Quote #', 'Valid Until', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
                 />
               </div>
-              {quotationsFiltered.length > PAGE_SIZE && (
+              {d.quotations.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={quotationsPage}
-                    totalPages={Math.max(1, Math.ceil(quotationsFiltered.length / PAGE_SIZE))}
-                    onPageChange={setQuotationsPage}
-                    totalItems={quotationsFiltered.length}
+                    currentPage={d.quotations.page}
+                    totalPages={Math.max(1, Math.ceil(d.quotations.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.quotations.fetchPage(p, rangeOf(quotationsPeriod))}
+                    totalItems={d.quotations.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -995,18 +976,18 @@ export default function CustomerDetailPage() {
               <RxTabContent
                 customerId={customerId}
                 state={d.prescriptions}
-                rows={rxPaged}
+                rows={rxList}
                 onRefetch={() => d.prescriptions.refetch()}
                 uploadOpen={rxUploadOpen}
                 setUploadOpen={setRxUploadOpen}
               />
-              {rxList.length > PAGE_SIZE && (
+              {d.prescriptions.total > PAGE_SIZE && (
                 <div className="shrink-0 border-t border-border/40">
                   <DataTablePagination
-                    currentPage={rxPage}
-                    totalPages={Math.max(1, Math.ceil(rxList.length / PAGE_SIZE))}
-                    onPageChange={setRxPage}
-                    totalItems={rxList.length}
+                    currentPage={d.prescriptions.page}
+                    totalPages={Math.max(1, Math.ceil(d.prescriptions.total / PAGE_SIZE))}
+                    onPageChange={(p) => d.prescriptions.fetchPage(p)}
+                    totalItems={d.prescriptions.total}
                     itemsPerPage={PAGE_SIZE}
                     className="px-4"
                   />
@@ -1053,7 +1034,7 @@ function pickKpi(kpis: Array<{ label: string; value: string | number }>, label: 
 }
 
 function currentTabCountLabel(
-  activeTab: 'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx',
+  activeTab: 'overview' | 'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx',
   ledgerCount: number,
   invoicesCount: number,
   creditNotesCount: number,
@@ -1089,7 +1070,6 @@ function KpiCell({
   value,
   tone,
   loading,
-  borderLeft,
 }: {
   icon: typeof Package
   label: string
@@ -1106,7 +1086,7 @@ function KpiCell({
     purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
   }
   return (
-    <div className={cn('flex items-center gap-3 px-4 py-3', borderLeft && 'lg:border-l border-border/40')}>
+    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
       <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', toneMap[tone])}>
         <Icon className="h-5 w-5" />
       </div>
@@ -1120,12 +1100,14 @@ function KpiCell({
 
 function OverviewSection({ icon: Icon, title, children }: { icon: typeof Package; title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
+    <div className="space-y-3.5">
+      <div className="flex items-center gap-2.5 border-b border-border/50 pb-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </span>
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
       </div>
-      <div className="space-y-1.5 pl-5">{children}</div>
+      <div className="space-y-3">{children}</div>
     </div>
   )
 }
@@ -1146,9 +1128,9 @@ function OverviewPanelSkeleton() {
 
 function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[11px] text-muted-foreground whitespace-nowrap">{label}</span>
-      <span className={cn('text-sm font-medium text-right truncate', mono && 'font-mono text-xs')}>{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={cn('text-sm font-medium wrap-break-word', mono && 'font-mono')}>{value}</span>
     </div>
   )
 }
@@ -1193,7 +1175,6 @@ function TableSkeleton({ rows = 6 }: { rows?: number }) {
   )
 }
 
-type LazyState<T> = { data: T | null; loading: boolean; error: string | null; attempted: boolean }
 
 function TabListContent({
   state,
@@ -1204,7 +1185,7 @@ function TabListContent({
   renderRow,
   columns,
 }: {
-  state: LazyState<any[]> & { ensureLoaded: () => Promise<void>; refetch?: () => void }
+  state: { data: any[] | null; loading: boolean; error: string | null; refetch?: () => void }
   emptyIcon: typeof Package
   emptyTitle: string
   emptySubtitle?: string
@@ -1228,7 +1209,7 @@ function TabListContent({
             const label = isObj ? c.label : c
             const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
             return (
-              <TableHead key={i} className={cn('h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground', align)}>
+              <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
                 {label}
               </TableHead>
             )
@@ -1298,12 +1279,20 @@ function relativeTime(iso?: string | null): string {
 function ActivityTabContent({
   state,
   filtered,
+  total,
+  page,
+  pageSize,
+  onPageChange,
   onOpenDialog,
   onMarkDone,
   onDelete,
 }: {
-  state: LazyState<SupplierActivity[]> & { refetch?: () => void }
+  state: { data: SupplierActivity[] | null; loading: boolean; error: string | null; refetch?: () => void }
   filtered: SupplierActivity[]
+  total: number
+  page: number
+  pageSize: number
+  onPageChange: (page: number) => void
   onOpenDialog: (type: SAType, editing: SupplierActivity | null) => void
   onMarkDone: (id: string) => void
   onDelete: (id: string) => void
@@ -1311,33 +1300,9 @@ function ActivityTabContent({
   const types: SAType[] = ['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'REMINDER']
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto">
-        {state.error && !state.data ? (
-          <InlineError message={state.error} onRetry={() => state.refetch?.()} />
-        ) : state.loading && !state.data ? (
-          <TableSkeleton rows={6} />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={MessageSquare}
-            title="No activity logged yet"
-            subtitle="Use the buttons below to log a call, WhatsApp, email, note, or schedule a reminder."
-          />
-        ) : (
-          <ol className="divide-y divide-border/40">
-            {filtered.map((a) => (
-              <ActivityRow
-                key={a.id}
-                activity={a}
-                onEdit={() => onOpenDialog(a.type, a)}
-                onMarkDone={() => onMarkDone(a.id)}
-                onDelete={() => onDelete(a.id)}
-              />
-            ))}
-          </ol>
-        )}
-      </div>
-
-      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-t border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
+      {/* Quick-log toolbar — pinned to the TOP so the list flows from here
+          (no large mid-page void when only a few activities exist). */}
+      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
         {types.map((t) => {
           const meta = ACTIVITY_META[t]
           const Icon = meta.icon
@@ -1355,6 +1320,45 @@ function ActivityTabContent({
           )
         })}
       </div>
+
+      <div className="flex-1 overflow-auto">
+        {state.error && !state.data ? (
+          <InlineError message={state.error} onRetry={() => state.refetch?.()} />
+        ) : state.loading && !state.data ? (
+          <TableSkeleton rows={6} />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={MessageSquare}
+            title="No activity logged yet"
+            subtitle="Use the buttons above to log a call, WhatsApp, email, note, or schedule a reminder."
+          />
+        ) : (
+          <ol className="divide-y divide-border/40">
+            {filtered.map((a) => (
+              <ActivityRow
+                key={a.id}
+                activity={a}
+                onEdit={() => onOpenDialog(a.type, a)}
+                onMarkDone={() => onMarkDone(a.id)}
+                onDelete={() => onDelete(a.id)}
+              />
+            ))}
+          </ol>
+        )}
+      </div>
+
+      {total > pageSize && (
+        <div className="shrink-0 border-t border-border/40">
+          <DataTablePagination
+            currentPage={page}
+            totalPages={Math.max(1, Math.ceil(total / pageSize))}
+            onPageChange={onPageChange}
+            totalItems={total}
+            itemsPerPage={pageSize}
+            className="px-4"
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -1393,7 +1397,7 @@ function ActivityRow({
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-xs font-semibold">{meta.label}</span>
+            <span className="text-sm font-semibold">{meta.label}</span>
             {isReminder && activity.title && <span className="text-sm font-medium">· {activity.title}</span>}
             {!isReminder && activity.contactName && (
               <span className="text-xs text-muted-foreground">· {activity.contactName}</span>
@@ -1477,7 +1481,7 @@ function RxTabContent({
   setUploadOpen,
 }: {
   customerId: string
-  state: LazyState<any[]> & { refetch?: () => void }
+  state: { data: any[] | null; loading: boolean; error: string | null; refetch?: () => void }
   rows: any[]
   onRefetch: () => void
   uploadOpen: boolean
@@ -1545,17 +1549,17 @@ function RxTabContent({
           <EmptyState
             icon={Stethoscope}
             title="No prescriptions on file"
-            subtitle="Click Upload Rx to add a prescription image or PDF for this customer."
+            subtitle="Click Upload Prescription to add a prescription image or PDF for this customer."
           />
         ) : (
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
               <TableRow>
-                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Doctor</TableHead>
-                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</TableHead>
-                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Valid Until</TableHead>
-                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</TableHead>
-                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Actions</TableHead>
+                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</TableHead>
+                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Doctor</TableHead>
+                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Valid Until</TableHead>
+                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes</TableHead>
+                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1563,11 +1567,11 @@ function RxTabContent({
                 const url = rx.imageUrl ? `${API_SERVER_URL}${rx.imageUrl}` : null
                 return (
                   <TableRow key={rx.id} className="hover:bg-muted/20">
-                    <TableCell className="px-3 py-2 text-sm font-medium">{rx.doctorName ?? '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs whitespace-nowrap">{rx.validUntil ? formatDate(rx.validUntil) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-xs text-muted-foreground truncate max-w-[20rem]" title={rx.notes ?? ''}>{rx.notes ?? '—'}</TableCell>
-                    <TableCell className="px-3 py-2 text-right">
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm font-medium">{rx.doctorName ?? '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{rx.validUntil ? formatDate(rx.validUntil) : '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm text-muted-foreground truncate max-w-[20rem]" title={rx.notes ?? ''}>{rx.notes ?? '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-right">
                       <div className="inline-flex items-center gap-1">
                         {url && (
                           <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewUrl(url)} aria-label="Preview">

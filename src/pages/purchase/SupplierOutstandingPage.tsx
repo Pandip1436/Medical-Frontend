@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/select'
 
 import api from '@/lib/api'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 
@@ -104,10 +105,15 @@ export default function SupplierOutstandingPage() {
   const [rows, setRows] = useState<OutstandingRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [bucketFilter, setBucketFilter] = useState<string>('all')
-  const [minOutstandingFilter, setMinOutstandingFilter] = useState<string>('all')
+  // Filters (persisted to sessionStorage so they survive refresh + back)
+  const [searchQuery, setSearchQuery] = usePersistedState('filters:purchase.supplierOutstanding:search', '')
+  const [bucketFilter, setBucketFilter] = usePersistedState<string>('filters:purchase.supplierOutstanding:bucket', 'all')
+  const [minOutstandingFilter, setMinOutstandingFilter] = usePersistedState<string>('filters:purchase.supplierOutstanding:min', 'all')
+  // Stat-card drill-down: clicking an aging card narrows the table to rows that
+  // carry a balance in that bucket. Client-side (on top of the server-filtered
+  // rows) since the cards are aging aggregates, not a separate query. Kept
+  // separate from the Aging Bucket enum filter.
+  const [cardFilter, setCardFilter] = useState<'all' | 'early' | 'mid' | 'late'>('all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -171,13 +177,23 @@ export default function SupplierOutstandingPage() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, bucketFilter, minOutstandingFilter])
+  }, [searchQuery, bucketFilter, minOutstandingFilter, cardFilter])
 
   // ── Derived ──
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  // Card drill-down narrows the rows to those carrying a balance in the clicked
+  // aging band. Applied on top of the server-side rows; the summary cards below
+  // keep reflecting the whole dataset.
+  const filteredRows = useMemo(() => {
+    if (cardFilter === 'early') return rows.filter((r) => r.current + r['0-30'] > 0)
+    if (cardFilter === 'mid') return rows.filter((r) => r['31-60'] > 0)
+    if (cardFilter === 'late') return rows.filter((r) => r['61-90'] + r['90+'] > 0)
+    return rows
+  }, [rows, cardFilter])
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
   const paginatedRows = useMemo(
-    () => rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [rows, currentPage],
+    () => filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filteredRows, currentPage],
   )
 
   // Summary cards reflect the filtered set so the user understands what's on screen.
@@ -191,11 +207,13 @@ export default function SupplierOutstandingPage() {
 
   const activeFilterCount =
     (bucketFilter !== 'all' ? 1 : 0) +
-    (minOutstandingFilter !== 'all' ? 1 : 0)
+    (minOutstandingFilter !== 'all' ? 1 : 0) +
+    (cardFilter !== 'all' ? 1 : 0)
 
   const clearFilters = () => {
     setBucketFilter('all')
     setMinOutstandingFilter('all')
+    setCardFilter('all')
   }
 
   // ── Drawer flow ──
@@ -256,11 +274,11 @@ export default function SupplierOutstandingPage() {
       return
     }
     if (!selectedGrnId) {
-      toast.error('Pick a PR to pay against')
+      toast.error('Pick a PE to pay against')
       return
     }
     if (amount > selectedGrnBalance + 0.01) {
-      toast.error(`Amount exceeds PR balance (${formatCurrency(selectedGrnBalance)})`)
+      toast.error(`Amount exceeds PE balance (${formatCurrency(selectedGrnBalance)})`)
       return
     }
     setPaySubmitting(true)
@@ -293,6 +311,9 @@ export default function SupplierOutstandingPage() {
   }
 
   // ── Stat card config ──
+  // filterKey drives the click drill-down (Total clears it; aging cards narrow
+  // the table to rows with a balance in that band). activeRing matches the
+  // card's accent so the selected card reads as "on".
   const kpiCards = [
     {
       label: 'Total Outstanding',
@@ -301,6 +322,8 @@ export default function SupplierOutstandingPage() {
       icon: IndianRupee,
       iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
       accent: 'border-l-amber-500',
+      filterKey: 'all' as const,
+      activeRing: 'ring-2 ring-amber-500/50',
     },
     {
       label: '0–30 Days',
@@ -309,6 +332,8 @@ export default function SupplierOutstandingPage() {
       icon: Clock,
       iconBg: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
       accent: 'border-l-sky-500',
+      filterKey: 'early' as const,
+      activeRing: 'ring-2 ring-sky-500/50',
     },
     {
       label: '30–60 Days',
@@ -317,6 +342,8 @@ export default function SupplierOutstandingPage() {
       icon: AlertTriangle,
       iconBg: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
       accent: 'border-l-orange-500',
+      filterKey: 'mid' as const,
+      activeRing: 'ring-2 ring-orange-500/50',
     },
     {
       label: '60+ Days',
@@ -325,6 +352,8 @@ export default function SupplierOutstandingPage() {
       icon: AlertTriangle,
       iconBg: 'bg-red-500/10 text-red-700 dark:text-red-400',
       accent: 'border-l-red-500',
+      filterKey: 'late' as const,
+      activeRing: 'ring-2 ring-red-500/50',
     },
   ]
 
@@ -335,10 +364,21 @@ export default function SupplierOutstandingPage() {
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-5"
     >
-      {/* ── Summary cards ── */}
+      {/* ── Summary cards (click to drill the table by aging band) ── */}
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {kpiCards.map((kpi) => (
-          <Card key={kpi.label} hover className={cn('border-l-[3px]', kpi.accent)}>
+        {kpiCards.map((kpi) => {
+          const active = kpi.filterKey !== 'all' && cardFilter === kpi.filterKey
+          return (
+          <Card
+            key={kpi.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={kpi.filterKey === 'all' ? 'Show all outstanding suppliers' : `Filter to suppliers with a balance in ${kpi.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : kpi.filterKey); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : kpi.filterKey); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', kpi.accent, active && kpi.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>
                 <kpi.icon className="h-5 w-5" />
@@ -350,7 +390,8 @@ export default function SupplierOutstandingPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Filters ── */}
@@ -358,7 +399,7 @@ export default function SupplierOutstandingPage() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search supplier…"
-        resultsCount={rows.length}
+        resultsCount={filteredRows.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
       >
@@ -385,7 +426,7 @@ export default function SupplierOutstandingPage() {
         <div className="flex items-center justify-center py-20">
           <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
-      ) : rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <Card>
           <CardContent className="p-0">
             <EmptyState
@@ -420,8 +461,15 @@ export default function SupplierOutstandingPage() {
                   onClick={() => openDrawer(row)}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{row.supplier}</p>
-                    <p className="text-[11px] text-muted-foreground">{row.grnCount} PR{row.grnCount !== 1 ? 's' : ''}</p>
+                    <p
+                      role="link"
+                      tabIndex={0}
+                      title="View supplier details"
+                      className="text-sm font-bold truncate text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${row.supplierId}`) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${row.supplierId}`) } }}
+                    >{row.supplier}</p>
+                    <p className="text-[11px] text-muted-foreground">{row.grnCount} PE{row.grnCount !== 1 ? 's' : ''}</p>
                     {overdue60 > 0 && (
                       <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(overdue60)}</p>
                     )}
@@ -440,7 +488,7 @@ export default function SupplierOutstandingPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Supplier</TableHead>
-                  <TableHead className="text-center">PRs</TableHead>
+                  <TableHead className="text-center">PEs</TableHead>
                   <TableHead className="text-right">Total Outstanding</TableHead>
                   <TableHead className="text-right">0–30 Days</TableHead>
                   <TableHead className="text-right">30–60 Days</TableHead>
@@ -455,11 +503,20 @@ export default function SupplierOutstandingPage() {
                     className="cursor-pointer transition-colors hover:bg-muted/30"
                     onClick={() => openDrawer(row)}
                   >
-                    <TableCell className="font-medium">{row.supplier}</TableCell>
+                    <TableCell className="text-sm font-bold">
+                      <span
+                        role="link"
+                        tabIndex={0}
+                        title="View supplier details"
+                        className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${row.supplierId}`) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${row.supplierId}`) } }}
+                      >{row.supplier}</span>
+                    </TableCell>
                     <TableCell className="text-center text-sm text-muted-foreground">
                       {row.grnCount}
                     </TableCell>
-                    <TableCell className="text-right font-mono font-bold text-amber-600 dark:text-amber-400 text-sm whitespace-nowrap">
+                    <TableCell className="text-right font-mono font-bold text-amber-600 dark:text-amber-400 text-[15px] whitespace-nowrap">
                       {formatCurrency(row.outstanding)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs text-muted-foreground whitespace-nowrap">
@@ -493,7 +550,7 @@ export default function SupplierOutstandingPage() {
             currentPage={currentPage}
             totalPages={totalPages}
             onPageChange={setCurrentPage}
-            totalItems={rows.length}
+            totalItems={filteredRows.length}
             itemsPerPage={PAGE_SIZE}
             className="border-t border-border/40 px-4"
           />
@@ -514,7 +571,7 @@ export default function SupplierOutstandingPage() {
                   <div className="min-w-0">
                     <SheetTitle className="text-base font-semibold truncate">{selectedRow.supplier}</SheetTitle>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {selectedRow.grnCount} open PR{selectedRow.grnCount !== 1 ? 's' : ''}
+                      {selectedRow.grnCount} open PE{selectedRow.grnCount !== 1 ? 's' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -568,7 +625,7 @@ export default function SupplierOutstandingPage() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Open PRs ({drawerGrns.length})
+                      Open PEs ({drawerGrns.length})
                     </p>
                     {selectedGrnId && (
                       <p className="text-[10px] text-muted-foreground">
@@ -581,7 +638,7 @@ export default function SupplierOutstandingPage() {
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
                           <TableHead className="h-9 w-9 px-3" aria-label="Pick" />
-                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PR #</TableHead>
+                          <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GRN #</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
                           <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Age</TableHead>
                           <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice</TableHead>
@@ -592,9 +649,9 @@ export default function SupplierOutstandingPage() {
                       </TableHeader>
                       <TableBody>
                         {drawerGrnsLoading ? (
-                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading PRs…</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading PEs…</TableCell></TableRow>
                         ) : drawerGrns.length === 0 ? (
-                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground">No open PRs.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={8} className="py-6 text-center text-xs text-muted-foreground">No open PEs.</TableCell></TableRow>
                         ) : drawerGrns.map((g) => {
                           const isSelected = selectedGrnId === g.id
                           return (
@@ -613,7 +670,7 @@ export default function SupplierOutstandingPage() {
                                   className="h-3.5 w-3.5 accent-primary"
                                   checked={isSelected}
                                   onChange={() => selectGrn(g.id)}
-                                  aria-label={`Select PR ${g.grnNumber}`}
+                                  aria-label={`Select PE ${g.grnNumber}`}
                                 />
                               </TableCell>
                               <TableCell className="px-3 py-2.5 font-mono text-xs font-semibold">{g.grnNumber}</TableCell>
@@ -719,8 +776,8 @@ export default function SupplierOutstandingPage() {
                   </div>
                   <p className="text-[10px] text-emerald-700/70 dark:text-emerald-400/70">
                     {selectedGrnId
-                      ? `Payment will be recorded against the selected PR (balance ${formatCurrency(selectedGrnBalance)}).`
-                      : 'Pick one PR above to pay against. Each payment is recorded against exactly one PR.'}
+                      ? `Payment will be recorded against the selected PE (balance ${formatCurrency(selectedGrnBalance)}).`
+                      : 'Pick one PE above to pay against. Each payment is recorded against exactly one PE.'}
                   </p>
                 </div>
               </div>
@@ -750,8 +807,8 @@ export default function SupplierOutstandingPage() {
                   }}
                 >
                   <FileText className="h-4 w-4" />
-                  <span className="hidden sm:inline">View Purchase Received</span>
-                  <span className="sm:hidden">PRs</span>
+                  <span className="hidden sm:inline">View Goods Received</span>
+                  <span className="sm:hidden">PEs</span>
                 </Button>
               </div>
             </>

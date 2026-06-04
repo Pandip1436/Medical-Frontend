@@ -18,6 +18,10 @@ interface DataTableFilterBarProps {
   children?: React.ReactNode // The filter inputs/dropdowns
   actionNode?: React.ReactNode // Custom actions aligned right
   midNode?: React.ReactNode   // Extra control between search and filters button
+  // Rendered inside the expandable filters panel (below the filter inputs) —
+  // e.g. the "Customize Columns" toggle, so it lives with the filters rather
+  // than cluttering the top action row.
+  columnsNode?: React.ReactNode
   // Override the search container's width class. Default behaviour fills the
   // remaining row width (flex-1). Pass e.g. "w-full sm:w-80" to constrain it
   // when there are many action buttons on the right.
@@ -35,9 +39,13 @@ export function DataTableFilterBar({
   children,
   actionNode,
   midNode,
+  columnsNode,
   searchClassName,
 }: DataTableFilterBarProps) {
   const [filtersOpen, setFiltersOpen] = useState(defaultFiltersOpen)
+  // The filters panel (and its toggle) appear when there are filter inputs OR a
+  // columns control to host.
+  const hasPanel = Boolean(children || columnsNode)
 
   return (
     <div className="space-y-3">
@@ -65,7 +73,7 @@ export function DataTableFilterBar({
           {midNode}
 
           {/* Filter toggle + clear — always visible, never wraps off-screen */}
-          {children && (
+          {hasPanel && (
             <div className="flex shrink-0 items-center gap-1.5">
               <Button
                 variant={filtersOpen ? 'default' : 'outline'}
@@ -102,7 +110,7 @@ export function DataTableFilterBar({
       </div>
 
       <AnimatePresence>
-        {filtersOpen && children && (
+        {filtersOpen && hasPanel && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -112,9 +120,23 @@ export function DataTableFilterBar({
           >
             <Card className="bg-muted/20 dark:bg-muted/10">
               <CardContent className="p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                  {children}
-                </div>
+                {children && (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    {children}
+                  </div>
+                )}
+                {/* Customize-columns control lives at the foot of the filters panel. */}
+                {columnsNode && (
+                  <div className={cn(
+                    'flex flex-wrap items-center justify-between gap-3',
+                    children && 'mt-4 border-t border-border/40 pt-3',
+                  )}>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Visible Columns
+                    </span>
+                    {columnsNode}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

@@ -99,7 +99,7 @@ export function LeadsFilterChips({
 
       {/* Columns toggle — sixth equal-width slot. Parent owns the state and
           just passes the trigger here so layout stays unified. */}
-      {columnsSlot && <div className="[&>*]:w-full">{columnsSlot}</div>}
+      {columnsSlot && <div className="*:w-full">{columnsSlot}</div>}
     </div>
   )
 }

@@ -1,22 +1,31 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  Printer, Download, Share2, ShoppingCart, Wallet,
-  User, Stethoscope, CreditCard, CalendarDays, Pencil,
-  Send, QrCode, RefreshCw,
+  Printer, Download, ShoppingCart, Wallet,
+  Stethoscope, CreditCard, CalendarDays, Pencil,
+  Send, QrCode, RefreshCw, History, Eye,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { formatCurrency, cn } from '@/lib/utils'
-import { downloadInvoicePdf, printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
+import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { downloadInvoicePdf, printInvoicePdf } from '@/lib/pdf/invoicePdf'
+import { InvoiceDocument } from '@/components/billing/InvoiceDocument'
+import {
+  printReceipt, downloadReceiptPdf,
+  type ReceiptPayment, type ReceiptInvoice,
+} from '@/lib/pdf/receiptPdf'
 import type { Invoice } from '@/types'
 
 // Shared invoice detail body — used by both the list-page modal and the
@@ -32,11 +41,16 @@ interface InvoiceDetailContentProps {
 
 export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDetailContentProps) {
   const [collectAmount, setCollectAmount] = useState('')
-  const [collectMode, setCollectMode] = useState('CASH')
+  // UPI is the most common collection mode here, so it's the default.
+  const [collectMode, setCollectMode] = useState('UPI')
+  // Reference (UTR / txn id / cheque no.) — required for every non-cash mode.
+  const [collectRef, setCollectRef] = useState('')
   const [collectSubmitting, setCollectSubmitting] = useState(false)
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false)
   const [regeneratingQr, setRegeneratingQr] = useState(false)
   const [reconciling, setReconciling] = useState(false)
+  // On-screen invoice preview — the same styled document the New Sale page shows.
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   // Auto-send / QR flow only applies to real invoices that aren't draft or
   // cancelled. Quotations are billed-out differently and have no payment QR.
@@ -106,14 +120,21 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
       toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(outstanding)}`)
       return
     }
+    // Non-cash modes are traceable — a reference number is mandatory.
+    if (refRequired && !collectRef.trim()) {
+      toast.error(`Enter the ${collectMode} reference number`)
+      return
+    }
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${invoice.id}/collect-payment`, {
         amountReceived: parseFloat(collectAmount),
         paymentMode: collectMode,
+        referenceNumber: refRequired ? collectRef.trim() : undefined,
       })
       toast.success('Payment collected successfully')
       setCollectAmount('')
+      setCollectRef('')
       onUpdated(res.data)
     } catch (err: any) {
       toast.error(err.response?.data?.message ?? 'Failed to collect payment')
@@ -152,40 +173,75 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   // Typed amount overshoots what's due — drives the inline error + disabled state.
   const collectNum = parseFloat(collectAmount)
   const collectExceeds = !isNaN(collectNum) && collectNum > outstanding + 0.01
+  // UPI / Card / Cheque collections need a reference number; Cash doesn't.
+  const refRequired = collectMode !== 'CASH'
+  const refMissing = refRequired && !collectRef.trim()
 
   return (
     <div className="space-y-4">
-      {/* Meta info */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-        <div className="flex items-center gap-2">
-          <User className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer</p>
-            <p className="font-medium">{invoice.customerName}</p>
+      {/* Customer header — identity + detail chips on the left, quick actions
+          (Edit / Repurchase) on the right. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-muted/20 p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
+            {invoice.customerName?.trim()?.[0]?.toUpperCase() ?? '?'}
           </div>
-        </div>
-        {invoice.doctorName && (
-          <div className="flex items-center gap-2">
-            <Stethoscope className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Doctor</p>
-              <p className="font-medium">{invoice.doctorName}</p>
+          <div className="min-w-0">
+            <p className="truncate text-lg font-bold leading-tight">{invoice.customerName}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" size="sm" className="gap-1 font-medium border-primary/30 bg-primary/5 text-foreground">
+                <CreditCard className="h-3.5 w-3.5 text-primary" />
+                <span>Paid via <span className="font-semibold">{invoice.paymentMode}</span></span>
+              </Badge>
+              <Badge variant="secondary" size="sm" className="gap-1 font-normal">
+                <CalendarDays className="h-3 w-3" />
+                <span className="capitalize">{invoice.billingType.toLowerCase()}</span>
+              </Badge>
+              {invoice.doctorName && (
+                <Badge variant="secondary" size="sm" className="max-w-44 gap-1 font-normal">
+                  <Stethoscope className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{invoice.doctorName}</span>
+                </Badge>
+              )}
             </div>
           </div>
-        )}
-        <div className="flex items-center gap-2">
-          <CreditCard className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Payment</p>
-            <p className="font-medium capitalize">{invoice.paymentMode.toLowerCase()}</p>
-          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Billing Type</p>
-            <p className="font-medium capitalize">{invoice.billingType.toLowerCase()}</p>
-          </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+              onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
+          {amountPaid > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() =>
+                document
+                  .getElementById('invoice-payment-history')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            >
+              <History className="h-3.5 w-3.5" />
+              Payment History
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40"
+            onClick={handleRepurchase}
+          >
+            <ShoppingCart className="h-3.5 w-3.5" />
+            Repurchase
+          </Button>
         </div>
       </div>
 
@@ -249,154 +305,353 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         </div>
       )}
 
-      {/* Totals */}
-      <div className="space-y-1.5 rounded-xl border border-border/40 bg-muted/20 p-4 text-sm">
-        {[
-          { label: 'Subtotal', value: invoice.subtotal },
-          Number(invoice.productDiscount) > 0 ? { label: 'Discount', value: -Number(invoice.productDiscount) } : null,
-          { label: 'Taxable', value: invoice.taxableAmount },
-          { label: 'CGST', value: invoice.cgst },
-          { label: 'SGST', value: invoice.sgst },
-          Number(invoice.igst) > 0 ? { label: 'IGST', value: invoice.igst } : null,
-          Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery / Packaging', value: Number(invoice.deliveryCharge) } : null,
-          Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: invoice.roundOff } : null,
-        ].filter(Boolean).map((row) => (
-          <div key={row!.label} className="flex justify-between text-muted-foreground">
-            <span>{row!.label}</span>
-            <span className="font-mono">{formatCurrency(row!.value)}</span>
-          </div>
-        ))}
-        <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
-          <span>Grand Total</span>
-          <span className="font-mono text-base text-emerald-600 dark:text-emerald-400">{formatCurrency(grandTotal)}</span>
-        </div>
-        {amountPaid > 0 && (
-          <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-            <span>Paid</span>
-            <span className="font-mono">{formatCurrency(amountPaid)}</span>
-          </div>
-        )}
-      </div>
+      {/* Collect Payment (left) + Totals (right). Side by side on large screens
+          when there's something to collect; otherwise the totals span full
+          width on their own. */}
+      {(() => {
+        const canCollect = invoice.status === 'UNPAID' || invoice.status === 'PARTIAL'
+        return (
+          <div className={cn('grid gap-4 lg:items-start', canCollect && 'lg:grid-cols-2')}>
+            {/* Collect Payment — unpaid/partial only (left column) */}
+            {canCollect && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                  Collect Payment — Outstanding: {formatCurrency(outstanding)}
+                </p>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Select value={collectMode} onValueChange={setCollectMode}>
+                      <SelectTrigger className="w-32 h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {['CASH', 'UPI', 'CARD', 'CHEQUE'].map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      placeholder="Amount"
+                      className={cn(
+                        'h-9 text-sm',
+                        collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
+                      )}
+                      value={collectAmount}
+                      onChange={(e) => setCollectAmount(e.target.value)}
+                      min={0}
+                      max={outstanding}
+                    />
+                    <Button
+                      size="sm"
+                      className="gap-1.5 shrink-0"
+                      disabled={collectSubmitting || !collectAmount || collectExceeds || refMissing}
+                      onClick={handleCollectPayment}
+                    >
+                      <Wallet className="h-4 w-4" />
+                      {collectSubmitting ? 'Saving…' : 'Collect'}
+                    </Button>
+                  </div>
+                  {/* Non-cash modes need a traceable reference number. */}
+                  {refRequired && (
+                    <Input
+                      placeholder={`${collectMode === 'CHEQUE' ? 'Cheque' : collectMode} reference no. (UTR / txn id / cheque #)`}
+                      className="h-9 text-sm"
+                      value={collectRef}
+                      onChange={(e) => setCollectRef(e.target.value)}
+                    />
+                  )}
+                </div>
+                {collectExceeds && (
+                  <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
+                    Amount can't exceed the outstanding {formatCurrency(outstanding)}.
+                  </p>
+                )}
+                {!collectExceeds && refMissing && collectAmount && (
+                  <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    Enter the {collectMode} reference number to collect.
+                  </p>
+                )}
+              </div>
+            )}
 
-      {/* Collect Payment — unpaid/partial only */}
-      {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-            Collect Payment — Outstanding: {formatCurrency(outstanding)}
-          </p>
-          <div className="flex gap-2">
-            <Select value={collectMode} onValueChange={setCollectMode}>
-              <SelectTrigger className="w-32 h-9 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              type="number"
-              placeholder="Amount"
-              className={cn(
-                'h-9 text-sm',
-                collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
-              )}
-              value={collectAmount}
-              onChange={(e) => setCollectAmount(e.target.value)}
-              min={0}
-              max={outstanding}
-            />
-            <Button
-              size="sm"
-              className="gap-1.5 shrink-0"
-              disabled={collectSubmitting || !collectAmount || collectExceeds}
-              onClick={handleCollectPayment}
-            >
-              <Wallet className="h-4 w-4" />
-              {collectSubmitting ? 'Saving…' : 'Collect'}
-            </Button>
+            {/* Totals — right-aligned boxed summary (one row per line, the grand
+                total highlighted). When collecting, this sits in the right
+                grid column; when fully paid it right-aligns on its own. */}
+            <div className="flex justify-end">
+              <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:max-w-xs">
+                <div className="divide-y divide-border/30">
+                  {([
+                    { label: 'Subtotal', value: Number(invoice.subtotal) },
+                    Number(invoice.productDiscount) > 0 ? { label: 'Discount', value: -Number(invoice.productDiscount) } : null,
+                    { label: 'Taxable', value: Number(invoice.taxableAmount) },
+                    { label: 'CGST', value: Number(invoice.cgst) },
+                    { label: 'SGST', value: Number(invoice.sgst) },
+                    Number(invoice.igst) > 0 ? { label: 'IGST', value: Number(invoice.igst) } : null,
+                    Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery / Packaging', value: Number(invoice.deliveryCharge) } : null,
+                    Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: Number(invoice.roundOff) } : null,
+                  ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
+                    <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
+                      <span className="text-[13px] text-muted-foreground">{row.label}</span>
+                      <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between border-t-2 border-border/60 bg-emerald-50 px-4 py-3 dark:bg-emerald-950/20">
+                  <span className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Grand Total</span>
+                  <span className="font-mono text-lg font-black tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(grandTotal)}</span>
+                </div>
+                {amountPaid > 0 && (
+                  <div className="flex items-center justify-between border-t border-border/30 px-4 py-2.5">
+                    <span className="text-[13px] text-muted-foreground">Paid</span>
+                    <span className="font-mono text-sm tabular-nums text-emerald-600 dark:text-emerald-400">{formatCurrency(amountPaid)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          {collectExceeds && (
-            <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-400">
-              Amount can't exceed the outstanding {formatCurrency(outstanding)}.
-            </p>
-          )}
+        )
+      })()}
+
+      {/* Payment History — every payment made against this invoice, including
+          the upfront at-counter amount (synthesized by the backend). The id +
+          scroll-margin let the header "Payment History" button jump here. */}
+      {amountPaid > 0 && (
+        <div id="invoice-payment-history" className="scroll-mt-24">
+          <PaymentHistory invoice={invoice} />
         </div>
       )}
 
-      {/* Actions — print/download/manual-share/repurchase */}
-      <div className="flex flex-wrap gap-2">
-        {(invoice.status === 'PAID' || invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
-          <Button
-            variant="outline"
-            className="gap-2 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
-            onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
-          >
-            <Pencil className="h-4 w-4" />
-            Edit Invoice
-          </Button>
+      {/* Actions — sticky toolbar pinned to the bottom of the viewport so it
+          stays reachable while scrolling the invoice. Server actions (WhatsApp
+          / QR / Sync) sit to the left of the document actions (Download /
+          Print). Edit & Repurchase live in the top header. */}
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
+        {isAutoSendApplicable && (
+          <>
+            <Button
+              variant="outline"
+              className="h-10 gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40"
+              onClick={handleSendWhatsApp}
+              disabled={sendingWhatsApp}
+              title="Re-send the invoice PDF + payment QR to the customer's WhatsApp via Meta Cloud API"
+            >
+              <Send className={`h-4 w-4 ${sendingWhatsApp ? 'animate-pulse' : ''}`} />
+              {sendingWhatsApp ? 'Sending…' : 'Send WhatsApp'}
+            </Button>
+            <Button
+              variant="outline"
+              className="h-10 gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40"
+              onClick={handleRegenerateQr}
+              disabled={regeneratingQr}
+              title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
+            >
+              <QrCode className={`h-4 w-4 ${regeneratingQr ? 'animate-pulse' : ''}`} />
+              {regeneratingQr ? 'Generating…' : 'Generate QR'}
+            </Button>
+            <Button
+              variant="outline"
+              className="h-10 gap-2"
+              onClick={handleReconcile}
+              disabled={reconciling}
+              title="Poll Razorpay for payments captured against this invoice's QR. Use if a webhook was missed."
+            >
+              <RefreshCw className={`h-4 w-4 ${reconciling ? 'animate-spin' : ''}`} />
+              {reconciling ? 'Syncing…' : 'Sync Payment'}
+            </Button>
+            <span className="mx-1 hidden h-6 w-px bg-border/60 sm:block" aria-hidden />
+          </>
         )}
-        <Button className="flex-1 gap-2 min-w-24" onClick={() => printInvoicePdf(invoice)}>
-          <Printer className="h-4 w-4" />
-          Print
+        <Button variant="outline" className="h-10 gap-2" onClick={() => setPreviewOpen(true)}>
+          <Eye className="h-4 w-4" />
+          Preview
         </Button>
-        <Button variant="outline" className="flex-1 gap-2 min-w-24" onClick={() => downloadInvoicePdf(invoice)}>
+        <Button variant="outline" className="h-10 gap-2" onClick={() => downloadInvoicePdf(invoice)}>
           <Download className="h-4 w-4" />
           Download
         </Button>
-        <Button variant="outline" className="gap-2" onClick={() => shareInvoiceViaWhatsApp(invoice)}>
-          <Share2 className="h-4 w-4" />
-          Share
-        </Button>
-        <Button
-          variant="outline"
-          className="gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40"
-          onClick={handleRepurchase}
-        >
-          <ShoppingCart className="h-4 w-4" />
-          Repurchase
+        <Button className="h-10 gap-2" onClick={() => printInvoicePdf(invoice)}>
+          <Printer className="h-4 w-4" />
+          Print
         </Button>
       </div>
 
-      {/* Server-side WhatsApp + Razorpay QR actions. Distinct row so admins
-          don't confuse them with the wa.me deeplink Share above. These hit
-          the backend, which talks to Meta Cloud API + Razorpay directly. */}
-      {isAutoSendApplicable && (
-        <div className="flex flex-wrap gap-2 pt-2 border-t border-dashed border-border/60">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40"
-            onClick={handleSendWhatsApp}
-            disabled={sendingWhatsApp}
-            title="Re-send the invoice PDF + payment QR to the customer's WhatsApp via Meta Cloud API"
-          >
-            <Send className={`h-4 w-4 ${sendingWhatsApp ? 'animate-pulse' : ''}`} />
-            {sendingWhatsApp ? 'Sending…' : 'Send WhatsApp'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40"
-            onClick={handleRegenerateQr}
-            disabled={regeneratingQr}
-            title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
-          >
-            <QrCode className={`h-4 w-4 ${regeneratingQr ? 'animate-pulse' : ''}`} />
-            {regeneratingQr ? 'Generating…' : 'Generate QR'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={handleReconcile}
-            disabled={reconciling}
-            title="Poll Razorpay for payments captured against this invoice's QR. Use if a webhook was missed."
-          >
-            <RefreshCw className={`h-4 w-4 ${reconciling ? 'animate-spin' : ''}`} />
-            {reconciling ? 'Syncing…' : 'Sync Payment'}
-          </Button>
+      {/* Invoice preview — the same styled document the New Sale page renders,
+          so the user sees the bill on-screen before printing/downloading. */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="flex h-dvh w-full max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 md:h-auto md:max-h-[92vh] md:w-[96vw] md:max-w-6xl md:rounded-xl">
+          {/* Toolbar */}
+          <DialogHeader className="shrink-0 border-b border-border/30 bg-background px-5 py-3">
+            <DialogTitle className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2.5">
+                <Eye className="h-4 w-4 shrink-0 text-primary" />
+                <span className="text-sm font-bold">Invoice Preview</span>
+                <span className="hidden font-mono text-xs font-normal text-muted-foreground sm:inline">{invoice.invoiceNumber}</span>
+              </span>
+              <span className="mr-8 flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-8 gap-1.5 px-3 text-sm" onClick={() => downloadInvoicePdf(invoice)}>
+                  <Download className="h-3.5 w-3.5" /> Download
+                </Button>
+                <Button size="sm" className="h-8 gap-1.5 px-4 text-sm font-semibold" onClick={() => printInvoicePdf(invoice)}>
+                  <Printer className="h-3.5 w-3.5" /> Print
+                </Button>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          {/* Document body */}
+          <div className="flex-1 overflow-y-auto">
+            <InvoiceDocument invoice={invoice} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ── Payment History ───────────────────────────────────────────
+// Read-only list of every payment against this single invoice. Fetched from
+// GET /billing/:id/payments — re-fetches whenever amountPaid changes (i.e.
+// after a successful collection), since the parent re-passes a fresh invoice.
+
+interface PaymentHistoryData {
+  invoiceNumber: string
+  customerName: string
+  customerPhone?: string | null
+  customerAddress?: string | null
+  customerGstin?: string | null
+  grandTotal: number
+  amountPaid: number
+  payments: ReceiptPayment[]
+}
+
+const MODE_BADGE: Record<string, string> = {
+  CASH: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40',
+  UPI: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40',
+  CARD: 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40',
+  CHEQUE: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40',
+}
+
+function PaymentHistory({ invoice }: { invoice: Invoice }) {
+  const [data, setData] = useState<PaymentHistoryData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const amountPaid = Number(invoice.amountPaid)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    api
+      .get(`/billing/${invoice.id}/payments`)
+      .then((res) => { if (active) setData(res.data) })
+      .catch(() => { if (active) setData(null) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+    // amountPaid in deps so a fresh collection re-pulls the updated history.
+  }, [invoice.id, amountPaid])
+
+  const receiptInvoice: ReceiptInvoice = {
+    invoiceNumber: data?.invoiceNumber ?? invoice.invoiceNumber,
+    customerName: data?.customerName ?? invoice.customerName,
+    // Party details: prefer the payments endpoint (pulls the live customer
+    // record), fall back to the invoice snapshot.
+    customerPhone: data?.customerPhone ?? invoice.customerPhone,
+    customerAddress: data?.customerAddress ?? invoice.customerAddress,
+    customerGstin: data?.customerGstin ?? invoice.customerGstin,
+    grandTotal: data?.grandTotal ?? Number(invoice.grandTotal),
+    amountPaid: data?.amountPaid ?? amountPaid,
+  }
+
+  const payments = data?.payments ?? []
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-muted/20">
+      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-muted-foreground" />
+          <p className="text-sm font-semibold">Payment History</p>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {payments.length} {payments.length === 1 ? 'payment' : 'payments'} · {formatCurrency(amountPaid)} paid
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading payments…</div>
+      ) : payments.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground">No payments recorded yet.</div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Receipt #</TableHead>
+              <TableHead>Mode</TableHead>
+              <TableHead>Reference</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              <TableHead className="text-right">Receipt</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {payments.map((p, idx) => {
+              const isInitial = p.source === 'INITIAL'
+              return (
+                <TableRow key={p.id ?? `initial-${idx}`}>
+                  <TableCell className="text-sm">{formatDate(p.createdAt)}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {isInitial ? (
+                      <span className="text-muted-foreground">At counter</span>
+                    ) : (
+                      p.receiptNumber ?? '—'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" size="sm" className={cn('font-medium', MODE_BADGE[p.paymentMode])}>
+                      {p.paymentMode}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {p.referenceNumber ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm font-medium">
+                    {formatCurrency(p.amount)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {isInitial ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                          onClick={() => printReceipt(p, receiptInvoice)}
+                          title="Print receipt voucher"
+                        >
+                          <Printer className="h-3.5 w-3.5" /> Print
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => downloadReceiptPdf(p, receiptInvoice)}
+                          title="Download receipt voucher"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      )}
+
+      {payments.length > 0 && (
+        <div className="flex justify-between border-t border-border/40 px-4 py-2.5 text-sm font-semibold">
+          <span>Total Paid</span>
+          <span className="font-mono text-emerald-600 dark:text-emerald-400">{formatCurrency(amountPaid)}</span>
         </div>
       )}
     </div>

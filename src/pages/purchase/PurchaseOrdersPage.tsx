@@ -49,6 +49,9 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -339,7 +342,18 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
+const PO_COLUMNS: ColumnDef[] = [
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'supplier', label: 'Supplier', defaultVisible: true },
+  { id: 'po', label: 'PO #', required: true, defaultVisible: true },
+  { id: 'items', label: 'Items', defaultVisible: true },
+  { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'expected', label: 'Expected Delivery', defaultVisible: true },
+]
+
 export default function PurchaseOrdersPage() {
+  const cols = useColumnVisibility('purchase.orders', PO_COLUMNS)
   const { suppliers, products, fetchMasterData } = useMasterDataStore()
   const { search } = useRoute()
 
@@ -371,14 +385,16 @@ export default function PurchaseOrdersPage() {
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Filters
-  const [period, setPeriod] = useState('all')
+  // Filters (period defaults to "today", mirroring the Invoice List)
+  const [period, setPeriod] = useState('today')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [amountMin, setAmountMin] = useState('')
-  const [amountMax, setAmountMax] = useState('')
+  // Stat-card drill-down: clicking a summary card narrows the list to that
+  // status bucket on top of the period. Kept separate from the Status enum
+  // filter because "pending"/"received" each span multiple PO statuses.
+  const [cardFilter, setCardFilter] = useState<'all' | 'received' | 'pending' | 'partial'>('all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -390,6 +406,18 @@ export default function PurchaseOrdersPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [detailPO, setDetailPO] = useState<(typeof purchaseOrders)[0] | null>(null)
   const [detailPOLoading, setDetailPOLoading] = useState(false)
+
+  // Auto-open the Create PO dialog via `?add=1` (sidebar quick-add).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === '1') {
+      setCreateDialogOpen(true)
+      params.delete('add')
+      const qs = params.toString()
+      window.history.replaceState(null, '', `/purchase/orders${qs ? `?${qs}` : ''}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function openDetailPO(po: (typeof purchaseOrders)[0]) {
     setDetailPO(po) // show immediately with cached data
@@ -422,18 +450,20 @@ export default function PurchaseOrdersPage() {
   }, [search, purchaseOrders])
 
   const clearFilters = () => {
-    setPeriod('all')
+    setPeriod('today')
+    setCardFilter('all')
     setDateFrom('')
     setDateTo('')
     setSelectedSupplier('all')
     setSelectedStatus('all')
-    setAmountMin('')
-    setAmountMax('')
   }
 
   // ── Filtering logic ──
 
-  const filteredPOs = useMemo(() => {
+  // POs within the selected period only — drives both the summary cards and
+  // the list, so the cards always reflect the period independent of the
+  // card-click / search / status narrowing applied to the table below.
+  const periodPOs = useMemo(() => {
     let result = [...purchaseOrders]
 
     // Period
@@ -460,6 +490,21 @@ export default function PurchaseOrdersPage() {
         break
     }
 
+    return result
+  }, [purchaseOrders, period, dateFrom, dateTo])
+
+  const filteredPOs = useMemo(() => {
+    let result = [...periodPOs]
+
+    // Stat-card drill-down
+    if (cardFilter === 'received') {
+      result = result.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
+    } else if (cardFilter === 'partial') {
+      result = result.filter((po) => po.status === 'PARTIALLY_RECEIVED')
+    }
+
     // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
@@ -480,17 +525,13 @@ export default function PurchaseOrdersPage() {
       result = result.filter((po) => po.status === selectedStatus)
     }
 
-    // Amount range
-    if (amountMin) result = result.filter((po) => po.totalAmount >= parseFloat(amountMin))
-    if (amountMax) result = result.filter((po) => po.totalAmount <= parseFloat(amountMax))
-
     return result
-  }, [purchaseOrders, searchQuery, period, dateFrom, dateTo, selectedSupplier, selectedStatus, amountMin, amountMax])
+  }, [periodPOs, cardFilter, searchQuery, selectedSupplier, selectedStatus])
 
-  // ── Stats ──
+  // ── Stats ── (reflect the selected period, independent of card/table filters)
 
   const stats = useMemo(() => {
-    const all = purchaseOrders
+    const all = periodPOs
     // Bucket every PO into exactly one of {received, pending, partial} so the
     // tile totals always reconcile back to "Total Orders". POStatus values:
     //   DRAFT / SENT / ACKNOWLEDGED  → Pending
@@ -516,7 +557,7 @@ export default function PurchaseOrdersPage() {
       partialCount: partial.length,
       partialTotal,
     }
-  }, [purchaseOrders])
+  }, [periodPOs])
 
   // Backend-paginated supplier fetcher for the filter dropdown.
   const supplierFetcher = useCallback(
@@ -573,13 +614,13 @@ export default function PurchaseOrdersPage() {
     setSelectedIds(newSet)
   }
 
-  // ── Active filters count ──
+  // ── Active filters count ── ("today" is the default baseline)
   const activeFilterCount = [
-    period !== 'all' ? period : '',
+    period !== 'today' ? period : '',
+    cardFilter !== 'all' ? cardFilter : '',
     dateFrom, dateTo,
     selectedSupplier !== 'all' ? selectedSupplier : '',
     selectedStatus !== 'all' ? selectedStatus : '',
-    amountMin, amountMax,
   ].filter(Boolean).length
 
   // ── Actions ──
@@ -738,9 +779,9 @@ export default function PurchaseOrdersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary Cards ── */}
+      {/* ── Summary Cards — click Received / Pending / Partial to drill the list ── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           {
             label: 'Total Orders',
             value: formatCurrency(stats.totalAmount),
@@ -748,6 +789,8 @@ export default function PurchaseOrdersPage() {
             icon: IndianRupee,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
           },
           {
             label: 'Received',
@@ -756,6 +799,8 @@ export default function PurchaseOrdersPage() {
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',
+            filterKey: 'received',
+            activeRing: 'ring-2 ring-emerald-500/50',
           },
           {
             label: 'Pending',
@@ -764,6 +809,8 @@ export default function PurchaseOrdersPage() {
             icon: Clock,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
+            filterKey: 'pending',
+            activeRing: 'ring-2 ring-amber-500/50',
           },
           {
             label: 'Partial Delivery',
@@ -772,9 +819,22 @@ export default function PurchaseOrdersPage() {
             icon: Package,
             iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
             borderAccent: 'border-l-purple-500',
+            filterKey: 'partial',
+            activeRing: 'ring-2 ring-purple-500/50',
           },
-        ].map((stat) => (
-          <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all orders in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
@@ -786,7 +846,8 @@ export default function PurchaseOrdersPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Search + Filter Row ── */}
@@ -797,11 +858,11 @@ export default function PurchaseOrdersPage() {
         resultsCount={filteredPOs.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
             <Button
               size="sm"
-              className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
               onClick={() => setCreateDialogOpen(true)}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -815,8 +876,8 @@ export default function PurchaseOrdersPage() {
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Purchase Entry</span>
-              <span className="sm:hidden">Entry</span>
+              <span className="hidden sm:inline">New GRN</span>
+              <span className="sm:hidden">GRN</span>
             </Button>
           </div>
         }
@@ -827,7 +888,7 @@ export default function PurchaseOrdersPage() {
             label="Period"
             value={period}
             onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+            onClear={() => { setPeriod('today'); setCurrentPage(1) }}
             options={PERIOD_OPTIONS}
           />
 
@@ -850,15 +911,6 @@ export default function PurchaseOrdersPage() {
             options={STATUS_OPTIONS}
           />
 
-          {/* Amount Range */}
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Range</Label>
-            <div className="flex items-center gap-2">
-              <Input type="number" placeholder="Min" value={amountMin} onChange={(e) => { setAmountMin(e.target.value); setCurrentPage(1) }} className="w-full" />
-              <span className="text-muted-foreground text-xs">-</span>
-              <Input type="number" placeholder="Max" value={amountMax} onChange={(e) => { setAmountMax(e.target.value); setCurrentPage(1) }} className="w-full" />
-            </div>
-          </div>
 
           {/* Custom date range — only when period is 'custom', full-width row below */}
           {period === 'custom' && (
@@ -973,14 +1025,14 @@ export default function PurchaseOrdersPage() {
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="font-mono text-xs font-medium text-primary">{po.poNumber}</p>
-                    <p className="truncate text-sm font-medium">{po.supplierName}</p>
+                    <p className="truncate text-[15px] font-bold">{po.supplierName}</p>
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
                       {renderStatusBadge(po.status)}
                       <span className="text-xs text-muted-foreground">{formatDate(po.date)}</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    <span className="font-mono text-sm font-semibold">{formatCurrency(po.totalAmount)}</span>
+                    <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(po.totalAmount)}</span>
                     <span className="text-xs text-muted-foreground">{po.items.length} item{po.items.length !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
@@ -997,13 +1049,13 @@ export default function PurchaseOrdersPage() {
               <TableHead className="w-10">
                 <Checkbox checked={allOnPageSelected} onCheckedChange={toggleSelectAll} />
               </TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Supplier</TableHead>
-              <TableHead>PO #</TableHead>
-              <TableHead className="text-center">Items</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Expected Delivery</TableHead>
+              {cols.isVisible('date') && <TableHead>Date</TableHead>}
+              {cols.isVisible('supplier') && <TableHead>Supplier</TableHead>}
+              {cols.isVisible('po') && <TableHead>PO #</TableHead>}
+              {cols.isVisible('items') && <TableHead className="text-center">Items</TableHead>}
+              {cols.isVisible('total') && <TableHead className="text-right">Total</TableHead>}
+              {cols.isVisible('status') && <TableHead>Status</TableHead>}
+              {cols.isVisible('expected') && <TableHead>Expected Delivery</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -1011,7 +1063,7 @@ export default function PurchaseOrdersPage() {
             <AnimatePresence mode="popLayout">
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
                       <p className="text-sm text-muted-foreground animate-pulse">Fetching purchase orders...</p>
@@ -1020,7 +1072,7 @@ export default function PurchaseOrdersPage() {
                 </TableRow>
               ) : paginatedPOs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-40">
+                  <TableCell colSpan={cols.visible.length + 2} className="h-40">
                     <div className="flex flex-col items-center justify-center gap-3 text-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/50 dark:bg-muted/20">
                         <ClipboardList className="h-6 w-6 text-muted-foreground/60" />
@@ -1046,28 +1098,47 @@ export default function PurchaseOrdersPage() {
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selectedIds.has(po.id)} onCheckedChange={() => toggleSelectOne(po.id)} />
                     </TableCell>
+                    {cols.isVisible('date') && (
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">{formatDate(po.date)}</span>
                     </TableCell>
+                    )}
+                    {cols.isVisible('supplier') && (
                     <TableCell className="max-w-45">
-                      <p className="truncate text-sm font-medium">{po.supplierName}</p>
+                      <p
+                        role="link"
+                        tabIndex={0}
+                        title="View supplier details"
+                        className="truncate text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${po.supplierId}`) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${po.supplierId}`) } }}
+                      >{po.supplierName}</p>
                     </TableCell>
+                    )}
+                    {cols.isVisible('po') && (
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <FileText className="h-3.5 w-3.5 text-muted-foreground/50" />
                         <span className="font-mono text-[11px] font-medium">{po.poNumber}</span>
                       </div>
                     </TableCell>
+                    )}
+                    {cols.isVisible('items') && (
                     <TableCell className="text-center">
                       <Badge variant="secondary" size="sm">{po.items.length}</Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold">
+                    )}
+                    {cols.isVisible('total') && (
+                    <TableCell className="text-right font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
                       {formatCurrency(po.totalAmount)}
                     </TableCell>
-                    <TableCell>{renderStatusBadge(po.status)}</TableCell>
+                    )}
+                    {cols.isVisible('status') && <TableCell>{renderStatusBadge(po.status)}</TableCell>}
+                    {cols.isVisible('expected') && (
                     <TableCell className="whitespace-nowrap">
                       <span className="text-[11px] text-muted-foreground">{formatDate(po.expectedDelivery)}</span>
                     </TableCell>
+                    )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => handleAction('view', po)}

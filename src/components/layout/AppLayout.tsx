@@ -44,6 +44,7 @@ const pageVariants = {
 }
 
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 
 export default function AppLayout({
@@ -56,6 +57,7 @@ export default function AppLayout({
   const isMobile = useIsMobile()
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
+  const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
 
   // Auto-logout on inactivity. Reads sessionTimeoutMinutes from generalSettings.
   useIdleTimeout()
@@ -65,8 +67,11 @@ export default function AppLayout({
     if (isAuthenticated) {
       fetchSettings()
       fetchGeneralSettings()
+      // Pull the user's saved table-column choices (server wins over the
+      // localStorage cache that already gave us a correct first paint).
+      loadColumnPrefs()
     }
-  }, [isAuthenticated, fetchSettings, fetchGeneralSettings])
+  }, [isAuthenticated, fetchSettings, fetchGeneralSettings, loadColumnPrefs])
 
   // Apply theme class to document
   useEffect(() => {

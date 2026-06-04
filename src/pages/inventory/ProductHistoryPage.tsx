@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import api from '@/lib/api'
 import { useRoute, navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
@@ -27,16 +28,45 @@ import { exportToCsv } from '@/lib/exportUtils'
 // ─── Types ────────────────────────────────────────────────────
 type ActiveTab = 'sales' | 'purchases' | 'timeline'
 
+type PartyKind = 'customer' | 'supplier'
+
 interface TimelineRow {
   type: 'SALE' | 'PURCHASE' | 'SALES_RETURN' | 'PURCHASE_RETURN'
   date: Date
   ref: string
   party: string
+  partyPhone?: string
+  partyId?: string
+  partyKind: PartyKind
   batch: string
   qty: number      // positive = stock IN, negative = stock OUT
   amount: number
   runningStock: number
   note?: string    // e.g. reason or settlement mode
+  docType: ProductDocType  // which document this row points at
+  docId?: string           // parent document id for click-through
+}
+
+// Maps a timeline movement type → the document kind it links to.
+const DOC_TYPE_OF: Record<TimelineRow['type'], ProductDocType> = {
+  SALE: 'invoice',
+  PURCHASE: 'grn',
+  SALES_RETURN: 'credit-note',
+  PURCHASE_RETURN: 'purchase-return',
+}
+
+// Distinct colour per movement type so all four read apart at a glance.
+const TYPE_THEME: Record<TimelineRow['type'], { badge: string; qty: string }> = {
+  SALE:            { badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',       qty: 'text-rose-600 dark:text-rose-300' },
+  PURCHASE:        { badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', qty: 'text-emerald-600 dark:text-emerald-300' },
+  SALES_RETURN:    { badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',     qty: 'text-amber-600 dark:text-amber-300' },
+  PURCHASE_RETURN: { badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',  qty: 'text-violet-600 dark:text-violet-300' },
+}
+
+// Navigate to the party's detail page (customer or supplier).
+function goToParty(kind: PartyKind, id?: string) {
+  if (!id) return
+  navigate(kind === 'supplier' ? `/purchase/suppliers/detail?supplierId=${id}` : `/customers/detail?customerId=${id}`)
 }
 
 // ─── Stock status badge ──────────────────────────────────────
@@ -112,6 +142,17 @@ export default function ProductHistoryPage() {
   const [timelinePage, setTimelinePage] = useState(1)
   const PAGE_SIZE = 50
 
+  // Document drawer: clicking any history row opens the underlying document
+  // (invoice / GRN / credit note / debit note) in-place for verification.
+  const [activeDoc, setActiveDoc] = useState<{ docType: ProductDocType; docId: string } | null>(null)
+  const openDoc = useCallback((docType?: ProductDocType, docId?: string) => {
+    if (!docType || !docId) {
+      toast.info('No linked document for this entry')
+      return
+    }
+    setActiveDoc({ docType, docId })
+  }, [])
+
   const loadHistory = useCallback(async (productId: string) => {
     if (!productId) return
     setLoading(true)
@@ -140,10 +181,11 @@ export default function ProductHistoryPage() {
   const salesRows = useMemo(() => {
     if (!history) return []
     return history.sales.map((s: any) => ({
-      date: new Date(s.date), ref: s.invoiceNumber, party: s.customerName,
+      date: new Date(s.date), ref: s.invoiceNumber, party: s.customerName, partyPhone: s.customerPhone,
       batch: s.batchNumber, qty: s.quantity, rate: s.rate, amount: s.amount,
       gst: s.gstPercent, discount: s.discountPercent, status: s.status,
-      isReturn: false,
+      isReturn: false, docType: 'invoice' as ProductDocType, docId: s.invoiceId,
+      partyKind: 'customer' as PartyKind, partyId: s.customerId,
     }))
   }, [history])
 
@@ -151,10 +193,11 @@ export default function ProductHistoryPage() {
   const salesReturnRows = useMemo(() => {
     if (!history) return []
     return (history.salesReturns ?? []).map((r: any) => ({
-      date: new Date(r.date), ref: r.creditNoteNo, party: r.customerName,
+      date: new Date(r.date), ref: r.creditNoteNo, party: r.customerName, partyPhone: r.customerPhone,
       batch: r.batchNumber, qty: r.returnedQty, rate: r.rate, amount: r.amount,
       gst: r.gstPercent, discount: 0, status: r.settlementMode,
-      reason: r.reason, isReturn: true,
+      reason: r.reason, isReturn: true, docType: 'credit-note' as ProductDocType, docId: r.creditNoteId,
+      partyKind: 'customer' as PartyKind, partyId: r.customerId,
     }))
   }, [history])
 
@@ -162,10 +205,11 @@ export default function ProductHistoryPage() {
   const purchaseRows = useMemo(() => {
     if (!history) return []
     return history.purchases.map((p: any) => ({
-      date: new Date(p.date), ref: p.grnNumber, party: p.supplierName,
+      date: new Date(p.date), ref: p.grnNumber, party: p.supplierName, partyPhone: p.supplierPhone,
       batch: p.batchNumber, qty: p.receivedQty, freeQty: p.freeQty,
       purchaseRate: p.purchaseRate, mrp: p.mrp, amount: p.amount, status: p.status,
-      isReturn: false,
+      isReturn: false, docType: 'grn' as ProductDocType, docId: p.grnId,
+      partyKind: 'supplier' as PartyKind, partyId: p.supplierId,
     }))
   }, [history])
 
@@ -179,10 +223,11 @@ export default function ProductHistoryPage() {
     return (history.purchaseReturns ?? [])
       .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
       .map((r: any) => ({
-        date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName,
+        date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName, partyPhone: r.supplierPhone,
         batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
         purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
-        reason: r.reason, isReturn: true,
+        reason: r.reason, isReturn: true, docType: 'purchase-return' as ProductDocType, docId: r.purchaseReturnId,
+        partyKind: 'supplier' as PartyKind, partyId: r.supplierId,
       }))
   }, [history])
 
@@ -192,19 +237,24 @@ export default function ProductHistoryPage() {
     const rows: Omit<TimelineRow, 'runningStock'>[] = [
       ...history.sales.map((s: any) => ({
         type: 'SALE' as const, date: new Date(s.date),
-        ref: s.invoiceNumber, party: s.customerName,
+        ref: s.invoiceNumber, party: s.customerName, partyPhone: s.customerPhone,
+        partyKind: 'customer' as PartyKind, partyId: s.customerId,
         batch: s.batchNumber, qty: s.quantity, amount: s.amount,
+        docType: 'invoice' as ProductDocType, docId: s.invoiceId,
       })),
       ...(history.salesReturns ?? []).map((r: any) => ({
         type: 'SALES_RETURN' as const, date: new Date(r.date),
-        ref: r.creditNoteNo, party: r.customerName,
+        ref: r.creditNoteNo, party: r.customerName, partyPhone: r.customerPhone,
+        partyKind: 'customer' as PartyKind, partyId: r.customerId,
         batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
-        note: r.reason,
+        note: r.reason, docType: 'credit-note' as ProductDocType, docId: r.creditNoteId,
       })),
       ...history.purchases.map((p: any) => ({
         type: 'PURCHASE' as const, date: new Date(p.date),
-        ref: p.grnNumber, party: p.supplierName,
+        ref: p.grnNumber, party: p.supplierName, partyPhone: p.supplierPhone,
+        partyKind: 'supplier' as PartyKind, partyId: p.supplierId,
         batch: p.batchNumber, qty: p.receivedQty, amount: p.amount,
+        docType: 'grn' as ProductDocType, docId: p.grnId,
       })),
       // Skip short-delivery DNs — they don't move stock, so including them
       // would corrupt the running-stock total walked below.
@@ -212,9 +262,10 @@ export default function ProductHistoryPage() {
         .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
         .map((r: any) => ({
           type: 'PURCHASE_RETURN' as const, date: new Date(r.date),
-          ref: r.debitNoteNo, party: r.supplierName,
+          ref: r.debitNoteNo, party: r.supplierName, partyPhone: r.supplierPhone,
+          partyKind: 'supplier' as PartyKind, partyId: r.supplierId,
           batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
-          note: r.reason,
+          note: r.reason, docType: 'purchase-return' as ProductDocType, docId: r.purchaseReturnId,
         })),
     ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
@@ -378,7 +429,7 @@ export default function ProductHistoryPage() {
             </Button>
             <Button
               size="sm"
-              className="gap-1.5 bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-600 dark:hover:bg-violet-500"
+              className="gap-1.5"
               onClick={() => navigate(`/purchase/orders?productId=${selectedProductId}`)}
             >
               <PackagePlus className="h-3.5 w-3.5" />
@@ -596,17 +647,32 @@ export default function ProductHistoryPage() {
                         {pagedSales.map((row: any, i) => {
                           const isReturn = row.isReturn
                           return (
-                            <TableRow key={`sale-${i}`} className={isReturn
-                              ? 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20'
-                              : 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/60 dark:hover:bg-rose-950/20'
-                            }>
+                            <TableRow
+                              key={`sale-${i}`}
+                              onClick={() => openDoc(row.docType, row.docId)}
+                              title="Click to view the document"
+                              className="cursor-pointer border-b border-border/30 hover:bg-muted/50">
                               <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                 {row.date.toLocaleDateString('en-IN')}
                               </TableCell>
-                              <TableCell className="text-xs">{row.party}</TableCell>
+                              <TableCell className="text-xs">
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : row.party}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs font-mono font-medium">
                                 <div className="flex items-center gap-1.5">
-                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.5 text-[9px] font-bold"><RotateCcw className="h-2.5 w-2.5" />RETURN</span>}
+                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-bold"><RotateCcw className="h-2.5 w-2.5" />RETURN</span>}
                                   {row.ref}
                                 </div>
                               </TableCell>
@@ -614,7 +680,7 @@ export default function ProductHistoryPage() {
                                 {row.batch ? (
                                   <button
                                     type="button"
-                                    onClick={() => { setBatchFilter(row.batch); setSalesPage(1) }}
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setSalesPage(1) }}
                                     className={cn(
                                       'underline-offset-2 hover:underline cursor-pointer transition-colors',
                                       batchFilter === row.batch
@@ -627,7 +693,7 @@ export default function ProductHistoryPage() {
                                   </button>
                                 ) : '—'}
                               </TableCell>
-                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300')}>
                                 {isReturn ? `+${row.qty}` : `−${row.qty}`}
                               </TableCell>
                               <TableCell className="text-right text-xs font-mono">{formatCurrency(row.rate)}</TableCell>
@@ -636,7 +702,7 @@ export default function ProductHistoryPage() {
                               <TableCell className="text-right text-xs font-mono text-muted-foreground">{isReturn ? '—' : `${row.discount}%`}</TableCell>
                               <TableCell>
                                 {isReturn
-                                  ? <span className="text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{row.status}</span>
+                                  ? <span className="text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{row.status}</span>
                                   : <span className={cn('text-[10px] font-semibold uppercase rounded-full px-2 py-0.5', row.status === 'PAID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-muted text-muted-foreground')}>{row.status}</span>
                                 }
                               </TableCell>
@@ -666,7 +732,7 @@ export default function ProductHistoryPage() {
                         <TableRow>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
                           <TableHead>Supplier</TableHead>
-                          <TableHead>PR #</TableHead>
+                          <TableHead>GRN #</TableHead>
                           <TableHead>Batch</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
                           <TableHead className="text-right">Free Qty</TableHead>
@@ -680,17 +746,32 @@ export default function ProductHistoryPage() {
                         {pagedPurchases.map((row: any, i) => {
                           const isReturn = row.isReturn
                           return (
-                            <TableRow key={`purchase-${i}`} className={isReturn
-                              ? 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/60 dark:hover:bg-rose-950/20'
-                              : 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20'
-                            }>
+                            <TableRow
+                              key={`purchase-${i}`}
+                              onClick={() => openDoc(row.docType, row.docId)}
+                              title="Click to view the document"
+                              className="cursor-pointer border-b border-border/30 hover:bg-muted/50">
                               <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                                 {row.date.toLocaleDateString('en-IN')}
                               </TableCell>
-                              <TableCell className="text-xs">{row.party}</TableCell>
+                              <TableCell className="text-xs">
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : row.party}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs font-mono font-medium">
                                 <div className="flex items-center gap-1.5">
-                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 px-1.5 py-0.5 text-[9px] font-bold"><PackageX className="h-2.5 w-2.5" />RETURN</span>}
+                                  {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[9px] font-bold"><PackageX className="h-2.5 w-2.5" />RETURN</span>}
                                   {row.ref}
                                 </div>
                               </TableCell>
@@ -698,7 +779,7 @@ export default function ProductHistoryPage() {
                                 {row.batch ? (
                                   <button
                                     type="button"
-                                    onClick={() => { setBatchFilter(row.batch); setPurchasesPage(1) }}
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setPurchasesPage(1) }}
                                     className={cn(
                                       'underline-offset-2 hover:underline cursor-pointer transition-colors',
                                       batchFilter === row.batch
@@ -711,7 +792,7 @@ export default function ProductHistoryPage() {
                                   </button>
                                 ) : '—'}
                               </TableCell>
-                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
+                              <TableCell className={cn('text-right text-xs font-mono font-semibold', isReturn ? 'text-violet-600 dark:text-violet-300' : 'text-emerald-600 dark:text-emerald-300')}>
                                 {isReturn ? `−${row.qty}` : `+${row.qty}`}
                               </TableCell>
                               <TableCell className="text-right text-xs font-mono text-muted-foreground">
@@ -724,7 +805,7 @@ export default function ProductHistoryPage() {
                                 <span className={cn(
                                   'text-[10px] font-semibold uppercase rounded-full px-2 py-0.5',
                                   isReturn
-                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                    ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
                                     : row.status === 'RECEIVED'
                                       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                                       : 'bg-muted text-muted-foreground'
@@ -750,48 +831,70 @@ export default function ProductHistoryPage() {
               {/* ── Timeline tab ─────────────────────────────── */}
               {activeTab === 'timeline' && (
                 <>
+                  <p className="px-4 pt-3 pb-1 text-[11px] text-muted-foreground">
+                    Tip: click any row to open its invoice, GRN or note for verification.
+                  </p>
                   <div className="overflow-auto max-h-130">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
                           <TableHead className="w-40 min-w-40">Type</TableHead>
                           <TableHead className="whitespace-nowrap">Date</TableHead>
-                          <TableHead>Invoice # / PR #</TableHead>
                           <TableHead>Party</TableHead>
                           <TableHead className="w-32">Batch</TableHead>
+                          <TableHead>Document #</TableHead>
                           <TableHead className="text-right">Qty</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
                           <TableHead className="text-right">Stock</TableHead>
+                          <TableHead className="w-8" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {pagedTimeline.map((row, i) => {
                           const TYPE_STYLE = {
-                            SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50',         badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
-                            PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
-                            SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-50/50', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
-                            PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-50/50',      badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                            SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/70 dark:hover:bg-rose-950/40',         accent: 'border-l-rose-400 dark:border-l-rose-500/60',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                            PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/40', accent: 'border-l-emerald-400 dark:border-l-emerald-500/60', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                            SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30', accent: 'border-l-emerald-300 dark:border-l-emerald-500/40', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                            PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-100/60 dark:hover:bg-rose-950/30',      accent: 'border-l-rose-300 dark:border-l-rose-500/40',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
                           }
                           const style = TYPE_STYLE[row.type]
                           const Icon = style.icon
                           return (
-                            <TableRow key={`tl-${i}`} className={style.rowBg}>
+                            <TableRow
+                              key={`tl-${i}`}
+                              className="group cursor-pointer border-b border-border/30 transition-colors hover:bg-muted/50"
+                              onClick={() => openDoc(row.docType, row.docId)}
+                              title="Click to view the document"
+                            >
                               <TableCell>
-                                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase whitespace-nowrap', style.badge)}>
+                                <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase whitespace-nowrap', TYPE_THEME[row.type].badge)}>
                                   <Icon className="h-3 w-3" />
                                   {style.label}
                                 </span>
                               </TableCell>
-                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                              <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                                 {row.date.toLocaleDateString('en-IN')}
                               </TableCell>
-                              <TableCell className="text-xs font-medium font-mono">{row.ref}</TableCell>
-                              <TableCell className="text-xs">{row.party}</TableCell>
-                              <TableCell className="text-xs font-mono text-muted-foreground">
+                              <TableCell className="text-sm">
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : row.party}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-[13px] font-mono text-muted-foreground">
                                 {row.batch ? (
                                   <button
                                     type="button"
-                                    onClick={() => { setBatchFilter(row.batch); setTimelinePage(1) }}
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setTimelinePage(1) }}
                                     className={cn(
                                       'underline-offset-2 hover:underline cursor-pointer transition-colors',
                                       batchFilter === row.batch
@@ -804,12 +907,29 @@ export default function ProductHistoryPage() {
                                   </button>
                                 ) : '—'}
                               </TableCell>
-                              <TableCell className={cn('text-right text-xs font-mono font-semibold', style.qtyColor)}>
+                              <TableCell className="text-sm font-medium font-mono group-hover:text-primary transition-colors">{row.ref}</TableCell>
+                              <TableCell className={cn(
+                                'text-right text-[15px] font-mono font-semibold',
+                                // Colour strictly by direction: incoming (+) green, outgoing (−) red.
+                                style.qtySign === '+'
+                                  ? 'text-emerald-600 dark:text-emerald-300'
+                                  : 'text-rose-600 dark:text-rose-300',
+                              )}>
                                 {style.qtySign}{row.qty}
                               </TableCell>
-                              <TableCell className="text-right text-xs font-mono">{formatCurrency(row.amount)}</TableCell>
-                              <TableCell className={cn('text-right text-xs font-mono font-semibold', row.runningStock <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-primary')}>
-                                {row.runningStock}
+                              <TableCell className="text-right text-sm font-mono">{formatCurrency(row.amount)}</TableCell>
+                              <TableCell className="text-right">
+                                <span className={cn(
+                                  'inline-block rounded-md px-2 py-0.5 text-sm font-mono font-semibold',
+                                  row.runningStock <= 0
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                    : 'bg-muted text-foreground',
+                                )}>
+                                  {row.runningStock}
+                                </span>
+                              </TableCell>
+                              <TableCell className="w-8 pr-3 text-right">
+                                <ChevronRight className="h-4 w-4 text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100" />
                               </TableCell>
                             </TableRow>
                           )
@@ -831,6 +951,15 @@ export default function ProductHistoryPage() {
           )}
         </Card>
       )}
+
+      {/* In-place document viewer — opened by clicking any history row. */}
+      <ProductDocumentDrawer
+        open={!!activeDoc}
+        docType={activeDoc?.docType ?? null}
+        docId={activeDoc?.docId ?? null}
+        highlightProductId={selectedProductId}
+        onOpenChange={(o) => { if (!o) setActiveDoc(null) }}
+      />
     </motion.div>
   )
 }
