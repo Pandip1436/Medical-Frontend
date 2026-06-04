@@ -876,8 +876,8 @@ export default function PurchaseOrdersPage() {
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New GRN</span>
-              <span className="sm:hidden">GRN</span>
+              <span className="hidden sm:inline">New PE</span>
+              <span className="sm:hidden">PE</span>
             </Button>
           </div>
         }
