@@ -126,6 +126,29 @@ export function formatDateTime(date: Date | string | undefined | null): string {
   return `${renderDate(d, fmt)}, ${time}`
 }
 
+// "This Week" everywhere in the app means the current Mon→Sun calendar week,
+// NOT a rolling last-7-days window. Returns the Monday of `date`'s week as a
+// YYYY-MM-DD string, matching how the period filters compare against the row's
+// own `date.slice(0, 10)`. Single source of truth so the week semantics can't
+// drift between the Sales / Quotation / Credit Note / PO / GRN / Debit Note /
+// Salesperson / Customer-Invoice list filters.
+export function weekStartISO(date: Date = new Date()): string {
+  const d = new Date(date)
+  const day = d.getDay()                  // 0=Sun, 1=Mon, … 6=Sat
+  const diffToMonday = day === 0 ? 6 : day - 1
+  d.setDate(d.getDate() - diffToMonday)
+  return d.toISOString().slice(0, 10)
+}
+
+// Days remaining from `date` until the end of its Mon→Sun calendar week (the
+// upcoming Sunday); 0 when `date` is itself a Sunday. Lets day-count callers —
+// e.g. the Reminders "This Week" tab, which counts days-until-due — share the
+// same week boundary as weekStartISO instead of a rolling +7 days.
+export function daysLeftInWeek(date: Date = new Date()): number {
+  const day = date.getDay()               // 0=Sun, 1=Mon, … 6=Sat
+  return day === 0 ? 0 : 7 - day
+}
+
 export function generateId(prefix: string = ''): string {
   const id = Math.random().toString(36).substring(2, 10)
   return prefix ? `${prefix}_${id}` : id

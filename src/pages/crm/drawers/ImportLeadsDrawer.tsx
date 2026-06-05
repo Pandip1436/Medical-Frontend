@@ -495,7 +495,7 @@ export function ImportLeadsDrawer({
     <Sheet open={open} onOpenChange={handleClose}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-160"
       >
         <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 pr-12">
           <SheetTitle className="flex items-center gap-2 text-base font-semibold">
@@ -687,7 +687,7 @@ function UploadBlock({
     // Compact file-loaded state — replaces the big drop zone so the rest of
     // the form (mapping + options) gets vertical room.
     return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/6 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15">
             <FileText className="h-4 w-4 text-emerald-600" />
@@ -728,7 +728,7 @@ function UploadBlock({
       onClick={() => inputRef.current?.click()}
       className={cn(
         'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed bg-muted/15 px-4 py-8 text-center transition-colors',
-        dragOver ? 'border-primary/60 bg-primary/[0.04]' : 'border-border',
+        dragOver ? 'border-primary/60 bg-primary/4' : 'border-border',
       )}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
@@ -815,7 +815,7 @@ function MappingTable({
                 <td className="px-3 py-2 align-top text-sm font-medium">
                   {h}
                 </td>
-                <td className="max-w-[180px] px-3 py-2 align-top text-xs">
+                <td className="max-w-45 px-3 py-2 align-top text-xs">
                   {samples.length === 0 ? (
                     <span className="italic text-muted-foreground">—</span>
                   ) : (
@@ -992,7 +992,7 @@ function ResultView({
     result.imported + result.updated + result.skipped + result.errors.length
   return (
     <div className="space-y-4">
-      <div className="flex flex-col items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-6 text-center">
+      <div className="flex flex-col items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/6 p-6 text-center">
         <CheckCircle2 className="h-10 w-10 text-emerald-600" />
         <p className="text-base font-semibold">Import finished</p>
         <p className="text-xs text-muted-foreground">

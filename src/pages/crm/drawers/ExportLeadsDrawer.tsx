@@ -251,7 +251,7 @@ export function ExportLeadsDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-160"
       >
         <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 pr-12">
           <SheetTitle className="flex items-center gap-2 text-base font-semibold">
@@ -359,7 +359,7 @@ export function ExportLeadsDrawer({
                               className={cn(
                                 'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors',
                                 checked
-                                  ? 'border-primary/40 bg-primary/[0.05] text-foreground'
+                                  ? 'border-primary/40 bg-primary/5 text-foreground'
                                   : 'border-border/60 text-muted-foreground hover:border-border hover:text-foreground',
                               )}
                             >
@@ -495,7 +495,7 @@ function ScopeCard({
         disabled
           ? 'cursor-not-allowed border-border/40 bg-muted/15 opacity-60'
           : active
-            ? 'border-primary bg-primary/[0.06]'
+            ? 'border-primary bg-primary/6'
             : 'border-border hover:border-border/80 hover:bg-muted/30',
       )}
     >
@@ -537,7 +537,7 @@ function FormatCard({
       className={cn(
         'flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors',
         active
-          ? 'border-primary bg-primary/[0.06]'
+          ? 'border-primary bg-primary/6'
           : 'border-border hover:border-border/80 hover:bg-muted/30',
       )}
     >

@@ -221,7 +221,7 @@ function RangeTabs({
 
 function EmptyState() {
   return (
-    <div className="flex h-[260px] flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+    <div className="flex h-65 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
       <p className="text-sm">No sales in this period.</p>
     </div>
   )

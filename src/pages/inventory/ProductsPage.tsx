@@ -61,22 +61,14 @@ import {
 import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
 import { UNIT_OF_MEASURE_OPTIONS } from '@/lib/unitOfMeasureOptions'
 
-// ─── Schedule badge ────────────────────────────────────────────
-const scheduleBadgeConfig: Record<string, { label: string; variant: 'destructive' | 'warning' } | null> = {
-  NONE: null,
-  H: { label: 'H', variant: 'destructive' },
-  H1: { label: 'H1', variant: 'destructive' },
-  X: { label: 'X', variant: 'warning' },
-}
-
 // ─── Main Page ─────────────────────────────────────────────────
 const PRODUCT_COLUMNS: ColumnDef[] = [
   { id: 'name', label: 'Name', required: true, defaultVisible: true },
   { id: 'generic', label: 'Generic', defaultVisible: true },
   { id: 'manufacturer', label: 'Manufacturer', defaultVisible: true },
   { id: 'category', label: 'Category', defaultVisible: true },
-  { id: 'schedule', label: 'Schedule', defaultVisible: true },
   { id: 'mrp', label: 'MRP', defaultVisible: true },
+  { id: 'purchaseRate', label: 'Purchase Rate', defaultVisible: true },
   { id: 'stock', label: 'Stock', defaultVisible: true },
   { id: 'minStock', label: 'Min Stock', defaultVisible: true },
   { id: 'rack', label: 'Rack', defaultVisible: true },
@@ -529,7 +521,7 @@ export default function ProductsPage() {
         onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }}
         columnsNode={<ColumnsToggle columns={PRODUCT_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -649,8 +641,6 @@ export default function ProductsPage() {
                 const isOutOfStock = (product.totalStock || 0) === 0
                 const isLowStock = !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
                 const cat = getProductCategory(product)
-                const scheduleKey = (String(product.schedule || '')).toUpperCase()
-                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'NONE' : scheduleKey]
                 return (
                   <div
                     key={product.id}
@@ -670,11 +660,11 @@ export default function ProductsPage() {
                         {cat && (
                           <Badge variant="secondary" size="sm">{cat.name}</Badge>
                         )}
-                        {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className="font-mono text-sm font-semibold">{formatCurrency(product.mrp)}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground">Buy {formatCurrency(product.purchaseRate)}</span>
                       <span className={cn(
                         'inline-flex items-center gap-1 font-mono text-xs font-semibold',
                         isOutOfStock && 'text-rose-600 dark:text-rose-400',
@@ -704,8 +694,8 @@ export default function ProductsPage() {
                 {cols.isVisible('generic') && <TableHead>Generic</TableHead>}
                 {cols.isVisible('manufacturer') && <TableHead>Manufacturer</TableHead>}
                 {cols.isVisible('category') && <TableHead>Category</TableHead>}
-                {cols.isVisible('schedule') && <TableHead>Schedule</TableHead>}
                 {cols.isVisible('mrp') && <TableHead className="text-right">MRP</TableHead>}
+                {cols.isVisible('purchaseRate') && <TableHead className="text-right">Purchase Rate</TableHead>}
                 {cols.isVisible('stock') && <TableHead className="text-right">Stock</TableHead>}
                 {cols.isVisible('minStock') && <TableHead className="text-right">Min Stock</TableHead>}
                 {cols.isVisible('rack') && <TableHead>Rack</TableHead>}
@@ -717,8 +707,6 @@ export default function ProductsPage() {
                 const isOutOfStock = (product.totalStock || 0) === 0
                 const isLowStock = !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
                 const cat = getProductCategory(product)
-                const scheduleKey = (String(product.schedule || '')).toUpperCase()
-                const sched = scheduleBadgeConfig[scheduleKey === 'NONE' ? 'NONE' : scheduleKey]
                 return (
                   <TableRow
                     key={product.id}
@@ -738,12 +726,8 @@ export default function ProductsPage() {
                       {cat && <Badge variant="secondary" size="sm">{cat.name}</Badge>}
                     </TableCell>
                     )}
-                    {cols.isVisible('schedule') && (
-                    <TableCell>
-                      {sched && <Badge variant={sched.variant} size="sm">{sched.label}</Badge>}
-                    </TableCell>
-                    )}
                     {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrency(product.mrp)}</TableCell>}
+                    {cols.isVisible('purchaseRate') && <TableCell className="text-right font-mono text-sm">{formatCurrency(product.purchaseRate)}</TableCell>}
                     {cols.isVisible('stock') && (
                     <TableCell className="text-right">
                       <span className={cn(

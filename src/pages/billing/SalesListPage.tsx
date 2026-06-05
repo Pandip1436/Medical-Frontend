@@ -65,7 +65,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
@@ -292,9 +292,7 @@ export default function SalesListPage() {
         result = result.filter((inv) => inv.date.slice(0, 10) === todayStr)
         break
       case 'week': {
-        const weekAgo = new Date(now)
-        weekAgo.setDate(weekAgo.getDate() - 7)
-        const weekStr = weekAgo.toISOString().slice(0, 10)
+        const weekStr = weekStartISO(now)
         result = result.filter((inv) => inv.date.slice(0, 10) >= weekStr)
         break
       }
@@ -531,7 +529,7 @@ export default function SalesListPage() {
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         columnsNode={<ColumnsToggle columns={SALES_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">

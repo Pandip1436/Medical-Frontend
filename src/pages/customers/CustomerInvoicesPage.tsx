@@ -24,7 +24,7 @@ import {
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
@@ -94,9 +94,7 @@ function periodToRange(period: string, fromDate: string, toDate: string): { from
     return { from: day, to: day }
   }
   if (period === 'week') {
-    const start = new Date(today)
-    start.setDate(today.getDate() - today.getDay())
-    return { from: toIso(start), to: toIso(today) }
+    return { from: weekStartISO(today), to: toIso(today) }
   }
   if (period === 'month') {
     const start = new Date(today.getFullYear(), today.getMonth(), 1)

@@ -24,7 +24,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import api from '@/lib/api'
@@ -138,8 +138,7 @@ export default function GRNListPage() {
         result = result.filter((g) => g.date.slice(0, 10) === todayStr)
         break
       case 'week': {
-        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
-        const weekStr = weekAgo.toISOString().slice(0, 10)
+        const weekStr = weekStartISO(now)
         result = result.filter((g) => g.date.slice(0, 10) >= weekStr)
         break
       }

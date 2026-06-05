@@ -87,7 +87,7 @@ export default function InvoiceDetailPage() {
                     <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(invoice.date)}</p>
                   </div>
                 </div>
-                <StatusBadge status={invoice.status} />
+                <StatusBadge status={invoice.status} className="px-3 py-1 text-sm" />
               </div>
             </CardHeader>
             <CardContent className="pt-4">

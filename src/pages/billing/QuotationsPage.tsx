@@ -58,7 +58,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
@@ -298,9 +298,7 @@ export default function QuotationsPage() {
         result = result.filter((qt) => qt.date.slice(0, 10) === todayStr)
         break
       case 'week': {
-        const weekAgo = new Date(now)
-        weekAgo.setDate(weekAgo.getDate() - 7)
-        const weekStr = weekAgo.toISOString().slice(0, 10)
+        const weekStr = weekStartISO(now)
         result = result.filter((qt) => qt.date.slice(0, 10) >= weekStr)
         break
       }
@@ -530,7 +528,7 @@ export default function QuotationsPage() {
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         columnsNode={<ColumnsToggle columns={QUOTATION_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               size="sm"
               onClick={() => navigate('/billing/new?type=quotation')}

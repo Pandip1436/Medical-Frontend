@@ -3,8 +3,8 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   Bell, Plus, Phone, CheckCircle2, XCircle, X, Clock, MessageSquare,
-  Trash2, User, AlertCircle, RefreshCw, Mail, Search, ChevronRight,
-  ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock, Pencil, ArrowLeft,
+  Trash2, User, AlertCircle, RefreshCw, Mail, MapPin, Search, ChevronRight,
+  ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock, Pencil, ArrowLeft, ArrowUpDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { cn, timeAgo } from '@/lib/utils'
+import { cn, timeAgo, daysLeftInWeek } from '@/lib/utils'
+import { goBack } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
@@ -49,7 +50,8 @@ interface Reminder {
   // Active one-off follow-up requested by the customer. Overrides the monthly
   // dayOfMonth schedule until the next contact is logged. null = monthly cycle.
   followUpDate?: string | null
-  customer: { id: string; name: string; phone: string; type: string; email?: string | null }
+  createdAt: string
+  customer: { id: string; name: string; phone: string; type: string; email?: string | null; address?: string | null }
   contacts: ContactLog[]
 }
 
@@ -165,28 +167,6 @@ function nextDueLabel(r: Reminder, today: Date = new Date()): string {
   return `Due ${due.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
 }
 
-// ─── Grouping by next due ─────────────────────────────────────
-function groupByNextDue(items: Reminder[]): { label: string; items: Reminder[] }[] {
-  const today = new Date()
-  const buckets: Record<string, Reminder[]> = {
-    'Overdue': [], 'Due today': [], 'This week': [], 'Later this month': [], 'Next month': [],
-  }
-  const currentMonth = today.getMonth()
-  const currentYear = today.getFullYear()
-  for (const r of items) {
-    const { date: due } = effectiveDue(r, today)
-    const days = daysUntil(due, today)
-    if (days < 0) buckets['Overdue'].push(r)              // only pending follow-ups can be in the past
-    else if (days === 0) buckets['Due today'].push(r)
-    else if (days <= 7) buckets['This week'].push(r)
-    else if (due.getMonth() === currentMonth && due.getFullYear() === currentYear) buckets['Later this month'].push(r)
-    else buckets['Next month'].push(r)
-  }
-  return Object.entries(buckets)
-    .filter(([, list]) => list.length > 0)
-    .map(([label, list]) => ({ label, items: list }))
-}
-
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
@@ -207,7 +187,21 @@ export default function RemindersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusKey>('today')
   const [typeFolder, setTypeFolder] = useState<TypeKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  // Sort by when the reminder was created: newest-first (default) or oldest-first.
+  // The next-due urgency grouping still drives the bucket order; this orders rows
+  // within each bucket.
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // True when the open detail panel was reached via a notification deep-link.
+  // In that case the panel's Back arrow steps back to the notification folder
+  // (one history entry) instead of just closing the panel in place.
+  const [fromDeepLink, setFromDeepLink] = useState(false)
+  // Select a reminder from the list — a manual, in-page selection, so Back
+  // should close the panel (not navigate away).
+  const selectReminder = useCallback((id: string | null) => {
+    setFromDeepLink(false)
+    setSelectedId(id)
+  }, [])
 
   // Add / Edit Reminder dialog state. editingId !== null → the dialog edits
   // that existing reminder (PATCH) instead of creating a new one (POST).
@@ -233,7 +227,6 @@ export default function RemindersPage() {
   useBranchRefresh(fetchReminders)
 
   // ── Counts ───────────────────────────────────────────────────
-  const todayDay = new Date().getDate()
   const today = useMemo(() => new Date(), [])
 
   // Sidebar type counts — respect the current status filter
@@ -248,19 +241,20 @@ export default function RemindersPage() {
     return counts
   }, [reminders, statusFilter, today])
 
-  // Toolbar status counts — respect the current type folder
+  // Toolbar status counts — respect the current type folder. Derived from the
+  // SAME applyStatusFilter the list uses, so a badge count can never disagree
+  // with the rows shown (e.g. "Today 1" while the list is empty). The previous
+  // inline predicates used raw dayOfMonth/nextDueDate and ignored an active
+  // follow-up reschedule, which is what caused the mismatch.
   const statusCounts = useMemo(() => {
     const base = typeFolder === 'all' ? reminders : reminders.filter(r => r.customer.type === typeFolder)
     return {
       all: base.length,
-      today: base.filter(r => r.dayOfMonth === todayDay).length,
-      'this-week': base.filter(r => {
-        const d = daysUntil(nextDueDate(r.dayOfMonth, today), today)
-        return d > 0 && d <= 7
-      }).length,
-      overdue: base.filter(r => isSkipped(r, today)).length,
+      today: applyStatusFilter(base, 'today', today).length,
+      'this-week': applyStatusFilter(base, 'this-week', today).length,
+      overdue: applyStatusFilter(base, 'overdue', today).length,
     } as Record<StatusKey, number>
-  }, [reminders, typeFolder, today, todayDay])
+  }, [reminders, typeFolder, today])
 
   const filtered = useMemo(() => {
     let rows = applyStatusFilter(reminders, statusFilter, today)
@@ -273,13 +267,12 @@ export default function RemindersPage() {
         || r.title.toLowerCase().includes(q),
       )
     }
-    // Sort by next-due ascending so the most urgent rows come first within each bucket
-    return [...rows].sort((a, b) =>
-      nextDueDate(a.dayOfMonth, today).getTime() - nextDueDate(b.dayOfMonth, today).getTime(),
-    )
-  }, [reminders, statusFilter, typeFolder, searchQuery, today])
-
-  const grouped = useMemo(() => groupByNextDue(filtered), [filtered])
+    // Order by creation date — newest first by default, oldest first when toggled.
+    return [...rows].sort((a, b) => {
+      const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      return sortBy === 'oldest' ? -diff : diff
+    })
+  }, [reminders, statusFilter, typeFolder, searchQuery, today, sortBy])
 
   // Selected reminder — pulled from the canonical list so it stays fresh after refetch
   const selectedReq = useMemo(
@@ -298,6 +291,7 @@ export default function RemindersPage() {
     setTypeFolder('all')
     setSearchQuery('')
     setSelectedId(deepLinkId)
+    setFromDeepLink(true)
     highlight(deepLinkId)
     clearDeepLink()
   }, [deepLinkId, reminders, highlight, clearDeepLink])
@@ -368,7 +362,9 @@ export default function RemindersPage() {
 
   // ── Toolbar count summary ────────────────────────────────────
   const totalCount = reminders.length
-  const dueTodayCount = useMemo(() => reminders.filter(r => r.dayOfMonth === todayDay).length, [reminders, todayDay])
+  // Match the "Today" status filter exactly (effective due date is today),
+  // so the header count agrees with what the Today filter actually lists.
+  const dueTodayCount = useMemo(() => applyStatusFilter(reminders, 'today', today).length, [reminders, today])
   const talkedThisMonthCount = useMemo(
     () => reminders.filter(r => isTalkedThisMonth(r, today)).length,
     [reminders, today],
@@ -430,6 +426,18 @@ export default function RemindersPage() {
                   </button>
                 ))}
               </div>
+              {/* Sort by when the reminder was created. One-click toggle
+                  (newest ⇄ oldest) — simpler than a two-option picker. */}
+              <button
+                type="button"
+                onClick={() => setSortBy(sortBy === 'newest' ? 'oldest' : 'newest')}
+                title="Click to switch newest / oldest"
+                aria-label={`Sort ${sortBy === 'newest' ? 'newest' : 'oldest'} first — click to switch`}
+                className="flex shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                {sortBy === 'newest' ? 'Newest' : 'Oldest'}
+              </button>
               <Button size="sm" className="h-7 gap-1 px-2 text-[11px]" onClick={() => setAddOpen(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add
               </Button>
@@ -546,23 +554,14 @@ export default function RemindersPage() {
                       )}
                     </div>
                   ) : (
-                    grouped.map(group => (
-                      <div key={group.label}>
-                        <div className="sticky top-0 z-10 bg-background/95 px-3 py-1 backdrop-blur-sm">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                            {group.label}
-                          </p>
-                        </div>
-                        {group.items.map(r => (
-                          <ReminderRow
-                            key={r.id}
-                            reminder={r}
-                            isSelected={selectedId === r.id}
-                            highlighted={highlightId === r.id}
-                            onSelect={setSelectedId}
-                          />
-                        ))}
-                      </div>
+                    filtered.map(r => (
+                      <ReminderRow
+                        key={r.id}
+                        reminder={r}
+                        isSelected={selectedId === r.id}
+                        highlighted={highlightId === r.id}
+                        onSelect={selectReminder}
+                      />
                     ))
                   )}
                 </div>
@@ -581,7 +580,7 @@ export default function RemindersPage() {
                   >
                     <ReminderDetailPanel
                       reminder={selectedReq}
-                      onClose={() => setSelectedId(null)}
+                      onClose={() => fromDeepLink ? goBack('/notifications') : setSelectedId(null)}
                       onEdit={() => openEdit(selectedReq)}
                       onDelete={() => handleDelete(selectedReq.id)}
                       onContactLogged={fetchReminders}
@@ -730,10 +729,10 @@ function applyStatusFilter(rows: Reminder[], status: StatusKey, today: Date): Re
     if (fu) return daysUntil(fu, today) < 0
     return isSkipped(r, today)
   })
-  // this-week: due in the next 7 days, excluding today
+  // this-week: due later this calendar week (Mon→Sun), excluding today
   return rows.filter(r => {
     const d = daysUntil(effectiveDue(r, today).date, today)
-    return d > 0 && d <= 7
+    return d > 0 && d <= daysLeftInWeek(today)
   })
 }
 
@@ -950,6 +949,11 @@ function ReminderDetailPanel({
             <a href={`mailto:${r.customer.email}`} className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary">
               <Mail className="h-3.5 w-3.5 text-muted-foreground/60" /> <span className="max-w-56 truncate">{r.customer.email}</span>
             </a>
+          )}
+          {r.customer.address && (
+            <span className="inline-flex max-w-64 items-start gap-1.5 text-right text-muted-foreground">
+              <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" /> <span className="truncate">{r.customer.address}</span>
+            </span>
           )}
         </div>
       </div>

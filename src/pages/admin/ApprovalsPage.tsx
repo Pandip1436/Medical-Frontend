@@ -3,7 +3,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import {
   CheckCircle2, XCircle, Clock, UserPlus, CreditCard,
   RotateCcw, Truck, RefreshCw, ListFilter, ChevronRight, Search,
-  AlertTriangle, ArrowLeft, Phone, SlidersHorizontal,
+  AlertTriangle, ArrowLeft, Phone, SlidersHorizontal, ArrowUpDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 import { Label } from '@/components/ui/label'
 import api from '@/lib/api'
-import { navigate } from '@/lib/router'
+import { navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, timeAgo, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -101,29 +101,6 @@ function searchHaystack(req: ApprovalRequest): string {
   ].filter(Boolean).map(String).join(' ').toLowerCase()
 }
 
-// ─── Date grouping (same buckets as Notifications) ────────────
-function groupByDate(items: ApprovalRequest[]): { label: string; items: ApprovalRequest[] }[] {
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000)
-  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000)
-  const buckets: Record<string, ApprovalRequest[]> = {
-    'Just now': [], 'Earlier today': [], 'Yesterday': [], 'This week': [], 'Older': [],
-  }
-  for (const r of items) {
-    const ts = new Date(r.requestedAt)
-    const diffMin = (now.getTime() - ts.getTime()) / 60_000
-    if (diffMin < 5) buckets['Just now'].push(r)
-    else if (ts >= todayStart) buckets['Earlier today'].push(r)
-    else if (ts >= yesterdayStart) buckets['Yesterday'].push(r)
-    else if (ts >= weekStart) buckets['This week'].push(r)
-    else buckets['Older'].push(r)
-  }
-  return Object.entries(buckets)
-    .filter(([, list]) => list.length > 0)
-    .map(([label, list]) => ({ label, items: list }))
-}
-
 const STALE_MS = 24 * 60 * 60 * 1000
 const isStale = (req: ApprovalRequest) =>
   req.status === 'PENDING' && Date.now() - new Date(req.requestedAt).getTime() > STALE_MS
@@ -147,8 +124,18 @@ export default function ApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusKey>('PENDING')
   const [typeFolder, setTypeFolder] = useState<TypeKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sortDir, setSortDir] = useState<'newest' | 'oldest'>('newest')
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // True when the open detail panel was reached via a notification deep-link, so
+  // the panel's Back arrow steps back to the notification folder (one history
+  // entry) instead of just closing the panel in place.
+  const [fromDeepLink, setFromDeepLink] = useState(false)
+  // Manual, in-page selection from the list — Back should close the panel.
+  const selectRequest = useCallback((id: string | null) => {
+    setFromDeepLink(false)
+    setSelectedId(id)
+  }, [])
   const [actionDialog, setActionDialog] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -201,12 +188,12 @@ export default function ApprovalsPage() {
       const q = searchQuery.toLowerCase()
       rows = rows.filter(r => searchHaystack(r).includes(q))
     }
-    return [...rows].sort((a, b) =>
+    // Newest-request-first by default; "oldest" reverses (within each date group).
+    const sorted = [...rows].sort((a, b) =>
       new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime(),
     )
-  }, [allRequests, statusFilter, typeFolder, searchQuery])
-
-  const grouped = useMemo(() => groupByDate(filtered), [filtered])
+    return sortDir === 'oldest' ? sorted.reverse() : sorted
+  }, [allRequests, statusFilter, typeFolder, searchQuery, sortDir])
 
   // Selected request — looked up from the canonical list so it stays fresh after refetch
   const selectedReq = useMemo(
@@ -227,6 +214,7 @@ export default function ApprovalsPage() {
     setTypeFolder('all')
     setSearchQuery('')
     setSelectedId(deepLinkRequestId)
+    setFromDeepLink(true)
     highlight(deepLinkRequestId)
     clearDeepLink()
   }, [deepLinkRequestId, allRequests, highlight, clearDeepLink])
@@ -399,6 +387,18 @@ export default function ApprovalsPage() {
                       className="h-8 border-border/60 pl-8 text-xs"
                     />
                   </div>
+                  {/* Sort by request date. One-click toggle (newest ⇄ oldest)
+                      — simpler than a two-option picker. */}
+                  <button
+                    type="button"
+                    onClick={() => setSortDir(sortDir === 'newest' ? 'oldest' : 'newest')}
+                    title="Click to switch newest / oldest"
+                    aria-label={`Sort ${sortDir === 'newest' ? 'newest' : 'oldest'} first — click to switch`}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  >
+                    <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    {sortDir === 'newest' ? 'Newest' : 'Oldest'}
+                  </button>
                   <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
                     {filtered.length} {listCaption}
                   </span>
@@ -425,26 +425,17 @@ export default function ApprovalsPage() {
                       </div>
                     </div>
                   ) : (
-                    grouped.map(group => (
-                      <div key={group.label}>
-                        <div className="sticky top-0 z-10 bg-background/95 px-3 py-1 backdrop-blur-sm">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                            {group.label}
-                          </p>
-                        </div>
-                        {group.items.map(req => (
-                          <ApprovalRow
-                            key={req.id}
-                            req={req}
-                            isAdmin={isAdmin}
-                            isSelected={selectedId === req.id}
-                            highlighted={highlightRequestId === req.id}
-                            onSelect={setSelectedId}
-                            onApprove={id => { setActionDialog({ id, action: 'approve' }); setReviewNote('') }}
-                            onReject={id => { setActionDialog({ id, action: 'reject' }); setReviewNote('') }}
-                          />
-                        ))}
-                      </div>
+                    filtered.map(req => (
+                      <ApprovalRow
+                        key={req.id}
+                        req={req}
+                        isAdmin={isAdmin}
+                        isSelected={selectedId === req.id}
+                        highlighted={highlightRequestId === req.id}
+                        onSelect={selectRequest}
+                        onApprove={id => { setActionDialog({ id, action: 'approve' }); setReviewNote('') }}
+                        onReject={id => { setActionDialog({ id, action: 'reject' }); setReviewNote('') }}
+                      />
                     ))
                   )}
                 </div>
@@ -464,7 +455,7 @@ export default function ApprovalsPage() {
                     <ApprovalDetailPanel
                       req={selectedReq}
                       isAdmin={isAdmin}
-                      onClose={() => setSelectedId(null)}
+                      onClose={() => fromDeepLink ? goBack('/notifications') : setSelectedId(null)}
                       onApprove={() => { setActionDialog({ id: selectedReq.id, action: 'approve' }); setReviewNote('') }}
                       onReject={() => { setActionDialog({ id: selectedReq.id, action: 'reject' }); setReviewNote('') }}
                     />

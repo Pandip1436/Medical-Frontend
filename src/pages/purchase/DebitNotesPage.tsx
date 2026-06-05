@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -190,8 +190,8 @@ export default function DebitNotesPage() {
         result = result.filter(r => r.date?.slice(0, 10) === todayStr)
         break
       case 'week': {
-        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
-        result = result.filter(r => r.date?.slice(0, 10) >= weekAgo.toISOString().slice(0, 10))
+        const weekStr = weekStartISO(now)
+        result = result.filter(r => r.date?.slice(0, 10) >= weekStr)
         break
       }
       case 'month': {

@@ -2101,6 +2101,16 @@ export default function NewSalePage() {
     return [createEmptyItem()]
   })
 
+  // Explicit user-driven customer selection starts a fresh bill: switching to
+  // (or creating) a customer clears the cart so the previous customer's items
+  // don't carry over. Restore flows (edit / repurchase / quotation / snapshot)
+  // set the customer + items together and must NOT clear — they call
+  // setSelectedCustomer directly instead of this helper.
+  const selectCustomerFresh = useCallback((c: Customer) => {
+    setSelectedCustomer(c)
+    setItems([createEmptyItem()])
+  }, [])
+
   // Clear prefill data after loaded, set customer name from quotation
   useEffect(() => {
     const qtStored = sessionStorage.getItem('quotation_prefill')
@@ -3565,7 +3575,7 @@ export default function NewSalePage() {
         currentOutstanding: 0,
         createdAt: new Date().toISOString(),
       }
-      setSelectedCustomer(stub)
+      selectCustomerFresh(stub)
       customerForm.reset()
       setDocFiles([])
       setDocPreviews([])
@@ -3592,7 +3602,7 @@ export default function NewSalePage() {
         }
       }
       await fetchMasterData()
-      if (newlyCreated) setSelectedCustomer(newlyCreated)
+      if (newlyCreated) selectCustomerFresh(newlyCreated)
       customerForm.reset()
       setDocFiles([])
       setDocPreviews([])
@@ -4179,7 +4189,7 @@ export default function NewSalePage() {
                             key={cust.id}
                             className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors"
                             onClick={() => {
-                              setSelectedCustomer(cust)
+                              selectCustomerFresh(cust)
                               setCustomerSearch('')
                               setShowCustomerDropdown(false)
                               setTableView('customer-history')
@@ -4202,7 +4212,7 @@ export default function NewSalePage() {
                                     title="Credit blocked — 3 pending invoices"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      setSelectedCustomer(cust)
+                                      selectCustomerFresh(cust)
                                       setShowCustomerDropdown(false)
                                       openCreditPayDialog()
                                     }}

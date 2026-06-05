@@ -41,7 +41,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv } from '@/lib/exportUtils'
@@ -221,8 +221,8 @@ export default function CreditNotesPage() {
         result = result.filter(cn => cn.date.slice(0, 10) === todayStr)
         break
       case 'week': {
-        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7)
-        result = result.filter(cn => cn.date.slice(0, 10) >= weekAgo.toISOString().slice(0, 10))
+        const weekStr = weekStartISO(now)
+        result = result.filter(cn => cn.date.slice(0, 10) >= weekStr)
         break
       }
       case 'month': {

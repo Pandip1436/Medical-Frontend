@@ -225,7 +225,7 @@ function TimelineRow({ activity, index }: { activity: ActivityItem; index: numbe
 
 function EmptyState() {
   return (
-    <div className="flex h-[300px] flex-col items-center justify-center gap-2 text-center">
+    <div className="flex h-75 flex-col items-center justify-center gap-2 text-center">
       <div className="rounded-full bg-blue-500/10 p-3">
         <Activity className="h-6 w-6 text-blue-600 dark:text-blue-400" />
       </div>

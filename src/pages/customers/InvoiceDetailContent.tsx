@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   Printer, Download, ShoppingCart, Wallet,
-  Stethoscope, CreditCard, CalendarDays, Pencil,
-  Send, QrCode, RefreshCw, History, Eye,
+  Stethoscope, CalendarDays, Pencil,
+  Send, QrCode, RefreshCw, History, Eye, Phone, MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -189,10 +189,18 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           <div className="min-w-0">
             <p className="truncate text-lg font-bold leading-tight">{invoice.customerName}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" size="sm" className="gap-1 font-medium border-primary/30 bg-primary/5 text-foreground">
-                <CreditCard className="h-3.5 w-3.5 text-primary" />
-                <span>Paid via <span className="font-semibold">{invoice.paymentMode}</span></span>
-              </Badge>
+              {invoice.customerPhone && (
+                <Badge variant="secondary" size="sm" className="gap-1 font-medium tabular-nums">
+                  <Phone className="h-3 w-3" />
+                  <span>{invoice.customerPhone}</span>
+                </Badge>
+              )}
+              {invoice.customerAddress && (
+                <Badge variant="secondary" size="sm" className="max-w-64 gap-1 font-normal">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{invoice.customerAddress}</span>
+                </Badge>
+              )}
               <Badge variant="secondary" size="sm" className="gap-1 font-normal">
                 <CalendarDays className="h-3 w-3" />
                 <span className="capitalize">{invoice.billingType.toLowerCase()}</span>

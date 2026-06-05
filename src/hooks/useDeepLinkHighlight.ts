@@ -21,7 +21,11 @@ export function useDeepLinkParam(paramKey: string, cleanPath: string) {
   )
 
   const clearParam = useCallback(() => {
-    window.history.replaceState(null, '', cleanPath)
+    // Preserve the existing history state (the router stores an { idx } there).
+    // Passing null would wipe it, which breaks goBack()'s "is there history?"
+    // check — it would then fall back to a fresh navigate() instead of stepping
+    // back to the originating page (e.g. the exact notification folder).
+    window.history.replaceState(window.history.state, '', cleanPath)
   }, [cleanPath])
 
   return { targetId, clearParam }

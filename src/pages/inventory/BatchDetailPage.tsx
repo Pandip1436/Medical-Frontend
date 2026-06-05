@@ -25,7 +25,7 @@ export default function BatchDetailPage() {
       </Button>
 
       <Card>
-        <BatchDetailView batchId={id} onAfterAction={goBack} />
+        <BatchDetailView batchId={id} onAfterAction={goBack} layout="page" />
       </Card>
     </motion.div>
   )

@@ -241,7 +241,7 @@ export function AddLeadDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[480px]"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-120"
       >
         <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-3.5">
           <SheetTitle className="text-base font-semibold">Add Lead</SheetTitle>

@@ -53,7 +53,7 @@ import { SalespersonFormDialog } from '@/components/shared/SalespersonFormDialog
 
 import { navigate, goBack, useRoute } from '@/lib/router'
 import api from '@/lib/api'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { getInitials, getAvatarColor, formatLastLogin } from '@/lib/salespersonUtils'
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminish } from '@/types'
@@ -95,10 +95,8 @@ function rangeFor(period: Period, dateFrom: string, dateTo: string): { from: str
   switch (period) {
     case 'today':
       return { from: todayStr, to: todayStr }
-    case 'week': {
-      const d = new Date(now); d.setDate(d.getDate() - 7)
-      return { from: d.toISOString().slice(0, 10), to: todayStr }
-    }
+    case 'week':
+      return { from: weekStartISO(now), to: todayStr }
     case 'month':
       return { from: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`, to: todayStr }
     case 'quarter': {

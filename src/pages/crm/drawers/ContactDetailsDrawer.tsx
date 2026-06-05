@@ -237,7 +237,7 @@ export function ContactDetailsDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full p-0 sm:max-w-[440px]"
+        className="w-full p-0 sm:max-w-110"
       >
         {/* pr-12 reserves space for the Sheet primitive's built-in
             absolute-positioned close X at right-4 top-4 — otherwise Edit/

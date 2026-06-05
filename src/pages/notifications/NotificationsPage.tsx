@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect, useCallback, Fragment, createContext, useContext } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment, createContext, useContext } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
   CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff,
-  Inbox, CalendarClock, ChevronDown, ChevronRight,
+  Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import { useNotificationStore } from '@/stores/notificationStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import type { Notification } from '@/types'
 import { isSuperAdmin } from '@/types'
 
@@ -40,6 +41,15 @@ const CATEGORIES: {
 ]
 
 const CATEGORY_KEYS: CategoryKey[] = CATEGORIES.map((c) => c.key)
+
+// Sort options for every folder. Server applies the ordering (folders are
+// server-paginated, so sorting only the loaded page would be wrong). Unread-first
+// is intentionally omitted — the toolbar's Unread/All toggle already covers that.
+type SortKey = 'newest' | 'oldest'
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'newest', label: 'Newest first' },
+  { key: 'oldest', label: 'Oldest first' },
+]
 
 // The active folder is mirrored in the URL (?folder=PAYMENT_DUE) so that
 // deep-linking out to an invoice and pressing Back returns to the same folder
@@ -109,13 +119,14 @@ const URL_REWRITES: Record<string, string> = {
   // bare expiry-list path is rewritten to the detail route too (the batchId
   // comes from the message marker); no-id links fall back to the list below.
   '/inventory/expiry':           '/inventory/batches/detail',
-  // Reminder / Approval alerts keep their dedicated full-page detail (same
-  // rationale as expiry): a clean, consistent detail view whose Back button
-  // returns to the exact notification folder in one step — instead of the
-  // cramped split-panel list. The bare list paths are upgraded to the detail
-  // route too (the id comes from the message marker / query).
-  '/reminders':                  '/reminders/detail',
-  '/admin/approvals':            '/admin/approvals/detail',
+  // Reminder / Approval alerts open the ACTUAL list pages with their inline
+  // detail panel (deep-linked via ?reminderId / ?requestId, handled by each
+  // page's useDeepLinkParam hook). The panel's Back arrow returns to the exact
+  // notification folder in one step. Legacy actionUrls that still point at the
+  // old standalone /detail routes are mapped back onto the list pages here, so
+  // the bare list paths fall through to themselves.
+  '/reminders/detail':           '/reminders',
+  '/admin/approvals/detail':     '/admin/approvals',
   // Credit-note review alerts → the standalone CN detail page directly, so
   // Back returns to the notification folder in one step. Going via the list
   // (`/billing/credit-notes?id=`) would push an extra history entry that the
@@ -133,11 +144,12 @@ const MARKER_FOR_PATH: Record<string, { marker: string; param: string }> = {
   '/inventory/product-history':  { marker: 'productId',  param: 'productId' },
   '/inventory/batches/detail':   { marker: 'batchId',    param: 'id' },
   '/billing/sales':              { marker: 'invoiceId',  param: 'invoiceId' },
-  // Reminder / Approval detail pages both read a canonical `?id=`. The marker
-  // lets pre-actionUrl notifications (id embedded only in the message) resolve
-  // too; the legacy bare list paths upgrade to these via URL_REWRITES above.
-  '/reminders/detail':           { marker: 'reminderId', param: 'id' },
-  '/admin/approvals/detail':     { marker: 'requestId',  param: 'id' },
+  // Reminder / Approval list pages deep-link via ?reminderId / ?requestId
+  // (their useDeepLinkParam hooks open the inline detail panel). The marker
+  // also lets pre-actionUrl notifications (id embedded only in the message)
+  // resolve. Keyed on the post-rewrite list path (see URL_REWRITES above).
+  '/reminders':                  { marker: 'reminderId', param: 'reminderId' },
+  '/admin/approvals':            { marker: 'requestId',  param: 'requestId' },
   '/billing/credit-notes/detail':{ marker: 'creditNoteId', param: 'id' },
 }
 function extractMarker(message: string, marker: string): string | null {
@@ -211,8 +223,9 @@ function withPhone(name: string, phone: string | null): string {
 function formatDetail(n: Notification, resolvePhone: PhoneResolver): Detail {
   const message = cleanMessage(n.message)
   if (isReminder(n)) {
-    // "<title> — Follow up with <name> (<phone>?) today."
-    const m = message.match(/Follow up with\s+(.+?)\s+today/i)
+    // Matches both the monthly nudge ("<title> — Follow up with <name> today.")
+    // and the one-off follow-up ("<title> — Follow-up with <name> is due today.").
+    const m = message.match(/Follow[-\s]up with\s+(.+?)\s+(?:is\s+due\s+)?today/i)
     if (m) {
       const [name, inlinePhone] = splitInlinePhone(m[1])
       return { lead: withPhone(name, inlinePhone ?? resolvePhone(n, name)), rest: 'Follow up today' }
@@ -333,8 +346,9 @@ const DEFAULT_COLUMNS: ColumnDef[] = [{ key: 'detail', label: 'Detail' }]
 function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<string, string> {
   const message = cleanMessage(n.message)
   if (isReminder(n)) {
-    // "<title> — Follow up with <name> (<phone>?) today."
-    const m = message.match(/Follow up with\s+(.+?)\s+today/i)
+    // Matches both the monthly nudge ("<title> — Follow up with <name> today.")
+    // and the one-off follow-up ("<title> — Follow-up with <name> is due today.").
+    const m = message.match(/Follow[-\s]up with\s+(.+?)\s+(?:is\s+due\s+)?today/i)
     if (m) {
       const [name, inlinePhone] = splitInlinePhone(m[1])
       const title = message.split('—')[0]?.trim()
@@ -442,29 +456,6 @@ function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<s
 
 function getClusterColumns(key: ClusterKey): ColumnDef[] {
   return CLUSTER_COLUMNS[key] ?? DEFAULT_COLUMNS
-}
-
-// ─── Date grouping ──────────────────────────────────────────
-function groupByDate(notifications: Notification[]): { label: string; items: Notification[] }[] {
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000)
-  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000)
-  const buckets: Record<string, Notification[]> = {
-    'Just now': [], 'Earlier today': [], 'Yesterday': [], 'This week': [], 'Older': [],
-  }
-  for (const n of notifications) {
-    const ts = new Date(n.timestamp)
-    const diffMin = (now.getTime() - ts.getTime()) / 60_000
-    if (diffMin < 5) buckets['Just now'].push(n)
-    else if (ts >= todayStart) buckets['Earlier today'].push(n)
-    else if (ts >= yesterdayStart) buckets['Yesterday'].push(n)
-    else if (ts >= weekStart) buckets['This week'].push(n)
-    else buckets['Older'].push(n)
-  }
-  return Object.entries(buckets)
-    .filter(([, items]) => items.length > 0)
-    .map(([label, items]) => ({ label, items }))
 }
 
 // ─── Smart grouping ──────────────────────────────────────────
@@ -594,11 +585,15 @@ export default function NotificationsPage() {
   }, [])
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all')
+  // View preferences persist (sessionStorage) so they survive navigating to a
+  // detail page and back, instead of snapping back to the defaults each time.
+  const [readFilter, setReadFilter] = usePersistedState<'all' | 'unread' | 'read'>('notifications:readFilter', 'all')
+  // Row ordering, applied to every folder via the server query.
+  const [sortBy, setSortBy] = usePersistedState<SortKey>('notifications:sort', 'newest')
   // Folder view defaults to unread-only so the table size matches the sidebar
-  // badge (which counts unread per type). "All" flips this so already-read
-  // alerts are visible too.
-  const [folderShowAll, setFolderShowAll] = useState(false)
+  // badge (which counts unread per type). "All" includes already-read alerts;
+  // "Resolved" shows only the ones closed out (e.g. a Payment Due that got paid).
+  const [folderView, setFolderView] = usePersistedState<'unread' | 'all' | 'resolved'>('notifications:folderView', 'unread')
   // Expanded cluster bundles in the All view. Each key is `${dateBucket}-${type}`
   // (see AllTable). Collapsed by default so a long mixed-type day reads as a
   // tight summary instead of a wall of rows.
@@ -610,20 +605,23 @@ export default function NotificationsPage() {
   // One hook drives both views. Params change with activeCategory:
   //   • All view: optional unread/read filter from the readFilter pill.
   //   • Folder views: narrow by NotificationType (or reminders=only for the
-  //     REMINDER/Follow-ups folder) + folderShowAll toggle.
+  //     REMINDER/Follow-ups folder) + folderView toggle.
   // Mirrors the customer-dropdown pattern in NewSalePage: pageSize 50, fetch
   // more on near-bottom scroll, returns { data, total, hasMore }.
   const paginatedExtraParams = useMemo<Record<string, string | undefined>>(() => {
+    const sort = sortBy === 'newest' ? undefined : sortBy
     if (activeCategory === 'all') {
       return {
         unread: readFilter === 'unread' ? 'true' : undefined,
         read:   readFilter === 'read'   ? 'true' : undefined,
+        sort,
       }
     }
-    const folderUnread = folderShowAll ? undefined : 'true'
-    if (activeCategory === 'REMINDER') return { reminders: 'only', unread: folderUnread }
-    return { type: activeCategory, unread: folderUnread }
-  }, [activeCategory, readFilter, folderShowAll])
+    const folderUnread = folderView === 'unread' ? 'true' : undefined
+    const folderResolved = folderView === 'resolved' ? 'only' : undefined
+    if (activeCategory === 'REMINDER') return { reminders: 'only', unread: folderUnread, resolved: folderResolved, sort }
+    return { type: activeCategory, unread: folderUnread, resolved: folderResolved, sort }
+  }, [activeCategory, readFilter, folderView, sortBy])
 
   const paginated = usePaginatedSearch<any>({
     endpoint: '/notifications',
@@ -649,11 +647,14 @@ export default function NotificationsPage() {
     paginatedSetQuery(searchQuery)
   }, [searchQuery, paginatedSetQuery])
 
-  // Reset "Show all", search, and expanded clusters when switching folders so
-  // each view starts from a clean state. Without this, leftover search text,
-  // the All toggle, or expanded-cluster state from the last view bleeds in.
+  // Clear search + expanded clusters when switching folders so each view starts
+  // clean. We deliberately DON'T reset folderView (Unread/All/Resolved) here:
+  // it's a persisted preference (usePersistedState) and must survive folder
+  // switches AND navigate-away-and-back. Resetting it was discarding the user's
+  // choice — e.g. returning to Follow-ups always snapped back to Unread.
+  const didMountFolderReset = useRef(false)
   useEffect(() => {
-    setFolderShowAll(false)
+    if (!didMountFolderReset.current) { didMountFolderReset.current = true; return }
     setSearchQuery('')
     setExpandedClusters(new Set())
   }, [activeCategory])
@@ -853,22 +854,42 @@ export default function NotificationsPage() {
                     className="h-8 border-border/60 pl-8 text-xs"
                   />
                 </div>
-                {/* Folder view: 2-state toggle controls whether read items
-                    are included in the server query. Default unread-only so
-                    the table size matches the sidebar badge. */}
+                {/* Sort — available in every folder. The server applies the
+                    ordering so it covers the whole list, not just the loaded
+                    page. */}
+                {/* One-click sort toggle (newest ⇄ oldest) — simpler than a
+                    dropdown for a two-option choice. Applies across all folders. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1.5 px-2 text-[11px] font-medium text-muted-foreground"
+                  aria-label={`Sort: ${SORT_OPTIONS.find((o) => o.key === sortBy)?.label}. Click to switch.`}
+                  title="Click to switch newest / oldest"
+                  onClick={() => setSortBy(sortBy === 'newest' ? 'oldest' : 'newest')}
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">
+                    {SORT_OPTIONS.find((o) => o.key === sortBy)?.label}
+                  </span>
+                </Button>
+                {/* Folder view: 3-state toggle controls the server query.
+                    Unread (default, matches the sidebar badge) · All (adds
+                    read rows) · Resolved (only closed-out alerts, e.g. a
+                    Payment Due that's since been paid). */}
                 {activeCategory !== 'all' && (
                   <div className="flex shrink-0 items-center rounded-md border border-border/60 bg-background p-0.5">
-                    {[
-                      { key: false, label: 'Unread' },
-                      { key: true,  label: 'All' },
-                    ].map((opt) => (
+                    {([
+                      { key: 'unread',   label: 'Unread' },
+                      { key: 'all',      label: 'All' },
+                      { key: 'resolved', label: 'Resolved' },
+                    ] as const).map((opt) => (
                       <button
-                        key={String(opt.key)}
+                        key={opt.key}
                         type="button"
-                        onClick={() => setFolderShowAll(opt.key)}
+                        onClick={() => setFolderView(opt.key)}
                         className={cn(
                           'rounded px-2 py-1 text-[11px] font-medium transition-colors',
-                          folderShowAll === opt.key
+                          folderView === opt.key
                             ? 'bg-primary text-primary-foreground'
                             : 'text-muted-foreground hover:text-foreground',
                         )}
@@ -880,7 +901,7 @@ export default function NotificationsPage() {
                 )}
                 <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground/70">
                   {paginatedItems.length} of {paginated.total}
-                  {activeCategory !== 'all' && !folderShowAll && ' unread'}
+                  {activeCategory !== 'all' && folderView !== 'all' && ` ${folderView}`}
                   {activeCategory === 'all' && readFilter !== 'all' && ` ${readFilter}`}
                 </span>
               </div>
@@ -917,9 +938,11 @@ export default function NotificationsPage() {
                           ? `No matches in ${activeCategoryLabel}`
                           : activeCategory === 'all' && readFilter !== 'all'
                             ? `No ${readFilter} alerts`
-                            : activeCategory !== 'all' && !folderShowAll
-                              ? 'Nothing unread — switch to All to see resolved/read alerts'
-                              : 'Nothing in this folder'}
+                            : activeCategory !== 'all' && folderView === 'unread'
+                              ? 'Nothing unread — switch to All or Resolved to see closed-out alerts'
+                              : activeCategory !== 'all' && folderView === 'resolved'
+                                ? 'No resolved alerts in this folder yet'
+                                : 'Nothing in this folder'}
                       </p>
                     </div>
                   </div>
@@ -1237,12 +1260,6 @@ function ClusterTable({
   onDelete: (id: string) => void
 }) {
   const columns = getClusterColumns(clusterKey)
-  // Total cell count for the colSpan on date-separator rows
-  // (indicator + N data cols + when + actions).
-  const totalCols = 1 + columns.length + 2
-  // groupByDate keeps the source order (createdAt desc) and only emits
-  // buckets with items, so we never render an empty "This week" separator.
-  const groups = groupByDate(items)
   return (
     <div className="overflow-x-auto">
       {/* table-auto (no table-fixed): columns size to content so short
@@ -1268,30 +1285,21 @@ function ClusterTable({
             <th className="w-20 px-3 py-2" aria-hidden></th>
           </tr>
         </thead>
-        {groups.map((group) => (
-          <tbody key={group.label} className="divide-y divide-border/30">
-            <tr>
-              <th
-                colSpan={totalCols}
-                scope="colgroup"
-                className="border-y border-border/30 bg-muted/30 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70"
-              >
-                {group.label}
-              </th>
-            </tr>
-            {group.items.map((n) => (
-              <ClusterRow
-                key={n.id}
-                notification={n}
-                columns={columns}
-                onOpen={onOpen}
-                onSnooze={onSnooze}
-                onResolve={onResolve}
-                onDelete={onDelete}
-              />
-            ))}
-          </tbody>
-        ))}
+        {/* Flat list — one global order so the sort toggle (newest/oldest)
+            applies across the whole folder, not within date buckets. */}
+        <tbody className="divide-y divide-border/30">
+          {items.map((n) => (
+            <ClusterRow
+              key={n.id}
+              notification={n}
+              columns={columns}
+              onOpen={onOpen}
+              onSnooze={onSnooze}
+              onResolve={onResolve}
+              onDelete={onDelete}
+            />
+          ))}
+        </tbody>
       </table>
     </div>
   )
@@ -1516,7 +1524,6 @@ function AllTable({
   onResolve: (id: string) => void
   onDelete: (id: string) => void
 }) {
-  const groups = groupByDate(items)
   // 5 cells: indicator + type + detail + when + actions.
   const totalCols = 5
   // Per-cluster row cap. Default to CLUSTER_PAGE_SIZE on first expand; a
@@ -1543,26 +1550,17 @@ function AllTable({
             <th className="w-20 px-3 py-2" aria-hidden></th>
           </tr>
         </thead>
-        {groups.map((group) => {
-          const entries = clusterSameType(group.items)
-          return (
-            <tbody key={group.label} className="divide-y divide-border/30">
-              <tr>
-                <th
-                  colSpan={totalCols}
-                  scope="colgroup"
-                  className="border-y border-border/30 bg-muted/30 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70"
-                >
-                  {group.label}
-                </th>
-              </tr>
-              {entries.map((entry) => {
+        {/* Flat list — clustering still bundles 5+ same-type alerts, but
+            there are no date-bucket separators, so the sort toggle applies
+            across the whole list instead of within each day. */}
+        <tbody className="divide-y divide-border/30">
+          {clusterSameType(items).map((entry) => {
                 if (entry.kind === 'cluster') {
                   // Stable cluster id: bucket + type. We DON'T include the
                   // entryIdx here so that as the page loads more items (and
                   // the entry's position within entries could shift), the
                   // expanded state survives.
-                  const clusterId = `${group.label}-${entry.key}`
+                  const clusterId = entry.key
                   const isExpanded = expandedClusters.has(clusterId)
                   const cap = clusterCaps[clusterId] ?? CLUSTER_PAGE_SIZE
                   const visibleItems = entry.items.slice(0, cap)
@@ -1618,9 +1616,7 @@ function AllTable({
                   />
                 )
               })}
-            </tbody>
-          )
-        })}
+        </tbody>
       </table>
     </div>
   )
