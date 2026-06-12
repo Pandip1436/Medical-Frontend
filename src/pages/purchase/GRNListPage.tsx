@@ -470,7 +470,13 @@ export default function GRNListPage() {
                         {cols.isVisible('payment') && (
                         <TableCell className="text-center pr-5">
                           {grn.isReplacement ? (
-                            <span className="text-muted-foreground/40 text-xs">—</span>
+                            <Badge
+                              variant="outline"
+                              size="sm"
+                              className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400"
+                            >
+                              Replacement
+                            </Badge>
                           ) : (
                             (() => {
                               const bal = grnBalance(grn)

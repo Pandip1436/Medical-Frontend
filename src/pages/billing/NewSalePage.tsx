@@ -36,6 +36,7 @@ import {
   CalendarClock,
   Pencil,
   MapPin,
+  Truck,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
@@ -2250,6 +2251,9 @@ export default function NewSalePage() {
   // Editable Delivery / Packaging fee. Non-taxable add-on folded into the
   // pre-rounding total so Net Payable rounds to a whole rupee.
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0)
+  // When on, the saved invoice is pushed into the Delivery Tracking module and
+  // the user is taken straight to its tracking page after save.
+  const [enableCourier, setEnableCourier] = useState(false)
 
   // ── Auto-draft restore (run once on mount, after state is initialized) ──
   // Skip restoration if the page is opened for an explicit prefill (draftId,
@@ -3262,6 +3266,19 @@ export default function NewSalePage() {
       return
     }
 
+    // Cash/UPI invoices must record how much was actually received — it's
+    // mandatory so the paid amount and any change returned are never left blank.
+    // (Credit sales are pay-later, so amount received legitimately stays 0.)
+    if (
+      invoiceType !== 'quotation' &&
+      (effectivePaymentMode === 'CASH' || effectivePaymentMode === 'UPI') &&
+      !(Number(paymentDetails.amountReceived) > 0)
+    ) {
+      toast.error('Enter the amount received')
+      setPaymentMode(effectivePaymentMode as PaymentMode)
+      return
+    }
+
     // Validate qty against batch stock — skipped for quotations because the
     // product may not be in inventory yet (the whole point of quoting first).
     if (invoiceType !== 'quotation') {
@@ -3287,6 +3304,23 @@ export default function NewSalePage() {
 
     setIsSubmitting(true)
     try {
+      const grandTotalNum = Number(totals.grandTotal) || 0
+      const computedAmountPaid = invoiceType === 'quotation' ? 0
+        : effectivePaymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
+          : effectivePaymentMode === 'CREDIT' ? 0
+            : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
+              : (Number(paymentDetails.amountReceived) || grandTotalNum)
+      const computedChange = invoiceType === 'quotation' ? 0
+        : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - grandTotalNum) : 0)
+      // Status from the money actually applied to the bill (paid minus any cash
+      // change handed back), not the payment mode — so a partial cash/UPI
+      // collection is PARTIAL, not PAID. The backend re-derives this too.
+      const netApplied = computedAmountPaid - computedChange
+      const computedStatus = invoiceType === 'quotation' ? 'DRAFT'
+        : effectivePaymentMode === 'CREDIT' ? 'UNPAID'
+          : netApplied + 0.01 >= grandTotalNum ? 'PAID'
+            : netApplied > 0 ? 'PARTIAL'
+              : 'UNPAID'
       const payload: Record<string, unknown> = {
         type: invoiceType.toUpperCase(),
         billingType: billingType.toUpperCase(),
@@ -3303,13 +3337,9 @@ export default function NewSalePage() {
         deliveryCharge: Number(totals.deliveryCharge) || 0,
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
-        amountPaid: invoiceType === 'quotation' ? 0
-          : effectivePaymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
-            : effectivePaymentMode === 'CREDIT' ? 0
-              : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
-                : (Number(paymentDetails.amountReceived) || Number(totals.grandTotal) || 0),
-        changeReturned: invoiceType === 'quotation' ? 0 : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0),
-        status: invoiceType === 'quotation' ? 'DRAFT' : effectivePaymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
+        amountPaid: computedAmountPaid,
+        changeReturned: computedChange,
+        status: computedStatus,
 
         // Credit-sale payment due date (yyyy-MM-dd from the DatePicker). Only
         // sent for CREDIT sales; the backend stores it on Invoice.dueDate.
@@ -3442,6 +3472,19 @@ export default function NewSalePage() {
         )
         localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
+
+        // Courier toggle — push the saved invoice into the Delivery Tracking
+        // module. Best-effort: the record is created in the background but we
+        // stay on the billing flow and return to the Sales list rather than
+        // jumping to the tracking page.
+        if (enableCourier && savedInvoice?.id) {
+          try {
+            await api.post('/delivery', { invoiceId: savedInvoice.id })
+            toast.success('Added to Delivery Tracking')
+          } catch {
+            toast.error('Invoice saved, but enabling courier tracking failed. Open the invoice to retry.')
+          }
+        }
         navigate('/billing/sales')
       }
 
@@ -4704,7 +4747,7 @@ export default function NewSalePage() {
                           <div className="col-span-12 sm:col-span-6 space-y-1">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
                             <Controller control={productForm.control} name="categoryId" render={({ field }) => (
-                              <CategorySearchDropdown categories={productCategories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
+                              <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                             )} />
                           </div>
                         </div>
@@ -5853,6 +5896,21 @@ export default function NewSalePage() {
                         />
                       </div>
                     </div>
+
+                    {/* Courier toggle — invoices only. On save, snapshots the
+                        invoice into the Delivery Tracking module. */}
+                    {invoiceType !== 'quotation' && (
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <Truck className="h-3.5 w-3.5" /> Courier delivery
+                        </span>
+                        <Switch
+                          checked={enableCourier}
+                          onCheckedChange={setEnableCourier}
+                          aria-label="Send to courier tracking after save"
+                        />
+                      </div>
+                    )}
 
                     {/* Round Off — only when non-zero */}
                     {totals.roundOff !== 0 && (

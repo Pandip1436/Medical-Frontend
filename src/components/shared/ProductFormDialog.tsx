@@ -70,13 +70,20 @@ export function ProductFormDialog({
   const { errors, isSubmitting } = formState
 
   // Reset form whenever the drawer reopens — prevents stale state from a
-  // prior cancel/close leaking into a fresh open. Also lazily fetches
-  // categories the first time the drawer is used.
+  // prior cancel/close leaking into a fresh open. Deliberately does NOT depend
+  // on `categories` — otherwise adding a category mid-edit (which changes the
+  // categories list) would re-run this and wipe everything the user has typed,
+  // including the category they just picked.
   useEffect(() => {
     if (!open) return
     reset({ ...productFormDefaults, name: prefillName ?? '' })
-    if (categories.length === 0) fetchCategories()
-  }, [open, prefillName, reset, categories.length, fetchCategories])
+  }, [open, prefillName, reset])
+
+  // Lazily fetch the category list the first time the drawer is opened. Kept
+  // separate from the reset so a category change never triggers a form reset.
+  useEffect(() => {
+    if (open && categories.length === 0) fetchCategories()
+  }, [open, categories.length, fetchCategories])
 
   const manufacturers = useMemo(() => {
     const fromSuppliers = suppliers.map(s => s.name)
@@ -205,7 +212,7 @@ export function ProductFormDialog({
                   <div className="col-span-12 sm:col-span-5 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category{OPTIONAL}</Label>
                     <Controller control={control} name="categoryId" render={({ field }) => (
-                      <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
+                      <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                     )} />
                   </div>
                 </div>

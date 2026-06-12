@@ -700,7 +700,18 @@ export default function CustomerDetailPage() {
                           />
                           <Row
                             label="Credit Limit"
-                            value={<span className="font-mono">{formatCurrency(Number(cust.creditLimit ?? 0))}</span>}
+                            value={(() => {
+                              // Pending (UNPAID/PARTIAL) credit invoices vs. the
+                              // max allowed before a new credit sale needs approval.
+                              const used = Number((cust as any).pendingCreditCount ?? 0)
+                              const max = Number((cust as any).maxPendingCredit ?? 3)
+                              const full = used >= max
+                              return (
+                                <span className={cn('font-mono', full && 'font-semibold text-rose-600 dark:text-rose-400')}>
+                                  {used}/{max}
+                                </span>
+                              )
+                            })()}
                           />
                           <Row
                             label="Outstanding"
@@ -836,10 +847,25 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2.5 text-center text-sm">{inv.items?.length ?? 0}</TableCell>
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal ?? 0))}</TableCell>
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{formatCurrency(Number(inv.amountPaid ?? 0))}</TableCell>
-                      <TableCell className="px-3 py-2.5"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
+                      {(() => {
+                        const balance = Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)
+                        return (
+                          <TableCell className={cn('px-3 py-2.5 text-right font-mono text-sm font-semibold', balance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground')}>
+                            {formatCurrency(balance)}
+                          </TableCell>
+                        )
+                      })()}
+                      <TableCell className="px-3 py-2.5 text-center text-sm whitespace-nowrap">
+                        {inv.dueDate ? (() => {
+                          const overdue = new Date(inv.dueDate) < new Date() && (inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+                          return <span className={cn(overdue ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-muted-foreground')}>{formatDate(inv.dueDate)}</span>
+                        })() : <span className="text-muted-foreground/40">—</span>}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 text-center"><PaymentModeBadge mode={inv.paymentMode} /></TableCell>
+                      <TableCell className="px-3 py-2.5 text-center"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
                     </TableRow>
                   )}
-                  columns={['Date', 'Invoice #', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, 'Status']}
+                  columns={['Date', 'Invoice #', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, { label: 'Balance', right: true }, { label: 'Due Date', center: true }, { label: 'Payment', center: true }, { label: 'Status', center: true }]}
                 />
               </div>
               {d.invoices.total > PAGE_SIZE && (
@@ -1139,6 +1165,27 @@ function StatusPill({ status }: { status?: string }) {
   if (!status) return <span className="text-muted-foreground/40">—</span>
   const variant = (STATUS_COLORS[status] ?? 'secondary') as any
   return <Badge variant={variant} size="sm" dot>{status.replace(/_/g, ' ')}</Badge>
+}
+
+// Display label + badge tone for an invoice's payment method (the mode chosen at
+// billing time: Cash / UPI / Card / Credit / Split …).
+const PAYMENT_MODE_META: Record<string, { label: string; className: string }> = {
+  CASH:   { label: 'Cash',   className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-400' },
+  UPI:    { label: 'UPI',    className: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-400' },
+  CARD:   { label: 'Card',   className: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400' },
+  CHEQUE: { label: 'Cheque', className: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400' },
+  CREDIT: { label: 'Credit', className: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400' },
+  SPLIT:  { label: 'Split',  className: 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-400' },
+}
+
+function PaymentModeBadge({ mode }: { mode?: string }) {
+  if (!mode) return <span className="text-muted-foreground/40">—</span>
+  const meta = PAYMENT_MODE_META[mode]
+  return (
+    <Badge variant="outline" size="sm" className={cn('font-medium', meta?.className)}>
+      {meta?.label ?? mode.replace(/_/g, ' ')}
+    </Badge>
+  )
 }
 
 function EmptyState({ icon: Icon, title, subtitle }: { icon: typeof Package; title: string; subtitle?: string }) {

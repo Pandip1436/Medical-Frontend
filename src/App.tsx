@@ -21,6 +21,8 @@ const QuotationsPage = lazy(() => import('@/pages/billing/QuotationsPage'))
 const SalesReturnsPage = lazy(() => import('@/pages/billing/SalesReturnsPage'))
 const CreditNotesPage = lazy(() => import('@/pages/billing/CreditNotesPage'))
 const CreditNoteDetailPage = lazy(() => import('@/pages/billing/CreditNoteDetailPage'))
+const DeliveriesPage = lazy(() => import('@/pages/delivery/DeliveriesPage'))
+const DeliveryTrackingPage = lazy(() => import('@/pages/delivery/DeliveryTrackingPage'))
 const PurchaseOrdersPage = lazy(() => import('@/pages/purchase/PurchaseOrdersPage'))
 const GRNPage = lazy(() => import('@/pages/purchase/GRNPage'))
 const GRNListPage = lazy(() => import('@/pages/purchase/GRNListPage'))
@@ -76,6 +78,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/returns',
     '/billing/credit-notes',
     '/billing/credit-notes/detail',
+    '/delivery',
+    '/delivery/tracking',
     '/crm/leads',
     '/crm/leads/analytics',
     '/inventory/products',
@@ -126,6 +130,8 @@ export const rolePermissions: Record<string, string[]> = {
     '/billing/returns',
     '/billing/credit-notes',
     '/billing/credit-notes/detail',
+    '/delivery',
+    '/delivery/tracking',
     '/customers',
     '/customers/invoices',
     '/customers/invoices/detail',
@@ -324,6 +330,10 @@ function App() {
         return <CreditNotesPage />
       case '/billing/credit-notes/detail':
         return <CreditNoteDetailPage />
+      case '/delivery':
+        return <DeliveriesPage />
+      case '/delivery/tracking':
+        return <DeliveryTrackingPage key={search} />
       case '/purchase/orders':
         return <PurchaseOrdersPage />
       case '/purchase/grn':

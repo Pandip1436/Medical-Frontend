@@ -393,6 +393,34 @@ export function GRNDetailContent({
 
     const totalLineValueP = grn.items.reduce((s, i) => s + (i.receivedQty + (i.freeQty ?? 0)) * i.purchaseRate, 0)
 
+    // GST summary. The line-value total is the taxable base; the stored grand
+    // total (supplier invoice amount) includes GST, so the difference is the tax,
+    // split evenly into CGST / SGST. Falls back gracefully when there's no GST.
+    const taxableP = totalLineValueP
+    const grandTotalP = Number(grn.totalAmount || 0) || taxableP
+    const gstTotalP = Math.max(0, grandTotalP - taxableP)
+    const cgstP = gstTotalP / 2
+    const sgstP = gstTotalP / 2
+    const money = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const gstSummary = `
+  <div style="display:flex;justify-content:flex-end;margin-top:14px">
+    <div style="min-width:280px">
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:#374151">
+        <span>Taxable Amount</span><span style="font-family:monospace">${money(taxableP)}</span>
+      </div>
+      ${gstTotalP > 0 ? `
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:#374151">
+        <span>CGST</span><span style="font-family:monospace">${money(cgstP)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:#374151">
+        <span>SGST</span><span style="font-family:monospace">${money(sgstP)}</span>
+      </div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:7px 0 4px;margin-top:4px;border-top:2px solid #1f2937;font-weight:bold;font-size:13px">
+        <span>Grand Total</span><span style="font-family:monospace;color:#1d4ed8">${money(grandTotalP)}</span>
+      </div>
+    </div>
+  </div>`
+
     win.document.write(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -530,6 +558,7 @@ export function GRNDetailContent({
       </tr>
     </tbody>
   </table>
+  ${gstSummary}
   <div class="doc-footer">
     <div class="footer-left">
       <b>${orgName}</b><br/>
@@ -546,6 +575,12 @@ export function GRNDetailContent({
   }
 
   const totalLineValue = grn.items.reduce((s, i) => s + (i.receivedQty + (i.freeQty ?? 0)) * i.purchaseRate, 0)
+  // GST breakdown: line value is the taxable base; the stored PE total (supplier
+  // invoice amount) is GST-inclusive, so the difference is the tax split CGST/SGST.
+  const grandTotalView = Number(grn.totalAmount || 0) || totalLineValue
+  const gstTotalView = Math.max(0, grandTotalView - totalLineValue)
+  const cgstView = gstTotalView / 2
+  const sgstView = gstTotalView / 2
 
   return (
     <div className="space-y-4">
@@ -826,6 +861,38 @@ export function GRNDetailContent({
           </div>
         </div>
       )}
+
+      {/* GST / tax breakdown — always shown (single or multi item). Taxable
+          base + CGST/SGST (derived from the GST-inclusive PE total) + grand total. */}
+      <div className="flex justify-end">
+        <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:w-72">
+          <div className="border-b border-border/40 bg-muted/20 px-4 py-2.5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Tax Summary</p>
+          </div>
+          <div className="divide-y divide-border/40">
+            <div className="flex items-center justify-between px-4 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Taxable Amount</span>
+              <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(totalLineValue)}</span>
+            </div>
+            {gstTotalView > 0 && (
+              <>
+                <div className="flex items-center justify-between px-4 py-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CGST</span>
+                  <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(cgstView)}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">SGST</span>
+                  <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(sgstView)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-between bg-primary/5 px-4 py-2.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</span>
+              <span className="font-mono text-sm font-bold tabular-nums text-primary">{formatCurrency(grandTotalView)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── Sales & Returns (View Bill) — what happened to the received stock ── */}
       <div className="overflow-hidden rounded-xl border border-border/40">

@@ -3,7 +3,7 @@ import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
   CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff,
-  Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown,
+  Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown, ListFilter,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -343,6 +343,29 @@ const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
 
 const DEFAULT_COLUMNS: ColumnDef[] = [{ key: 'detail', label: 'Detail' }]
 
+// Expiry severity buckets, in urgency order. Mirrors the Severity column logic
+// in parseClusterRow — used by the Expiry folder's severity filter.
+const EXPIRY_SEVERITIES = ['Expired', 'Critical', 'Soon', 'Upcoming'] as const
+
+// Derive an expiry notification's severity (same rules as the row's Severity
+// column). Returns '—' when days-left can't be determined.
+function expirySeverity(n: Notification): string {
+  const state = (n.entityState ?? {}) as Record<string, unknown>
+  const message = cleanMessage(n.message)
+  let daysLeft: number | null = null
+  if (typeof state.daysLeft === 'number') daysLeft = state.daysLeft
+  else {
+    const m = message.match(/expires\s+in\s+(\d+)\s*day/i)
+    if (m) daysLeft = parseInt(m[1], 10)
+    else if (/has already expired/i.test(message)) daysLeft = 0
+  }
+  if (daysLeft === null) return '—'
+  if (daysLeft <= 0) return 'Expired'
+  if (daysLeft <= 30) return 'Critical'
+  if (daysLeft <= 60) return 'Soon'
+  return 'Upcoming'
+}
+
 function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<string, string> {
   const message = cleanMessage(n.message)
   if (isReminder(n)) {
@@ -594,6 +617,8 @@ export default function NotificationsPage() {
   // badge (which counts unread per type). "All" includes already-read alerts;
   // "Resolved" shows only the ones closed out (e.g. a Payment Due that got paid).
   const [folderView, setFolderView] = usePersistedState<'unread' | 'all' | 'resolved'>('notifications:folderView', 'unread')
+  // Expiry-folder severity filter (client-side, on the loaded rows). 'all' = off.
+  const [severityFilter, setSeverityFilter] = useState<'all' | typeof EXPIRY_SEVERITIES[number]>('all')
   // Expanded cluster bundles in the All view. Each key is `${dateBucket}-${type}`
   // (see AllTable). Collapsed by default so a long mixed-type day reads as a
   // tight summary instead of a wall of rows.
@@ -641,6 +666,14 @@ export default function NotificationsPage() {
     [paginated.items],
   )
 
+  // Apply the Expiry severity filter client-side (severity is derived per-row,
+  // not a server field, so it filters the loaded page). A no-op for other
+  // folders and the 'all' view.
+  const displayItems = useMemo(() => {
+    if (activeCategory !== 'EXPIRY' || severityFilter === 'all') return paginatedItems
+    return paginatedItems.filter((n) => expirySeverity(n) === severityFilter)
+  }, [paginatedItems, activeCategory, severityFilter])
+
   // Sync the search input into the hook's debounced query.
   const paginatedSetQuery = paginated.setQuery
   useEffect(() => {
@@ -657,6 +690,7 @@ export default function NotificationsPage() {
     if (!didMountFolderReset.current) { didMountFolderReset.current = true; return }
     setSearchQuery('')
     setExpandedClusters(new Set())
+    setSeverityFilter('all')
   }, [activeCategory])
 
   // ── Per-category unread counts ────────────────────────────
@@ -872,6 +906,38 @@ export default function NotificationsPage() {
                     {SORT_OPTIONS.find((o) => o.key === sortBy)?.label}
                   </span>
                 </Button>
+                {/* Severity filter — Expiry folder only. Filters the loaded rows
+                    client-side (severity is derived per-row, not a server field). */}
+                {activeCategory === 'EXPIRY' && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          'h-8 shrink-0 gap-1.5 px-2 text-[11px] font-medium',
+                          severityFilter === 'all' ? 'text-muted-foreground' : 'border-primary/50 bg-primary/5 text-foreground',
+                        )}
+                        title="Filter by severity"
+                      >
+                        <ListFilter className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">
+                          {severityFilter === 'all' ? 'Severity' : severityFilter}
+                        </span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setSeverityFilter('all')}>
+                        All severities
+                      </DropdownMenuItem>
+                      {EXPIRY_SEVERITIES.map((s) => (
+                        <DropdownMenuItem key={s} onClick={() => setSeverityFilter(s)}>
+                          {s}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
                 {/* Folder view: 3-state toggle controls the server query.
                     Unread (default, matches the sidebar badge) · All (adds
                     read rows) · Resolved (only closed-out alerts, e.g. a
@@ -926,7 +992,7 @@ export default function NotificationsPage() {
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                     <p className="text-xs text-muted-foreground">Loading…</p>
                   </div>
-                ) : paginatedItems.length === 0 ? (
+                ) : displayItems.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
                       <FileX2 className="h-5 w-5 text-muted-foreground/50" />
@@ -934,7 +1000,9 @@ export default function NotificationsPage() {
                     <div>
                       <p className="text-sm font-medium text-foreground">No notifications</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {searchQuery
+                        {severityFilter !== 'all' && paginatedItems.length > 0
+                          ? `No “${severityFilter}” alerts on the loaded rows — load more or clear the filter`
+                          : searchQuery
                           ? `No matches in ${activeCategoryLabel}`
                           : activeCategory === 'all' && readFilter !== 'all'
                             ? `No ${readFilter} alerts`
@@ -966,7 +1034,7 @@ export default function NotificationsPage() {
                       />
                     ) : (
                       <ClusterTable
-                        items={paginatedItems}
+                        items={displayItems}
                         clusterKey={activeCategory as ClusterKey}
                         onOpen={openNotification}
                         onSnooze={handleSnooze}

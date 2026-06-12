@@ -208,6 +208,9 @@ export default function GRNPage() {
   // existing-GRN edit) overwrite this array later.
   const [grnItems, setGrnItems] = useState<GRNFormItem[]>(() => [createEmptyItem()])
   const [productSearch, setProductSearch] = useState('')
+  // Whether the product search box is focused — lets the dropdown open (and list
+  // all products) before the user types anything.
+  const [productFocused, setProductFocused] = useState(false)
 
   // Supplier invoice
   const [invoiceNo, setInvoiceNo] = useState('')
@@ -405,10 +408,11 @@ export default function GRNPage() {
   // when the user actually scrolls to the bottom, so the DOM only carries
   // what they've requested to see.
   const filteredProducts = useMemo(() => {
-    if (!productSearch.trim()) return []
+    // Empty query returns the first page of all products (server-side), so the
+    // dropdown can list everything on focus and grow via scroll-to-load-more.
     const existingIds = new Set(grnItems.map((i) => i.productId))
     return productSearchPaged.items.filter((p) => !existingIds.has(p.id))
-  }, [productSearch, grnItems, productSearchPaged.items])
+  }, [grnItems, productSearchPaged.items])
 
   // Scroll-to-load-more handler for the product dropdown — same pattern as
   // the supplier dropdown above.
@@ -505,6 +509,9 @@ export default function GRNPage() {
       },
     ])
     setProductSearch('')
+    // Close the dropdown after a pick. Clicking the search box (onClick) or
+    // typing reopens it to add another line.
+    setProductFocused(false)
   }
 
   function removeItem(index: number) {
@@ -558,6 +565,14 @@ export default function GRNPage() {
     const isReplacementFlow = !!replacementReturnId
     if (!isReplacementFlow && (!invoiceNo || !invoiceDate)) {
       toast.error('Supplier invoice number and date are required')
+      return
+    }
+    if (!isReplacementFlow && !(Number(invoiceAmount) > 0)) {
+      toast.error('Invoice amount is required')
+      return
+    }
+    if (!editMode && !isReplacementFlow && payChoice === 'PARTIAL' && !(Number(paidAmount) > 0)) {
+      toast.error('Amount paid is required for a partial payment')
       return
     }
     if (!editMode && !isReplacementFlow && payChoice === 'PARTIAL' && (Number(paidAmount) || 0) > (Number(invoiceAmount) || 0) + 0.01) {
@@ -728,6 +743,7 @@ export default function GRNPage() {
       supplierInvoiceNo: invoiceNo || undefined,
       supplierInvoiceDate: invoiceDate || undefined,
       totalAmount: gstBreakdown.total,
+      gst: gstBreakdown,
       company: businessProfile ? {
         name: businessProfile.name,
         address: businessProfile.address,
@@ -1152,8 +1168,11 @@ export default function GRNPage() {
                   placeholder="Search products to add a line..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
+                  onFocus={() => setProductFocused(true)}
+                  onClick={() => setProductFocused(true)}
+                  onBlur={() => setTimeout(() => setProductFocused(false), 200)}
                 />
-                {productSearch.trim() && (
+                {(productFocused || productSearch.trim()) && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1164,7 +1183,10 @@ export default function GRNPage() {
                       <button
                         key={p.id}
                         className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
-                        onClick={() => addDirectItem(p)}
+                        // onMouseDown + preventDefault: select before the input
+                        // blurs, so the click never gets lost when the dropdown
+                        // is open via focus (empty search) rather than typed text.
+                        onMouseDown={(e) => { e.preventDefault(); addDirectItem(p) }}
                       >
                         <div>
                           <p className="text-sm font-medium">{p.name}</p>
@@ -1279,8 +1301,11 @@ export default function GRNPage() {
                   placeholder="Search products to add..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
+                  onFocus={() => setProductFocused(true)}
+                  onClick={() => setProductFocused(true)}
+                  onBlur={() => setTimeout(() => setProductFocused(false), 200)}
                 />
-                {productSearch.trim() && (
+                {(productFocused || productSearch.trim()) && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1291,7 +1316,10 @@ export default function GRNPage() {
                       <button
                         key={p.id}
                         className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
-                        onClick={() => addDirectItem(p)}
+                        // onMouseDown + preventDefault: select before the input
+                        // blurs, so the click never gets lost when the dropdown
+                        // is open via focus (empty search) rather than typed text.
+                        onMouseDown={(e) => { e.preventDefault(); addDirectItem(p) }}
                       >
                         <div>
                           <p className="text-sm font-medium">{p.name}</p>
@@ -1541,7 +1569,9 @@ export default function GRNPage() {
                 )}
                 <div className="space-y-2.5">
                   <div className="space-y-1">
-                    <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Number</Label>
+                    <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Invoice Number{!replacementReturnId && <span className="text-rose-500"> *</span>}
+                    </Label>
                     <Input
                       className="h-8 font-mono text-xs"
                       placeholder="e.g. INV-2025-001"
@@ -1551,7 +1581,9 @@ export default function GRNPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date</Label>
+                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}
+                      </Label>
                       <DatePicker
                         className="h-8 text-xs"
                         value={invoiceDate}
@@ -1559,7 +1591,9 @@ export default function GRNPage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Amount</Label>
+                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}
+                      </Label>
                       <Input
                         type="number"
                         className="h-8 font-mono text-xs"
@@ -1610,7 +1644,9 @@ export default function GRNPage() {
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
-                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Paid</Label>
+                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Amount Paid{payChoice === 'PARTIAL' && <span className="text-rose-500"> *</span>}
+                            </Label>
                             <Input
                               type="number"
                               className="h-8 font-mono text-xs"

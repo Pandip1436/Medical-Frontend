@@ -301,7 +301,7 @@ export default function StockOverviewPage() {
       quantity: r.quantity,
       mrp: Number(r.mrp),
       stockValue: r.quantity * Number(r.mrp),
-      rackLocation: '',
+      rackLocation: r.rackLocation ?? '',
       status: getBatchStatus({ totalStock: r.productTotalStock, minStock: r.minStock }, r),
       totalStock: r.productTotalStock ?? 0,
       minStock: r.minStock ?? 0,
@@ -610,8 +610,8 @@ export default function StockOverviewPage() {
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">MRP</TableHead>
                   <TableHead className="text-right">Stock Value</TableHead>
-                  <TableHead>Rack</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Rack</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -654,8 +654,8 @@ export default function StockOverviewPage() {
                           <TableCell className="text-right font-mono text-sm">{row.quantity}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(row.mrp)}</TableCell>
                           <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(row.stockValue)}</TableCell>
-                          <TableCell className="text-muted-foreground">{row.rackLocation}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-center text-muted-foreground">{row.rackLocation || '—'}</TableCell>
+                          <TableCell className="text-center">
                             <Badge variant={sc.variant} dot size="sm">{sc.label}</Badge>
                           </TableCell>
                           <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

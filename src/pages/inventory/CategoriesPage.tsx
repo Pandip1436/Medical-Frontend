@@ -19,6 +19,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
@@ -50,6 +51,8 @@ export default function CategoriesPage() {
   const PAGE_SIZE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Category | null>(null)
+  // Category pending deletion — drives the premium confirm dialog.
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
@@ -114,11 +117,16 @@ export default function CategoriesPage() {
     }
   }
 
-  const handleDelete = async (cat: Category) => {
-    if (!confirm(`Delete category "${cat.name}"? This will fail if products are assigned.`)) return
+  // Row "Delete" opens a premium confirm dialog instead of window.confirm().
+  const handleDelete = (cat: Category) => setDeleteTarget(cat)
+
+  const confirmDelete = async () => {
+    const cat = deleteTarget
+    if (!cat) return
     try {
       await api.delete(`/categories/${cat.id}`)
       toast.success('Category deleted')
+      setDeleteTarget(null)
       fetchCategories()
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to delete')
@@ -550,6 +558,23 @@ export default function CategoriesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+        title="Delete category?"
+        description={
+          <>
+            This will permanently delete{' '}
+            <span className="font-semibold text-foreground">“{deleteTarget?.name}”</span>.
+            {(deleteTarget?._count?.products ?? 0) > 0
+              ? ' It still has products assigned, so the delete will be blocked.'
+              : ' This action cannot be undone.'}
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      />
     </motion.div>
   )
 }

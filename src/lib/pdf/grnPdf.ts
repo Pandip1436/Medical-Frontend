@@ -46,6 +46,9 @@ export interface GrnPdfData {
   supplierInvoiceNo?: string
   supplierInvoiceDate?: string | Date
   totalAmount: number | string
+  // GST breakdown (optional). When present, the PDF prints a Taxable / CGST /
+  // SGST / Grand Total summary instead of just a single total line.
+  gst?: { taxable: number; cgst: number; sgst: number; total: number }
   items: GrnItemLike[]
   company?: GrnPdfCompany
 }
@@ -116,11 +119,35 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
     margin: { left: 14, right: 14 },
   })
 
-  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
-  const summaryX = pageWidth - 80
+  // ── Totals block — right-aligned: labels at labelX, amounts flush-right. ──
+  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8
+  const labelX = pageWidth - 74 // left edge of the totals block
+  const valueX = pageWidth - 14 // right edge (amounts align here)
+  const gst = grn.gst
+  let ty = afterTableY
+
+  doc.setFontSize(9)
+  if (gst) {
+    doc.setFont('helvetica', 'normal')
+    const row = (label: string, amount: number) => {
+      doc.text(label, labelX, ty)
+      doc.text(fmt(amount), valueX, ty, { align: 'right' })
+      ty += 5
+    }
+    row('Taxable Amount', gst.taxable)
+    row('CGST', gst.cgst)
+    row('SGST', gst.sgst)
+    // Separator above the grand total.
+    ty += 0.5
+    doc.setDrawColor(180)
+    doc.line(labelX, ty, valueX, ty)
+    ty += 5
+  }
+
   doc.setFont('helvetica', 'bold')
-  doc.text('GRAND TOTAL', summaryX, afterTableY)
-  doc.text(fmt(Number(grn.totalAmount)), pageWidth - 14, afterTableY, { align: 'right' })
+  doc.setFontSize(10)
+  doc.text('GRAND TOTAL', labelX, ty)
+  doc.text(fmt(gst ? gst.total : Number(grn.totalAmount)), valueX, ty, { align: 'right' })
 
   const footerY = doc.internal.pageSize.getHeight() - 20
   doc.setFontSize(8)

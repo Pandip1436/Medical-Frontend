@@ -63,6 +63,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
@@ -131,6 +132,9 @@ const SALES_COLUMNS: ColumnDef[] = [
   { id: 'invoice', label: 'Invoice #', required: true, defaultVisible: true },
   { id: 'items', label: 'Items', defaultVisible: true },
   { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'paid', label: 'Paid', defaultVisible: true },
+  { id: 'balance', label: 'Balance', defaultVisible: true },
+  { id: 'dueDate', label: 'Due Date', defaultVisible: true },
   { id: 'payment', label: 'Payment', defaultVisible: true },
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
@@ -215,33 +219,28 @@ export default function SalesListPage() {
   }, [phoneFor])
 
   // DRAFT rows get a hard-delete (they have no financial impact); finalized
-  // rows get a soft "Cancel" (status flip). Both go through the same
-  // DataTableRowActions onDelete hook, but the API call differs.
-  const removeOrCancel = useCallback(async (inv: Invoice) => {
-    if (inv.status === 'DRAFT') {
-      const ok = window.confirm(`Discard draft for ${inv.customerName}? This cannot be undone.`)
-      if (!ok) return
-      try {
+  // rows get a soft "Cancel" (status flip). Both open the premium confirm
+  // dialog; the actual API call (in confirmRemoveOrCancel) differs by status.
+  const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null)
+  const removeOrCancel = useCallback((inv: Invoice) => setCancelTarget(inv), [])
+
+  const confirmRemoveOrCancel = useCallback(async () => {
+    const inv = cancelTarget
+    if (!inv) return
+    try {
+      if (inv.status === 'DRAFT') {
         await api.delete(`/billing/${inv.id}`)
         toast.success('Draft discarded')
-        fetchInvoices()
-      } catch {
-        toast.error('Failed to discard draft')
+      } else {
+        await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
+        toast.success('Invoice cancelled')
       }
-      return
-    }
-    const ok = window.confirm(
-      `Cancel invoice ${inv.invoiceNumber} for ${inv.customerName}? This is irreversible — the invoice will stay on record but be marked CANCELLED. Stock will not be restored automatically.`,
-    )
-    if (!ok) return
-    try {
-      await api.patch(`/billing/${inv.id}`, { status: 'CANCELLED' })
-      toast.success('Invoice cancelled')
+      setCancelTarget(null)
       fetchInvoices()
     } catch {
-      toast.error('Failed to cancel invoice')
+      toast.error(cancelTarget?.status === 'DRAFT' ? 'Failed to discard draft' : 'Failed to cancel invoice')
     }
-  }, [fetchInvoices])
+  }, [cancelTarget, fetchInvoices])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchInvoices() }, [])
@@ -554,6 +553,7 @@ export default function SalesListPage() {
                       Customer: inv.customerName,
                       Total: formatCurrency(inv.grandTotal),
                       Paid: formatCurrency(inv.amountPaid),
+                      Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
                       Status: inv.status,
                     })), 'Sales Invoices')
                   }}
@@ -577,6 +577,7 @@ export default function SalesListPage() {
                       Customer: inv.customerName,
                       Total: inv.grandTotal,
                       Paid: inv.amountPaid,
+                      Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
                       Status: inv.status,
                     })), 'sales-invoices')
                     // Bug #6: surface the row count so the user can reconcile
@@ -812,7 +813,14 @@ export default function SalesListPage() {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(inv.grandTotal)}</span>
+                      <div className="flex flex-col items-end leading-tight">
+                        <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(inv.grandTotal)}</span>
+                        {Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0) > 0.01 && (
+                          <span className="font-mono text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                            Bal {formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0))}
+                          </span>
+                        )}
+                      </div>
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
                           onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
@@ -846,6 +854,9 @@ export default function SalesListPage() {
               {cols.isVisible('invoice') && <TableHead>Invoice #</TableHead>}
               {cols.isVisible('items') && <TableHead className="text-center">Items</TableHead>}
               {cols.isVisible('total') && <TableHead className="text-right">Total</TableHead>}
+              {cols.isVisible('paid') && <TableHead className="text-right">Paid</TableHead>}
+              {cols.isVisible('balance') && <TableHead className="text-right">Balance</TableHead>}
+              {cols.isVisible('dueDate') && <TableHead>Due Date</TableHead>}
               {cols.isVisible('payment') && <TableHead>Payment</TableHead>}
               {cols.isVisible('status') && <TableHead>Status</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
@@ -940,6 +951,35 @@ export default function SalesListPage() {
                       {formatCurrency(inv.grandTotal)}
                     </TableCell>
                     )}
+                    {cols.isVisible('paid') && (
+                    <TableCell className="text-right font-mono text-sm">
+                      {formatCurrency(inv.amountPaid)}
+                    </TableCell>
+                    )}
+                    {cols.isVisible('balance') && (() => {
+                      const balance = Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)
+                      return (
+                        <TableCell className={`text-right font-mono text-sm font-semibold ${balance > 0.01 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                          {formatCurrency(balance)}
+                        </TableCell>
+                      )
+                    })()}
+                    {cols.isVisible('dueDate') && (
+                    <TableCell className="whitespace-nowrap">
+                      {inv.dueDate ? (() => {
+                        const overdue =
+                          new Date(inv.dueDate) < new Date() &&
+                          (inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+                        return (
+                          <span className={cn('text-[11px]', overdue ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-muted-foreground')}>
+                            {formatDate(inv.dueDate)}
+                          </span>
+                        )
+                      })() : (
+                        <span className="text-[11px] text-muted-foreground/40">—</span>
+                      )}
+                    </TableCell>
+                    )}
                     {cols.isVisible('payment') && (
                     <TableCell>
                       <Badge
@@ -984,6 +1024,19 @@ export default function SalesListPage() {
         />
       </Card>
 
+      {/* Discard-draft / cancel-invoice confirmation (premium dialog). */}
+      <ConfirmDialog
+        open={!!cancelTarget}
+        onOpenChange={(o) => { if (!o) setCancelTarget(null) }}
+        title={cancelTarget?.status === 'DRAFT' ? 'Discard draft?' : 'Cancel invoice?'}
+        description={cancelTarget?.status === 'DRAFT' ? (
+          <>This permanently discards the draft for <span className="font-semibold text-foreground">{cancelTarget?.customerName}</span>. This cannot be undone.</>
+        ) : (
+          <>Invoice <span className="font-mono font-semibold text-foreground">{cancelTarget?.invoiceNumber}</span> for <span className="font-semibold text-foreground">{cancelTarget?.customerName}</span> will be marked <span className="font-semibold">CANCELLED</span>. It stays on record, but stock is <span className="font-semibold">not</span> restored automatically. This is irreversible.</>
+        )}
+        confirmLabel={cancelTarget?.status === 'DRAFT' ? 'Discard' : 'Cancel Invoice'}
+        onConfirm={confirmRemoveOrCancel}
+      />
     </motion.div>
   )
 }

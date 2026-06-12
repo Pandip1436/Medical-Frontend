@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   Printer, Download, ShoppingCart, Wallet,
-  Stethoscope, CalendarDays, Pencil,
+  Stethoscope, CalendarDays, CalendarClock, Pencil,
   Send, QrCode, RefreshCw, History, Eye, Phone, MapPin,
+  Truck, Loader2, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -16,6 +17,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -51,6 +53,44 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const [reconciling, setReconciling] = useState(false)
   // On-screen invoice preview — the same styled document the New Sale page shows.
   const [previewOpen, setPreviewOpen] = useState(false)
+  // Courier toggle — reflects whether a delivery tracking record exists for
+  // this invoice. Turning it on snapshots the invoice into the Delivery
+  // Tracking module and jumps to the tracking page.
+  const [delivery, setDelivery] = useState<{ id: string } | null>(null)
+  const [courierToggling, setCourierToggling] = useState(false)
+
+  // Courier tracking applies only to real invoices (not quotations).
+  const isCourierApplicable = invoice.type === 'INVOICE'
+
+  useEffect(() => {
+    if (!isCourierApplicable) return
+    let active = true
+    api
+      .get(`/delivery/invoice/${invoice.id}`)
+      .then((r) => { if (active) setDelivery(r.data ?? null) })
+      .catch(() => { /* tracking is optional — ignore */ })
+    return () => { active = false }
+  }, [invoice.id, isCourierApplicable])
+
+  const handleCourierToggle = async (on: boolean) => {
+    setCourierToggling(true)
+    try {
+      if (on) {
+        const res = await api.post('/delivery', { invoiceId: invoice.id })
+        setDelivery(res.data)
+        toast.success('Courier tracking enabled')
+        navigate(`/delivery/tracking?id=${res.data.id}`)
+      } else if (delivery) {
+        await api.delete(`/delivery/${delivery.id}`)
+        setDelivery(null)
+        toast.success('Courier tracking disabled')
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to update courier tracking')
+    } finally {
+      setCourierToggling(false)
+    }
+  }
 
   // Auto-send / QR flow only applies to real invoices that aren't draft or
   // cancelled. Quotations are billed-out differently and have no payment QR.
@@ -211,10 +251,52 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                   <span className="truncate">{invoice.doctorName}</span>
                 </Badge>
               )}
+              {invoice.dueDate && (() => {
+                // Highlight in red when the due date has passed and money is still owed.
+                const overdue =
+                  new Date(invoice.dueDate) < new Date() &&
+                  (invoice.status === 'UNPAID' || invoice.status === 'PARTIAL')
+                return (
+                  <Badge
+                    variant="secondary"
+                    size="sm"
+                    className={cn(
+                      'gap-1 font-medium',
+                      overdue && 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400',
+                    )}
+                  >
+                    <CalendarClock className="h-3 w-3 shrink-0" />
+                    <span>Due {formatDate(invoice.dueDate)}</span>
+                  </Badge>
+                )
+              })()}
             </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {isCourierApplicable && (
+            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
+              <Truck className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium">Courier</span>
+              {courierToggling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              ) : (
+                <Switch
+                  checked={!!delivery}
+                  onCheckedChange={handleCourierToggle}
+                  aria-label="Enable courier tracking"
+                />
+              )}
+              {delivery && !courierToggling && (
+                <button
+                  onClick={() => navigate(`/delivery/tracking?id=${delivery.id}`)}
+                  className="ml-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Track <ExternalLink className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
           {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
             <Button
               variant="outline"

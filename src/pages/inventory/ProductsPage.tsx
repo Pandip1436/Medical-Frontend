@@ -20,6 +20,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
@@ -112,6 +113,8 @@ export default function ProductsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  // Product pending deletion — drives the premium confirm dialog.
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   // Legacy single-sheet Excel import dialog — kept for the Marg ERP HSN/SAC
   // and Marg product paths. The NEW multi-sheet preview+commit drawer below
   // is what the "Import" button now opens.
@@ -334,11 +337,17 @@ export default function ProductsPage() {
     }
   }
 
-  const handleDelete = async (product: Product) => {
-    if (!confirm(`Are you sure you want to delete "${product.name}"? This cannot be undone.`)) return
+  // Row "Delete" opens a premium confirm dialog rather than the native
+  // window.confirm(). The actual delete runs in confirmDelete() on confirm.
+  const handleDelete = (product: Product) => setDeleteTarget(product)
+
+  const confirmDelete = async () => {
+    const product = deleteTarget
+    if (!product) return
     try {
       await api.delete(`/products/${product.id}`)
       toast.success(`Product "${product.name}" deleted`)
+      setDeleteTarget(null)
       refreshPage()
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to delete product')
@@ -939,7 +948,7 @@ export default function ProductsPage() {
                         <div className="grid gap-2">
                           <Label>Category <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Controller control={form.control} name="categoryId" render={({ field }) => (
-                            <CategorySearchDropdown categories={categories} value={field.value ?? ''} onChange={field.onChange} hasError={false} />
+                            <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                           )} />
                         </div>
                         <div className="grid gap-2">
@@ -1148,6 +1157,21 @@ export default function ProductsPage() {
         open={importDrawerOpen}
         onOpenChange={setImportDrawerOpen}
         onImported={refreshPage}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+        title="Delete product?"
+        description={
+          <>
+            This will permanently delete{' '}
+            <span className="font-semibold text-foreground">“{deleteTarget?.name}”</span>.
+            This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
       />
     </motion.div>
   )

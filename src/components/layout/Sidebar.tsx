@@ -91,6 +91,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Invoices', icon: FileText, href: '/billing/sales', quickAdd: '/billing/new' },
       { label: 'Quotations', icon: FileCheck, href: '/billing/quotations', quickAdd: '/billing/new?type=quotation' },
       { label: 'Credit Notes', icon: FileCheck2, href: '/billing/credit-notes', quickAdd: '/billing/returns' },
+      { label: 'Delivery Tracking', icon: Truck, href: '/delivery' },
       { label: 'Customers', icon: Users, href: '/customers', quickAdd: '/customers?add=1' },
       { label: 'Customer Outstanding', icon: IndianRupee, href: '/customers/outstanding' },
     ],

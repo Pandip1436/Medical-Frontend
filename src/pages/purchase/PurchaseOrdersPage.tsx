@@ -114,6 +114,7 @@ const STATUS_OPTIONS = [
   { value: 'PARTIALLY_RECEIVED', label: 'Partial' },
   { value: 'FULLY_RECEIVED', label: 'Received' },
   { value: 'CLOSED', label: 'Closed' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ] as const
 
 const statusBadgeConfig: Record<
@@ -126,6 +127,7 @@ const statusBadgeConfig: Record<
   PARTIALLY_RECEIVED: { label: 'Partial', variant: 'warning' },
   FULLY_RECEIVED: { label: 'Received', variant: 'success' },
   CLOSED: { label: 'Closed', variant: 'purple' },
+  CANCELLED: { label: 'Cancelled', variant: 'destructive' },
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -158,14 +160,14 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
   })
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return []
+    // Empty search → list every product (the dropdown scrolls). Typing filters
+    // by name / generic name.
+    if (!productSearch) return products
     const q = productSearch.toLowerCase()
-    return products
-      .filter((p) => 
-        p.name.toLowerCase().includes(q) || 
-        (p.genericName ?? '').toLowerCase().includes(q)
-      )
-      .slice(0, 8)
+    return products.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.genericName ?? '').toLowerCase().includes(q)
+    )
   }, [productSearch, products])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -191,13 +193,32 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
   const updateDropdownPos = () => {
     if (inputRef.current) {
       const rect = inputRef.current.getBoundingClientRect()
-      setDropdownPos({ 
-        top: rect.bottom, 
-        left: rect.left, 
-        width: rect.width 
+      setDropdownPos({
+        top: rect.bottom,
+        left: rect.left,
+        width: rect.width
       })
     }
   }
+
+  // Keep the portaled dropdown glued to the input. We recompute once on the
+  // frame AFTER it opens (so the drawer's slide-in animation has settled and the
+  // input's rect is final — measuring too early left the dropdown misplaced),
+  // and again whenever anything scrolls (capture: true catches the drawer's own
+  // scroll container, not just the window) or the window resizes.
+  useEffect(() => {
+    if (!showDropdown) return
+    const raf = requestAnimationFrame(updateDropdownPos)
+    const reposition = () => updateDropdownPos()
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDropdown])
 
   return (
     <TableRow className="border-border/40">
@@ -237,19 +258,33 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
               className="h-8"
               error={!!errors.items?.[index]?.productId}
             />
-            {showDropdown && productSearch && filteredProducts.length > 0 && createPortal(
+            {showDropdown && filteredProducts.length > 0 && createPortal(
               <div
                 style={{
                   position: 'fixed',
                   top: dropdownPos.top + 4,
                   left: dropdownPos.left,
                   width: dropdownPos.width,
-                  zIndex: 10000
+                  zIndex: 10000,
+                  // The PO form is a modal Radix Sheet, which sets
+                  // `pointer-events: none` on <body>. This dropdown is portaled
+                  // to <body> (outside the Sheet), so without re-enabling pointer
+                  // events here it renders but swallows every click — the product
+                  // couldn't be selected.
+                  pointerEvents: 'auto',
                 }}
-                className="rounded-xl border border-border/60 bg-popover p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+                className="max-h-[40vh] overflow-y-auto overscroll-contain rounded-xl border border-border/60 bg-popover p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
                 onMouseDown={(e) => e.stopPropagation()}
+                // The drawer is a modal Radix Sheet whose scroll-lock
+                // (react-remove-scroll) blocks wheel scrolling on anything
+                // portaled to <body>. Apply the scroll ourselves and stop the
+                // event before it reaches the lock, so the list scrolls.
+                onWheel={(e) => {
+                  e.currentTarget.scrollTop += e.deltaY
+                  e.stopPropagation()
+                }}
               >
-                <div className="px-2 py-1.5 border-b border-border/40 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 mb-1 rounded-t-lg">
+                <div className="sticky top-0 z-10 px-2 py-1.5 border-b border-border/40 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 mb-1 rounded-t-lg">
                   Select Product
                 </div>
                 {filteredProducts.map((p, i) => (
@@ -640,10 +675,12 @@ export default function PurchaseOrdersPage() {
         break
       case 'cancel':
         try {
-          await api.patch(`/purchase-orders/${po.id}`, { status: 'CLOSED' })
+          await api.patch(`/purchase-orders/${po.id}`, { status: 'CANCELLED' })
           toast.success(`PO ${po.poNumber} cancelled`)
           fetchPOs()
-        } catch { toast.error('Failed to cancel PO') }
+        } catch (err: any) {
+          toast.error(err.response?.data?.message ?? 'Failed to cancel PO')
+        }
         break
     }
   }
@@ -1141,7 +1178,13 @@ export default function PurchaseOrdersPage() {
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => handleAction('view', po)}
-                        onDelete={() => handleAction('cancel', po)}
+                        // Cancel only while the PO is still open — not once it's
+                        // received, closed or already cancelled.
+                        onDelete={
+                          ['DRAFT', 'SENT', 'ACKNOWLEDGED', 'PARTIALLY_RECEIVED'].includes(po.status)
+                            ? () => handleAction('cancel', po)
+                            : undefined
+                        }
                         deleteLabel="Cancel PO"
                         customActions={[
                           {

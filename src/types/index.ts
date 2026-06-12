@@ -369,3 +369,47 @@ export interface Quotation {
   updatedAt: string
 }
 
+// ── Delivery Tracking ──────────────────────────────────────────
+export type DeliveryStatus =
+  | 'BOOKED'
+  | 'DISPATCHED'
+  | 'IN_TRANSIT'
+  | 'ARRIVED_AT_HUB'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'RETURNED'
+
+export interface DeliveryEvent {
+  id: string
+  deliveryId: string
+  status: DeliveryStatus
+  location?: string | null
+  note?: string | null
+  occurredAt: string
+  createdAt: string
+}
+
+export interface DeliveryTracking {
+  id: string
+  invoiceId: string
+  invoiceNumber: string
+  customerName: string
+  mobileNumber?: string | null
+  deliveryAddress?: string | null
+  orderSummary?: string | null
+  courierName?: string | null
+  trackingId?: string | null
+  dispatchDate?: string | null
+  receiptName?: string | null
+  ocrText?: string | null
+  status: DeliveryStatus
+  deliveredAt?: string | null
+  carrierSlug?: string | null
+  lastSyncedAt?: string | null
+  branchId?: string | null
+  createdById: string
+  events: DeliveryEvent[]
+  createdAt: string
+  updatedAt: string
+}
+

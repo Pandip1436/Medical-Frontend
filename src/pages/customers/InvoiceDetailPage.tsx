@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import api from '@/lib/api'
-import { goBack as routerGoBack, useRoute } from '@/lib/router'
+import { goBack as routerGoBack, useRoute, navigate } from '@/lib/router'
 import { formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Invoice } from '@/types'
@@ -33,6 +33,20 @@ export default function InvoiceDetailPage() {
       const res = await api.get(`/billing/${invoiceId}`)
       setInvoice(res.data)
     } catch (err: any) {
+      // Self-heal: the id might actually be a Delivery Tracking id (both routes
+      // share `?id=`, so a stale/auto-completed link from older history can land
+      // here). A delivery id belongs on the tracking page, so redirect there
+      // rather than bouncing onto the invoice — that keeps Back working and
+      // avoids a double-load on the invoice route.
+      if (err.response?.status === 404) {
+        try {
+          const d = await api.get(`/delivery/${invoiceId}`)
+          if (d.data?.id) {
+            navigate(`/delivery/tracking?id=${d.data.id}`, { replace: true })
+            return
+          }
+        } catch { /* not a delivery either — fall through to the error state */ }
+      }
       const msg = err.response?.status === 404 ? 'Invoice not found' : 'Failed to load invoice'
       setError(msg)
       toast.error(msg)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
@@ -23,16 +23,27 @@ import type { Category } from '@/types'
 const ADD_NEW_SENTINEL = '__add_new_category__'
 
 export function CategorySearchDropdown({
-  categories,
   value,
   onChange,
   hasError,
 }: {
-  categories: Category[]
   value: string
   onChange: (v: string) => void
   hasError?: boolean
 }) {
+  // Subscribe to the store directly (rather than taking categories as a prop):
+  // this guarantees the dropdown re-renders the instant a category is added,
+  // independent of whether the parent (a react-hook-form Controller) re-renders,
+  // and gives every consumer (ProductsPage, NewSale, ProductFormDialog) one
+  // shared, always-fresh list.
+  const categories = useMasterDataStore(s => s.categories)
+  const fetchCategories = useMasterDataStore(s => s.fetchCategories)
+  // Some hosts (e.g. ProductsPage) keep their own local category list and never
+  // populate the store, so load it here if it's empty — otherwise the dropdown
+  // would render blank for them.
+  useEffect(() => {
+    if (categories.length === 0) fetchCategories()
+  }, [categories.length, fetchCategories])
   const selected = categories.find(c => c.id === value)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -45,13 +56,24 @@ export function CategorySearchDropdown({
     try {
       const res = await api.post<Category>('/categories', { name })
       const created = res.data
-      // Refresh the store so this dropdown — and every other category
-      // consumer on the page — picks up the new row. Then auto-select it.
-      await useMasterDataStore.getState().fetchCategories()
-      onChange(created.id)
+      // Insert into the shared store immediately so this dropdown — and every
+      // other category consumer on the page — shows it right away. We add it
+      // directly (like addCustomer) instead of refetching: a refetch races with
+      // fetchCategories' in-flight dedup and silently fails on any hiccup, which
+      // is why the new row sometimes didn't appear until a page reload. Sorted
+      // by name to match the server's ordering; deduped in case it already exists.
+      useMasterDataStore.setState((s) => ({
+        categories: [...s.categories.filter((c) => c.id !== created.id), created]
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      }))
       toast.success(`Category "${created.name}" added`)
-      setAddOpen(false)
       setNewName('')
+      setAddOpen(false)
+      // Auto-select AFTER the dialog has closed and the new <SelectItem> is
+      // mounted. Doing it inline races with the dialog's focus-restore and the
+      // freshly-added option, which left the field unselected. A tick later the
+      // option exists and focus has settled, so the value reliably sticks.
+      setTimeout(() => onChange(created.id), 0)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err?.response?.data?.message ?? 'Failed to add category')
@@ -103,7 +125,13 @@ export function CategorySearchDropdown({
             </DialogDescription>
           </DialogHeader>
           <form
-            onSubmit={(e) => { e.preventDefault(); handleSaveCategory() }}
+            // stopPropagation is essential: this dialog renders inside the
+            // product form's React tree (Radix portals the DOM but React events
+            // still bubble through the component tree). Without it, clicking
+            // "Add Category" bubbles a submit up to the outer product <form>,
+            // firing its validation ("Product name required") and aborting the
+            // category add.
+            onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleSaveCategory() }}
             className="space-y-3"
           >
             <div className="space-y-1.5">

@@ -48,11 +48,26 @@ export function navigate(path: string, opts?: { replace?: boolean }) {
  * back stack — the popstate listener re-renders, so we must NOT call emitChange
  * here. Otherwise (fresh load / deep-link / refresh, where state is null) fall
  * back to a sensible parent path.
+ *
+ * Robustness: `window.history.back()` silently does nothing when there is no
+ * valid prior entry (the current page was the first in the tab, or the prior
+ * entry redirected straight back here). In that case `popstate` never fires, so
+ * we'd be stuck on the same page. We listen for a single popstate and, if it
+ * doesn't arrive shortly, navigate to the fallback parent instead.
  */
 export function goBack(fallback = '/dashboard') {
   const idx = (window.history.state as { idx?: number } | null)?.idx
   if (typeof idx === 'number' && idx > 0) {
+    let popped = false
+    const onPop = () => { popped = true }
+    window.addEventListener('popstate', onPop, { once: true })
     window.history.back()
+    window.setTimeout(() => {
+      window.removeEventListener('popstate', onPop)
+      // back() didn't move us — fall back to the parent so the button never
+      // dead-ends on the current page.
+      if (!popped) navigate(fallback, { replace: true })
+    }, 200)
   } else {
     navigate(fallback)
   }
@@ -109,6 +124,14 @@ export const routes: Record<string, RouteConfig> = {
   '/billing/credit-notes/detail': {
     label: 'Credit Note Detail',
     breadcrumbs: [{ label: 'Billing' }, { label: 'Credit Notes', href: '/billing/credit-notes' }, { label: 'Detail' }],
+  },
+  '/delivery': {
+    label: 'Delivery Tracking',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Delivery Tracking' }],
+  },
+  '/delivery/tracking': {
+    label: 'Track Delivery',
+    breadcrumbs: [{ label: 'Billing' }, { label: 'Delivery Tracking', href: '/delivery' }, { label: 'Track' }],
   },
   '/purchase/orders': {
     label: 'Purchase Orders',
