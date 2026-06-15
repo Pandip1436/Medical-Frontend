@@ -50,6 +50,7 @@ export const customerFormSchema = z
     dlNumber: z.string().optional(),
     registrationNumber: z.string().optional(),
     referredBy: z.string().optional(),
+    source: z.string().optional(),
     doctorRef: z.string().optional(),
     creditLimit: z.coerce.number().min(0, 'Credit limit must be ≥ 0').optional(),
     notes: z.string().optional(),
@@ -87,11 +88,26 @@ const EMPTY_VALUES: CustomerFormValues = {
   dlNumber: '',
   registrationNumber: '',
   referredBy: '',
+  source: '',
   doctorRef: '',
   creditLimit: 0,
   notes: '',
   whatsappOptIn: true,
 }
+
+// How the customer was acquired. Optional, free-form-ish — kept as a fixed
+// list so reporting stays consistent across the team.
+const CUSTOMER_SOURCES = [
+  'Walk-in',
+  'Referral',
+  'IndiaMART',
+  'Just Dial',
+  'WhatsApp',
+  'Social Media',
+  'Website',
+  'Advertisement',
+  'Other',
+] as const
 
 interface CustomerFormDialogProps {
   open: boolean
@@ -144,6 +160,7 @@ export function CustomerFormDialog({
         dlNumber: editingCustomer.dlNumber ?? '',
         registrationNumber: (editingCustomer as any).registrationNumber ?? '',
         referredBy: editingCustomer.referredBy ?? '',
+        source: (editingCustomer as any).source ?? '',
         doctorRef: editingCustomer.doctorRef ?? '',
         creditLimit: editingCustomer.creditLimit ?? 0,
         notes: editingCustomer.notes ?? '',
@@ -317,10 +334,34 @@ export function CustomerFormDialog({
             </div>
             <div className="space-y-2">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Notes
+                Source (optional)
               </Label>
-              <Input placeholder="Additional notes (optional)" {...register('notes')} />
+              <Controller
+                control={control}
+                name="source"
+                render={({ field }) => (
+                  <Select value={field.value || ''} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="How acquired?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CUSTOMER_SOURCES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Notes
+            </Label>
+            <Input placeholder="Additional notes (optional)" {...register('notes')} />
           </div>
 
           {/* WhatsApp opt-in — controls whether invoices + payment QRs auto-

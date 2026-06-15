@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { printPdfInPage } from '@/lib/printUtils'
 import { formatDate } from '@/lib/utils'
+import { getPdfLogo } from '@/lib/pdf/logo'
 import api from '@/lib/api'
 import { useSettingsStore } from '@/stores/settingsStore'
 
@@ -57,6 +58,12 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const company = getCompany()
+
+  // Business logo at top-left (skipped silently when not configured).
+  const logo = getPdfLogo()
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', 14, 8, 18, 18) } catch { /* bad image — skip */ }
+  }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)

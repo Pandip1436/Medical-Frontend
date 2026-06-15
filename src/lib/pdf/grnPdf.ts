@@ -2,6 +2,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
 import { formatDate } from '@/lib/utils'
+import { getPdfLogo } from '@/lib/pdf/logo'
 
 // Fallback company info — used when the caller doesn't supply one. Real
 // values come from the business profile in settings (passed via GrnPdfData).
@@ -57,6 +58,11 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const company = { ...COMPANY_FALLBACK, ...(grn.company ?? {}) }
+
+  const logo = getPdfLogo()
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', 14, 8, 18, 18) } catch { /* bad image — skip */ }
+  }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)

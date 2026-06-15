@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/select'
 import { cn, formatDateTime, formatBytes } from '@/lib/utils'
 import { IndiamartCard } from './integrations/IndiamartCard'
+import { JustdialCard } from './integrations/JustdialCard'
 import NumberingSection from '@/pages/numbering/NumberingPage'
 
 // ─────────────────────────────────────────────────────────────
@@ -704,6 +705,7 @@ function IntegrationsSection() {
         </p>
       </div>
       <IndiamartCard />
+      <JustdialCard />
     </div>
   )
 }

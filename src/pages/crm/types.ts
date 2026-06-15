@@ -14,6 +14,7 @@ export type LeadTouchStatus = 'TOUCHED' | 'UNTOUCHED'
 export type LeadSource =
   | 'MANUAL'
   | 'INDIAMART'
+  | 'JUSTDIAL'
   | 'REFERRAL'
   | 'WEBSITE'
   | 'WHATSAPP'
@@ -151,6 +152,7 @@ export const STAGES: { value: LeadStage; label: string; color: string }[] = [
 export const SOURCES: { value: LeadSource; label: string }[] = [
   { value: 'MANUAL', label: 'Manual' },
   { value: 'INDIAMART', label: 'IndiaMART' },
+  { value: 'JUSTDIAL', label: 'Just Dial' },
   { value: 'REFERRAL', label: 'Referral' },
   { value: 'WEBSITE', label: 'Website' },
   { value: 'WHATSAPP', label: 'WhatsApp' },

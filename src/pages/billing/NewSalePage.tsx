@@ -166,6 +166,7 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     dlNumber: z.string().optional(),
     registrationNumber: z.string().optional(),
     referredBy: mode === 'invoice' ? z.string().min(1, 'Please select a salesperson') : z.string().optional(),
+    source: z.string().optional(),
     notes: z.string().optional(),
     // Customer-level consent for transactional WhatsApp messages. Defaults
     // to true; the New Sale form omits the toggle for quick walk-in adds,
@@ -191,6 +192,19 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
 }
 
 const customerSchema = buildCustomerSchema('invoice')
+
+// How the customer was acquired. Optional; fixed list keeps reporting consistent.
+const CUSTOMER_SOURCES = [
+  'Walk-in',
+  'Referral',
+  'IndiaMART',
+  'Just Dial',
+  'WhatsApp',
+  'Social Media',
+  'Website',
+  'Advertisement',
+  'Other',
+] as const
 
 type CustomerFormValues = z.input<typeof customerSchema>
 
@@ -1494,8 +1508,20 @@ function PaymentPanel({
     { label: 'Credit', value: 'CREDIT', icon: <Clock className="h-3.5 w-3.5" /> },
   ]
 
-  const isExact = details.amountReceived > 0 && Math.abs(details.amountReceived - grandTotal) < 0.01
-  const isPartial = details.amountReceived > 0 && details.amountReceived < grandTotal
+  // On mode switch, set the default amount: Cash/UPI pre-fill the full payable;
+  // Credit starts at 0 (a cash advance is optional). Stays editable after.
+  useEffect(() => {
+    if (mode === 'CASH' || mode === 'UPI') onDetailsChange({ amountReceived: grandTotal > 0 ? grandTotal : 0 })
+    else if (mode === 'CREDIT') onDetailsChange({ amountReceived: 0 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
+
+  // Keep Cash/UPI synced to the total as items change — but leave a Credit cash
+  // advance untouched so adding items doesn't wipe what the cashier entered.
+  useEffect(() => {
+    if ((mode === 'CASH' || mode === 'UPI') && grandTotal > 0) onDetailsChange({ amountReceived: grandTotal })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grandTotal])
 
   return (
     <div className="space-y-3">
@@ -1536,39 +1562,6 @@ function PaymentPanel({
               placeholder={grandTotal.toFixed(2)}
             />
           </div>
-
-          {/* Payment type — Exact / Partial */}
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => onDetailsChange({ amountReceived: grandTotal })}
-              disabled={grandTotal <= 0}
-              className={cn(
-                'inline-flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-                isExact
-                  ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                  : 'border-border bg-background text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-700 dark:hover:text-emerald-400'
-              )}
-            >
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Exact
-            </button>
-            <button
-              type="button"
-              onClick={() => onDetailsChange({ amountReceived: Math.round((grandTotal / 2) * 100) / 100 })}
-              disabled={grandTotal <= 0}
-              className={cn(
-                'inline-flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-                isPartial
-                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                  : 'border-border bg-background text-muted-foreground hover:border-amber-500/40 hover:text-amber-700 dark:hover:text-amber-400'
-              )}
-            >
-              <SplitSquareHorizontal className="h-3.5 w-3.5" />
-              Partial (½)
-            </button>
-          </div>
-
         </div>
       )}
 
@@ -1684,6 +1677,26 @@ function PaymentPanel({
               </div>
             )
           })()}
+          {/* Optional cash advance (down payment) on a credit sale. The rest
+              becomes the customer's outstanding credit. */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cash Received <span className="normal-case text-muted-foreground/70">(advance — optional)</span>
+            </label>
+            <Input
+              type="number"
+              value={details.amountReceived || ''}
+              onChange={(e) => onDetailsChange({ amountReceived: Math.min(parseFloat(e.target.value) || 0, grandTotal) })}
+              className="h-9 font-mono text-sm tabular-nums"
+              placeholder="0.00"
+              max={grandTotal}
+            />
+            {details.amountReceived > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                {formatCurrency(details.amountReceived)} cash now · {formatCurrency(Math.max(0, grandTotal - details.amountReceived))} to credit
+              </p>
+            )}
+          </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date <span className="text-rose-500">*</span>
@@ -2153,6 +2166,7 @@ export default function NewSalePage() {
             dlNumber: '',
             registrationNumber: '',
             referredBy: '',
+            source: '',
             notes: '',
             whatsappOptIn: true,
           })
@@ -3152,6 +3166,7 @@ export default function NewSalePage() {
         dlNumber: selectedCustomer.dlNumber ?? '',
         registrationNumber: '',
         referredBy: selectedCustomer.referredBy ?? '',
+        source: selectedCustomer.source ?? '',
         notes: selectedCustomer.notes ?? '',
       })
       setAddCustomerDialogOpen(true)
@@ -3245,6 +3260,7 @@ export default function NewSalePage() {
         dlNumber: selectedCustomer.dlNumber ?? '',
         registrationNumber: '',
         referredBy: selectedCustomer.referredBy ?? '',
+        source: selectedCustomer.source ?? '',
         notes: selectedCustomer.notes ?? '',
       })
       setAddCustomerDialogOpen(true)
@@ -3307,20 +3323,22 @@ export default function NewSalePage() {
       const grandTotalNum = Number(totals.grandTotal) || 0
       const computedAmountPaid = invoiceType === 'quotation' ? 0
         : effectivePaymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
-          : effectivePaymentMode === 'CREDIT' ? 0
+          // CREDIT can now carry an optional cash advance (down payment): the
+          // amount collected up front; the rest becomes the customer's credit.
+          : effectivePaymentMode === 'CREDIT' ? Math.min(Number(paymentDetails.amountReceived) || 0, grandTotalNum)
             : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
               : (Number(paymentDetails.amountReceived) || grandTotalNum)
       const computedChange = invoiceType === 'quotation' ? 0
         : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - grandTotalNum) : 0)
       // Status from the money actually applied to the bill (paid minus any cash
       // change handed back), not the payment mode — so a partial cash/UPI
-      // collection is PARTIAL, not PAID. The backend re-derives this too.
+      // collection (or a credit sale with a cash advance) is PARTIAL, not PAID.
+      // The backend re-derives this too.
       const netApplied = computedAmountPaid - computedChange
       const computedStatus = invoiceType === 'quotation' ? 'DRAFT'
-        : effectivePaymentMode === 'CREDIT' ? 'UNPAID'
-          : netApplied + 0.01 >= grandTotalNum ? 'PAID'
-            : netApplied > 0 ? 'PARTIAL'
-              : 'UNPAID'
+        : netApplied + 0.01 >= grandTotalNum ? 'PAID'
+          : netApplied > 0 ? 'PARTIAL'
+            : 'UNPAID'
       const payload: Record<string, unknown> = {
         type: invoiceType.toUpperCase(),
         billingType: billingType.toUpperCase(),
@@ -3591,6 +3609,7 @@ export default function NewSalePage() {
       dlNumber: '',
       registrationNumber: '',
       referredBy: '',
+      source: '',
       notes: '',
       whatsappOptIn: true,
     },
@@ -3613,6 +3632,7 @@ export default function NewSalePage() {
         gstin: values.gstin || undefined,
         dlNumber: values.dlNumber || undefined,
         referredBy: values.referredBy || undefined,
+        source: values.source || undefined,
         notes: values.notes || undefined,
         creditLimit: 0,
         currentOutstanding: 0,
@@ -4596,6 +4616,25 @@ export default function NewSalePage() {
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address *</Label>
                         <Textarea {...customerForm.register('address')} placeholder="Full address" rows={1} className="min-h-9 resize-none" />
                         {customerForm.formState.errors.address && <p className="text-xs text-rose-500">{customerForm.formState.errors.address.message}</p>}
+                      </div>
+                    </div>
+
+                    {/* Row 5: Source (optional, half width) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                        <Controller control={customerForm.control} name="source" render={({ field }) => (
+                          <Select value={field.value || ''} onValueChange={field.onChange}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="How acquired?" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CUSTOMER_SOURCES.map((s) => (
+                                <SelectItem key={s} value={s}>{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )} />
                       </div>
                     </div>
 

@@ -8,6 +8,7 @@ import { Toaster } from 'sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import AppLayout from '@/components/layout/AppLayout'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { PremiumLoader } from '@/components/shared/PremiumLoader'
 import NotFoundPage from '@/pages/NotFoundPage'
 import '@/i18n'
 
@@ -220,14 +221,7 @@ function AccessDenied({ role }: { role?: string }) {
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
 function LoadingFallback() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    </div>
-  )
+  return <PremiumLoader />
 }
 
 function App() {

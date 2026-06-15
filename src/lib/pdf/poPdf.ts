@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable'
 import { printPdfInPage } from '@/lib/printUtils'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { formatDate } from '@/lib/utils'
+import { getPdfLogo } from '@/lib/pdf/logo'
 
 const DEFAULT_COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
@@ -51,6 +52,11 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
   const company = getCompany()
+
+  const logo = getPdfLogo()
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', 14, 8, 18, 18) } catch { /* bad image — skip */ }
+  }
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)

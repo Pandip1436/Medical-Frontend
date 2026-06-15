@@ -175,6 +175,72 @@ export default function LoginPage({
           --ms-mint: #a7f3d0;
           --ms-indigo: #6366f1;
         }
+        /* Premium 3D outer ring around the brand logo. A metallic conic
+           gradient bezel + outer drop shadow for lift, an inset highlight for
+           a glassy top edge, and a soft inner shadow so the logo sits recessed
+           inside the rim. A slow specular sweep keeps it feeling alive. */
+        .ms-logo-3d {
+          background:
+            conic-gradient(from 210deg,
+              #ffffff 0deg, #cfd8e6 70deg, #8b97ad 140deg,
+              #ffffff 210deg, #aab6c8 290deg, #ffffff 360deg);
+          box-shadow:
+            0 10px 24px -8px rgba(10, 22, 40, 0.55),
+            0 2px 6px -2px rgba(10, 22, 40, 0.35),
+            inset 0 2px 3px rgba(255, 255, 255, 0.9),
+            inset 0 -3px 6px rgba(10, 22, 40, 0.35);
+          transform: perspective(300px) rotateX(0deg) rotateY(0deg) translateY(0);
+          transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                      box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        /* Hover: lift + subtle 3D tilt toward the light, deeper shadow. */
+        .ms-logo-3d:hover {
+          transform: perspective(300px) rotateX(8deg) rotateY(-10deg) translateY(-3px);
+          box-shadow:
+            0 18px 34px -10px rgba(10, 22, 40, 0.6),
+            0 4px 10px -2px rgba(10, 22, 40, 0.4),
+            inset 0 2px 3px rgba(255, 255, 255, 0.95),
+            inset 0 -3px 6px rgba(10, 22, 40, 0.4);
+        }
+        /* Static glassy top highlight. */
+        .ms-logo-3d::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: 9999px;
+          background: linear-gradient(160deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0) 42%);
+          pointer-events: none;
+          z-index: 2;
+        }
+        /* Slow rotating specular shine sweeping around the bezel. */
+        @keyframes ms-logo-shine {
+          to { transform: rotate(360deg); }
+        }
+        .ms-logo-3d::before {
+          content: '';
+          position: absolute;
+          inset: -2px;
+          border-radius: 9999px;
+          background: conic-gradient(from 0deg,
+            rgba(255,255,255,0) 0deg,
+            rgba(255,255,255,0) 60deg,
+            rgba(255,255,255,0.85) 95deg,
+            rgba(255,255,255,0) 130deg,
+            rgba(255,255,255,0) 360deg);
+          pointer-events: none;
+          z-index: 2;
+          animation: ms-logo-shine 6s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ms-logo-3d::before { animation: none; opacity: 0.5; }
+          .ms-logo-3d, .ms-logo-3d:hover { transition: none; }
+        }
+        .ms-logo-3d img {
+          box-shadow: inset 0 1px 2px rgba(255,255,255,0.6), inset 0 -2px 5px rgba(10,22,40,0.45);
+          position: relative;
+          z-index: 1;
+        }
+
         .ms-font-display { font-family: 'Fraunces', Georgia, serif; font-feature-settings: 'ss01' on; }
         .ms-font-body { font-family: 'Outfit', ui-sans-serif, system-ui, sans-serif; }
         .ms-font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
@@ -316,10 +382,13 @@ export default function LoginPage({
 
             {/* Brand row */}
             <div className="ms-reveal flex items-center gap-3" style={{ animationDelay: '0ms' }}>
-              <div className="relative h-10 w-10 rounded-xl bg-[#0a1628] flex items-center justify-center rotate-6 shadow-[0_8px_20px_-8px_rgba(10,22,40,0.5)]">
-                <svg viewBox="0 0 24 24" className="h-4.5 w-4.5 -rotate-6" fill="none" stroke="#22d3c5" strokeWidth="2.4" strokeLinecap="round">
-                  <path d="M12 4v16M4 12h16" />
-                </svg>
+              <div className="ms-logo-3d relative h-16 w-16 shrink-0 rounded-full p-[3px]">
+                <img
+                  src="/logo.png"
+                  alt="Hospital Suppliers"
+                  className="h-full w-full rounded-full object-cover"
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
               </div>
               <div className="flex items-center gap-2.5">
                 <span className="ms-font-display text-[20px] font-medium tracking-tight text-[#0a1628]">Hospital Suppliers</span>

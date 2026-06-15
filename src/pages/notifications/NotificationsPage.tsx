@@ -3,7 +3,7 @@ import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
   CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff,
-  Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown, ListFilter,
+  Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown, ListFilter, Wallet,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ import type { Notification } from '@/types'
 import { isSuperAdmin } from '@/types'
 
 // ─── Category config ──────────────────────────────────────────
-type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'APPROVAL' | 'REMINDER'
+type CategoryKey = 'all' | 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'SUPPLIER_PAYMENT_DUE' | 'APPROVAL' | 'REMINDER'
 
 const CATEGORIES: {
   key: CategoryKey
@@ -36,6 +36,7 @@ const CATEGORIES: {
   { key: 'LOW_STOCK',   label: 'Low Stock',   icon: Package,       accent: 'text-amber-600 dark:text-amber-400',    roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'EXPIRY',      label: 'Expiry',      icon: Clock,         accent: 'text-red-600 dark:text-red-400',        roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'PAYMENT_DUE', label: 'Payment Due', icon: IndianRupee,   accent: 'text-blue-600 dark:text-blue-400',      roles: ['ADMIN', 'PHARMACIST', 'ACCOUNTANT'] },
+  { key: 'SUPPLIER_PAYMENT_DUE', label: 'Supplier Due', icon: Wallet, accent: 'text-orange-600 dark:text-orange-400', roles: ['ADMIN', 'ACCOUNTANT', 'INVENTORY_MANAGER'] },
   { key: 'APPROVAL',    label: 'Requests',    icon: ShieldCheck,   accent: 'text-emerald-600 dark:text-emerald-400', roles: ['ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER'] },
   { key: 'REMINDER',    label: 'Follow-ups',  icon: CalendarClock, accent: 'text-cyan-600 dark:text-cyan-400',      roles: null },
 ]
@@ -63,6 +64,7 @@ const typeConfig: Record<Notification['type'], { label: string; icon: typeof Pac
   LOW_STOCK:   { label: 'Low Stock',   icon: Package,       tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
   EXPIRY:      { label: 'Expiry',      icon: Clock,         tone: 'text-red-600 dark:text-red-400 bg-red-500/10' },
   PAYMENT_DUE: { label: 'Payment Due', icon: IndianRupee,   tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
+  SUPPLIER_PAYMENT_DUE: { label: 'Supplier Due', icon: Wallet, tone: 'text-orange-600 dark:text-orange-400 bg-orange-500/10' },
   SYSTEM:      { label: 'System',      icon: AlertTriangle, tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
   APPROVAL:    { label: 'Approval',    icon: ShieldCheck,   tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
 }
@@ -220,6 +222,17 @@ function withPhone(name: string, phone: string | null): string {
   return phone ? `${name} · ${phone}` : name
 }
 
+// "Due in Xd" / "Due today" / "Overdue Xd" computed live from the due date
+// stored on a Payment Due alert's entityState. Empty string when no due date.
+function dueLabel(n: Notification): string {
+  const dd = (n.entityState as { dueDate?: unknown } | null)?.dueDate
+  if (typeof dd !== 'string' || !dd) return ''
+  const d = new Date(dd)
+  if (isNaN(d.getTime())) return ''
+  const days = Math.ceil((d.getTime() - Date.now()) / 86_400_000)
+  return days > 0 ? `Due in ${days}d` : days === 0 ? 'Due today' : `Overdue ${-days}d`
+}
+
 function formatDetail(n: Notification, resolvePhone: PhoneResolver): Detail {
   const message = cleanMessage(n.message)
   if (isReminder(n)) {
@@ -240,7 +253,23 @@ function formatDetail(n: Notification, resolvePhone: PhoneResolver): Detail {
       const customer = legacy?.[1] ?? cur?.[1]
       const amount = legacy?.[2] ?? cur?.[2]
       if (customer && amount) {
-        return { lead: withPhone(customer, resolvePhone(n, customer)), rest: `₹${amount} outstanding` }
+        const due = dueLabel(n)
+        return {
+          lead: withPhone(customer, resolvePhone(n, customer)),
+          rest: `₹${amount} outstanding${due ? ` · ${due}` : ''}`,
+        }
+      }
+      break
+    }
+    case 'SUPPLIER_PAYMENT_DUE': {
+      const m = message.match(/^(.+?)\s+—\s+₹([\d,.]+)\s+payable(?:\s+·\s+PE\s+(\S+))?/i)
+      if (m) {
+        const days = (n.entityState as { daysOutstanding?: unknown } | null)?.daysOutstanding
+        const pending = typeof days === 'number' && days > 0 ? ` · Pending ${days}d` : ''
+        return {
+          lead: m[1],
+          rest: `₹${m[2]} payable${m[3] ? ` · PE ${m[3].replace(/\.$/, '')}` : ''}${pending}`,
+        }
       }
       break
     }
@@ -316,8 +345,13 @@ interface ColumnDef {
 const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
   PAYMENT_DUE: [
     { key: 'customer',  label: 'Customer' },
-    { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-32' },
-    { key: 'aged',      label: 'Aged',        align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-24' },
+    { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-28' },
+    { key: 'due',       label: 'Due',         align: 'right', className: 'tabular-nums', width: 'w-28' },
+  ],
+  SUPPLIER_PAYMENT_DUE: [
+    { key: 'supplier',  label: 'Supplier' },
+    { key: 'amount',    label: 'Payable',     align: 'right', className: 'font-medium tabular-nums', width: 'w-32' },
+    { key: 'pending',   label: 'Pending',     align: 'right', className: 'tabular-nums', width: 'w-28' },
   ],
   EXPIRY: [
     { key: 'product',   label: 'Product' },
@@ -387,16 +421,32 @@ function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<s
     case 'PAYMENT_DUE': {
       // Current: "<customer> has ₹<amount> outstanding · Invoice <invNo>."
       // Legacy:  "Invoice <invNo> for <customer> has ₹<amount> outstanding."
-      const aged =
-        typeof state.daysOutstanding === 'number' && state.daysOutstanding > 0
-          ? `${state.daysOutstanding}d`
-          : '—'
       const legacy = message.match(/^Invoice\s+\S+\s+for\s+(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
       const cur = legacy ? null : message.match(/^(.+?)\s+has\s+₹([\d,.]+)\s+outstanding/i)
       const customer = legacy?.[1] ?? cur?.[1]
       const amount = legacy?.[2] ?? cur?.[2]
+      // Invoice number appears as "Invoice <invNo>" in both phrasings.
+      const invoice = message.match(/Invoice\s+([^\s.]+)/i)?.[1] ?? '—'
+      // Days-to-due, computed live from the stored due date.
+      const due = dueLabel(n) || '—'
       if (customer && amount) {
-        return { customer, phone: resolvePhone(n, customer) ?? '', amount: `₹${amount}`, aged }
+        return { customer, phone: resolvePhone(n, customer) ?? '', amount: `₹${amount}`, invoice, due }
+      }
+      break
+    }
+    case 'SUPPLIER_PAYMENT_DUE': {
+      // "<supplier> — ₹<amount> payable · PE <grnNo>. [grnId:…]"
+      // No due date for supplier dues — "pending" is the age since the supplier
+      // invoice date (days the payable has been outstanding).
+      const pending =
+        typeof state.daysOutstanding === 'number' && state.daysOutstanding > 0
+          ? `${state.daysOutstanding}d`
+          : '—'
+      const m = message.match(/^(.+?)\s+—\s+₹([\d,.]+)\s+payable/i)
+      const supplier = (state.supplierName as string) || m?.[1]
+      const amount = m?.[2]
+      if (supplier && amount) {
+        return { supplier, amount: `₹${amount}`, pending }
       }
       break
     }
@@ -695,7 +745,7 @@ export default function NotificationsPage() {
 
   // ── Per-category unread counts ────────────────────────────
   const categoryCounts = useMemo(() => {
-    const counts: Record<CategoryKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, APPROVAL: 0, REMINDER: 0 }
+    const counts: Record<CategoryKey, number> = { all: 0, LOW_STOCK: 0, EXPIRY: 0, PAYMENT_DUE: 0, SUPPLIER_PAYMENT_DUE: 0, APPROVAL: 0, REMINDER: 0 }
     for (const n of notifications) {
       if (n.isRead) continue
       counts.all++
@@ -1402,6 +1452,8 @@ function clusterContainerColors(key: ClusterKey): { borderLeft: string; bg: stri
       return { borderLeft: 'border-l-red-400 dark:border-l-red-600',     bg: 'bg-red-50/40 dark:bg-red-950/15' }
     case 'PAYMENT_DUE':
       return { borderLeft: 'border-l-blue-400 dark:border-l-blue-600',   bg: 'bg-blue-50/40 dark:bg-blue-950/15' }
+    case 'SUPPLIER_PAYMENT_DUE':
+      return { borderLeft: 'border-l-orange-400 dark:border-l-orange-600', bg: 'bg-orange-50/40 dark:bg-orange-950/15' }
     case 'APPROVAL':
       return { borderLeft: 'border-l-emerald-400 dark:border-l-emerald-600', bg: 'bg-emerald-50/40 dark:bg-emerald-950/15' }
     case 'REMINDER':

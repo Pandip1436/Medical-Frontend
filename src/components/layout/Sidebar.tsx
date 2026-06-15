@@ -352,9 +352,18 @@ export function Sidebar({ currentPath }: SidebarProps) {
       onClick={handleNavLinkClick('/dashboard')}
       className="flex h-16 items-center gap-3 px-4 cursor-pointer hover:bg-sidebar-accent/30 transition-colors"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand shadow-lg shadow-brand/20">
-        <Pill className="h-4 w-4 text-white" />
-      </div>
+      <img
+        src="/logo.png"
+        alt="Hospital Suppliers"
+        className="h-9 w-9 shrink-0 rounded-full object-cover shadow-lg shadow-brand/20"
+        // Fall back to the brand pill mark if the logo file isn't present.
+        onError={(e) => {
+          const el = e.currentTarget
+          el.onerror = null
+          el.src =
+            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Crect width='36' height='36' rx='18' fill='%23e11d48'/%3E%3C/svg%3E"
+        }}
+      />
       {!collapsed && (
         <motion.div
           initial={{ opacity: 0, x: -8 }}

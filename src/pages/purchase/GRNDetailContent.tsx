@@ -475,9 +475,12 @@ export function GRNDetailContent({
 </head>
 <body>
   <div class="doc-header">
-    <div>
-      <div class="org-name">${orgName}</div>
-      <div class="org-sub">${orgSub}</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <img src="${location.origin}/logo.png" alt="" style="height:44px;width:44px;border-radius:50%;object-fit:cover" onerror="this.style.display='none'" />
+      <div>
+        <div class="org-name">${orgName}</div>
+        <div class="org-sub">${orgSub}</div>
+      </div>
     </div>
     <div style="text-align:center">
       <div class="doc-title">Purchase Entry</div>

@@ -21,6 +21,8 @@ import {
   Camera,
   Download,
   Stethoscope,
+  Wallet,
+  CheckCircle2,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
@@ -114,6 +116,19 @@ const itemVariants: Variants = {
 // Zod schema
 // ─────────────────────────────────────────────────────────────
 
+// How the customer was acquired. Optional; fixed list keeps reporting consistent.
+const CUSTOMER_SOURCES = [
+  'Walk-in',
+  'Referral',
+  'IndiaMART',
+  'Just Dial',
+  'WhatsApp',
+  'Social Media',
+  'Website',
+  'Advertisement',
+  'Other',
+] as const
+
 const customerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   phone: z
@@ -128,6 +143,7 @@ const customerSchema = z.object({
   dlNumber: z.string().optional(),
   registrationNumber: z.string().optional(),
   referredBy: z.string().min(1, 'Please select a salesperson'),
+  source: z.string().optional(),
   notes: z.string().optional(),
   // Toggle whether this customer receives transactional WhatsApp messages
   // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
@@ -198,6 +214,12 @@ const GSTIN_OPTIONS = [
   { value: 'none', label: 'No GSTIN' },
 ] as const
 
+const SOURCE_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Sources' },
+  ...CUSTOMER_SOURCES.map((s) => ({ value: s, label: s })),
+  { value: 'none', label: 'No source' },
+] as const
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -215,6 +237,9 @@ const CUSTOMER_COLUMNS: ColumnDef[] = [
   { id: 'name', label: 'Name', required: true, defaultVisible: true },
   { id: 'phone', label: 'Phone', defaultVisible: true },
   { id: 'type', label: 'Type', defaultVisible: true },
+  { id: 'source', label: 'Source', defaultVisible: true },
+  { id: 'totalAmount', label: 'Total Amount', defaultVisible: true },
+  { id: 'paidAmount', label: 'Paid Amount', defaultVisible: true },
   { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
 ]
 
@@ -238,10 +263,12 @@ export default function CustomersPage() {
   const [refreshToken, setRefreshToken] = useState(0)
 
   // Global summary (for the top stat cards — stable across filter changes)
-  const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number }>({
+  const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number; totalAmount: number; paidAmount: number }>({
     total: 0,
     withOutstanding: 0,
     totalOutstanding: 0,
+    totalAmount: 0,
+    paidAmount: 0,
   })
 
   // Filters + pagination. Filters persisted to sessionStorage so they survive
@@ -251,6 +278,7 @@ export default function CustomersPage() {
   const [customerTypeFilter, setCustomerTypeFilter] = usePersistedState<string>('filters:customers.list:type', 'all')
   const [outstandingFilter, setOutstandingFilter] = usePersistedState<string>('filters:customers.list:outstanding', 'all')
   const [gstinFilter, setGstinFilter] = usePersistedState<string>('filters:customers.list:gstin', 'all')
+  const [sourceFilter, setSourceFilter] = usePersistedState<string>('filters:customers.list:source', 'all')
 
   // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -334,8 +362,9 @@ export default function CustomersPage() {
     if (customerTypeFilter !== 'all') params.set('customerType', customerTypeFilter)
     if (outstandingFilter !== 'all') params.set('hasOutstanding', outstandingFilter === 'has' ? 'true' : 'false')
     if (gstinFilter !== 'all') params.set('hasGstin', gstinFilter === 'has' ? 'true' : 'false')
+    if (sourceFilter !== 'all') params.set('customerSource', sourceFilter)
     return params
-  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter])
+  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter])
 
   const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -364,32 +393,44 @@ export default function CustomersPage() {
     return () => clearTimeout(handle)
   }, [buildQueryParams, searchQuery, refreshToken])
 
-  // ── Global summary (does NOT depend on filters) ──
+  // ── Summary stat cards — reflect the active filters (same query the list
+  // uses, minus pagination) so the totals track whatever the operator has
+  // narrowed to. ──
   const fetchSummary = useCallback(async () => {
     try {
-      const res = await api.get('/customers/summary')
+      const params = buildQueryParams()
+      params.delete('skip')
+      params.delete('take')
+      const res = await api.get(`/customers/summary?${params.toString()}`)
       const data = res.data?.data ?? res.data
       if (data) setSummary(data)
     } catch { /* silent — leaves last good values */ }
-  }, [])
+  }, [buildQueryParams])
 
-  useEffect(() => { fetchSummary() }, [fetchSummary])
+  // Debounce so typing in the search box doesn't fire a summary request per
+  // keystroke — mirrors the list fetch's debounce.
+  useEffect(() => {
+    const handle = setTimeout(() => { fetchSummary() }, 250)
+    return () => clearTimeout(handle)
+  }, [fetchSummary, refreshToken])
   useBranchRefresh(fetchSummary)
 
   // Reset page to 1 whenever any filter or search changes
-  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter])
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const activeFilterCount =
     (customerTypeFilter !== 'all' ? 1 : 0) +
     (outstandingFilter !== 'all' ? 1 : 0) +
-    (gstinFilter !== 'all' ? 1 : 0)
+    (gstinFilter !== 'all' ? 1 : 0) +
+    (sourceFilter !== 'all' ? 1 : 0)
 
   const clearFilters = () => {
     setCustomerTypeFilter('all')
     setOutstandingFilter('all')
     setGstinFilter('all')
+    setSourceFilter('all')
   }
 
   // Refresh list + summary + the global master-data cache (used by other pages' dropdowns).
@@ -506,6 +547,7 @@ export default function CustomersPage() {
       dlNumber: '',
       registrationNumber: '',
       referredBy: '',
+      source: '',
       notes: '',
       whatsappOptIn: true,
     },
@@ -541,6 +583,7 @@ export default function CustomersPage() {
       dlNumber: customer.dlNumber ?? '',
       registrationNumber: (customer as { registrationNumber?: string }).registrationNumber ?? '',
       referredBy: customer.referredBy ?? '',
+      source: customer.source ?? '',
       notes: customer.notes ?? '',
       // Legacy customers with null/undefined whatsappOptIn → treat as opted in
       // (matches the schema default of true).
@@ -613,7 +656,7 @@ export default function CustomersPage() {
       className="space-y-6"
     >
       {/* ─── Summary Cards (clickable drill-down → drives the Outstanding filter) ─── */}
-      <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+      <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
         {([
           {
             label: 'Total Customers',
@@ -637,6 +680,27 @@ export default function CustomersPage() {
             activeRing: 'ring-2 ring-amber-500/50',
           },
           {
+            label: 'Total Amount',
+            value: formatCurrency(summary.totalAmount),
+            subtitle: 'billed across all invoices',
+            icon: Wallet,
+            iconBg: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
+            borderAccent: 'border-l-violet-500',
+            // Informational only — not a filter.
+            filterKey: null,
+            activeRing: '',
+          },
+          {
+            label: 'Paid Amount',
+            value: formatCurrency(summary.paidAmount),
+            subtitle: 'collected across all invoices',
+            icon: CheckCircle2,
+            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            borderAccent: 'border-l-emerald-500',
+            filterKey: null,
+            activeRing: '',
+          },
+          {
             label: 'Total Outstanding',
             value: formatCurrency(summary.totalOutstanding),
             subtitle: 'across all customers',
@@ -648,21 +712,33 @@ export default function CustomersPage() {
             filterKey: 'has' as const,
             activeRing: 'ring-2 ring-rose-500/50',
           },
-        ]).map((stat) => {
-          const active = stat.filterKey === 'all'
+        ] as Array<{
+          label: string
+          value: string
+          subtitle: string
+          icon: typeof Users
+          iconBg: string
+          borderAccent: string
+          filterKey: 'all' | 'has' | null
+          activeRing: string
+        }>).map((stat) => {
+          const interactive = stat.filterKey !== null
+          const active = !interactive
+            ? false
+            : stat.filterKey === 'all'
             ? outstandingFilter === 'all'
             : outstandingFilter === stat.filterKey
-          const apply = () => { setOutstandingFilter(stat.filterKey); setCurrentPage(1) }
+          const apply = () => { if (stat.filterKey !== null) { setOutstandingFilter(stat.filterKey); setCurrentPage(1) } }
           return (
           <Card
             key={stat.label}
-            hover
-            role="button"
-            tabIndex={0}
-            title={stat.filterKey === 'all' ? 'Show all customers' : 'Filter to customers with outstanding dues'}
-            onClick={apply}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }}
-            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+            hover={interactive}
+            role={interactive ? 'button' : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            title={interactive ? (stat.filterKey === 'all' ? 'Show all customers' : 'Filter to customers with outstanding dues') : undefined}
+            onClick={interactive ? apply : undefined}
+            onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } } : undefined}
+            className={cn('border-l-[3px] transition-shadow', interactive && 'cursor-pointer', stat.borderAccent, active && stat.activeRing)}
           >
             <CardContent className="flex items-center gap-4 p-4">
               <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
@@ -691,7 +767,7 @@ export default function CustomersPage() {
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
@@ -707,13 +783,20 @@ export default function CustomersPage() {
           </div>
         }
       >
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <EnumSelect
             label="Type"
             value={customerTypeFilter}
             onValueChange={setCustomerTypeFilter}
             onClear={() => setCustomerTypeFilter('all')}
             options={CUSTOMER_TYPE_OPTIONS}
+          />
+          <EnumSelect
+            label="Source"
+            value={sourceFilter}
+            onValueChange={setSourceFilter}
+            onClear={() => setSourceFilter('all')}
+            options={SOURCE_FILTER_OPTIONS}
           />
           <EnumSelect
             label="Outstanding"
@@ -832,6 +915,9 @@ export default function CustomersPage() {
                   <TableHead>Name</TableHead>
                   {cols.isVisible('phone') && <TableHead>Phone</TableHead>}
                   {cols.isVisible('type') && <TableHead>Type</TableHead>}
+                  {cols.isVisible('source') && <TableHead>Source</TableHead>}
+                  {cols.isVisible('totalAmount') && <TableHead className="text-right">Total Amount</TableHead>}
+                  {cols.isVisible('paidAmount') && <TableHead className="text-right">Paid Amount</TableHead>}
                   {cols.isVisible('outstanding') && <TableHead className="text-right">Outstanding</TableHead>}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -900,6 +986,25 @@ export default function CustomersPage() {
                       >
                         {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                       </Badge>
+                    </TableCell>
+                    )}
+                    {cols.isVisible('source') && (
+                    <TableCell>
+                      {customer.source ? (
+                        <Badge variant="secondary" size="sm">{customer.source}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
+                    )}
+                    {cols.isVisible('totalAmount') && (
+                    <TableCell className="text-right font-mono text-[15px] font-semibold">
+                      {formatCurrency(customer.totalAmount ?? 0)}
+                    </TableCell>
+                    )}
+                    {cols.isVisible('paidAmount') && (
+                    <TableCell className="text-right font-mono text-[15px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(customer.paidAmount ?? 0)}
                     </TableCell>
                     )}
                     {cols.isVisible('outstanding') && (
@@ -1044,7 +1149,7 @@ export default function CustomersPage() {
                 </div>
               )}
 
-              {/* Row 4: Referred By (half width) */}
+              {/* Row 4: Referred By + Source */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
@@ -1061,6 +1166,21 @@ export default function CustomersPage() {
                     </Select>
                   )} />
                   {form.formState.errors.referredBy && <p className="text-xs text-rose-500">{form.formState.errors.referredBy.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                  <Controller control={form.control} name="source" render={({ field }) => (
+                    <Select value={field.value || ''} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="How acquired?" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CUSTOMER_SOURCES.map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )} />
                 </div>
               </div>
 

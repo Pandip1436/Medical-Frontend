@@ -4,7 +4,6 @@ import {
   Bell,
   Sun,
   Moon,
-  Globe,
   ChevronRight,
   User,
   Settings,
@@ -50,7 +49,7 @@ const roleRingColors: Record<string, string> = {
 }
 
 export function Header({ breadcrumbs }: HeaderProps) {
-  const { user, theme, setTheme, resolvedTheme, language, setLanguage, logout, toggleMobileSidebar } =
+  const { user, theme, setTheme, resolvedTheme, logout, toggleMobileSidebar } =
     useAuthStore()
   const { unreadCount, fetchNotifications, startPolling } = useNotificationStore()
   const { branches, activeBranch, setActiveBranch, fetchBranches } = useBranchStore()
@@ -86,12 +85,6 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
   const unread = unreadCount()
 
-  const languageLabels: Record<string, string> = {
-    en: 'English',
-    ta: '\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD',
-    hi: '\u0939\u093F\u0928\u094D\u0926\u0940',
-  }
-
   const userRole = user?.role || 'admin'
   const ringColor = roleRingColors[userRole] || 'ring-blue-500'
 
@@ -99,9 +92,14 @@ export function Header({ breadcrumbs }: HeaderProps) {
     <header
       className={cn(
         'sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:px-6',
-        'border-b border-border/40 dark:border-border/60',
-        'bg-background/80 backdrop-blur-xl backdrop-saturate-180',
-        'supports-backdrop-filter:bg-background/60'
+        'relative border-b border-border/40 dark:border-border/60',
+        'bg-gradient-to-b from-background/90 to-background/65 backdrop-blur-xl backdrop-saturate-180',
+        'supports-backdrop-filter:bg-background/55',
+        'shadow-[0_1px_2px_-1px_rgb(0_0_0/0.06),0_4px_16px_-8px_rgb(0_0_0/0.08)]',
+        // Brand-tinted hairline that fades in from the edges — adds depth
+        // without a hard line under the bar.
+        'after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px',
+        'after:bg-gradient-to-r after:from-transparent after:via-brand/40 after:to-transparent'
       )}
     >
       {/* Left: Hamburger (mobile) + Breadcrumbs */}
@@ -126,12 +124,13 @@ export function Header({ breadcrumbs }: HeaderProps) {
               {crumb.href ? (
                 <a
                   href={crumb.href}
-                  className="text-muted-foreground transition-colors hover:text-foreground"
+                  className="rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 >
                   {crumb.label}
                 </a>
               ) : (
-                <span className="font-semibold text-foreground">
+                <span className="flex items-center gap-1.5 font-semibold text-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_0] shadow-brand/50" />
                   {crumb.label}
                 </span>
               )}
@@ -154,7 +153,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex"
+                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-gradient-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow md:flex"
                 >
                   <Building2 className="h-3.5 w-3.5 text-primary" />
                   <span className="max-w-30 truncate">{activeBranch.name}</span>
@@ -189,77 +188,57 @@ export function Header({ breadcrumbs }: HeaderProps) {
           )
         )}
 
-        {/* Notification Bell — navigates straight to notifications page */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative h-8 w-8"
-          onClick={() => routerNavigate('/notifications')}
-          aria-label={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
-        >
-          <Bell className="h-4 w-4" />
-          <AnimatePresence>
-            {unread > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground"
-              >
-                {unread > 9 ? '9+' : unread}
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </Button>
-
-        {/* Theme Toggle with rotation animation */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={toggleTheme}
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={currentTheme}
-              initial={{ rotate: -180, opacity: 0, scale: 0.5 }}
-              animate={{ rotate: 0, opacity: 1, scale: 1 }}
-              exit={{ rotate: 180, opacity: 0, scale: 0.5 }}
-              transition={{ duration: 0.3, ease: 'easeInOut' }}
-            >
-              {currentTheme === 'dark' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </motion.div>
-          </AnimatePresence>
-        </Button>
-
-        {/* Language Selector - hidden on mobile */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex">
-              <Globe className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Language</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {(Object.entries(languageLabels) as [string, string][]).map(
-              ([code, label]) => (
-                <DropdownMenuItem
-                  key={code}
-                  onClick={() => setLanguage(code as 'en' | 'ta' | 'hi')}
-                  className={cn(language === code && 'bg-accent')}
+        {/* Control cluster — bell / theme / language grouped into a single
+            glass pill for a more premium, cohesive toolbar. */}
+        <div className="flex items-center gap-0.5 rounded-full border border-border/50 bg-muted/40 p-0.5 shadow-sm backdrop-blur-sm">
+          {/* Notification Bell — navigates straight to notifications page */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-8 w-8 rounded-full hover:bg-accent"
+            onClick={() => routerNavigate('/notifications')}
+            aria-label={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
+          >
+            <Bell className="h-4 w-4" />
+            <AnimatePresence>
+              {unread > 0 && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                  className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground ring-2 ring-background"
                 >
-                  {label}
-                </DropdownMenuItem>
-              )
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                  {unread > 9 ? '9+' : unread}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </Button>
+
+          {/* Theme Toggle with rotation animation */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full hover:bg-accent"
+            onClick={toggleTheme}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={currentTheme}
+                initial={{ rotate: -180, opacity: 0, scale: 0.5 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: 180, opacity: 0, scale: 0.5 }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+              >
+                {currentTheme === 'dark' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </Button>
+        </div>
 
         <Separator
           orientation="vertical"
@@ -271,11 +250,11 @@ export function Header({ breadcrumbs }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="gap-2 rounded-full px-1.5 py-1 md:pr-3"
+              className="gap-2 rounded-full px-1.5 py-1 transition-colors hover:bg-accent/60 md:pr-3"
             >
               <Avatar
                 className={cn(
-                  'h-7 w-7 ring-2 ring-offset-1 ring-offset-background',
+                  'h-7 w-7 ring-2 ring-offset-2 ring-offset-background shadow-sm transition-transform hover:scale-105',
                   ringColor
                 )}
               >

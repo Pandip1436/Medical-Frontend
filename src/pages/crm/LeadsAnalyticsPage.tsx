@@ -65,6 +65,7 @@ const STAGE_HEX: Record<LeadStage, string> = {
 const SOURCE_HEX: Record<LeadSource, string> = {
   MANUAL: '#64748b', // slate
   INDIAMART: '#0ea5e9', // sky
+  JUSTDIAL: '#f97316', // orange
   REFERRAL: '#8b5cf6', // violet
   WEBSITE: '#06b6d4', // cyan
   WHATSAPP: '#22c55e', // green

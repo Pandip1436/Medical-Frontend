@@ -72,6 +72,7 @@ export interface Customer {
   type: 'RETAIL' | 'WHOLESALE' | 'DOCTOR'
   doctorRef?: string
   referredBy?: string
+  source?: string   // how the customer was acquired (Walk-in, Referral, …)
   creditLimit: number
   currentOutstanding: number
   gstin?: string
@@ -79,6 +80,8 @@ export interface Customer {
   notes?: string
   createdAt: string
   pendingCreditCount?: number   // number of CREDIT/PARTIAL invoices
+  totalAmount?: number          // sum of grandTotal across real invoices
+  paidAmount?: number           // sum of amountPaid across real invoices
 }
 
 export interface Supplier {
@@ -314,7 +317,7 @@ export interface Notification {
   id: string
   title: string
   message: string
-  type: 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'SYSTEM' | 'APPROVAL'
+  type: 'LOW_STOCK' | 'EXPIRY' | 'PAYMENT_DUE' | 'SUPPLIER_PAYMENT_DUE' | 'SYSTEM' | 'APPROVAL'
   isRead: boolean
   timestamp: string   // mapped from createdAt on fetch
   createdAt?: string
