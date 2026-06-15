@@ -32,6 +32,9 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
   const grandTotal = num(invoice.grandTotal)
   const amountPaid = num(invoice.amountPaid)
   const change = num(invoice.changeReturned)
+  // Remaining payable after part-payment (credit / partial sales). Clamp at 0
+  // so fully-paid invoices never show a negative balance.
+  const balanceDue = Math.max(0, grandTotal - amountPaid)
 
   const totalsRows: { label: string; value: string; rose?: boolean; dim?: boolean }[] = [
     { label: 'Subtotal', value: formatCurrency(num(invoice.subtotal)) },
@@ -158,9 +161,12 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
                 Mode: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{invoice.paymentMode}</span>
               </p>
               {amountPaid > 0 && (
-                <div className="mt-1 flex gap-6 text-sm">
+                <div className="mt-1 flex flex-wrap gap-6 text-sm">
                   <span className="font-semibold text-emerald-600">Paid: {formatCurrency(amountPaid)}</span>
                   {change > 0 && <span className="text-zinc-500">Change: {formatCurrency(change)}</span>}
+                  {balanceDue > 0 && (
+                    <span className="font-semibold text-rose-500">Balance: {formatCurrency(balanceDue)}</span>
+                  )}
                 </div>
               )}
             </div>
@@ -182,6 +188,12 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
                 <span className="text-base font-black text-zinc-900 dark:text-zinc-50">Grand Total</span>
                 <span className="font-mono text-2xl font-black text-primary">{formatCurrency(grandTotal)}</span>
               </div>
+              {balanceDue > 0 && (
+                <div className="mt-1.5 flex items-center justify-between border-t border-dashed border-zinc-300 pt-1.5 dark:border-zinc-600">
+                  <span className="text-sm font-bold uppercase tracking-wide text-rose-500">Balance Due</span>
+                  <span className="font-mono text-lg font-black text-rose-500">{formatCurrency(balanceDue)}</span>
+                </div>
+              )}
             </div>
           </div>
 

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, Fragment, createCont
 import { motion, type Variants } from 'framer-motion'
 import {
   Package, Clock, IndianRupee, AlertTriangle, ShieldCheck,
-  CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff,
+  CheckCheck, Trash2, RefreshCw, FileX2, Check, Search, BellOff, Bell,
   Inbox, CalendarClock, ChevronDown, ChevronRight, ArrowUpDown, ListFilter, Wallet,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -61,12 +61,12 @@ function readFolderFromUrl(): CategoryKey {
 }
 
 const typeConfig: Record<Notification['type'], { label: string; icon: typeof Package; tone: string }> = {
-  LOW_STOCK:   { label: 'Low Stock',   icon: Package,       tone: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' },
-  EXPIRY:      { label: 'Expiry',      icon: Clock,         tone: 'text-red-600 dark:text-red-400 bg-red-500/10' },
-  PAYMENT_DUE: { label: 'Payment Due', icon: IndianRupee,   tone: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
-  SUPPLIER_PAYMENT_DUE: { label: 'Supplier Due', icon: Wallet, tone: 'text-orange-600 dark:text-orange-400 bg-orange-500/10' },
-  SYSTEM:      { label: 'System',      icon: AlertTriangle, tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10' },
-  APPROVAL:    { label: 'Approval',    icon: ShieldCheck,   tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' },
+  LOW_STOCK:   { label: 'Low Stock',   icon: Package,       tone: 'text-amber-600 dark:text-amber-400 bg-gradient-to-br from-amber-500/20 to-amber-500/5 ring-1 ring-inset ring-amber-500/20 shadow-sm' },
+  EXPIRY:      { label: 'Expiry',      icon: Clock,         tone: 'text-red-600 dark:text-red-400 bg-gradient-to-br from-red-500/20 to-red-500/5 ring-1 ring-inset ring-red-500/20 shadow-sm' },
+  PAYMENT_DUE: { label: 'Payment Due', icon: IndianRupee,   tone: 'text-blue-600 dark:text-blue-400 bg-gradient-to-br from-blue-500/20 to-blue-500/5 ring-1 ring-inset ring-blue-500/20 shadow-sm' },
+  SUPPLIER_PAYMENT_DUE: { label: 'Supplier Due', icon: Wallet, tone: 'text-orange-600 dark:text-orange-400 bg-gradient-to-br from-orange-500/20 to-orange-500/5 ring-1 ring-inset ring-orange-500/20 shadow-sm' },
+  SYSTEM:      { label: 'System',      icon: AlertTriangle, tone: 'text-purple-600 dark:text-purple-400 bg-gradient-to-br from-purple-500/20 to-purple-500/5 ring-1 ring-inset ring-purple-500/20 shadow-sm' },
+  APPROVAL:    { label: 'Approval',    icon: ShieldCheck,   tone: 'text-emerald-600 dark:text-emerald-400 bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 ring-1 ring-inset ring-emerald-500/20 shadow-sm' },
 }
 
 // Reminders are stored with type SYSTEM + a [reminderId:…] marker
@@ -76,7 +76,7 @@ const isReminder = (n: Notification) => n.type === 'SYSTEM' && n.message.include
 const reminderConfig = {
   label: 'Reminder',
   icon: CalendarClock,
-  tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10',
+  tone: 'text-cyan-600 dark:text-cyan-400 bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 ring-1 ring-inset ring-cyan-500/20 shadow-sm',
 }
 const cfgFor = (n: Notification) => (isReminder(n) ? reminderConfig : typeConfig[n.type])
 
@@ -832,14 +832,27 @@ export default function NotificationsPage() {
     <PhoneCtx.Provider value={phoneResolver}>
     <motion.div variants={containerVariants} initial="hidden" animate="visible">
       <motion.div variants={itemVariants}>
-        <Card className="overflow-hidden p-0">
-          {/* Slim toolbar — count, view filter, and global actions all live here */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
-            <p className="text-xs text-muted-foreground">
-              {categoryCounts.all > 0
-                ? <><span className="font-semibold text-foreground">{categoryCounts.all}</span> unread · {notifications.length} total</>
-                : <>You&apos;re all caught up · {notifications.length} total</>}
-            </p>
+        <Card className="overflow-hidden p-0 shadow-lg shadow-black/5 ring-1 ring-border/50">
+          {/* Premium header band — branded icon, title, live count + actions */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-gradient-to-r from-primary/[0.06] via-background/40 to-transparent px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary shadow-sm ring-1 ring-primary/15">
+                <Bell className="h-4 w-4" />
+                {categoryCounts.all > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground ring-2 ring-card">
+                    {categoryCounts.all > 99 ? '99+' : categoryCounts.all}
+                  </span>
+                )}
+              </div>
+              <div className="leading-tight">
+                <h2 className="text-sm font-semibold tracking-tight text-foreground">Notifications</h2>
+                <p className="text-[11px] text-muted-foreground">
+                  {categoryCounts.all > 0
+                    ? <><span className="font-semibold text-foreground">{categoryCounts.all}</span> unread · {notifications.length} total</>
+                    : <>You&apos;re all caught up · {notifications.length} total</>}
+                </p>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               {/* Global read filter — only meaningful in the date-grouped
                   "All" view, which is driven by the in-memory store list.
@@ -876,7 +889,7 @@ export default function NotificationsPage() {
           <div className="flex h-[calc(100vh-160px)] min-h-100 flex-col lg:flex-row">
 
             {/* ── Sidebar: categories ── */}
-            <aside className="shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r">
+            <aside className="shrink-0 border-b border-border/60 bg-gradient-to-b from-muted/30 to-transparent lg:w-56 lg:border-b-0 lg:border-r">
               <div className="px-3 py-3">
                 <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Folders
@@ -892,20 +905,20 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => selectCategory(cat.key)}
                         className={cn(
-                          'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                          'group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-all',
                           isActive
-                            ? 'bg-accent font-medium text-foreground'
+                            ? 'bg-gradient-to-r from-accent to-accent/40 font-medium text-foreground shadow-sm ring-1 ring-border/50'
                             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                         )}
                       >
                         {isActive && (
                           <motion.span
                             layoutId="sidebar-active"
-                            className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                            className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-primary shadow-[0_0_8px_0] shadow-primary/50"
                             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                           />
                         )}
-                        <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? cat.accent : '')} />
+                        <Icon className={cn('h-3.5 w-3.5 shrink-0 transition-colors', isActive ? cat.accent : 'group-hover:text-foreground')} />
                         <span className="flex-1 truncate text-[13px]">{cat.label}</span>
                         {count > 0 && (
                           <span className={cn(
@@ -1162,8 +1175,12 @@ function NotificationRow({
       }}
       className={cn(
         // grid: icon · status · title+message · time · chevron/actions
-        'group grid cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] transition-colors hover:bg-muted/40',
+        'group relative grid cursor-pointer items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] transition-colors hover:bg-muted/40',
         'grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]',
+        // Unread rows get a subtle brand tint + a left accent bar so they
+        // stand out from already-read items at a glance.
+        !n.isRead && !isResolved &&
+          'bg-primary/[0.035] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary/70 hover:bg-primary/[0.06]',
         indented && 'pl-9',
         isResolved && 'opacity-70',
       )}
@@ -1385,13 +1402,13 @@ function ClusterTable({
           on the numeric/short columns still apply via the `width` class. */}
       <table className="w-full border-collapse">
         <thead>
-          <tr className="sticky top-0 z-10 border-y border-border/40 bg-muted/40 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 backdrop-blur-sm">
-            <th className="w-6 px-3 py-2" aria-hidden></th>
+          <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
+            <th className="w-6 px-3 py-2.5" aria-hidden></th>
             {columns.map((c) => (
               <th
                 key={c.key}
                 className={cn(
-                  'px-3 py-2 text-left',
+                  'px-3 py-2.5 text-left',
                   c.align === 'right' && 'text-right',
                   c.width,
                 )}
@@ -1399,8 +1416,8 @@ function ClusterTable({
                 {c.label}
               </th>
             ))}
-            <th className="w-28 px-3 py-2 text-right">When</th>
-            <th className="w-20 px-3 py-2" aria-hidden></th>
+            <th className="w-28 px-3 py-2.5 text-right">When</th>
+            <th className="w-20 px-3 py-2.5" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — one global order so the sort toggle (newest/oldest)
@@ -1502,16 +1519,22 @@ function ClusterRow({
         }
       }}
       className={cn(
-        'group cursor-pointer transition-colors hover:bg-muted/40',
+        'group relative cursor-pointer transition-colors hover:bg-muted/40',
+        // Unread rows: faint brand tint + a left accent bar (drawn on the
+        // first cell's ::before so it survives the table layout).
+        !n.isRead && !isResolved && 'bg-primary/[0.035] hover:bg-primary/[0.06]',
         isResolved && 'opacity-70',
       )}
     >
       {/* Unread / resolved indicator */}
-      <td className="w-6 px-3 py-1.5 align-middle">
+      <td className="relative w-6 px-3 py-2 align-middle">
+        {!n.isRead && !isResolved && (
+          <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/70" aria-hidden />
+        )}
         {isResolved ? (
           <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
         ) : !n.isRead ? (
-          <span className="block h-1.5 w-1.5 rounded-full bg-primary" aria-label="Unread" />
+          <span className="block h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_0] shadow-primary/60" aria-label="Unread" />
         ) : null}
       </td>
 
@@ -1528,7 +1551,7 @@ function ClusterRow({
           <td
             key={c.key}
             className={cn(
-              'px-3 py-1.5 align-middle text-[12px]',
+              'px-3 py-2 align-middle text-[12px]',
               !isBadge && !isCustomer && 'truncate',
               c.align === 'right' && 'text-right',
               // Always highlight the primary (name/entity) column so it stands out.
@@ -1555,13 +1578,13 @@ function ClusterRow({
       })}
 
       {/* When */}
-      <td className="w-24 whitespace-nowrap px-3 py-1.5 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+      <td className="w-24 whitespace-nowrap px-3 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
         {timeAgo(n.timestamp)}
       </td>
 
       {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
       <td
-        className="w-20 px-3 py-1.5 align-middle text-right"
+        className="w-20 px-3 py-2 align-middle text-right"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -1662,12 +1685,12 @@ function AllTable({
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="sticky top-0 z-10 border-y border-border/40 bg-muted/40 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 backdrop-blur-sm">
-            <th className="w-6 px-3 py-2" aria-hidden></th>
-            <th className="w-36 px-3 py-2 text-left">Type</th>
-            <th className="px-3 py-2 text-left">Notification</th>
-            <th className="w-28 px-3 py-2 text-right">When</th>
-            <th className="w-20 px-3 py-2" aria-hidden></th>
+          <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
+            <th className="w-6 px-3 py-2.5" aria-hidden></th>
+            <th className="w-36 px-3 py-2.5 text-left">Type</th>
+            <th className="px-3 py-2.5 text-left">Notification</th>
+            <th className="w-28 px-3 py-2.5 text-right">When</th>
+            <th className="w-20 px-3 py-2.5" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — clustering still bundles 5+ same-type alerts, but
@@ -1779,15 +1802,16 @@ function AllClusterRow({
       className={cn(
         // Slightly taller + a thicker top/bottom feel so the bundle row reads
         // as a section heading inside the table rather than just another row.
-        // Type-tinted left accent bar to reinforce "this is N items of TYPE".
-        'cursor-pointer border-y border-border/40 bg-muted/30 transition-colors hover:bg-muted/50',
-        isExpanded && 'bg-muted/40',
+        // Gradient strip + type-tinted left accent so it clearly heads N items.
+        'group/bundle cursor-pointer border-y border-border/50 bg-gradient-to-r from-muted/60 via-muted/30 to-transparent transition-colors hover:from-muted/75 hover:to-muted/10',
+        isExpanded && 'from-muted/75',
       )}
     >
-      {/* Indicator — solid dot if any item is unread. Wider/taller cell to
-          match the bigger row height. */}
-      <td className="w-6 px-3 py-3 align-middle">
-        {unreadCount > 0 && <span className="block h-2 w-2 rounded-full bg-primary" aria-label="Unread alerts" />}
+      {/* Indicator — solid dot if any item is unread. A type-tinted accent bar
+          runs the full height to reinforce "this is a group". */}
+      <td className="relative w-6 px-3 py-3 align-middle">
+        <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/50" aria-hidden />
+        {unreadCount > 0 && <span className="block h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_0] shadow-primary/60" aria-label="Unread alerts" />}
       </td>
 
       {/* Type icon + label, bigger + bolder so the bundle row reads as a
@@ -1876,6 +1900,9 @@ function AllRow({
       className={cn(
         'group cursor-pointer transition-colors hover:bg-muted/40',
         isResolved && 'opacity-70',
+        // Unread (non-indented) rows get the same faint brand tint as the
+        // folder tables so unread items pop in the All view too.
+        !n.isRead && !isResolved && !indented && 'bg-primary/[0.035] hover:bg-primary/[0.06]',
         // Subtle background tint when this row sits inside an expanded
         // cluster bundle, so the parent/child relationship reads visually.
         indented && 'bg-muted/10',
@@ -1883,7 +1910,10 @@ function AllRow({
     >
       {/* Unread / resolved indicator. When indented, swap the dot for a thin
           vertical guide-line so the eye traces back to the bundle header. */}
-      <td className={cn('w-6 px-3 py-1.5 align-middle', indented && 'relative')}>
+      <td className={cn('relative w-6 px-3 py-2 align-middle')}>
+        {!n.isRead && !isResolved && !indented && (
+          <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/70" aria-hidden />
+        )}
         {indented && (
           <span
             className="pointer-events-none absolute inset-y-0 left-5 w-px bg-border/60"
@@ -1893,13 +1923,13 @@ function AllRow({
         {isResolved ? (
           <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
         ) : !n.isRead ? (
-          <span className="block h-1.5 w-1.5 rounded-full bg-primary" aria-label="Unread" />
+          <span className="block h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_0] shadow-primary/60" aria-label="Unread" />
         ) : null}
       </td>
 
       {/* Type — small icon + short label, fixed width so labels line up.
           When indented, push right so child items visually nest. */}
-      <td className={cn('w-36 px-3 py-1.5 align-middle', indented && 'pl-8')}>
+      <td className={cn('w-36 px-3 py-2 align-middle', indented && 'pl-8')}>
         <span className="inline-flex items-center gap-2">
           <span className={cn('flex h-5 w-5 items-center justify-center rounded-md', cfg.tone)}>
             <Icon className="h-3 w-3" />
@@ -1909,20 +1939,20 @@ function AllRow({
       </td>
 
       {/* Detail — title + highlighted lead entity + muted rest, one line */}
-      <td className="px-3 py-1.5 align-middle text-[12px]">
+      <td className="px-3 py-2 align-middle text-[12px]">
         <span className="block truncate">
           <NotificationDetail n={n} />
         </span>
       </td>
 
       {/* When */}
-      <td className="w-28 whitespace-nowrap px-3 py-1.5 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+      <td className="w-28 whitespace-nowrap px-3 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
         {timeAgo(n.timestamp)}
       </td>
 
       {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
       <td
-        className="w-20 px-3 py-1.5 align-middle text-right"
+        className="w-20 px-3 py-2 align-middle text-right"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

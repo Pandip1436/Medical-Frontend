@@ -204,6 +204,15 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   if (Number(invoice.changeReturned) > 0) {
     row('Change', fmt2(Number(invoice.changeReturned)), sy); sy += 5
   }
+  // Remaining payable after part-payment (credit / partial). Shown in bold so
+  // the balance stands out on the printed bill.
+  const balanceDue = Math.max(
+    0,
+    Number(invoice.grandTotal) - Number(invoice.amountPaid),
+  )
+  if (balanceDue > 0) {
+    row('Balance Due', fmt2(balanceDue), sy, true); sy += 5
+  }
 
   const footerY = doc.internal.pageSize.getHeight() - 20
   doc.setFontSize(8)
