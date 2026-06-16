@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Check,
+  Loader2,
   RotateCcw,
   ShieldCheck,
   User,
@@ -327,6 +328,10 @@ export default function SalesReturnsPage() {
   // Step 3
   const [settlementOption, setSettlementOption] = useState<string>('refund')
   const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null)
+  // Guards the confirm/submit handler against double-clicks — the handler fires
+  // one POST per source invoice, so a second click would file duplicate credit
+  // notes. Disables both (mobile + desktop) confirm buttons while in flight.
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Reset the flow on branch switch — customer search re-scopes server-side via
   // the JWT branch, so a stale selected customer from the old branch must clear.
@@ -355,7 +360,12 @@ export default function SalesReturnsPage() {
     setSelectedCustomer(cust)
     setReturnItems([])
     setProductSearch('')
-    setCustomerOutstanding(Number(cust.currentOutstanding ?? 0))
+    const outstanding = Number(cust.currentOutstanding ?? 0)
+    setCustomerOutstanding(outstanding)
+    // When the customer still owes money, default to settling the credit
+    // against that balance rather than refunding cash — the operator can still
+    // switch to Refund manually. Only auto-pick Refund when nothing is due.
+    setSettlementOption(outstanding > 0 ? 'adjust' : 'refund')
     setReturnableLoading(true)
     try {
       const res = await api.get<ReturnableLine[]>(
@@ -500,6 +510,21 @@ export default function SalesReturnsPage() {
     return { subtotal, gstReversal: totalGst, total: subtotal + totalGst }
   }, [selectedReturnItems])
 
+  // For "Adjust Against Outstanding": when the return is worth more than the
+  // customer owes, only the outstanding portion is adjusted and the excess is
+  // refunded. Mirrors CreditNotesService.approve()'s split so the operator sees
+  // the breakdown before confirming.
+  const settlementSplit = useMemo(() => {
+    const outstanding = Math.max(0, customerOutstanding ?? 0)
+    const total = creditSummary.total
+    if (settlementOption !== 'adjust' || outstanding <= 0) {
+      return { adjusted: 0, refunded: 0, hasExcess: false }
+    }
+    const adjusted = Math.min(total, outstanding)
+    const refunded = Math.max(0, total - adjusted)
+    return { adjusted, refunded, hasExcess: refunded > 0.01 }
+  }, [settlementOption, customerOutstanding, creditSummary.total])
+
   const buildCreditNoteData = (): NoteData | null => {
     if (!selectedCustomer) return null
     const reasonSummary = Array.from(
@@ -559,8 +584,21 @@ export default function SalesReturnsPage() {
 
   const handleConfirmReturn = async () => {
     if (!selectedCustomer || selectedReturnItems.length === 0) return
-    // Safety: if adjust selected but customer has no outstanding, fall back to refund
-    const effectiveOption = (settlementOption === 'adjust' && (customerOutstanding ?? 0) <= 0) ? 'refund' : settlementOption
+    // Re-entry guard: ignore a second click while the first submission is still
+    // in flight (the handler files one credit note per invoice asynchronously).
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+    // Safety: keep settlement consistent with the customer's balance regardless
+    // of any stale selection — adjust falls back to refund when nothing is due,
+    // and refund is redirected to adjust while the customer still owes money.
+    const hasOutstanding = (customerOutstanding ?? 0) > 0
+    const effectiveOption =
+      settlementOption === 'adjust' && !hasOutstanding
+        ? 'refund'
+        : settlementOption === 'refund' && hasOutstanding
+          ? 'adjust'
+          : settlementOption
     const settlementMode =
       effectiveOption === 'adjust' ? 'CREDIT'
       : effectiveOption === 'replacement' ? 'REPLACEMENT'
@@ -672,6 +710,9 @@ export default function SalesReturnsPage() {
     }
     // If nothing succeeded, stay on the page so the user can retry; api.ts has
     // already shown the failure toast.
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -1375,13 +1416,19 @@ export default function SalesReturnsPage() {
                   <RadioGroup value={settlementOption} onValueChange={setSettlementOption} className="space-y-2">
                     {SETTLEMENT_OPTIONS.map((opt) => {
                       const isAdjust = opt.value === 'adjust'
-                      const noOutstanding = isAdjust && (customerOutstanding ?? 0) <= 0
+                      const isRefund = opt.value === 'refund'
+                      const hasOutstanding = (customerOutstanding ?? 0) > 0
+                      // Adjust needs an outstanding balance to apply against;
+                      // Refund is blocked while the customer still owes money
+                      // (settle the dues first).
+                      const disabled =
+                        (isAdjust && !hasOutstanding) || (isRefund && hasOutstanding)
                       return (
                         <div
                           key={opt.value}
                           className={cn(
                             'flex items-start gap-3 rounded-xl border p-3 transition-all',
-                            noOutstanding
+                            disabled
                               ? 'opacity-40 cursor-not-allowed border-border/30'
                               : cn(
                                   'cursor-pointer',
@@ -1390,19 +1437,29 @@ export default function SalesReturnsPage() {
                                     : 'border-border/40 hover:bg-muted/30'
                                 )
                           )}
-                          onClick={() => !noOutstanding && setSettlementOption(opt.value)}
+                          onClick={() => !disabled && setSettlementOption(opt.value)}
                         >
-                          <RadioGroupItem value={opt.value} id={`mobile-${opt.value}`} className="mt-0.5" disabled={noOutstanding} />
-                          <Label htmlFor={`mobile-${opt.value}`} className={cn('space-y-0.5 flex-1', noOutstanding ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                          <RadioGroupItem value={opt.value} id={`mobile-${opt.value}`} className="mt-0.5" disabled={disabled} />
+                          <Label htmlFor={`mobile-${opt.value}`} className={cn('space-y-0.5 flex-1', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}>
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-sm font-medium">{opt.title}</p>
                               {isAdjust && customerOutstanding !== null && (
-                                <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', noOutstanding ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
-                                  {noOutstanding ? 'No outstanding' : `₹${Number(customerOutstanding).toFixed(2)} due`}
+                                <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', disabled ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
+                                  {hasOutstanding ? `₹${Number(customerOutstanding).toFixed(2)} due` : 'No outstanding'}
+                                </span>
+                              )}
+                              {isRefund && hasOutstanding && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                  Settle dues first
                                 </span>
                               )}
                             </div>
                             <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                            {isAdjust && settlementOption === 'adjust' && settlementSplit.hasExcess && (
+                              <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                {formatCurrency(settlementSplit.adjusted)} adjusted · {formatCurrency(settlementSplit.refunded)} refunded
+                              </p>
+                            )}
                           </Label>
                         </div>
                       )
@@ -1411,12 +1468,17 @@ export default function SalesReturnsPage() {
                   <Button
                     className={`w-full ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
                     onClick={handleConfirmReturn}
+                    disabled={isSubmitting}
                   >
-                    {isPharmacist
-                      ? <ShieldCheck className="mr-1.5 h-4 w-4" />
-                      : <RotateCcw className="mr-1.5 h-4 w-4" />
+                    {isSubmitting
+                      ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      : isPharmacist
+                        ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                        : <RotateCcw className="mr-1.5 h-4 w-4" />
                     }
-                    {isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
+                    {isSubmitting
+                      ? 'Submitting…'
+                      : isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
                   </Button>
                   <Button variant="outline" className="w-full" onClick={() => goToStep(2)}>
                     <ChevronLeft className="mr-1.5 h-4 w-4" />
@@ -1441,13 +1503,19 @@ export default function SalesReturnsPage() {
                       >
                         {SETTLEMENT_OPTIONS.map((opt) => {
                           const isAdjust = opt.value === 'adjust'
-                          const noOutstanding = isAdjust && (customerOutstanding ?? 0) <= 0
+                          const isRefund = opt.value === 'refund'
+                          const hasOutstanding = (customerOutstanding ?? 0) > 0
+                          // Adjust needs an outstanding balance to apply against;
+                          // Refund is blocked while the customer still owes money
+                          // (settle the dues first).
+                          const disabled =
+                            (isAdjust && !hasOutstanding) || (isRefund && hasOutstanding)
                           return (
                             <div
                               key={opt.value}
                               className={cn(
                                 'flex items-start gap-3 rounded-xl border p-3 transition-all',
-                                noOutstanding
+                                disabled
                                   ? 'opacity-40 cursor-not-allowed border-border/30'
                                   : cn(
                                       'cursor-pointer',
@@ -1456,19 +1524,29 @@ export default function SalesReturnsPage() {
                                         : 'border-border/40 hover:bg-muted/30'
                                     )
                               )}
-                              onClick={() => !noOutstanding && setSettlementOption(opt.value)}
+                              onClick={() => !disabled && setSettlementOption(opt.value)}
                             >
-                              <RadioGroupItem value={opt.value} id={opt.value} className="mt-0.5" disabled={noOutstanding} />
-                              <Label htmlFor={opt.value} className={cn('space-y-0.5 flex-1', noOutstanding ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                              <RadioGroupItem value={opt.value} id={opt.value} className="mt-0.5" disabled={disabled} />
+                              <Label htmlFor={opt.value} className={cn('space-y-0.5 flex-1', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}>
                                 <div className="flex items-center justify-between gap-2">
                                   <p className="text-sm font-medium">{opt.title}</p>
                                   {isAdjust && customerOutstanding !== null && (
-                                    <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', noOutstanding ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
-                                      {noOutstanding ? 'No outstanding' : `₹${Number(customerOutstanding).toFixed(2)} due`}
+                                    <span className={cn('text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded', disabled ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')}>
+                                      {hasOutstanding ? `₹${Number(customerOutstanding).toFixed(2)} due` : 'No outstanding'}
+                                    </span>
+                                  )}
+                                  {isRefund && hasOutstanding && (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                      Settle dues first
                                     </span>
                                   )}
                                 </div>
                                 <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                                {isAdjust && settlementOption === 'adjust' && settlementSplit.hasExcess && (
+                                  <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                    {formatCurrency(settlementSplit.adjusted)} adjusted · {formatCurrency(settlementSplit.refunded)} refunded
+                                  </p>
+                                )}
                               </Label>
                             </div>
                           )
@@ -1498,6 +1576,18 @@ export default function SalesReturnsPage() {
                             {SETTLEMENT_OPTIONS.find(o => o.value === settlementOption)?.title ?? 'Refund'}
                           </Badge>
                         </div>
+                        {settlementSplit.hasExcess && (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Adjusted vs outstanding</span>
+                              <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(settlementSplit.adjusted)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Refunded (excess)</span>
+                              <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(settlementSplit.refunded)}</span>
+                            </div>
+                          </div>
+                        )}
                         <Separator />
                         <div className="flex items-center justify-between">
                           <span className="font-semibold">Credit Amount</span>
@@ -1525,12 +1615,17 @@ export default function SalesReturnsPage() {
                     size="sm"
                     className={`flex-1 ${isPharmacist ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
                     onClick={handleConfirmReturn}
+                    disabled={isSubmitting}
                   >
-                    {isPharmacist
-                      ? <ShieldCheck className="mr-1.5 h-4 w-4" />
-                      : <RotateCcw className="mr-1.5 h-4 w-4" />
+                    {isSubmitting
+                      ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      : isPharmacist
+                        ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                        : <RotateCcw className="mr-1.5 h-4 w-4" />
                     }
-                    {isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
+                    {isSubmitting
+                      ? 'Submitting…'
+                      : isPharmacist ? 'Submit for Review' : 'Confirm Return & Submit for Review'}
                   </Button>
                 </div>
               </div>

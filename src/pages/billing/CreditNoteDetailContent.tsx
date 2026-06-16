@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
   Hourglass, Package, CircleSlash, ShieldCheck, Printer, ExternalLink,
   Wallet, BadgeCheck, RefreshCw, CheckCircle2, XCircle,
@@ -114,6 +114,50 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
   const [reviewNote, setReviewNote] = useState(creditNote.reviewNote ?? '')
   const [reviewSubmitting, setReviewSubmitting] = useState(false)
 
+  // The customer's current outstanding — drives the same settlement rules as
+  // the Sales Returns page: Adjust needs a balance to apply against; Refund is
+  // blocked while dues exist; and an over-value Adjust shows the adjust/refund
+  // split. Only fetched while this CN is awaiting review.
+  const isPendingReview = creditNote.status === 'PENDING_REVIEW'
+  const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null)
+  useEffect(() => {
+    if (!isPendingReview || !creditNote.customerId) return
+    let cancelled = false
+    api
+      .get(`/customers/${creditNote.customerId}`)
+      .then((res) => {
+        if (!cancelled) setCustomerOutstanding(Number(res.data?.currentOutstanding ?? 0))
+      })
+      .catch(() => { /* leave null — guards fall back to permissive */ })
+    return () => { cancelled = true }
+  }, [isPendingReview, creditNote.customerId])
+
+  const hasOutstanding = (customerOutstanding ?? 0) > 0
+  // Mirrors CreditNotesService.approve(): only the outstanding portion is
+  // adjusted; any excess of an over-value return is refunded in cash.
+  const settlementSplit = useMemo(() => {
+    const outstanding = Math.max(0, customerOutstanding ?? 0)
+    const total = Number(creditNote.totalAmount)
+    if (reviewSettlementOverride !== 'CREDIT' || outstanding <= 0) {
+      return { adjusted: 0, refunded: 0, hasExcess: false }
+    }
+    const adjusted = Math.min(total, outstanding)
+    const refunded = Math.max(0, total - adjusted)
+    return { adjusted, refunded, hasExcess: refunded > 0.01 }
+  }, [reviewSettlementOverride, customerOutstanding, creditNote.totalAmount])
+
+  // Keep the selected settlement consistent with the balance once it loads:
+  // switch Refund→Adjust while dues exist, and Adjust→Refund when nothing's due.
+  useEffect(() => {
+    if (!isPendingReview || customerOutstanding === null) return
+    if (reviewSettlementOverride === 'REFUND' && hasOutstanding) {
+      setReviewSettlementOverride('CREDIT')
+    } else if (reviewSettlementOverride === 'CREDIT' && !hasOutstanding) {
+      setReviewSettlementOverride('REFUND')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerOutstanding, isPendingReview])
+
   const handleApprove = useCallback(async () => {
     setReviewSubmitting(true)
     try {
@@ -223,18 +267,26 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             <div className="grid gap-2">
               {SETTLEMENT_PICKER_OPTIONS.map((opt) => {
                 const checked = reviewSettlementOverride === opt.value
+                const isAdjust = opt.value === 'CREDIT'
+                const isRefund = opt.value === 'REFUND'
+                // Adjust needs an outstanding balance; Refund is blocked while
+                // the customer still owes money (settle the dues first).
+                const blocked =
+                  customerOutstanding !== null &&
+                  ((isAdjust && !hasOutstanding) || (isRefund && hasOutstanding))
+                const disabled = reviewSubmitting || blocked
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setReviewSettlementOverride(opt.value)}
-                    disabled={reviewSubmitting}
+                    onClick={() => !blocked && setReviewSettlementOverride(opt.value)}
+                    disabled={disabled}
                     className={cn(
                       'flex items-start gap-3 rounded-lg border-2 px-3 py-2.5 text-left transition-colors',
                       checked
                         ? 'border-primary bg-primary/5'
                         : 'border-border/40 bg-background hover:border-border/80',
-                      reviewSubmitting && 'opacity-50 cursor-not-allowed'
+                      disabled && 'opacity-50 cursor-not-allowed'
                     )}
                   >
                     <div className={cn(
@@ -243,14 +295,39 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
                     )}>
                       {checked && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">{opt.label}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{opt.label}</p>
+                        {isAdjust && customerOutstanding !== null && (
+                          <span className={cn(
+                            'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded',
+                            hasOutstanding ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'
+                          )}>
+                            {hasOutstanding ? `${formatCurrency(customerOutstanding)} due` : 'No outstanding'}
+                          </span>
+                        )}
+                        {isRefund && hasOutstanding && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                            Settle dues first
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-muted-foreground">{opt.sublabel}</p>
+                      {isAdjust && checked && settlementSplit.hasExcess && (
+                        <p className="mt-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          {formatCurrency(settlementSplit.adjusted)} adjusted · {formatCurrency(settlementSplit.refunded)} refunded
+                        </p>
+                      )}
                     </div>
                   </button>
                 )
               })}
             </div>
+            {settlementSplit.hasExcess && (
+              <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80">
+                The return is worth more than the customer owes — {formatCurrency(settlementSplit.adjusted)} will be adjusted against the outstanding and the remaining {formatCurrency(settlementSplit.refunded)} refunded in cash.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
