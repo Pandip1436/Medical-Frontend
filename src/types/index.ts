@@ -252,6 +252,9 @@ export interface GRNItem {
   expiryDate: string
   purchaseRate: number
   mrp: number
+  // GST rate (%) for this line. Purchase rate is GST-inclusive; used to extract
+  // the tax for the detail view / PDF. 0 on legacy rows (pre-inclusive-pricing).
+  gstPercent?: number
   damageQty?: number
 }
 

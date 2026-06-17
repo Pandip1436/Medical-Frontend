@@ -393,11 +393,15 @@ export function GRNDetailContent({
 
     const totalLineValueP = grn.items.reduce((s, i) => s + (i.receivedQty + (i.freeQty ?? 0)) * i.purchaseRate, 0)
 
-    // GST summary. The line-value total is the taxable base; the stored grand
-    // total (supplier invoice amount) includes GST, so the difference is the tax,
-    // split evenly into CGST / SGST. Falls back gracefully when there's no GST.
-    const taxableP = totalLineValueP
-    const grandTotalP = Number(grn.totalAmount || 0) || taxableP
+    // GST summary. Purchase rate is GST-inclusive, so extract the tax from
+    // within each line's chargeable value (received qty only). Legacy rows
+    // without a per-line GST rate fall back to taxable = line value (stored
+    // total − line value = tax). Split evenly into CGST / SGST.
+    const hasLineGstP = grn.items.some((i) => Number(i.gstPercent) > 0)
+    const grandTotalP = Number(grn.totalAmount || 0) || totalLineValueP
+    const taxableP = hasLineGstP
+      ? grn.items.reduce((s, i) => s + (i.receivedQty * i.purchaseRate) / (1 + Number(i.gstPercent) / 100), 0)
+      : totalLineValueP
     const gstTotalP = Math.max(0, grandTotalP - taxableP)
     const cgstP = gstTotalP / 2
     const sgstP = gstTotalP / 2
@@ -578,10 +582,16 @@ export function GRNDetailContent({
   }
 
   const totalLineValue = grn.items.reduce((s, i) => s + (i.receivedQty + (i.freeQty ?? 0)) * i.purchaseRate, 0)
-  // GST breakdown: line value is the taxable base; the stored PE total (supplier
-  // invoice amount) is GST-inclusive, so the difference is the tax split CGST/SGST.
+  // Purchase rate is GST-inclusive: extract the tax from within each line's
+  // chargeable value (received qty only — free goods carry no cost). Legacy rows
+  // without a per-line GST rate fall back to taxable = line value (stored total
+  // − line value = tax), preserving how older PEs were shown.
+  const hasLineGst = grn.items.some((i) => Number(i.gstPercent) > 0)
   const grandTotalView = Number(grn.totalAmount || 0) || totalLineValue
-  const gstTotalView = Math.max(0, grandTotalView - totalLineValue)
+  const taxableView = hasLineGst
+    ? grn.items.reduce((s, i) => s + (i.receivedQty * i.purchaseRate) / (1 + Number(i.gstPercent) / 100), 0)
+    : totalLineValue
+  const gstTotalView = Math.max(0, grandTotalView - taxableView)
   const cgstView = gstTotalView / 2
   const sgstView = gstTotalView / 2
 
@@ -875,7 +885,7 @@ export function GRNDetailContent({
           <div className="divide-y divide-border/40">
             <div className="flex items-center justify-between px-4 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Taxable Amount</span>
-              <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(totalLineValue)}</span>
+              <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(taxableView)}</span>
             </div>
             {gstTotalView > 0 && (
               <>

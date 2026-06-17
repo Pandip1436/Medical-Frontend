@@ -575,23 +575,30 @@ export default function GRNPage() {
   const totalValue = receivedItems.reduce((s, i) => s + i.receivedQty * i.purchaseRate, 0)
   const shortSupplyCount = grnItems.filter((i) => i.shortSupply).length
   
-  // Real GST calculation per-item based on master product data
+  // Real GST calculation per-item based on master product data. Purchase rate
+  // is GST-inclusive — the line value (qty × rate) already contains GST — so we
+  // back out the taxable base and extract the tax from within rather than
+  // adding it on top. Total Value therefore equals the entered line values (the
+  // rate stays the final cost), matching the supplier's GST-inclusive invoice.
+  let taxableSum = 0;
   let cgstSum = 0;
   let sgstSum = 0;
   receivedItems.forEach(i => {
     const prod = products.find(p => p.id === i.productId);
     const rate = prod?.gstRate ?? 12; // Fallback to 12% if not found
-    const lineTaxable = i.receivedQty * i.purchaseRate;
-    const gstValue = lineTaxable * (rate / 100);
+    const lineInclusive = i.receivedQty * i.purchaseRate;
+    const lineTaxable = lineInclusive / (1 + rate / 100);
+    const gstValue = lineInclusive - lineTaxable;
+    taxableSum += lineTaxable;
     cgstSum += gstValue / 2;
     sgstSum += gstValue / 2;
   });
 
   const gstBreakdown = {
-    taxable: totalValue,
+    taxable: taxableSum,
     cgst: cgstSum,
     sgst: sgstSum,
-    total: totalValue + cgstSum + sgstSum,
+    total: totalValue,
   }
 
   const canConfirm = receivedItems.length > 0
@@ -699,6 +706,10 @@ export default function GRNPage() {
           expiryDate: new Date(i.expiryDate).toISOString(),
           purchaseRate: Number(i.purchaseRate),
           mrp: Number(i.mrp),
+          // GST rate is stored per line so the detail view / PDF can extract the
+          // tax from the GST-inclusive purchase rate (same fallback as the live
+          // summary above).
+          gstPercent: Number(products.find((p) => p.id === i.productId)?.gstRate ?? 12),
         })),
       }
       // Edit mode: PATCH the existing GRN and return to the list. The server

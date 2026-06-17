@@ -256,11 +256,12 @@ function createEmptyItem(): BillingItem {
 }
 
 function calculateItemAmount(item: BillingItem): number {
+  // Rate is GST-inclusive: the line amount the customer pays is simply
+  // qty × rate less any discount. GST is a component already inside the rate
+  // (extracted in the totals calc), not added on top.
   const baseAmount = item.quantity * item.rate
   const discount = baseAmount * (item.discountPercent / 100)
-  const taxable = baseAmount - discount
-  const gst = taxable * (item.gstPercent / 100)
-  return taxable + gst
+  return baseAmount - discount
 }
 
 // When a product is selected (from hero search or row picker), the response
@@ -2223,9 +2224,9 @@ export default function NewSalePage() {
           const qty = it.quantity || 1
           const gstPercent = product.gstRate || 0
           const discountPercent = it.discountPercent || 0
-          const baseAmount = rate * qty * (1 - discountPercent / 100)
-          const gstAmount = baseAmount * (gstPercent / 100)
-          const amount = baseAmount + gstAmount
+          // Rate is GST-inclusive — the line amount is just qty × rate less
+          // discount (GST is extracted within, not added on top).
+          const amount = rate * qty * (1 - discountPercent / 100)
           return {
             ...it,
             productId: product.id,
@@ -2814,8 +2815,12 @@ export default function NewSalePage() {
     activeItems.forEach((item) => {
       const base = item.quantity * item.rate
       const disc = base * (item.discountPercent / 100)
-      const taxable = base - disc
-      const gst = taxable * (item.gstPercent / 100)
+      // Rate is GST-inclusive: the post-discount line value already contains
+      // GST. Back out the taxable base and extract the tax from within, so the
+      // entered rate stays the exact final price the customer pays.
+      const lineInclusive = base - disc
+      const taxable = lineInclusive / (1 + item.gstPercent / 100)
+      const gst = lineInclusive - taxable
       const cgstVal = gst / 2
       const sgstVal = gst / 2
 
