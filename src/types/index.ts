@@ -100,6 +100,8 @@ export interface Supplier {
   // Each supplier row is branch-scoped, so this field is naturally that
   // branch's outstanding — no need for a separate per-branch field.
   currentOutstanding?: number
+  totalPurchases?: number   // Σ supplier-invoice amounts across the supplier's GRNs
+  paidAmount?: number       // Σ amounts paid against those GRNs
   // Consent + alternate channel for low-stock WhatsApp alerts (mirrors the
   // pattern on Customer). Optional on the frontend so older API responses
   // that don't include them still type-check.

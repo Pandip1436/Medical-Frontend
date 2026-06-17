@@ -250,12 +250,61 @@ export default function GRNPage() {
   const fetchData = useCallback(() => { fetchMasterData() }, [fetchMasterData])
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Auto-switch to Direct Entry when coming from a replacement return
+  // Receiving replacement goods for a debit note: switch to Direct Entry and
+  // auto-pull the returned lines from the purchase return so the operator only
+  // has to enter the fresh batch/expiry and confirm. Quantities default to the
+  // returned (like-for-like) count; batch/expiry are left blank because the
+  // replacement is fresh stock with its own batch.
+  const replacementPrefilled = useRef(false)
   useEffect(() => {
-    if (replacementReturnId) {
-      setSourceType('direct')
-      setGrnItems([createEmptyItem()])
-    }
+    if (!replacementReturnId || replacementPrefilled.current) return
+    setSourceType('direct')
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get(`/purchase-returns/${replacementReturnId}`)
+        if (cancelled) return
+        replacementPrefilled.current = true
+        const pr = res.data
+        type PRItem = {
+          productId: string; productName: string
+          batchNumber?: string; expiryDate?: string; returnedQty: number | string
+          purchaseRate?: number | string; rate?: number | string
+        }
+        const items = (pr?.items ?? []) as PRItem[]
+        if (!items.length) { setGrnItems([createEmptyItem()]); return }
+        setGrnItems(
+          items.map((it, i) => {
+            const qty = Number(it.returnedQty) || 0
+            return {
+              id: `GRN-ITEM-${i + 1}`,
+              productId: it.productId,
+              productName: it.productName,
+              orderedQty: qty,
+              receivedQty: qty,
+              freeQty: 0,
+              batchNumber: '',
+              mfgDate: '',
+              expiryDate: '',
+              purchaseRate: Number(it.rate ?? it.purchaseRate) || 0,
+              mrp: products.find((p) => p.id === it.productId)?.mrp ?? 0,
+              shortSupply: false,
+              _alreadyReceived: 0,
+              _remaining: qty,
+            }
+          }),
+        )
+        // Backstop the supplier from the PR when the URL didn't carry it.
+        if (!prefilledSupplierId && pr?.supplierId) {
+          setDirectSupplierId(pr.supplierId)
+          setDirectSupplierName(pr.supplierName ?? '')
+        }
+      } catch {
+        if (!cancelled) setGrnItems([createEmptyItem()])
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replacementReturnId])
 
   // Auto-select PO when navigated from PO detail dialog (fetch fresh data to get latest receivedQty)

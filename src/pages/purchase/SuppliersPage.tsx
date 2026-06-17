@@ -106,6 +106,8 @@ const SUPPLIER_COLUMNS: ColumnDef[] = [
   { id: 'phone', label: 'Phone', defaultVisible: true },
   { id: 'gstin', label: 'GSTIN', defaultVisible: true },
   { id: 'paymentTerms', label: 'Payment Terms', defaultVisible: true },
+  { id: 'totalPurchases', label: 'Total', defaultVisible: true },
+  { id: 'paidAmount', label: 'Paid', defaultVisible: true },
   { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
@@ -201,6 +203,19 @@ export default function SuppliersPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
+
+  // Directory-wide money KPIs for the stat cards (total purchases + pending
+  // payments). Fetched from the dedicated summary endpoint.
+  const [moneySummary, setMoneySummary] = useState<{ totalPurchases: number; pendingPayments: number } | null>(null)
+  const fetchMoneySummary = useCallback(async () => {
+    try {
+      const res = await api.get('/suppliers/summary')
+      const data = res.data?.data ?? res.data
+      if (data) setMoneySummary({ totalPurchases: Number(data.totalPurchases ?? 0), pendingPayments: Number(data.pendingPayments ?? 0) })
+    } catch { /* silent — cards fall back to a dash */ }
+  }, [])
+  useEffect(() => { fetchMoneySummary() }, [fetchMoneySummary])
+  useBranchRefresh(fetchMoneySummary)
   // (supplierStats + fetchSupplierStats removed — the supplier detail page now
   // owns business-summary fetching via its own dedicated hook.)
 
@@ -372,11 +387,11 @@ export default function SuppliersPage() {
             title: 'Filter to active suppliers',
           },
           {
-            // Total Purchases has no value and no matching server param — not
-            // clickable. (Per-supplier purchase totals load on the detail page.)
+            // Directory-wide purchases billed by suppliers (from the summary
+            // endpoint). Informational — no matching server filter.
             label: 'Total Purchases',
-            value: '—',
-            subtitle: 'open supplier to view',
+            value: moneySummary ? formatCurrency(moneySummary.totalPurchases) : '—',
+            subtitle: 'billed across all suppliers',
             icon: IndianRupee,
             iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
             borderAccent: 'border-l-amber-500',
@@ -388,8 +403,8 @@ export default function SuppliersPage() {
           },
           {
             label: 'Pending Payments',
-            value: '—',
-            subtitle: 'open supplier to view',
+            value: moneySummary ? formatCurrency(moneySummary.pendingPayments) : '—',
+            subtitle: 'total owed to suppliers',
             icon: AlertCircle,
             iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400',
             borderAccent: 'border-l-red-500',
@@ -446,7 +461,7 @@ export default function SuppliersPage() {
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
@@ -648,6 +663,8 @@ export default function SuppliersPage() {
               {cols.isVisible('phone') && <TableHead>Phone</TableHead>}
               {cols.isVisible('gstin') && <TableHead>GSTIN</TableHead>}
               {cols.isVisible('paymentTerms') && <TableHead>Payment Terms</TableHead>}
+              {cols.isVisible('totalPurchases') && <TableHead className="text-right">Total</TableHead>}
+              {cols.isVisible('paidAmount') && <TableHead className="text-right">Paid</TableHead>}
               {cols.isVisible('outstanding') && <TableHead className="text-center">Outstanding</TableHead>}
               {cols.isVisible('status') && <TableHead>Status</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
@@ -704,6 +721,16 @@ export default function SuppliersPage() {
                     {cols.isVisible('paymentTerms') && (
                     <TableCell>
                       <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
+                    </TableCell>
+                    )}
+                    {cols.isVisible('totalPurchases') && (
+                    <TableCell className="text-right font-mono text-[15px] font-semibold">
+                      {formatCurrency(Number(supplier.totalPurchases ?? 0))}
+                    </TableCell>
+                    )}
+                    {cols.isVisible('paidAmount') && (
+                    <TableCell className="text-right font-mono text-[15px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(Number(supplier.paidAmount ?? 0))}
                     </TableCell>
                     )}
                     {cols.isVisible('outstanding') && (

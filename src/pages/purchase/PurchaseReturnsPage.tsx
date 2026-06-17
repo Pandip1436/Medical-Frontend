@@ -163,6 +163,16 @@ export default function PurchaseReturnsPage() {
     return grnId ? { grnId, supplierId, supplierName, items } : null
   }, [search])
 
+  // Batch prefill — navigated from Batch Detail's "Create Return". We get the
+  // batch number (unique to the PE that received it) so we can auto-find the PE
+  // and pre-select that exact line on step 2.
+  const batchParams = useMemo(() => {
+    const p = new URLSearchParams(search)
+    const batchNumber = p.get('batchNumber') ?? ''
+    const productId = p.get('productId') ?? ''
+    return batchNumber ? { batchNumber, productId } : null
+  }, [search])
+
   const [direction, setDirection] = useState(1)
   const [currentStep, setCurrentStep] = useState(1)
 
@@ -324,6 +334,49 @@ export default function PurchaseReturnsPage() {
     )
     goToStep(2)
   }, [shortageParams, grns, shortageApplied, goToStep])
+
+  // Auto-select the PE and pre-select the batch's line when navigated from the
+  // Batch Detail page. The batch number uniquely identifies the receiving PE, so
+  // we find the GRN that contains it, jump to step 2, and tick that line ready
+  // to return (qty defaulted to the full received quantity).
+  useEffect(() => {
+    if (!batchParams || !grns.length || selectedGRN) return
+    // Prefer the PE whose line matches BOTH batch number and product (batch
+    // numbers can repeat across products/suppliers); fall back to batch-only.
+    const match =
+      grns.find((g) =>
+        g.items.some(
+          (it) =>
+            it.batchNumber === batchParams.batchNumber &&
+            it.productId === batchParams.productId,
+        ),
+      ) ??
+      grns.find((g) =>
+        g.items.some((it) => it.batchNumber === batchParams.batchNumber),
+      )
+    if (!match) return
+    setSelectedGRN(match)
+    setGrnSearch(match.grnNumber)
+    setReturnItems(
+      match.items.map((item) => {
+        const isTarget = item.batchNumber === batchParams.batchNumber
+        const damaged = item.damagedQty > 0
+        return {
+          productId: item.productId,
+          // Pre-tick the batch we came in for; keep damaged-item auto-select too.
+          selected: isTarget || damaged,
+          returnQty: isTarget ? item.purchasedQty : damaged ? item.damagedQty : 0,
+          maxQty: item.purchasedQty,
+          damagedQty: item.damagedQty,
+          reason: damaged ? ('Damaged in transit' as ReturnReason) : '',
+          customReason: '',
+          productName: item.productName,
+          rate: item.rate,
+        }
+      }),
+    )
+    goToStep(2)
+  }, [batchParams, grns, goToStep]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const matchingGRNs = useMemo(() => {
     if (!grnSearch.trim()) return grns
