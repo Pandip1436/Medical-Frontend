@@ -5847,8 +5847,9 @@ export default function NewSalePage() {
               </Button>
             </div>
 
-            {/* Credit mode indicator — shown above payment when applicable */}
-            {paymentMode === 'CREDIT' && (
+            {/* Credit mode indicator — shown above payment when applicable.
+                Never for quotations (no payment/credit concept). */}
+            {paymentMode === 'CREDIT' && invoiceType !== 'quotation' && (
               <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
                 <span className="flex items-center gap-1.5 font-semibold">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -5983,7 +5984,10 @@ export default function NewSalePage() {
 
                 {/* Payment Section — now second. No inner scroll: the parent CardContent is the single scroll region.
                     Extra bottom padding (pb-6) leaves breathing room above the Save & Print bar so the
-                    last fields (e.g. credit-mode Due Date) are easy to reach and aren't jammed against it. */}
+                    last fields (e.g. credit-mode Due Date) are easy to reach and aren't jammed against it.
+                    Hidden for quotations — a quote is a price estimate, not a sale, so it has no payment
+                    mode, cash received, or due date. */}
+                {invoiceType !== 'quotation' && (
                 <div className="p-3 pb-6">
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
                     <CreditCard className="h-3.5 w-3.5" />
@@ -6000,6 +6004,7 @@ export default function NewSalePage() {
                     customer={selectedCustomer}
                   />
                 </div>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -71,6 +71,16 @@ interface GRNFormItem extends GRNItem {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
+// A batch is "healthy" at receiving if it expires at least 6 months from
+// today. Shorter-dated (or already-expired) stock is flagged so the operator
+// notices before accepting it. `dateStr` is a yyyy-mm-dd value from DatePicker.
+function isExpiryHealthy(dateStr: string): boolean {
+  if (!dateStr) return false
+  const sixMonthsOut = new Date()
+  sixMonthsOut.setMonth(sixMonthsOut.getMonth() + 6)
+  return new Date(dateStr) >= sixMonthsOut
+}
+
 const statusBadgeConfig: Record<
   string,
   { label: string; variant: 'secondary' | 'info' | 'success' | 'warning' | 'purple' }
@@ -410,7 +420,7 @@ export default function GRNPage() {
   // Placeholder shown until the GRN is saved — the authoritative number is
   // generated atomically on the server and returned in the create response.
   // In edit mode we already know the real number.
-  const grnNumber = editMode ? editGrnNumber || 'PE' : 'PE / pending'
+  const grnNumber = editMode ? editGrnNumber || 'Purchase Entry' : 'Purchase Entry / pending'
 
   // ── Selectable POs ──
   const selectablePOs = useMemo(() => {
@@ -554,6 +564,7 @@ export default function GRNPage() {
         expiryDate: '',
         purchaseRate: product.purchaseRate,
         mrp: product.mrp,
+        gstPercent: product.gstRate ?? 12,
         shortSupply: false,
       },
     ])
@@ -585,7 +596,9 @@ export default function GRNPage() {
   let sgstSum = 0;
   receivedItems.forEach(i => {
     const prod = products.find(p => p.id === i.productId);
-    const rate = prod?.gstRate ?? 12; // Fallback to 12% if not found
+    // Per-line GST (operator-editable), falling back to the product master then
+    // 12% for legacy/unpriced rows.
+    const rate = i.gstPercent ?? prod?.gstRate ?? 12;
     const lineInclusive = i.receivedQty * i.purchaseRate;
     const lineTaxable = lineInclusive / (1 + rate / 100);
     const gstValue = lineInclusive - lineTaxable;
@@ -600,6 +613,14 @@ export default function GRNPage() {
     sgst: sgstSum,
     total: totalValue,
   }
+
+  // CGST/SGST label suffix: show the half-rate (e.g. "(6%)") only when every
+  // received line shares one GST rate; with mixed rates a single % would lie,
+  // so the suffix is dropped.
+  const distinctGstRates = Array.from(
+    new Set(receivedItems.map((i) => i.gstPercent ?? products.find((p) => p.id === i.productId)?.gstRate ?? 12)),
+  )
+  const gstHalfLabel = distinctGstRates.length === 1 ? ` (${distinctGstRates[0] / 2}%)` : ''
 
   const canConfirm = receivedItems.length > 0
 
@@ -709,7 +730,7 @@ export default function GRNPage() {
           // GST rate is stored per line so the detail view / PDF can extract the
           // tax from the GST-inclusive purchase rate (same fallback as the live
           // summary above).
-          gstPercent: Number(products.find((p) => p.id === i.productId)?.gstRate ?? 12),
+          gstPercent: Number(i.gstPercent ?? products.find((p) => p.id === i.productId)?.gstRate ?? 12),
         })),
       }
       // Edit mode: PATCH the existing GRN and return to the list. The server
@@ -768,7 +789,7 @@ export default function GRNPage() {
             rate: i.purchaseRate,
             batchNumber: i.batchNumber,
             expiryDate: i.expiryDate,
-            gstPercent: Number(prod(i.productId)?.gstRate) || 12,
+            gstPercent: Number(i.gstPercent ?? prod(i.productId)?.gstRate) || 12,
             supplierId: effSupplierId,
             supplierName: effSupplierName,
           })),
@@ -864,7 +885,7 @@ export default function GRNPage() {
           <div>
             <h2 className="text-lg font-bold tracking-tight">{editMode ? 'Edit Purchase Entry' : 'New Purchase Entry'}</h2>
             <p className="text-[11px] text-muted-foreground">
-              {editMode ? 'Amend a received PE — stock is reconciled on save' : 'Receive and verify incoming goods'}
+              {editMode ? 'Amend a received Purchase Entry — stock is reconciled on save' : 'Receive and verify incoming goods'}
             </p>
           </div>
         </div>
@@ -874,7 +895,7 @@ export default function GRNPage() {
           <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
             <RotateCcw className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              Receiving replacement goods — this PE will be auto-linked to the debit note and marked Settled.
+              Receiving replacement goods — this Purchase Entry will be auto-linked to the debit note and marked Settled.
             </span>
           </div>
         )}
@@ -1558,7 +1579,7 @@ export default function GRNPage() {
                         </div>
                       </div>
                       {/* Batch & dates row */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
@@ -1572,13 +1593,36 @@ export default function GRNPage() {
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
                           <DatePicker
                             className={cn(
-                              "h-9 text-xs font-bold border-primary/5 bg-muted/20 focus:bg-background transition-all",
-                              item.expiryDate && "text-primary"
+                              "h-9 text-xs font-bold bg-muted/20 focus:bg-background transition-all",
+                              !item.expiryDate && "border-primary/5",
+                              // Shelf-life signal: green when the batch expires
+                              // at least 6 months out, red when it expires sooner
+                              // (or has already lapsed) so short-dated stock is
+                              // caught at receiving.
+                              item.expiryDate && (isExpiryHealthy(item.expiryDate)
+                                ? "text-emerald-600 border-emerald-500/40 dark:text-emerald-400"
+                                : "text-red-600 border-red-500/40 dark:text-red-400")
                             )}
                             value={item.expiryDate}
                             min={new Date().toISOString().slice(0, 10)}
                             onChange={(v) => updateItem(index, 'expiryDate', v)}
                           />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">GST %</Label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step="0.01"
+                              className="h-9 font-mono text-xs font-bold pr-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                              placeholder="0"
+                              value={item.gstPercent ?? ''}
+                              onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))}
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">%</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1779,11 +1823,11 @@ export default function GRNPage() {
                     <span className="font-mono font-medium">{formatCurrency(gstBreakdown.taxable)}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">CGST (6%)</span>
+                    <span className="text-muted-foreground">CGST{gstHalfLabel}</span>
                     <span className="font-mono font-medium">{formatCurrency(gstBreakdown.cgst)}</span>
                   </div>
                   <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">SGST (6%)</span>
+                    <span className="text-muted-foreground">SGST{gstHalfLabel}</span>
                     <span className="font-mono font-medium">{formatCurrency(gstBreakdown.sgst)}</span>
                   </div>
                   <Separator className="bg-border/40" />
@@ -1887,8 +1931,8 @@ export default function GRNPage() {
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
               )}
               {showConfirm
-                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update PE' : 'Confirm & Create PE')
-                : editMode ? 'Review & Update PE' : 'Review & Confirm PE'}
+                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update Purchase Entry' : 'Confirm & Create Entry')
+                : editMode ? 'Review & Update Purchase Entry' : 'Review & Confirm Entry'}
             </Button>
             {showConfirm ? (
               <Button
@@ -1981,7 +2025,7 @@ export default function GRNPage() {
                 <button
                   onClick={() => {
                     setShortActionDialog(null)
-                    toast.info('PO marked as Partially Received. You can raise another PE against this PO when the remaining items arrive.', { duration: 6000 })
+                    toast.info('PO marked as Partially Received. You can raise another Purchase Entry against this PO when the remaining items arrive.', { duration: 6000 })
                     navigate('/purchase/grn-list')
                   }}
                   className="w-full flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:bg-accent/40 hover:border-primary/30"
@@ -1991,7 +2035,7 @@ export default function GRNPage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold">Expect Supplementary Delivery</p>
-                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another PE when goods arrive.</p>
+                    <p className="text-[11px] text-muted-foreground">Supplier will deliver the remaining qty later. PO stays open — raise another Purchase Entry when goods arrive.</p>
                   </div>
                 </button>
 

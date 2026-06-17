@@ -103,7 +103,9 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   y += 5
   doc.text(`Billing Type: ${invoice.billingType}`, leftX, y)
   doc.text(`Payment Mode: ${invoice.paymentMode}`, rightX, y)
-  if (invoice.dueDate) {
+  // Due date is a credit-invoice concept; a quotation has no payment due, so
+  // never print it on quotation bills.
+  if (invoice.dueDate && invoice.type !== 'QUOTATION') {
     y += 5
     doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, leftX, y)
   }
