@@ -3872,15 +3872,15 @@ export default function NewSalePage() {
               onClick={() => submitInvoice(isCreditBlocked && isPharmacist ? 'CREDIT' : undefined)}
               disabled={isSubmitting || !selectedCustomer}
               className={cn(
-                'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
+                'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
                 isCreditBlocked && isPharmacist
-                  ? 'bg-amber-500 hover:bg-amber-600'
-                  : 'bg-primary hover:bg-primary/90'
+                  ? 'bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-500/95 hover:to-amber-600/90 shadow-lg shadow-amber-500/25'
+                  : 'bg-gradient-to-br from-primary to-primary/80 hover:from-primary/95 hover:to-primary/75 shadow-lg shadow-primary/30'
               )}
             >
               {isCreditBlocked && isPharmacist
-                ? <ShieldCheck className="h-5 w-5 shrink-0" />
-                : <Printer className="h-5 w-5 shrink-0" />
+                ? <ShieldCheck className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
+                : <Printer className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
               }
               <div className="flex flex-col items-start leading-tight min-w-0">
                 <span className="text-[10px] font-semibold uppercase tracking-wider opacity-90 truncate">
@@ -5073,8 +5073,8 @@ export default function NewSalePage() {
                       {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. min-w bumped to 960px to match real column widths. */}
                       <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-auto">
                         <Table className="w-full min-w-240">
-                          <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-md">
-                            <TableRow className="border-b border-border/40 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent whitespace-nowrap">
+                          <TableHeader className="sticky top-0 z-20 bg-gradient-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
+                            <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-[0.1em] text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
                               <TableHead className="min-w-55 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
                               <TableHead className="w-37.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
@@ -5862,11 +5862,11 @@ export default function NewSalePage() {
             {/* ═══════════════════════════════════════════════════
                 UNIFIED CHECKOUT PANEL — Payment + Actions in one card
             ═══════════════════════════════════════════════════ */}
-            <Card className="flex-1 flex flex-col min-h-0 shadow-sm border-border/60">
+            <Card className="flex-1 flex flex-col min-h-0 shadow-md shadow-black/5 border-border/60 ring-1 ring-border/30">
               {/* Single scroll region: Order Summary + Payment scroll together so credit-mode content (Outstanding card + Due Date) is always reachable on short laptop screens. Net Payable also shown on the F8 Save & Print button so it isn't lost when scrolled. */}
               <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
                 {/* Invoice Summary Section — moved from footer */}
-                <div className="p-3 border-b border-border/60">
+                <div className="p-3 border-b border-border/60 bg-gradient-to-b from-muted/25 to-transparent">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                       <Receipt className="h-3.5 w-3.5" />
@@ -5971,11 +5971,14 @@ export default function NewSalePage() {
                     )}
                   </div>
 
-                  {/* Net Payable — calm hero block */}
-                  <div className="mt-4 pt-3 border-t border-border/60">
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Net Payable</span>
-                      <span className="font-mono text-3xl font-semibold tabular-nums tracking-tight text-foreground">
+                  {/* Net Payable — premium accent hero block. This is the number
+                      the salesman reads out loud, so it gets a tinted gradient
+                      card, a left accent bar, and the largest type on the panel. */}
+                  <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-gradient-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
+                    <span className="absolute inset-y-0 left-0 w-1 bg-primary/70" aria-hidden />
+                    <div className="flex items-baseline justify-between pl-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
+                      <span className="font-mono text-[2rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
                         {formatCurrency(totals.grandTotal)}
                       </span>
                     </div>
@@ -6126,7 +6129,9 @@ export default function NewSalePage() {
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">MRP</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Rate</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Disc%</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Taxable</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">GST%</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">GST ₹</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Amount</th>
                         </tr>
                       </thead>
@@ -6146,7 +6151,11 @@ export default function NewSalePage() {
                             <td className="px-4 py-3.5 text-right text-xs font-mono text-zinc-400">{Number(it.mrp).toFixed(2)}</td>
                             <td className="px-4 py-3.5 text-right text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">{Number(it.rate).toFixed(2)}</td>
                             <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{Number(it.discountPercent).toFixed(1)}%</td>
+                            {/* Pre-GST taxable base — amount is GST-inclusive: amount ÷ (1 + gst%). */}
+                            <td className="px-4 py-3.5 text-right font-mono text-sm text-zinc-700 dark:text-zinc-300">{formatCurrency(Number(it.amount) / (1 + Number(it.gstPercent) / 100))}</td>
                             <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{Number(it.gstPercent).toFixed(1)}%</td>
+                            {/* GST value in ₹ = amount − taxable. */}
+                            <td className="px-4 py-3.5 text-right font-mono text-sm text-zinc-700 dark:text-zinc-300">{formatCurrency(Number(it.amount) - Number(it.amount) / (1 + Number(it.gstPercent) / 100))}</td>
                             <td className="px-4 py-3.5 text-right font-bold font-mono text-sm text-zinc-900 dark:text-zinc-100">{formatCurrency(Number(it.amount))}</td>
                           </tr>
                         ))}

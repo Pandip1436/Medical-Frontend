@@ -472,10 +472,14 @@ export default function PurchaseReturnsPage() {
     let cgst = 0
     let sgst = 0
     selectedReturnItems.forEach(ri => {
-      const lineTaxable = ri.returnQty * ri.rate
+      // The purchase rate is GST-INCLUSIVE, so lineAmount already contains the
+      // tax. Back the GST out instead of adding it on top — the debit equals
+      // what was paid to the supplier, not amount + GST again.
+      const lineAmount = ri.returnQty * ri.rate
       const grnItem = selectedGRN?.items.find(g => g.productId === ri.productId)
       const rate = grnItem?.gstPercent ?? 12
-      const lineGst = lineTaxable * (rate / 100)
+      const lineTaxable = lineAmount / (1 + rate / 100)
+      const lineGst = lineAmount - lineTaxable
       subtotal += lineTaxable
       cgst += lineGst / 2
       sgst += lineGst / 2
@@ -494,8 +498,8 @@ export default function PurchaseReturnsPage() {
       const batch = batches.find(
         (b) => b.productId === ri.productId && b.batchNumber === batchNumber,
       )
+      // GST-inclusive line amount — that IS the debit; don't add GST again.
       const lineAmount = ri.returnQty * ri.rate
-      const gstAmount = lineAmount * (gstPercent / 100)
       return {
         productId: ri.productId,
         productName: ri.productName,
@@ -505,7 +509,7 @@ export default function PurchaseReturnsPage() {
         returnedQty: ri.returnQty,
         purchaseRate: Number(ri.rate),
         gstPercent,
-        amount: Number((lineAmount + gstAmount).toFixed(2)),
+        amount: Number(lineAmount.toFixed(2)),
       }
     })
 
@@ -526,8 +530,9 @@ export default function PurchaseReturnsPage() {
       ),
     ).join(', ')
 
+    // GST contained within each GST-inclusive line amount.
     const totalGst = payloadItems.reduce(
-      (s, it) => s + (it.amount - it.returnedQty * it.purchaseRate),
+      (s, it) => s + (it.amount - it.amount / (1 + it.gstPercent / 100)),
       0,
     )
 
@@ -1221,7 +1226,7 @@ export default function PurchaseReturnsPage() {
                               <span className="font-semibold">{selectedReturnItems.reduce((sum, ri) => sum + ri.returnQty, 0)}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Subtotal</span>
+                              <span className="text-muted-foreground">Taxable</span>
                               <span className="font-mono">{formatCurrency(debitSummary.subtotal)}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">

@@ -45,6 +45,7 @@ export interface ParsedCustomer {
   email?: string
   address?: string
   type?: CustomerType
+  source?: string
   doctorRef?: string
   referredBy?: string
   creditLimit?: number
@@ -226,6 +227,7 @@ const CUSTOMER_COLUMNS = [
   'email',
   'address',
   'type',
+  'source',
   'gstin',
   'dl_number',
   'registration_number',
@@ -235,6 +237,18 @@ const CUSTOMER_COLUMNS = [
   'whatsapp_opt_in',
   'whatsapp_number',
   'notes',
+] as const
+
+// Columns used when EXPORTING live data (not the blank import template). Appends
+// read-only financial-summary columns that mirror the Customers list (Total /
+// Paid / Outstanding / Pending). These are informational — the importer matches
+// by the column names above and ignores these extras on re-upload.
+const EXPORT_CUSTOMER_COLUMNS = [
+  ...CUSTOMER_COLUMNS,
+  'total_billed',
+  'total_paid',
+  'outstanding',
+  'pending_invoices',
 ] as const
 
 const INVOICE_COLUMNS = [
@@ -363,6 +377,7 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   email: 'asha@example.com',
   address: '12, MG Road, Bengaluru',
   type: 'WHOLESALE',
+  source: 'IndiaMART',
   gstin: '29ABCDE1234F1Z5',
   dl_number: 'KA-B-20-12345',
   registration_number: '',
@@ -526,6 +541,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['', ''],
   ['Allowed values', ''],
   ['customer.type', 'RETAIL · WHOLESALE · DOCTOR'],
+  ['customer.source', 'Acquisition source, e.g. IndiaMART · JustDial · Walk-in · Referral (free text — optional).'],
   ['invoice.status', 'DRAFT · PAID · UNPAID · PARTIAL · RETURNED · CANCELLED'],
   ['invoice.payment_mode', 'CASH · CARD · UPI · CREDIT · SPLIT'],
   ['quotation.status', 'DRAFT · SENT · ACCEPTED · REJECTED · CONVERTED'],
@@ -714,6 +730,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       email: toOptionalStr(raw.email),
       address: toOptionalStr(raw.address),
       type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
+      source: toOptionalStr(raw.source),
       doctorRef: toOptionalStr(raw.doctor_ref),
       referredBy: toOptionalStr(raw.referred_by),
       creditLimit: toOptionalNumber(raw.credit_limit),
@@ -1190,6 +1207,7 @@ interface ExportCustomerInput {
   email?: string | null
   address?: string | null
   type?: string | null
+  source?: string | null
   doctorRef?: string | null
   referredBy?: string | null
   creditLimit?: number | string | null
@@ -1376,24 +1394,58 @@ export function exportCustomersToWorkbook(
     cnRefFor.set(cn.creditNoteNo, refCode('CN', i))
   })
 
-  const customerRows = payload.customers.map((c) => ({
-    customer_code: codeFor.get(c.id) ?? '',
-    name: c.name,
-    phone: c.phone,
-    alternate_phone: c.alternatePhone ?? '',
-    email: c.email ?? '',
-    address: c.address ?? '',
-    type: c.type ?? '',
-    gstin: c.gstin ?? '',
-    dl_number: c.dlNumber ?? '',
-    registration_number: c.registrationNumber ?? '',
-    referred_by: c.referredBy ?? '',
-    credit_limit: num(c.creditLimit),
-    opening_balance: num(c.currentOutstanding),
-    whatsapp_opt_in: c.whatsappOptIn === false ? 'FALSE' : 'TRUE',
-    whatsapp_number: c.whatsappNumber ?? '',
-    notes: c.notes ?? '',
-  }))
+  // Per-customer financial summary from the exported invoices — mirrors the
+  // Customers list columns. DRAFT/CANCELLED excluded; outstanding counts the
+  // unpaid balance of UNPAID/PARTIAL invoices only.
+  const summaryFor = new Map<
+    string,
+    { billed: number; paid: number; outstanding: number; pending: number }
+  >()
+  for (const inv of payload.invoices) {
+    if (!inv.customerId) continue
+    const status = inv.status ?? ''
+    if (status === 'DRAFT' || status === 'CANCELLED') continue
+    const gt = Number(inv.grandTotal ?? 0)
+    const ap = Number(inv.amountPaid ?? 0)
+    const s =
+      summaryFor.get(inv.customerId) ??
+      { billed: 0, paid: 0, outstanding: 0, pending: 0 }
+    s.billed += gt
+    s.paid += ap
+    if (status === 'UNPAID' || status === 'PARTIAL') {
+      s.outstanding += Math.max(0, gt - ap)
+      s.pending += 1
+    }
+    summaryFor.set(inv.customerId, s)
+  }
+
+  const customerRows = payload.customers.map((c) => {
+    const s = summaryFor.get(c.id) ?? { billed: 0, paid: 0, outstanding: 0, pending: 0 }
+    return {
+      customer_code: codeFor.get(c.id) ?? '',
+      name: c.name,
+      phone: c.phone,
+      alternate_phone: c.alternatePhone ?? '',
+      email: c.email ?? '',
+      address: c.address ?? '',
+      type: c.type ?? '',
+      gstin: c.gstin ?? '',
+      dl_number: c.dlNumber ?? '',
+      registration_number: c.registrationNumber ?? '',
+      referred_by: c.referredBy ?? '',
+      credit_limit: num(c.creditLimit),
+      opening_balance: num(c.currentOutstanding),
+      whatsapp_opt_in: c.whatsappOptIn === false ? 'FALSE' : 'TRUE',
+      whatsapp_number: c.whatsappNumber ?? '',
+      notes: c.notes ?? '',
+      // Read-only summary columns (ignored on re-import).
+      source: c.source ?? '',
+      total_billed: num(s.billed),
+      total_paid: num(s.paid),
+      outstanding: num(s.outstanding),
+      pending_invoices: s.pending,
+    }
+  })
 
   const invoiceRows = payload.invoices.map((inv) => ({
     customer_code: inv.customerId ? (codeFor.get(inv.customerId) ?? '') : '',
@@ -1561,7 +1613,7 @@ export function exportCustomersToWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, name)
   }
 
-  addSheet('Customers',         customerRows,        CUSTOMER_COLUMNS,         SHEET_COLORS.customers)
+  addSheet('Customers',         customerRows,        EXPORT_CUSTOMER_COLUMNS,  SHEET_COLORS.customers)
   addSheet('Invoices',          invoiceRows,         INVOICE_COLUMNS,          SHEET_COLORS.invoices)
   addSheet('Invoice Items',     invoiceItemRows,     INVOICE_ITEM_COLUMNS,     SHEET_COLORS.invoiceItems)
   addSheet('Payments',          paymentRows,         PAYMENT_COLUMNS,          SHEET_COLORS.payments)

@@ -21,6 +21,19 @@ function escapeHtml(s: string): string {
  *  whether the file matched the on-screen count (Bug #6: list said 51,
  *  file looked like 50, both because no trailing newline made wc -l
  *  under-count by 1, and because the caller didn't confirm the row count). */
+/**
+ * Force a CSV value to be treated as literal TEXT by spreadsheet apps (Excel,
+ * Google Sheets). Without this, long digit strings (phone, GSTIN) get rendered
+ * in scientific notation (9.94E+09) and date strings collapse to "####".
+ * Uses the `="..."` convention Excel honours when opening a CSV. Empty values
+ * pass through untouched so blank cells stay blank.
+ */
+export function csvText(v: unknown): string {
+  const s = String(v ?? '')
+  if (s === '') return ''
+  return `="${s.replace(/"/g, '""')}"`
+}
+
 export function exportToCsv(rows: Record<string, unknown>[], filename: string): number {
   if (!rows.length) return 0
   const headers = Object.keys(rows[0])

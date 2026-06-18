@@ -119,7 +119,9 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">MRP</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Rate</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Disc%</th>
+              <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Taxable</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">GST%</th>
+              <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">GST ₹</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Amount</th>
             </tr>
           </thead>
@@ -142,7 +144,11 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
                 <td className="px-4 py-3.5 text-right font-mono text-xs text-zinc-400">{num(it.mrp).toFixed(2)}</td>
                 <td className="px-4 py-3.5 text-right font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-300">{num(it.rate).toFixed(2)}</td>
                 <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{num(it.discountPercent).toFixed(1)}%</td>
+                {/* Pre-GST taxable base — amount is GST-inclusive: amount ÷ (1 + gst%). */}
+                <td className="px-4 py-3.5 text-right font-mono text-sm text-zinc-700 dark:text-zinc-300">{formatCurrency(num(it.amount) / (1 + num(it.gstPercent) / 100))}</td>
                 <td className="px-4 py-3.5 text-right text-xs text-zinc-400">{num(it.gstPercent).toFixed(1)}%</td>
+                {/* GST value in ₹ = amount − taxable. */}
+                <td className="px-4 py-3.5 text-right font-mono text-sm text-zinc-700 dark:text-zinc-300">{formatCurrency(num(it.amount) - num(it.amount) / (1 + num(it.gstPercent) / 100))}</td>
                 <td className="px-4 py-3.5 text-right font-mono text-sm font-bold text-zinc-900 dark:text-zinc-100">{formatCurrency(num(it.amount))}</td>
               </tr>
             ))}

@@ -168,9 +168,8 @@ const MobileReturnCard = ({
   updateCustomReason 
 }: MobileReturnCardProps) => {
   const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
-  const lineRefund = lineRate * ri.returnQty
-  const gstRefund = lineRefund * (ri.item.gstPercent / 100)
-  const totalRefund = lineRefund + gstRefund
+  // Rate is GST-inclusive — the line refund IS rate × qty; don't add GST again.
+  const totalRefund = lineRate * ri.returnQty
 
   return (
     <Card className={cn(
@@ -498,16 +497,19 @@ export default function SalesReturnsPage() {
 
   // ── Step 3: Calculations ──
   const creditSummary = useMemo(() => {
-    let subtotal = 0
+    // The rate is GST-INCLUSIVE (same as billing), so lineAmount already
+    // contains the tax. Back the GST out instead of adding it on top — the
+    // credit equals what the customer actually paid, not amount + GST again.
+    let taxable = 0
     let totalGst = 0
     for (const ri of selectedReturnItems) {
       const lineRate = Number(ri.item.rate) * (1 - Number(ri.item.discountPercent) / 100)
       const lineAmount = lineRate * ri.returnQty
-      const gstAmount = lineAmount * (Number(ri.item.gstPercent) / 100)
-      subtotal += lineAmount
-      totalGst += gstAmount
+      const lineTaxable = lineAmount / (1 + Number(ri.item.gstPercent) / 100)
+      taxable += lineTaxable
+      totalGst += lineAmount - lineTaxable
     }
-    return { subtotal, gstReversal: totalGst, total: subtotal + totalGst }
+    return { subtotal: taxable, gstReversal: totalGst, total: taxable + totalGst }
   }, [selectedReturnItems])
 
   // For "Adjust Against Outstanding": when the return is worth more than the
@@ -544,8 +546,9 @@ export default function SalesReturnsPage() {
       reason: reasonSummary || '-',
       items: selectedReturnItems.map((ri) => {
         const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
+        // lineAmount is GST-inclusive (rate includes GST) — that IS the line
+        // credit; don't add GST again.
         const lineAmount = lineRate * ri.returnQty
-        const gstAmount = lineAmount * (ri.item.gstPercent / 100)
         return {
           productName: ri.item.productName,
           batchNumber: ri.item.batchNumber,
@@ -553,7 +556,7 @@ export default function SalesReturnsPage() {
           returnedQty: ri.returnQty,
           rate: Number(lineRate.toFixed(2)),
           gstPercent: Number(ri.item.gstPercent),
-          amount: Number((lineAmount + gstAmount).toFixed(2)),
+          amount: Number(lineAmount.toFixed(2)),
         }
       }),
       subtotal: Number(creditSummary.subtotal.toFixed(2)),
@@ -619,14 +622,16 @@ export default function SalesReturnsPage() {
     const failedInvoices: string[] = []
 
     for (const [invoiceId, items] of byInvoice) {
-      let subtotal = 0
+      // Rate is GST-inclusive — back the tax out of each line rather than
+      // adding it on top (see creditSummary).
+      let taxableSum = 0
       let totalGst = 0
       const payloadItems = items.map((ri) => {
         const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
         const lineAmount = lineRate * ri.returnQty
-        const gstAmount = lineAmount * (ri.item.gstPercent / 100)
-        subtotal += lineAmount
-        totalGst += gstAmount
+        const lineTaxable = lineAmount / (1 + ri.item.gstPercent / 100)
+        taxableSum += lineTaxable
+        totalGst += lineAmount - lineTaxable
         return {
           productId: ri.item.productId,
           productName: ri.item.productName,
@@ -636,7 +641,7 @@ export default function SalesReturnsPage() {
           returnedQty: ri.returnQty,
           rate: Number(lineRate.toFixed(2)),
           gstPercent: Number(ri.item.gstPercent),
-          amount: Number((lineAmount + gstAmount).toFixed(2)),
+          amount: Number(lineAmount.toFixed(2)),
         }
       })
 
@@ -652,10 +657,10 @@ export default function SalesReturnsPage() {
         invoiceId,
         reason: reasonSummary,
         items: payloadItems,
-        subtotal: Number(subtotal.toFixed(2)),
+        subtotal: Number(taxableSum.toFixed(2)),
         cgst: Number((totalGst / 2).toFixed(2)),
         sgst: Number((totalGst / 2).toFixed(2)),
-        totalAmount: Number((subtotal + totalGst).toFixed(2)),
+        totalAmount: Number((taxableSum + totalGst).toFixed(2)),
         settlementMode,
       }
 
@@ -1127,9 +1132,8 @@ export default function SalesReturnsPage() {
                           </TableRow>
                           {g.items.map((ri) => {
                         const lineRate = ri.item.rate * (1 - ri.item.discountPercent / 100)
-                        const lineRefund = lineRate * ri.returnQty
-                        const gstRefund = lineRefund * (ri.item.gstPercent / 100)
-                        const totalRefund = lineRefund + gstRefund
+                        // Rate is GST-inclusive — refund IS rate × qty; no GST on top.
+                        const totalRefund = lineRate * ri.returnQty
 
                         return (
                           <TableRow
@@ -1396,7 +1400,7 @@ export default function SalesReturnsPage() {
                       Back to Items
                     </Button>
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="text-muted-foreground">Taxable</span>
                       <span className="font-mono font-medium">{formatCurrency(creditSummary.subtotal)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">

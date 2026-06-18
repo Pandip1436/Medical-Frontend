@@ -89,7 +89,6 @@ const PAGE_SIZE = 15
 
 const BUCKET_OPTIONS = [
   { value: 'all', label: 'All Aging' },
-  { value: 'current', label: 'Current (not yet due)' },
   { value: '0-30', label: '0–30 days' },
   { value: '31-60', label: '31–60 days' },
   { value: '61-90', label: '61–90 days' },
@@ -126,6 +125,12 @@ export default function OutstandingPage() {
   // Filters (persisted to sessionStorage so they survive refresh + back)
   const [searchQuery, setSearchQuery] = usePersistedState('filters:customers.outstanding:search', '')
   const [bucketFilter, setBucketFilter] = usePersistedState<string>('filters:customers.outstanding:bucket', 'all')
+  // The 'current' bucket option was removed — reset any persisted selection so
+  // the dropdown doesn't show a blank/invalid value.
+  useEffect(() => {
+    if (bucketFilter === 'current') setBucketFilter('all')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [minOutstandingFilter, setMinOutstandingFilter] = usePersistedState<string>('filters:customers.outstanding:min', 'all')
   // Stat-card drill-down: clicking an aging card narrows the table to rows that
   // carry a balance in that bucket. Client-side (on top of the server-filtered
@@ -498,7 +503,7 @@ export default function OutstandingPage() {
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={OUTSTANDING_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
           <Button
             size="sm"
             onClick={handleBulkReminders}

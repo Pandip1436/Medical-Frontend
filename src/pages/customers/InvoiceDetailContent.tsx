@@ -348,7 +348,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
               <TableHead className="text-right">MRP</TableHead>
               <TableHead className="text-right">Rate</TableHead>
               <TableHead className="text-right">Disc%</TableHead>
+              <TableHead className="text-right">Taxable</TableHead>
               <TableHead className="text-right">GST%</TableHead>
+              <TableHead className="text-right">GST ₹</TableHead>
               <TableHead className="text-right">Amount</TableHead>
             </TableRow>
           </TableHeader>
@@ -367,7 +369,16 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                 <TableCell className="text-right font-mono text-xs text-muted-foreground">{Number(item.mrp).toFixed(2)}</TableCell>
                 <TableCell className="text-right font-mono text-sm">{formatCurrency(item.rate)}</TableCell>
                 <TableCell className="text-right text-xs text-muted-foreground">{Number(item.discountPercent).toFixed(1)}</TableCell>
+                {/* Pre-GST taxable base — the line amount is GST-inclusive, so
+                    back the tax out: amount ÷ (1 + gst%). */}
+                <TableCell className="text-right font-mono text-sm">
+                  {formatCurrency(Number(item.amount) / (1 + Number(item.gstPercent) / 100))}
+                </TableCell>
                 <TableCell className="text-right text-xs text-muted-foreground">{Number(item.gstPercent).toFixed(1)}%</TableCell>
+                {/* GST value in ₹ = amount − taxable. */}
+                <TableCell className="text-right font-mono text-sm">
+                  {formatCurrency(Number(item.amount) - Number(item.amount) / (1 + Number(item.gstPercent) / 100))}
+                </TableCell>
                 <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(item.amount)}</TableCell>
               </TableRow>
             ))}

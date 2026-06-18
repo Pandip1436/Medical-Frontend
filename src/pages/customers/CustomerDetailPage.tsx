@@ -71,6 +71,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CustomerFormDialog, type CustomerFormValues } from '@/components/shared/CustomerFormDialog'
 import {
   SupplierActivityDialog,
@@ -437,7 +438,7 @@ export default function CustomerDetailPage() {
 
       {/* ── KPI Strip ── */}
       <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-3">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <KpiCell
             icon={TrendingUp}
             label="Total Sales"
@@ -446,10 +447,10 @@ export default function CustomerDetailPage() {
             loading={d.ledger.loading && !d.ledger.data}
           />
           <KpiCell
-            icon={TrendingDown}
-            label="Total Returns"
-            value={pickKpi(kpis, 'Total Returns')}
-            tone="rose"
+            icon={CheckCircle2}
+            label="Paid"
+            value={pickKpi(kpis, 'Total Paid')}
+            tone="emerald"
             loading={d.ledger.loading && !d.ledger.data}
             borderLeft
           />
@@ -459,6 +460,14 @@ export default function CustomerDetailPage() {
             value={Number(outstanding) > 0 ? formatCurrency(Number(outstanding)) : '₹0'}
             tone={Number(outstanding) > 0 ? 'amber' : 'emerald'}
             loading={d.customer.loading && !cust}
+            borderLeft
+          />
+          <KpiCell
+            icon={TrendingDown}
+            label="Total Returns"
+            value={pickKpi(kpis, 'Total Returns')}
+            tone="rose"
+            loading={d.ledger.loading && !d.ledger.data}
             borderLeft
           />
           <KpiCell
@@ -1540,7 +1549,46 @@ function RxTabContent({
   const [validUntil, setValidUntil] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  // Prescription queued for deletion — drives the ConfirmDialog (null = closed).
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Edit (metadata-only) state — separate from the upload form so opening one
+  // doesn't disturb the other.
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editDoctorName, setEditDoctorName] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editValidUntil, setEditValidUntil] = useState('')
+  const [editSubmitting, setEditSubmitting] = useState(false)
+
+  const openEdit = (rx: { id: string; doctorName?: string | null; notes?: string | null; validUntil?: string | null }) => {
+    setEditId(rx.id)
+    setEditDoctorName(rx.doctorName ?? '')
+    setEditNotes(rx.notes ?? '')
+    setEditValidUntil(rx.validUntil ? String(rx.validUntil).slice(0, 10) : '')
+  }
+
+  const handleUpdate = async () => {
+    if (!editId || !editDoctorName.trim()) {
+      toast.error('Type / Doctor is required')
+      return
+    }
+    setEditSubmitting(true)
+    try {
+      await api.patch(`/prescriptions/${editId}`, {
+        doctorName: editDoctorName.trim(),
+        notes: editNotes,
+        validUntil: editValidUntil || '',
+      })
+      toast.success('Document updated')
+      setEditId(null)
+      onRefetch()
+    } catch {
+      toast.error('Failed to update document')
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
 
   const resetForm = () => {
     setFile(null); setDoctorName(''); setNotes(''); setValidUntil('')
@@ -1574,11 +1622,12 @@ function RxTabContent({
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this prescription?')) return
+  const confirmDelete = async () => {
+    if (!deleteId) return
     try {
-      await api.delete(`/prescriptions/${id}`)
+      await api.delete(`/prescriptions/${deleteId}`)
       toast.success('Prescription deleted')
+      setDeleteId(null)
       onRefetch()
     } catch {
       toast.error('Failed to delete prescription')
@@ -1603,7 +1652,7 @@ function RxTabContent({
             <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</TableHead>
-                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Doctor</TableHead>
+                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Type / Doctor</TableHead>
                 <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Valid Until</TableHead>
                 <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes</TableHead>
                 <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</TableHead>
@@ -1615,7 +1664,16 @@ function RxTabContent({
                 return (
                   <TableRow key={rx.id} className="hover:bg-muted/20">
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</TableCell>
-                    <TableCell className="px-3 py-2.5 text-sm font-medium">{rx.doctorName ?? '—'}</TableCell>
+                    <TableCell className="px-3 py-2.5 text-sm font-medium">
+                      {rx.doctorName ? (
+                        <Badge
+                          variant={rx.doctorName === 'Prescription' ? 'info' : rx.doctorName === 'Document' ? 'secondary' : 'warning'}
+                          size="sm"
+                        >
+                          {rx.doctorName}
+                        </Badge>
+                      ) : '—'}
+                    </TableCell>
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{rx.validUntil ? formatDate(rx.validUntil) : '—'}</TableCell>
                     <TableCell className="px-3 py-2.5 text-sm text-muted-foreground truncate max-w-[20rem]" title={rx.notes ?? ''}>{rx.notes ?? '—'}</TableCell>
                     <TableCell className="px-3 py-2.5 text-right">
@@ -1625,7 +1683,10 @@ function RxTabContent({
                             <Eye className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(rx.id)} aria-label="Delete">
+                        <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => openEdit(rx)} aria-label="Edit">
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(rx.id)} aria-label="Delete">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -1662,8 +1723,8 @@ function RxTabContent({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Doctor Name</Label>
-                <Input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="e.g. Dr. Sharma" />
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type / Doctor</Label>
+                <Input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="e.g. Prescription, or Dr. Sharma" />
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Valid Until (optional)</Label>
@@ -1679,6 +1740,40 @@ function RxTabContent({
             <Button variant="outline" onClick={() => { resetForm(); setUploadOpen(false) }} disabled={submitting}>Cancel</Button>
             <Button onClick={handleUpload} disabled={submitting || !file || !doctorName.trim()}>
               {submitting ? 'Uploading…' : (<><Upload className="mr-1.5 h-3.5 w-3.5" /> Upload</>)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit dialog — metadata only (file is not replaced) */}
+      <Dialog open={!!editId} onOpenChange={(open) => { if (!open) setEditId(null) }}>
+        <DialogContent className="max-w-lg rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Document</DialogTitle>
+            <DialogDescription>
+              Update the type/doctor, validity, and notes. The uploaded file isn't changed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type / Doctor</Label>
+                <Input value={editDoctorName} onChange={(e) => setEditDoctorName(e.target.value)} placeholder="e.g. Prescription, or Dr. Sharma" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Valid Until (optional)</Label>
+                <DatePicker value={editValidUntil} onChange={setEditValidUntil} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes (optional)</Label>
+              <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} placeholder="Free-text notes about this document" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditId(null)} disabled={editSubmitting}>Cancel</Button>
+            <Button onClick={handleUpdate} disabled={editSubmitting || !editDoctorName.trim()}>
+              {editSubmitting ? 'Saving…' : (<><Edit2 className="mr-1.5 h-3.5 w-3.5" /> Save Changes</>)}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1704,6 +1799,16 @@ function RxTabContent({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation — replaces the native window.confirm() */}
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(o) => { if (!o) setDeleteId(null) }}
+        title="Delete prescription?"
+        description="This permanently removes the uploaded prescription. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

@@ -132,21 +132,29 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   autoTable(doc, {
     startY: y + 3,
     head: [[
-      '#', 'Product', 'Batch', 'Expiry', 'Qty', 'MRP', 'Rate', 'Disc%', 'GST%', 'Amount',
+      '#', 'Product', 'Batch', 'Expiry', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount',
     ]],
-    body: invoice.items.map((it, i) => [
-      i + 1,
-      it.productName,
-      it.batchNumber,
-      new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
-      it.quantity,
-      Number(it.mrp).toFixed(2),
-      Number(it.rate).toFixed(2),
-      Number(it.discountPercent).toFixed(2),
-      Number(it.gstPercent).toFixed(2),
-      // Full line amount with paise — never rounded/hidden.
-      Number(it.amount || 0).toFixed(2),
-    ]),
+    body: invoice.items.map((it, i) => {
+      const amt = Number(it.amount || 0)
+      const taxable = amt / (1 + Number(it.gstPercent) / 100)
+      return [
+        i + 1,
+        it.productName,
+        it.batchNumber,
+        new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+        it.quantity,
+        Number(it.mrp).toFixed(2),
+        Number(it.rate).toFixed(2),
+        Number(it.discountPercent).toFixed(2),
+        // Pre-GST taxable base — line amount is GST-inclusive.
+        taxable.toFixed(2),
+        Number(it.gstPercent).toFixed(2),
+        // GST value in rupees = amount − taxable.
+        (amt - taxable).toFixed(2),
+        // Full line amount with paise — never rounded/hidden.
+        amt.toFixed(2),
+      ]
+    }),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
     columnStyles: {
@@ -157,12 +165,14 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
       7: { halign: 'right' },
       8: { halign: 'right' },
       9: { halign: 'right' },
+      10: { halign: 'right' },
+      11: { halign: 'right' },
     },
     // Right-align the header labels of the numeric columns so they sit directly
     // above their right-aligned values (columnStyles alone leaves the head cells
     // left-aligned, which makes the figures look shifted from their headers).
     didParseCell: (data) => {
-      if (data.section === 'head' && [0, 4, 5, 6, 7, 8, 9].includes(data.column.index)) {
+      if (data.section === 'head' && [0, 4, 5, 6, 7, 8, 9, 10, 11].includes(data.column.index)) {
         data.cell.styles.halign = 'right'
       }
     },

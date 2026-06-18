@@ -12,7 +12,7 @@ import {
   Pencil,
   Users,
   IndianRupee,
-  Trash2,
+  Ban,
   AlertCircle,
   Upload,
   FileImage,
@@ -37,6 +37,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { DatePicker } from '@/components/ui/date-picker'
 import { EmptyState } from '@/components/shared/EmptyState'
 
 import { Button } from '@/components/ui/button'
@@ -74,16 +75,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Customer } from '@/types'
 import api from '@/lib/api'
@@ -220,6 +211,48 @@ const SOURCE_FILTER_OPTIONS = [
   { value: 'none', label: 'No source' },
 ] as const
 
+// "Added" date filter — relative presets plus a custom from/to range.
+// Customers are filtered server-side by createdAt within the resolved range.
+const PERIOD_OPTIONS = [
+  { value: 'all', label: 'All Time' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_month', label: 'Last Month' },
+  { value: '3_months', label: 'Last 3 Months' },
+  { value: '6_months', label: 'Last 6 Months' },
+  { value: 'custom', label: 'Custom Range' },
+] as const
+
+const fmtDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// Resolve a period preset (and the custom inputs) to a createdAt range. Empty
+// strings mean "open-ended" so the server can apply just one bound.
+function resolvePeriodRange(
+  preset: string,
+  customFrom: string,
+  customTo: string,
+): { from: string; to: string } {
+  const now = new Date()
+  switch (preset) {
+    case 'this_month':
+      return { from: fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: fmtDate(now) }
+    case 'last_month':
+      return {
+        from: fmtDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+        // Day 0 of the current month = last day of the previous month.
+        to: fmtDate(new Date(now.getFullYear(), now.getMonth(), 0)),
+      }
+    case '3_months':
+      return { from: fmtDate(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())), to: fmtDate(now) }
+    case '6_months':
+      return { from: fmtDate(new Date(now.getFullYear(), now.getMonth() - 6, now.getDate())), to: fmtDate(now) }
+    case 'custom':
+      return { from: customFrom, to: customTo }
+    default:
+      return { from: '', to: '' }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -241,6 +274,7 @@ const CUSTOMER_COLUMNS: ColumnDef[] = [
   { id: 'totalAmount', label: 'Total Amount', defaultVisible: true },
   { id: 'paidAmount', label: 'Paid Amount', defaultVisible: true },
   { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
+  { id: 'pending', label: 'Pending', defaultVisible: true },
 ]
 
 export default function CustomersPage() {
@@ -250,7 +284,6 @@ export default function CustomersPage() {
   // fetch — but we keep `fetchCustomers` to refresh the cache after CRUD.
   const fetchCustomers = useMasterDataStore((s) => s.fetchCustomers)
   const addCustomerAction = useMasterDataStore((s) => s.addCustomer)
-  const deleteCustomerAction = useMasterDataStore((s) => s.deleteCustomer)
   const isPharmacist = useAuthStore((s) => s.user?.role === 'PHARMACIST')
 
   // Server-driven list state
@@ -279,13 +312,14 @@ export default function CustomersPage() {
   const [outstandingFilter, setOutstandingFilter] = usePersistedState<string>('filters:customers.list:outstanding', 'all')
   const [gstinFilter, setGstinFilter] = usePersistedState<string>('filters:customers.list:gstin', 'all')
   const [sourceFilter, setSourceFilter] = usePersistedState<string>('filters:customers.list:source', 'all')
+  const [monthFilter, setMonthFilter] = usePersistedState<string>('filters:customers.list:month', 'all')
+  // Custom-range bounds (yyyy-mm-dd), used only when monthFilter === 'custom'.
+  const [customFrom, setCustomFrom] = usePersistedState<string>('filters:customers.list:from', '')
+  const [customTo, setCustomTo] = usePersistedState<string>('filters:customers.list:to', '')
 
   // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
-  // Customer queued for deletion — null when the dialog is closed.
-  const [deleteCandidate, setDeleteCandidate] = useState<Customer | null>(null)
-  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   // Auto-open the Add Customer dialog when arrived at with `?add=1` (sidebar
   // quick-add). Strips the param so a refresh doesn't re-trigger it.
@@ -330,6 +364,28 @@ export default function CustomersPage() {
     setDocPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
+  // Separate uploader for prescription documents (kept distinct from the
+  // address-proof docs above so each is tagged correctly on the customer).
+  const [rxFiles, setRxFiles] = useState<File[]>([])
+  const [rxPreviews, setRxPreviews] = useState<{ name: string; preview: string | null }[]>([])
+
+  const handleRxFiles = (files: FileList | null) => {
+    if (!files) return
+    const newFiles: File[] = []
+    const newPreviews: { name: string; preview: string | null }[] = []
+    Array.from(files).forEach((file) => {
+      newFiles.push(file)
+      newPreviews.push({ name: file.name, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null })
+    })
+    setRxFiles(prev => [...prev, ...newFiles])
+    setRxPreviews(prev => [...prev, ...newPreviews])
+  }
+
+  const removeRxFile = (idx: number) => {
+    setRxFiles(prev => prev.filter((_, i) => i !== idx))
+    setRxPreviews(prev => prev.filter((_, i) => i !== idx))
+  }
+
   // Phone duplicate check
   const [phoneCheckError, setPhoneCheckError] = useState('')
   const [phoneChecking, setPhoneChecking] = useState(false)
@@ -363,8 +419,13 @@ export default function CustomersPage() {
     if (outstandingFilter !== 'all') params.set('hasOutstanding', outstandingFilter === 'has' ? 'true' : 'false')
     if (gstinFilter !== 'all') params.set('hasGstin', gstinFilter === 'has' ? 'true' : 'false')
     if (sourceFilter !== 'all') params.set('customerSource', sourceFilter)
+    if (monthFilter !== 'all') {
+      const { from, to } = resolvePeriodRange(monthFilter, customFrom, customTo)
+      if (from) params.set('createdFrom', from)
+      if (to) params.set('createdTo', to)
+    }
     return params
-  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter])
+  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo])
 
   const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -416,7 +477,7 @@ export default function CustomersPage() {
   useBranchRefresh(fetchSummary)
 
   // Reset page to 1 whenever any filter or search changes
-  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter])
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -424,13 +485,17 @@ export default function CustomersPage() {
     (customerTypeFilter !== 'all' ? 1 : 0) +
     (outstandingFilter !== 'all' ? 1 : 0) +
     (gstinFilter !== 'all' ? 1 : 0) +
-    (sourceFilter !== 'all' ? 1 : 0)
+    (sourceFilter !== 'all' ? 1 : 0) +
+    (monthFilter !== 'all' ? 1 : 0)
 
   const clearFilters = () => {
     setCustomerTypeFilter('all')
     setOutstandingFilter('all')
     setGstinFilter('all')
     setSourceFilter('all')
+    setMonthFilter('all')
+    setCustomFrom('')
+    setCustomTo('')
   }
 
   // Refresh list + summary + the global master-data cache (used by other pages' dropdowns).
@@ -553,21 +618,18 @@ export default function CustomersPage() {
     },
   })
 
-  const handleDeleteCustomer = async () => {
-    if (!deleteCandidate) return
-    setDeleteSubmitting(true)
+  // Soft-disable / re-enable a customer (replaces hard delete). Reversible, so
+  // it runs directly without a destructive confirmation dialog.
+  const handleToggleActive = async (customer: Customer) => {
+    const next = customer.isActive === false // currently inactive → activate
     try {
-      await deleteCustomerAction(deleteCandidate.id)
-      toast.success(`Customer "${deleteCandidate.name}" deleted`)
-      setDeleteCandidate(null)
+      await api.patch(`/customers/${customer.id}/active`, { isActive: next })
+      toast.success(`Customer "${customer.name}" ${next ? 'activated' : 'deactivated'}`)
       refetchAll()
     } catch (error: unknown) {
-      // BE guard returns a clear message if the customer has open invoices /
-      // outstanding balance — surface that verbatim so the user knows why.
-      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to delete customer'
+      const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? `Failed to ${next ? 'activate' : 'deactivate'} customer`
       toast.error(msg)
-    } finally {
-      setDeleteSubmitting(false)
     }
   }
 
@@ -591,6 +653,8 @@ export default function CustomersPage() {
     })
     setDocFiles([])
     setDocPreviews([])
+    setRxFiles([])
+    setRxPreviews([])
     setPhoneCheckError('')
     setAddDialogOpen(true)
   }
@@ -610,6 +674,8 @@ export default function CustomersPage() {
           form.reset()
           setDocFiles([])
           setDocPreviews([])
+          setRxFiles([])
+          setRxPreviews([])
           setPhoneCheckError('')
           setEditingCustomer(null)
           setAddDialogOpen(false)
@@ -618,14 +684,19 @@ export default function CustomersPage() {
         customerId = result?.id ?? ''
         toast.success(`Customer "${values.name}" added successfully`)
       }
-      // Upload all documents (address proofs + prescriptions)
-      if (docFiles.length > 0 && customerId) {
-        for (const file of docFiles) {
+      // Upload address-proof documents, then prescription documents — each
+      // tagged so they're distinguishable on the customer's record.
+      if (customerId) {
+        const uploads: Array<{ file: File; tag: string }> = [
+          ...docFiles.map((file) => ({ file, tag: 'Document' })),
+          ...rxFiles.map((file) => ({ file, tag: 'Prescription' })),
+        ]
+        for (const { file, tag } of uploads) {
           try {
             const formData = new FormData()
             formData.append('file', file)
             formData.append('customerId', customerId)
-            formData.append('doctorName', 'Document')
+            formData.append('doctorName', tag)
             await api.post('/prescriptions/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
           } catch {
             toast.warning(`Uploaded customer but failed to upload "${file.name}"`)
@@ -635,6 +706,8 @@ export default function CustomersPage() {
       form.reset()
       setDocFiles([])
       setDocPreviews([])
+      setRxFiles([])
+      setRxPreviews([])
       setPhoneCheckError('')
       setEditingCustomer(null)
       setAddDialogOpen(false)
@@ -812,6 +885,35 @@ export default function CustomersPage() {
             onClear={() => setGstinFilter('all')}
             options={GSTIN_OPTIONS}
           />
+          <EnumSelect
+            label="Added"
+            value={monthFilter}
+            onValueChange={setMonthFilter}
+            onClear={() => { setMonthFilter('all'); setCustomFrom(''); setCustomTo('') }}
+            options={PERIOD_OPTIONS}
+          />
+          {monthFilter === 'custom' && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">From</label>
+                <DatePicker
+                  className="h-9"
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={(v) => setCustomFrom(v)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">To</label>
+                <DatePicker
+                  className="h-9"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(v) => setCustomTo(v)}
+                />
+              </div>
+            </>
+          )}
         </div>
       </DataTableFilterBar>
 
@@ -898,7 +1000,9 @@ export default function CustomersPage() {
                           onView={() => handleViewDetails(customer)}
                           customActions={[
                             { label: 'Edit', icon: <Pencil className="h-4 w-4" />, onClick: () => handleOpenEdit(customer) },
-                            { label: 'Delete', icon: <Trash2 className="h-4 w-4" />, onClick: () => setDeleteCandidate(customer), variant: 'destructive' },
+                            customer.isActive === false
+                              ? { label: 'Activate', icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => handleToggleActive(customer) }
+                              : { label: 'Deactivate', icon: <Ban className="h-4 w-4" />, onClick: () => handleToggleActive(customer), variant: 'destructive' as const },
                           ]}
                         />
                       </div>
@@ -919,6 +1023,7 @@ export default function CustomersPage() {
                   {cols.isVisible('totalAmount') && <TableHead className="text-right">Total Amount</TableHead>}
                   {cols.isVisible('paidAmount') && <TableHead className="text-right">Paid Amount</TableHead>}
                   {cols.isVisible('outstanding') && <TableHead className="text-right">Outstanding</TableHead>}
+                  {cols.isVisible('pending') && <TableHead className="text-right">Pending</TableHead>}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -969,10 +1074,8 @@ export default function CustomersPage() {
                         >
                           {customer.name}
                         </span>
-                        {Number(customer.pendingCreditCount ?? 0) > 0 && (
-                          <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
-                            {customer.pendingCreditCount} pending
-                          </Badge>
+                        {customer.isActive === false && (
+                          <Badge variant="secondary" size="sm" className="shrink-0 text-[9px] text-muted-foreground">Inactive</Badge>
                         )}
                       </span>
                     </TableCell>
@@ -1017,6 +1120,17 @@ export default function CustomersPage() {
                       {formatCurrency(customer.currentOutstanding)}
                     </TableCell>
                     )}
+                    {cols.isVisible('pending') && (
+                    <TableCell className="text-right">
+                      {Number(customer.pendingCreditCount ?? 0) > 0 ? (
+                        <Badge variant="warning" size="sm" className="font-mono tabular-nums text-sm font-bold px-2.5 py-0.5">
+                          {customer.pendingCreditCount}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
@@ -1027,12 +1141,18 @@ export default function CustomersPage() {
                               icon: <Pencil className="h-4 w-4" />,
                               onClick: () => handleOpenEdit(customer),
                             },
-                            {
-                              label: 'Delete',
-                              icon: <Trash2 className="h-4 w-4" />,
-                              onClick: () => setDeleteCandidate(customer),
-                              variant: 'destructive',
-                            },
+                            customer.isActive === false
+                              ? {
+                                  label: 'Activate',
+                                  icon: <CheckCircle2 className="h-4 w-4" />,
+                                  onClick: () => handleToggleActive(customer),
+                                }
+                              : {
+                                  label: 'Deactivate',
+                                  icon: <Ban className="h-4 w-4" />,
+                                  onClick: () => handleToggleActive(customer),
+                                  variant: 'destructive',
+                                },
                           ]}
                         />
                       </div>
@@ -1056,7 +1176,7 @@ export default function CustomersPage() {
 
       {/* ─── Add / Edit Customer Drawer ─── */}
       <Sheet open={addDialogOpen} onOpenChange={(open) => {
-        if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError('') }
+        if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError('') }
         setAddDialogOpen(open)
       }}>
         {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
@@ -1251,6 +1371,57 @@ export default function CustomersPage() {
                 </div>
               </div>
 
+              {/* Row 6b: Prescription Document — separate multi-upload */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Prescription Document</Label>
+                  {rxFiles.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground">{rxFiles.length} file{rxFiles.length !== 1 ? 's' : ''} selected</span>
+                  )}
+                </div>
+
+                {/* Uploaded file list */}
+                {rxPreviews.length > 0 && (
+                  <div className="space-y-1.5">
+                    {rxPreviews.map((doc, idx) => (
+                      <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                        {doc.preview ? (
+                          <img src={doc.preview} alt={doc.name} className="h-8 w-10 rounded object-cover shrink-0" />
+                        ) : (
+                          <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-xs text-foreground">{doc.name}</span>
+                        <button type="button" onClick={() => removeRxFile(idx)}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Upload zone */}
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
+                  <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                    <FileImage className="h-5 w-5 text-muted-foreground/50" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground text-center">Upload prescription document only</p>
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                    <Upload className="h-3.5 w-3.5 text-amber-500" />
+                    Add Files
+                    <input
+                      type="file"
+                      className="sr-only"
+                      accept="image/jpeg,image/png,image/webp,application/pdf"
+                      multiple
+                      onChange={(e) => handleRxFiles(e.target.files)}
+                    />
+                  </label>
+                </div>
+              </div>
+
               {/* Row 7: Notes (full width) */}
               <div className="space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</Label>
@@ -1285,7 +1456,7 @@ export default function CustomersPage() {
 
             </div>
             <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false) }}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false) }}>Cancel</Button>
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
@@ -1325,57 +1496,6 @@ export default function CustomersPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Delete-customer confirmation. Shows the customer's open balance + pending
-          credit count so the user knows what's at stake before confirming. */}
-      <AlertDialog
-        open={!!deleteCandidate}
-        onOpenChange={(open) => { if (!open) setDeleteCandidate(null) }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this customer?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  You're about to permanently delete <span className="font-semibold">{deleteCandidate?.name}</span>.
-                </p>
-                {deleteCandidate && (
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Phone</span>
-                      <span className="font-mono">{deleteCandidate.phone || '—'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Outstanding</span>
-                      <span className={cn('font-mono', outstandingColor(deleteCandidate.currentOutstanding))}>
-                        {formatCurrency(deleteCandidate.currentOutstanding)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Pending credit invoices</span>
-                      <span className="font-mono">{Number(deleteCandidate.pendingCreditCount ?? 0)}</span>
-                    </div>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  The server blocks deletion if the customer has open invoices or any outstanding balance — settle those first, or set the customer inactive instead.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteSubmitting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); handleDeleteCustomer() }}
-              disabled={deleteSubmitting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteSubmitting ? 'Deleting…' : 'Yes, delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* ─── Customer + History Import Drawer ─── */}
       <ImportCustomersDrawer

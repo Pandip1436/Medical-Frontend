@@ -78,7 +78,7 @@ import {
 } from '@/lib/pdf/invoicePdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate, useRoute } from '@/lib/router'
-import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { exportToCsv, csvText, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -365,14 +365,21 @@ export default function SalesListPage() {
   // ── Stats ── (reflect the selected period, independent of card/table filters)
 
   const stats = useMemo(() => {
-    const invs = periodInvoices.filter((inv) => inv.type === 'INVOICE')
+    // Real, posted sales only — DRAFT (never posted) and CANCELLED (voided)
+    // must not count toward sales / collection / outstanding totals.
+    const invs = periodInvoices.filter(
+      (inv) => inv.type === 'INVOICE' && inv.status !== 'DRAFT' && inv.status !== 'CANCELLED',
+    )
     const totalSales = invs.reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
-    const paidTotal = invs
-      .filter((inv) => inv.status === 'PAID')
-      .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
+    // Collected = actual cash received across every invoice, including
+    // part-payments on PARTIAL invoices (not just fully-paid ones).
+    const paidTotal = invs.reduce((sum, inv) => sum + Number(inv.amountPaid ?? 0), 0)
+    // Outstanding = the unpaid balance (grandTotal − amountPaid) on open
+    // invoices, NOT the full invoice value — a PARTIAL invoice only owes its
+    // remaining balance.
     const pendingTotal = invs
       .filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
-      .reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
+      .reduce((sum, inv) => sum + Math.max(0, Number(inv.grandTotal) - Number(inv.amountPaid ?? 0)), 0)
     return {
       totalSales,
       totalInvoices: invs.length,
@@ -551,9 +558,13 @@ export default function SalesListPage() {
                       Invoice: inv.invoiceNumber,
                       Date: formatDate(inv.date),
                       Customer: inv.customerName,
+                      Phone: inv.customerPhone ?? '',
+                      Items: inv.items?.length ?? 0,
                       Total: formatCurrency(inv.grandTotal),
                       Paid: formatCurrency(inv.amountPaid),
                       Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+                      'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
                       Status: inv.status,
                     })), 'Sales Invoices')
                   }}
@@ -573,11 +584,15 @@ export default function SalesListPage() {
                     if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
                     const exported = exportToCsv(filteredInvoices.map((inv) => ({
                       Invoice: inv.invoiceNumber,
-                      Date: formatDate(inv.date),
+                      Date: csvText(formatDate(inv.date)),
                       Customer: inv.customerName,
+                      Phone: csvText(inv.customerPhone ?? ''),
+                      Items: inv.items?.length ?? 0,
                       Total: inv.grandTotal,
                       Paid: inv.amountPaid,
                       Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+                      'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
+                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
                       Status: inv.status,
                     })), 'sales-invoices')
                     // Bug #6: surface the row count so the user can reconcile
@@ -727,10 +742,15 @@ export default function SalesListPage() {
                   const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id))
                   exportToCsv(selected.map((inv) => ({
                     Invoice: inv.invoiceNumber,
-                    Date: inv.date?.slice(0, 10) ?? '',
+                    Date: csvText(formatDate(inv.date)),
                     Customer: inv.customerName,
-                    Amount: inv.grandTotal,
-                    'Payment Mode': inv.paymentMode,
+                    Phone: csvText(inv.customerPhone ?? ''),
+                    Items: inv.items?.length ?? 0,
+                    Total: inv.grandTotal,
+                    Paid: inv.amountPaid,
+                    Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+                    'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
+                    'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
                     Status: inv.status,
                   })), 'sales-invoices-selected')
                 }}>

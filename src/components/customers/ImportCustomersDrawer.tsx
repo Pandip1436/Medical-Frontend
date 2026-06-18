@@ -186,6 +186,7 @@ export function ImportCustomersDrawer({
         email: c.email,
         address: c.address,
         type: c.type,
+        source: c.source,
         doctorRef: c.doctorRef,
         referredBy: c.referredBy,
         creditLimit: c.creditLimit,

@@ -79,6 +79,7 @@ export interface Customer {
   dlNumber?: string
   notes?: string
   createdAt: string
+  isActive?: boolean            // false = soft-disabled (deactivated)
   pendingCreditCount?: number   // number of CREDIT/PARTIAL invoices
   totalAmount?: number          // sum of grandTotal across real invoices
   paidAmount?: number           // sum of amountPaid across real invoices

@@ -843,6 +843,18 @@ export default function QuotationsPage() {
                             disabled: qt.status !== 'DRAFT'
                           },
                           {
+                            label: 'Mark as Accepted',
+                            icon: <CheckCircle2 className="h-4 w-4" />,
+                            onClick: () => handleUpdateStatus(qt, 'ACCEPTED'),
+                            disabled: qt.status !== 'DRAFT' && qt.status !== 'SENT'
+                          },
+                          {
+                            label: 'Mark as Rejected',
+                            icon: <XCircle className="h-4 w-4" />,
+                            onClick: () => handleUpdateStatus(qt, 'REJECTED'),
+                            disabled: qt.status !== 'DRAFT' && qt.status !== 'SENT' && qt.status !== 'ACCEPTED'
+                          },
+                          {
                             label: 'Convert to Invoice',
                             icon: <ArrowRightLeft className="h-4 w-4" />,
                             onClick: () => handleConvert(qt),
@@ -884,6 +896,8 @@ export default function QuotationsPage() {
       >
         {detailQt && (() => {
           const canMarkSent = detailQt.status === 'DRAFT'
+          const canAccept = detailQt.status === 'DRAFT' || detailQt.status === 'SENT'
+          const canReject = detailQt.status === 'DRAFT' || detailQt.status === 'SENT' || detailQt.status === 'ACCEPTED'
           const canConvert = detailQt.status !== 'CONVERTED' && detailQt.status !== 'REJECTED'
           return (
             <>
@@ -1009,9 +1023,29 @@ export default function QuotationsPage() {
                       Mark as Sent
                     </Button>
                   )}
+                  {canAccept && (
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+                      onClick={() => { handleUpdateStatus(detailQt, 'ACCEPTED'); setDetailQt(null) }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Accept
+                    </Button>
+                  )}
+                  {canReject && (
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2 text-rose-700 hover:text-rose-700 dark:text-rose-400"
+                      onClick={() => { handleUpdateStatus(detailQt, 'REJECTED'); setDetailQt(null) }}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Reject
+                    </Button>
+                  )}
                   {canConvert && (
                     <Button
-                      variant={canMarkSent ? 'outline' : 'default'}
+                      variant={canMarkSent || canAccept ? 'outline' : 'default'}
                       className="flex-1 gap-2"
                       onClick={() => { handleConvert(detailQt); setDetailQt(null) }}
                     >
@@ -1020,7 +1054,7 @@ export default function QuotationsPage() {
                       <span className="sm:hidden">Convert</span>
                     </Button>
                   )}
-                  {!canMarkSent && !canConvert && (
+                  {!canMarkSent && !canAccept && !canReject && !canConvert && (
                     <div className="flex-1 text-xs text-muted-foreground italic flex items-center">
                       No further actions for {statusLabel[detailQt.status].toLowerCase()} quotations.
                     </div>
