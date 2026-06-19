@@ -314,17 +314,11 @@ export default function SalesListPage() {
     return result
   }, [invoices, period, dateFrom, dateTo])
 
-  const filteredInvoices = useMemo(() => {
+  // Invoices after every filter EXCEPT the stat-card drill-down (period +
+  // search + payment + status + salesperson). Drives the stat cards so they
+  // reflect the active filters; the table layers the card drill-down on top.
+  const statsBaseInvoices = useMemo(() => {
     let result = [...periodInvoices]
-
-    // Stat-card drill-down
-    if (cardFilter === 'paid') {
-      result = result.filter((inv) => inv.status === 'PAID')
-    } else if (cardFilter === 'pending') {
-      result = result.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
-    } else if (cardFilter === 'returns') {
-      result = result.filter((inv) => inv.status === 'RETURNED')
-    }
 
     // Search
     if (searchQuery.trim()) {
@@ -335,7 +329,6 @@ export default function SalesListPage() {
           inv.customerName.toLowerCase().includes(q)
       )
     }
-
 
     // Payment mode
     if (selectedPaymentMode && selectedPaymentMode !== 'all') {
@@ -355,19 +348,32 @@ export default function SalesListPage() {
     return result
   }, [
     periodInvoices,
-    cardFilter,
     searchQuery,
     selectedPaymentMode,
     selectedStatus,
     selectedSalespersonId,
   ])
 
-  // ── Stats ── (reflect the selected period, independent of card/table filters)
+  const filteredInvoices = useMemo(() => {
+    let result = statsBaseInvoices
+    // Stat-card drill-down (layered on top of the other filters)
+    if (cardFilter === 'paid') {
+      result = result.filter((inv) => inv.status === 'PAID')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+    } else if (cardFilter === 'returns') {
+      result = result.filter((inv) => inv.status === 'RETURNED')
+    }
+    return result
+  }, [statsBaseInvoices, cardFilter])
+
+  // ── Stats ── (reflect period + search + payment + status + salesperson, but
+  // NOT the card drill-down — so clicking a card never rewrites its own total)
 
   const stats = useMemo(() => {
     // Real, posted sales only — DRAFT (never posted) and CANCELLED (voided)
     // must not count toward sales / collection / outstanding totals.
-    const invs = periodInvoices.filter(
+    const invs = statsBaseInvoices.filter(
       (inv) => inv.type === 'INVOICE' && inv.status !== 'DRAFT' && inv.status !== 'CANCELLED',
     )
     const totalSales = invs.reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
@@ -389,7 +395,7 @@ export default function SalesListPage() {
       pendingTotal,
       returnsCount: invs.filter((inv) => inv.status === 'RETURNED').length,
     }
-  }, [periodInvoices])
+  }, [statsBaseInvoices])
 
   // ── Pagination ──
 
@@ -806,7 +812,13 @@ export default function SalesListPage() {
                       <span className="font-mono text-[11px] font-semibold">{formatInvoiceNumber(inv)}</span>
                       <span className="text-[11px] text-muted-foreground">{formatDate(inv.date)}</span>
                     </div>
-                    <StatusBadge status={inv.status} />
+                    {inv.isReplacement ? (
+                      <Badge variant="outline" size="sm" className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400">
+                        Replacement
+                      </Badge>
+                    ) : (
+                      <StatusBadge status={inv.status} />
+                    )}
                   </div>
                   {/* Row 2: Customer + Doctor */}
                   <div>
@@ -1014,7 +1026,13 @@ export default function SalesListPage() {
                     )}
                     {cols.isVisible('status') && (
                     <TableCell>
-                      <StatusBadge status={inv.status} />
+                      {inv.isReplacement ? (
+                        <Badge variant="outline" size="sm" className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400">
+                          Replacement
+                        </Badge>
+                      ) : (
+                        <StatusBadge status={inv.status} />
+                      )}
                     </TableCell>
                     )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

@@ -153,12 +153,19 @@ export default function StockOverviewPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchCategories() }, [])
 
-  // KPI bundle — one cheap call, no row data attached.
+  // KPI bundle — one cheap call, no row data attached. Scoped to the active
+  // category + status filters so the stat cards reflect whatever the operator
+  // selected.
   useEffect(() => {
-    api.get('/reports/inventory/stats')
+    api.get('/reports/inventory/stats', {
+      params: {
+        categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+      },
+    })
       .then((res) => setStats(res.data))
       .catch(() => {})
-  }, [])
+  }, [categoryFilter, statusFilter])
 
   // Map UI status → API params for /batches.
   // Note: the backend's `status: 'active'` means qty>0 AND not expired, so we
@@ -168,6 +175,9 @@ export default function StockOverviewPage() {
     if (status === 'expired') return { expired: true }
     if (status === 'near_expiry') return { expiringWithin: '90' }
     if (status === 'out_of_stock') return { status: 'out_of_stock' }
+    // low_stock / healthy are product-stock statuses (not expiry) — resolved
+    // server-side via the stockStatus param.
+    if (status === 'low_stock' || status === 'healthy') return { stockStatus: status }
     return {}
   }
 
@@ -178,6 +188,7 @@ export default function StockOverviewPage() {
     api.get('/batches', {
       params: {
         q: search.trim() || undefined,
+        categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
         ...statusToBatchParams(statusFilter),
         skip: (currentPage - 1) * PAGE_SIZE,
         take: PAGE_SIZE,
@@ -190,7 +201,7 @@ export default function StockOverviewPage() {
       })
       .catch(() => { if (!cancelled) { setBatchRows([]); setBatchTotal(0) } })
     return () => { cancelled = true }
-  }, [viewMode, search, statusFilter, currentPage])
+  }, [viewMode, search, categoryFilter, statusFilter, currentPage])
 
   useEffect(() => {
     if (viewMode !== 'card') return

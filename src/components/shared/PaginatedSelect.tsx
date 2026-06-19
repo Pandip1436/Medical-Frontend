@@ -191,17 +191,39 @@ export function PaginatedSelect({
   // ── UI helpers ───────────────────────────────────────────────────────────
   const hasValue = clearable && Boolean(value && value !== 'all' && value !== '')
 
-  // Trigger label: prefer explicit selectedLabel (async mode), then lookup in
-  // loaded/static options, then fall back to the raw value or placeholder.
+  // Remember the option the user actually picked so the trigger keeps showing
+  // its label even after the dropdown closes and the fetched page is dropped —
+  // and even when the parent can't resolve `selectedLabel` from a cache.
+  const [picked, setPicked] = useState<PaginatedOption | null>(null)
+  const handleValueChange = useCallback(
+    (val: string) => {
+      if (val && val !== 'all' && val !== '') {
+        const opt =
+          pinnedOption?.value === val
+            ? pinnedOption
+            : visibleItems.find((o) => o.value === val) ?? null
+        setPicked(opt)
+      } else {
+        setPicked(null)
+      }
+      onValueChange(val)
+    },
+    [onValueChange, pinnedOption, visibleItems],
+  )
+
+  // Trigger label: prefer explicit selectedLabel (async mode), then the option
+  // the user just picked, then a lookup in loaded/static options, then fall back
+  // to the raw value or placeholder.
   const triggerLabel: string | undefined = useMemo(() => {
     if (!value || value === 'all' || value === '') return undefined
     if (selectedLabel) return selectedLabel
+    if (picked?.value === value) return picked.label
     if (pinnedOption?.value === value) return pinnedOption.label
     const match =
       (fetcher ? loaded : (options ?? [])).find((o) => o.value === value) ||
       undefined
     return match?.label ?? value
-  }, [value, selectedLabel, pinnedOption, fetcher, loaded, options])
+  }, [value, selectedLabel, picked, pinnedOption, fetcher, loaded, options])
 
   return (
     <div className={`space-y-1.5 ${className || ''}`}>
@@ -210,7 +232,7 @@ export function PaginatedSelect({
       </Label>
       <Select
         value={value}
-        onValueChange={onValueChange}
+        onValueChange={handleValueChange}
         onOpenChange={setOpen}
       >
         <SelectTrigger hasValue={hasValue} onClear={onClear}>

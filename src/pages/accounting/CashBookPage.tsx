@@ -232,6 +232,11 @@ export default function CashBookPage() {
       toast.info('Nothing to export for this date')
       return
     }
+    // jsPDF's default font can't render the ₹ glyph (it prints as a stray
+    // character), so amounts go into the export without the currency symbol —
+    // just the Indian-grouped number. The column headers ("Cash In", etc.)
+    // already convey that these are money figures.
+    const money = (v: number) => formatCurrency(v).replace(/₹\s?/g, '')
     const openingRow = {
       Time: '',
       Particular: 'Opening Balance',
@@ -239,25 +244,25 @@ export default function CashBookPage() {
       'Ref #': '—',
       'Cash In': '—',
       'Cash Out': '—',
-      Balance: formatCurrency(summary.openingBalance),
+      Balance: money(summary.openingBalance),
     }
     const closingRow = {
       Time: '',
       Particular: 'Closing Balance',
       Type: '—',
       'Ref #': '—',
-      'Cash In': formatCurrency(summary.cashIn),
-      'Cash Out': formatCurrency(summary.cashOut),
-      Balance: formatCurrency(summary.closingBalance),
+      'Cash In': money(summary.cashIn),
+      'Cash Out': money(summary.cashOut),
+      Balance: money(summary.closingBalance),
     }
     const txnRows = transactionsWithBalance.map((t) => ({
       Time: t.time,
       Particular: t.particular,
       Type: t.type,
       'Ref #': t.type === 'Expense' ? '—' : t.refNumber,
-      'Cash In': t.debit > 0 ? formatCurrency(t.debit) : '—',
-      'Cash Out': t.credit > 0 ? formatCurrency(t.credit) : '—',
-      Balance: formatCurrency(t.balance),
+      'Cash In': t.debit > 0 ? money(t.debit) : '—',
+      'Cash Out': t.credit > 0 ? money(t.credit) : '—',
+      Balance: money(t.balance),
     }))
     const rows = [openingRow, ...txnRows, closingRow]
     const prettyDate = dayjs(selectedDate).format('DD MMM YYYY')

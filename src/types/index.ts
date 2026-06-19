@@ -215,6 +215,9 @@ export interface Invoice {
   salespersonName?: string
   createdBy: string
   createdAt: string
+  // True when this invoice was issued to fulfil a REPLACEMENT credit note
+  // (a no-charge replacement). Surfaced by the billing list for badging.
+  isReplacement?: boolean
 }
 
 export interface PurchaseOrder {

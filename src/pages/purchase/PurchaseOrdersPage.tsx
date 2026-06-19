@@ -55,7 +55,7 @@ import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
-import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
+import { SupplierSearchSelect } from '@/components/shared/SupplierSearchSelect'
 import {
   Select,
   SelectContent,
@@ -113,7 +113,6 @@ const STATUS_OPTIONS = [
   { value: 'ACKNOWLEDGED', label: 'Confirmed' },
   { value: 'PARTIALLY_RECEIVED', label: 'Partial' },
   { value: 'FULLY_RECEIVED', label: 'Received' },
-  { value: 'CLOSED', label: 'Closed' },
   { value: 'CANCELLED', label: 'Cancelled' },
 ] as const
 
@@ -425,6 +424,9 @@ export default function PurchaseOrdersPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
+  // The picker owns the chosen supplier's display name (the list is paginated,
+  // so the trigger label can't be looked up from a full in-memory list).
+  const [selectedSupplierName, setSelectedSupplierName] = useState<string>('')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   // Stat-card drill-down: clicking a summary card narrows the list to that
   // status bucket on top of the period. Kept separate from the Status enum
@@ -490,6 +492,7 @@ export default function PurchaseOrdersPage() {
     setDateFrom('')
     setDateTo('')
     setSelectedSupplier('all')
+    setSelectedSupplierName('')
     setSelectedStatus('all')
   }
 
@@ -527,17 +530,11 @@ export default function PurchaseOrdersPage() {
     return result
   }, [purchaseOrders, period, dateFrom, dateTo])
 
-  const filteredPOs = useMemo(() => {
+  // POs after every filter EXCEPT the stat-card drill-down (period + search +
+  // supplier + status). Drives the stat cards so they reflect the active
+  // filters; the table layers the card drill-down on top of this.
+  const statsBasePOs = useMemo(() => {
     let result = [...periodPOs]
-
-    // Stat-card drill-down
-    if (cardFilter === 'received') {
-      result = result.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
-    } else if (cardFilter === 'pending') {
-      result = result.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
-    } else if (cardFilter === 'partial') {
-      result = result.filter((po) => po.status === 'PARTIALLY_RECEIVED')
-    }
 
     // Search
     if (searchQuery.trim()) {
@@ -560,12 +557,28 @@ export default function PurchaseOrdersPage() {
     }
 
     return result
-  }, [periodPOs, cardFilter, searchQuery, selectedSupplier, selectedStatus])
+  }, [periodPOs, searchQuery, selectedSupplier, selectedStatus])
 
-  // ── Stats ── (reflect the selected period, independent of card/table filters)
+  const filteredPOs = useMemo(() => {
+    let result = statsBasePOs
+
+    // Stat-card drill-down (layered on top of the other filters)
+    if (cardFilter === 'received') {
+      result = result.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
+    } else if (cardFilter === 'partial') {
+      result = result.filter((po) => po.status === 'PARTIALLY_RECEIVED')
+    }
+
+    return result
+  }, [statsBasePOs, cardFilter])
+
+  // ── Stats ── (reflect period + supplier + status + search, but NOT the
+  // card drill-down — otherwise clicking a card would rewrite its own total)
 
   const stats = useMemo(() => {
-    const all = periodPOs
+    const all = statsBasePOs
     // Bucket every PO into exactly one of {received, pending, partial} so the
     // tile totals always reconcile back to "Total Orders". POStatus values:
     //   DRAFT / SENT / ACKNOWLEDGED  → Pending
@@ -591,30 +604,7 @@ export default function PurchaseOrdersPage() {
       partialCount: partial.length,
       partialTotal,
     }
-  }, [periodPOs])
-
-  // Backend-paginated supplier fetcher for the filter dropdown.
-  const supplierFetcher = useCallback(
-    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
-      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
-      if (query) params.set('q', query)
-      const res = await api.get(`/suppliers?${params.toString()}`)
-      const payload = res.data
-      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
-      return {
-        data: items.map((s) => ({ value: s.id, label: s.name })),
-        hasMore: Boolean(payload?.hasMore),
-      }
-    },
-    [],
-  )
-
-  // Resolve the selected supplier's name for the trigger label (the master
-  // store is still preloaded on boot, so we can use it as a lookup cache).
-  const selectedSupplierLabel = useMemo(() => {
-    if (selectedSupplier === 'all' || !selectedSupplier) return undefined
-    return suppliers.find((s) => s.id === selectedSupplier)?.name
-  }, [selectedSupplier, suppliers])
+  }, [statsBasePOs])
 
   // ── Pagination ──
 
@@ -924,19 +914,16 @@ export default function PurchaseOrdersPage() {
             label="Period"
             value={period}
             onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-            onClear={() => { setPeriod('today'); setCurrentPage(1) }}
+            // Clearing the period means "no date restriction" → All Time. (Was
+            // resetting to 'today', i.e. the same value, so the X did nothing.)
+            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
             options={PERIOD_OPTIONS}
           />
 
-          <PaginatedSelect
-            label="Supplier"
+          <SupplierSearchSelect
             value={selectedSupplier}
-            onValueChange={(val) => { setSelectedSupplier(val); setCurrentPage(1) }}
-            onClear={() => { setSelectedSupplier('all'); setCurrentPage(1) }}
-            fetcher={supplierFetcher}
-            pinnedOption={{ value: 'all', label: 'All Suppliers' }}
-            selectedLabel={selectedSupplierLabel}
-            pageSize={10}
+            selectedName={selectedSupplierName}
+            onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }}
           />
 
           <EnumSelect

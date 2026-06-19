@@ -24,7 +24,7 @@ import type { CreditNote, CreditNoteStatus } from './CreditNotesPage'
 const settlementConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'info'; icon: typeof Wallet }> = {
   REFUND:      { label: 'Refund',       variant: 'success', icon: Wallet },
   CREDIT:      { label: 'Adjust',       variant: 'warning', icon: BadgeCheck },
-  REPLACEMENT: { label: 'Store Credit', variant: 'info',    icon: RefreshCw },
+  REPLACEMENT: { label: 'Replacement',  variant: 'info',    icon: RefreshCw },
 }
 
 const statusConfig: Record<CreditNoteStatus, { label: string; variant: 'warning' | 'success' | 'destructive'; icon: typeof Hourglass }> = {
@@ -199,6 +199,37 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
     }
   }, [creditNote, reviewNote, onUpdated])
 
+  // Issue the replacement goods: pre-load a fresh sale with the returned items
+  // for this customer, carrying the credit-note id so the new invoice links
+  // back and settles the CN on save. Mirrors the quotation → invoice flow.
+  const issueReplacement = useCallback(() => {
+    try {
+      sessionStorage.setItem('replacement_prefill', JSON.stringify({
+        creditNoteId: creditNote.id,
+        creditNoteNo: creditNote.creditNoteNo,
+        customerId: creditNote.customerId ?? '',
+        customerName: creditNote.customerName,
+        customerPhone: creditNote.customerPhone ?? '',
+        // Replacement is goods-for-goods — the customer already paid on the
+        // original sale, so each line is issued at 100% discount (no charge).
+        // The invoice records the stock-out and links to the CN, but bills ₹0.
+        items: creditNote.items.map((it) => ({
+          productName: it.productName,
+          quantity: it.returnedQty,
+          rate: it.rate,
+          discountPercent: 100,
+        })),
+      }))
+    } catch { /* storage disabled — non-fatal */ }
+    navigate('/billing/new')
+  }, [creditNote])
+
+  // A REPLACEMENT credit note that's approved but not yet fulfilled.
+  const awaitingReplacement =
+    creditNote.settlementMode === 'REPLACEMENT' &&
+    creditNote.status === 'APPROVED' &&
+    !creditNote.settledAt
+
   const settlement = settlementConfig[creditNote.settlementMode]
   const status = statusConfig[creditNote.status]
   const StatusIcon = status?.icon ?? Hourglass
@@ -229,10 +260,16 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
         </div>
         <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
-          <div className="mt-0.5">
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
               {settlement?.label ?? creditNote.settlementMode}
             </Badge>
+            {awaitingReplacement && (
+              <Badge variant="warning" size="sm">Awaiting replacement</Badge>
+            )}
+            {creditNote.settlementMode === 'REPLACEMENT' && creditNote.settledAt && (
+              <Badge variant="success" size="sm">Replacement issued</Badge>
+            )}
           </div>
         </div>
       </div>
@@ -458,6 +495,26 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {awaitingReplacement && (
+              <Button
+                className="gap-2 bg-cyan-600 text-white hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500"
+                onClick={issueReplacement}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Issue Replacement
+              </Button>
+            )}
+            {creditNote.settlementMode === 'REPLACEMENT' && creditNote.settledAt && creditNote.replacementInvoiceId && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => navigate(`/customers/invoices/detail?id=${encodeURIComponent(creditNote.replacementInvoiceId!)}`)}
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span className="hidden sm:inline">Replacement Invoice</span>
+                <span className="sm:hidden">Replacement</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               className="gap-2"

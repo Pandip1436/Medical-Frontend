@@ -22,7 +22,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { EnumSelect } from '@/components/shared/EnumSelect'
-import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
+import { SupplierSearchSelect } from '@/components/shared/SupplierSearchSelect'
 import {
   Table,
   TableBody,
@@ -119,6 +119,7 @@ export default function DebitNotesPage() {
   const [selectedType, setSelectedType] = usePersistedState('filters:purchase.debitNotes:type', 'all')
   const [selectedStatus, setSelectedStatus] = usePersistedState('filters:purchase.debitNotes:status', 'all')
   const [selectedSupplier, setSelectedSupplier] = usePersistedState('filters:purchase.debitNotes:supplier', 'all')
+  const [selectedSupplierName, setSelectedSupplierName] = usePersistedState('filters:purchase.debitNotes:supplierName', '')
   // Stat-card drill-down: clicking a summary card narrows the list to that
   // subset (short-billing / settled) on top of the period. Kept separate from
   // the Type/Status enum filters so a card click and the dropdowns can coexist.
@@ -141,25 +142,6 @@ export default function DebitNotesPage() {
     if (target) navigate(`/purchase/debit-notes/detail?id=${target}`, { replace: true })
   }, [search])
 
-  const supplierFetcher = useCallback(
-    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
-      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
-      if (query) params.set('q', query)
-      const res = await api.get(`/suppliers?${params.toString()}`)
-      const payload = res.data
-      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
-      return {
-        data: items.map((s) => ({ value: s.id, label: s.name })),
-        hasMore: Boolean(payload?.hasMore),
-      }
-    },
-    [],
-  )
-
-  const selectedSupplierLabel = useMemo(() => {
-    if (selectedSupplier === 'all' || !selectedSupplier) return undefined
-    return suppliers.find((s) => s.id === selectedSupplier)?.name
-  }, [selectedSupplier, suppliers])
 
   const fetchReturns = useCallback(async () => {
     setReturnsLoading(true)
@@ -213,16 +195,11 @@ export default function DebitNotesPage() {
     return result
   }, [allReturns, period, dateFrom, dateTo])
 
-  // Client-side card drill-down + search + filters (on top of the period base)
-  useEffect(() => {
+  // Returns after every filter EXCEPT the stat-card drill-down (period + type +
+  // status + supplier + search). Drives the stat cards so they reflect the
+  // active filters; the list layers the card drill-down on top.
+  const statsBaseReturns = useMemo(() => {
     let result = [...periodReturns]
-
-    // Stat-card drill-down
-    if (cardFilter === 'short-billing') {
-      result = result.filter(r => /short/i.test(r.reason || ''))
-    } else if (cardFilter === 'settled') {
-      result = result.filter(r => /settl/i.test(r.status || ''))
-    }
 
     // Type filter (matched against `reason`)
     if (selectedType === 'short-billing') {
@@ -250,9 +227,21 @@ export default function DebitNotesPage() {
       )
     }
 
+    return result
+  }, [periodReturns, selectedType, selectedStatus, selectedSupplier, searchQuery])
+
+  // Card drill-down layered on top of the filtered base, then committed to the
+  // paginated list state.
+  useEffect(() => {
+    let result = [...statsBaseReturns]
+    if (cardFilter === 'short-billing') {
+      result = result.filter(r => /short/i.test(r.reason || ''))
+    } else if (cardFilter === 'settled') {
+      result = result.filter(r => /settl/i.test(r.status || ''))
+    }
     setPastReturns(result)
     setCurrentPage(1)
-  }, [searchQuery, periodReturns, cardFilter, selectedType, selectedStatus, selectedSupplier])
+  }, [statsBaseReturns, cardFilter])
 
   // Active filters count + clear ("today" is the default baseline)
   const activeFilterCount = [
@@ -272,29 +261,31 @@ export default function DebitNotesPage() {
     setSelectedType('all')
     setSelectedStatus('all')
     setSelectedSupplier('all')
+    setSelectedSupplierName('')
   }
 
   const totalPages = Math.max(1, Math.ceil(pastReturns.length / PAGE_SIZE))
   const paginatedReturns = pastReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  // ── Summary stats ── (reflect the selected period, independent of card/list filters)
+  // ── Summary stats ── (reflect period + type + status + supplier + search, but
+  // NOT the card drill-down — so clicking a card never rewrites its own total)
   const stats = useMemo(() => {
     const isShortBilling = (r: ApiReturn) => /short/i.test(r.reason || '')
     const isSettled = (r: ApiReturn) => /settl/i.test(r.status || '')
-    const totalAmount = periodReturns.reduce((s, r) => s + Number(r.totalAmount || 0), 0)
-    const shortBillingCount = periodReturns.filter(isShortBilling).length
-    const shortBillingTotal = periodReturns.filter(isShortBilling).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
-    const settledCount = periodReturns.filter(isSettled).length
-    const settledTotal = periodReturns.filter(isSettled).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const totalAmount = statsBaseReturns.reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const shortBillingCount = statsBaseReturns.filter(isShortBilling).length
+    const shortBillingTotal = statsBaseReturns.filter(isShortBilling).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
+    const settledCount = statsBaseReturns.filter(isSettled).length
+    const settledTotal = statsBaseReturns.filter(isSettled).reduce((s, r) => s + Number(r.totalAmount || 0), 0)
     return {
-      totalCount: periodReturns.length,
+      totalCount: statsBaseReturns.length,
       totalAmount,
       shortBillingCount,
       shortBillingTotal,
       settledCount,
       settledTotal,
     }
-  }, [periodReturns])
+  }, [statsBaseReturns])
 
 
   return (
@@ -405,7 +396,9 @@ export default function DebitNotesPage() {
                     label="Period"
                     value={period}
                     onValueChange={setPeriod}
-                    onClear={() => setPeriod('today')}
+                    // Clear = remove the date restriction → All Time (was resetting
+                    // to the same 'today' value, so the X did nothing).
+                    onClear={() => setPeriod('all')}
                     options={PERIOD_OPTIONS}
                   />
 
@@ -425,15 +418,10 @@ export default function DebitNotesPage() {
                     options={STATUS_OPTIONS}
                   />
 
-                  <PaginatedSelect
-                    label="Supplier"
+                  <SupplierSearchSelect
                     value={selectedSupplier}
-                    onValueChange={setSelectedSupplier}
-                    onClear={() => setSelectedSupplier('all')}
-                    fetcher={supplierFetcher}
-                    pinnedOption={{ value: 'all', label: 'All Suppliers' }}
-                    selectedLabel={selectedSupplierLabel}
-                    pageSize={10}
+                    selectedName={selectedSupplierName}
+                    onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name) }}
                   />
 
                   {/* Custom date range — only when period is 'custom' */}

@@ -161,12 +161,11 @@ export default function GRNListPage() {
     return result
   }, [grns, period, dateFrom, dateTo])
 
-  const filtered = useMemo(() => {
+  // PEs after every filter EXCEPT the stat-card drill-down (period + search +
+  // supplier + source + payment). Drives the stat cards so they reflect the
+  // active filters; the table layers the card drill-down on top.
+  const statsBaseGrns = useMemo(() => {
     let result = [...periodGrns]
-
-    // Stat-card drill-down
-    if (cardFilter === 'short') result = result.filter(grnHasShort)
-    else if (cardFilter === 'damaged') result = result.filter(grnHasDamage)
 
     // Search
     if (search.trim()) {
@@ -184,17 +183,27 @@ export default function GRNListPage() {
     if (selectedPayment !== 'all') result = result.filter((g) => grnPayStatus(g) === selectedPayment)
 
     return result
-  }, [periodGrns, cardFilter, search, selectedSupplier, selectedSource, selectedPayment])
+  }, [periodGrns, search, selectedSupplier, selectedSource, selectedPayment])
+
+  const filtered = useMemo(() => {
+    let result = statsBaseGrns
+    // Stat-card drill-down (layered on top of the other filters)
+    if (cardFilter === 'short') result = result.filter(grnHasShort)
+    else if (cardFilter === 'damaged') result = result.filter(grnHasDamage)
+    return result
+  }, [statsBaseGrns, cardFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
+  // Stats reflect period + supplier + source + payment + search, but NOT the
+  // card drill-down (so clicking a card never rewrites its own total).
   const stats = useMemo(() => {
-    const totalReceived = periodGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.receivedQty + (i.freeQty ?? 0), 0), 0)
-    const totalDamaged  = periodGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + (i.damageQty ?? 0), 0), 0)
-    const totalShort    = periodGrns.reduce((s, g) => s + g.items.filter(i => i.orderedQty > 0 && i.receivedQty < i.orderedQty).length, 0)
+    const totalReceived = statsBaseGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.receivedQty + (i.freeQty ?? 0), 0), 0)
+    const totalDamaged  = statsBaseGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + (i.damageQty ?? 0), 0), 0)
+    const totalShort    = statsBaseGrns.reduce((s, g) => s + g.items.filter(i => i.orderedQty > 0 && i.receivedQty < i.orderedQty).length, 0)
     return { totalReceived, totalDamaged, totalShort }
-  }, [periodGrns])
+  }, [statsBaseGrns])
 
   const activeFilterCount = [
     period !== 'today' ? period : '',
@@ -227,7 +236,7 @@ export default function GRNListPage() {
       {/* Summary cards — click Short / Damaged to drill the list */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {([
-          { label: 'Total Entries', value: periodGrns.length,   icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary',      filterKey: 'all',     activeRing: 'ring-2 ring-primary/40' },
+          { label: 'Total Entries', value: statsBaseGrns.length, icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary',      filterKey: 'all',     activeRing: 'ring-2 ring-primary/40' },
           { label: 'Units Received',value: stats.totalReceived, icon: TrendingUp,    color: 'text-emerald-600 dark:text-emerald-400',    bg: 'bg-emerald-500/10',     border: 'border-l-emerald-500',  filterKey: 'all',     activeRing: 'ring-2 ring-emerald-500/50' },
           { label: 'Short Items',   value: stats.totalShort,    icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400',         bg: 'bg-amber-500/10',       border: 'border-l-amber-500',    filterKey: 'short',   activeRing: 'ring-2 ring-amber-500/50' },
           { label: 'Damaged Units', value: stats.totalDamaged,  icon: ShieldAlert,   color: 'text-rose-600 dark:text-rose-400',           bg: 'bg-rose-500/10',        border: 'border-l-rose-500',     filterKey: 'damaged', activeRing: 'ring-2 ring-rose-500/50' },
@@ -284,7 +293,9 @@ export default function GRNListPage() {
           label="Period"
           value={period}
           onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('today'); setCurrentPage(1) }}
+          // Clear = remove the date restriction → All Time (was resetting to the
+          // same 'today' value, making the X a no-op).
+          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
           options={PERIOD_OPTIONS}
         />
         {period === 'custom' && (

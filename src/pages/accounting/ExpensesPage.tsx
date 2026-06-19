@@ -307,12 +307,16 @@ export default function ExpensesPage() {
         toast.info('No expenses to export with current filters')
         return
       }
+      // jsPDF's default font can't render the ₹ glyph (it prints as a stray
+      // character), so strip the symbol from the exported amount — just the
+      // Indian-grouped number under the "Amount" header.
+      const money = (v: number) => formatCurrency(v).replace(/₹\s?/g, '')
       // Map to user-facing columns; exportUtils derives headers from key names.
       const rows = allRows.map((e) => ({
         Date: formatDate(e.date),
         Category: e.category,
         Description: e.description,
-        Amount: formatCurrency(e.amount),
+        Amount: money(e.amount),
         'Payment Mode': e.paymentMode,
       }))
       const title = 'Expenses Report'

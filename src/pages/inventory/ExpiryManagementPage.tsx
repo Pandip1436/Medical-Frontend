@@ -234,15 +234,18 @@ export default function ExpiryManagementPage() {
     return () => { cancelled = true }
   }, [folder, disposalPage, refreshKey])
 
-  // Stats — refresh on mount and whenever a mutation lands.
+  // Stats — refresh on mount, on mutation, and when the supplier filter changes
+  // so the KPI cards reflect the selected supplier.
   const refreshStats = useCallback(async () => {
     try {
-      const res = await api.get('/reports/inventory/stats')
+      const res = await api.get('/reports/inventory/stats', {
+        params: { supplierId: selectedSupplier?.id ?? undefined },
+      })
       setStats(res.data)
     } catch {
       // non-critical; counters just stay at 0
     }
-  }, [])
+  }, [selectedSupplier])
   useEffect(() => { refreshStats() }, [refreshStats, refreshKey])
 
   // Enrich raw batch rows with computed days-to-expiry / bucket / stockValue.

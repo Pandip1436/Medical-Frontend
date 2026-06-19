@@ -1214,20 +1214,39 @@ export function exportSuppliersToWorkbook(
   const grnNumberById = new Map<string, string>()
   payload.grns.forEach((g) => grnNumberById.set(g.id, g.grnNumber))
 
-  const supplierRows = payload.suppliers.map((s) => ({
-    supplier_code: codeFor.get(s.id) ?? '',
-    name: s.name,
-    phone: s.phone,
-    contact_person: s.contactPerson ?? '',
-    email: s.email ?? '',
-    gstin: s.gstin ?? '',
-    drug_license: s.drugLicense ?? '',
-    address: s.address ?? '',
-    payment_terms: s.paymentTerms ?? '',
-    bank_details: s.bankDetails ?? '',
-    is_active: s.isActive === false ? 'FALSE' : 'TRUE',
-    opening_balance: num(s.currentOutstanding),
-  }))
+  // Total purchases billed per supplier (Σ supplier-invoice amount across their
+  // non-replacement GRNs). Paid = Total − Outstanding (the still-owed balance),
+  // mirroring the Suppliers list's Total / Paid / Outstanding columns. Both are
+  // derived/read-only — the import parser ignores them on re-import.
+  const purchaseTotalBySupplier = new Map<string, number>()
+  for (const g of payload.grns) {
+    if (g.isReplacement) continue
+    purchaseTotalBySupplier.set(
+      g.supplierId,
+      (purchaseTotalBySupplier.get(g.supplierId) ?? 0) + Number(g.supplierInvoiceAmount ?? 0),
+    )
+  }
+
+  const supplierRows = payload.suppliers.map((s) => {
+    const totalPurchases = purchaseTotalBySupplier.get(s.id) ?? 0
+    const outstandingNum = Number(s.currentOutstanding) || 0
+    return {
+      supplier_code: codeFor.get(s.id) ?? '',
+      name: s.name,
+      phone: s.phone,
+      contact_person: s.contactPerson ?? '',
+      email: s.email ?? '',
+      gstin: s.gstin ?? '',
+      drug_license: s.drugLicense ?? '',
+      address: s.address ?? '',
+      payment_terms: s.paymentTerms ?? '',
+      bank_details: s.bankDetails ?? '',
+      is_active: s.isActive === false ? 'FALSE' : 'TRUE',
+      opening_balance: num(s.currentOutstanding),
+      total_purchases: totalPurchases,
+      paid_amount: Math.max(0, totalPurchases - outstandingNum),
+    }
+  })
 
   const poRows = payload.purchaseOrders.map((po) => ({
     supplier_code: codeFor.get(po.supplierId) ?? '',
@@ -1376,7 +1395,10 @@ export function exportSuppliersToWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, name)
   }
 
-  addSheet('Suppliers',        supplierRows, SUPPLIER_COLUMNS,  SHEET_COLORS.suppliers)
+  // Export-only: append the derived Total Purchases + Paid columns after the
+  // round-trip ones. The import template / parser uses plain SUPPLIER_COLUMNS,
+  // so these extra read-only columns are ignored when the file is re-imported.
+  addSheet('Suppliers',        supplierRows, [...SUPPLIER_COLUMNS, 'total_purchases', 'paid_amount'],  SHEET_COLORS.suppliers)
   addSheet('Purchase Orders',  poRows,       PO_COLUMNS,        SHEET_COLORS.purchaseOrders)
   addSheet('PO Items',         poItemRows,   PO_ITEM_COLUMNS,   SHEET_COLORS.poItems)
   addSheet('GRNs',             grnRows,      GRN_COLUMNS,       SHEET_COLORS.grns)

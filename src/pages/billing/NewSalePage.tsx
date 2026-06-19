@@ -2092,8 +2092,22 @@ export default function NewSalePage() {
   }
 
   const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
+  // Set when this sale fulfils a REPLACEMENT credit note — on save we link the
+  // new invoice back to the CN and mark it settled.
+  const [replacementSource, setReplacementSource] = useState<{ creditNoteId: string; creditNoteNo: string; customerName: string } | null>(null)
 
   const [items, setItems] = useState<BillingItem[]>(() => {
+    // Replacement prefill (from a REPLACEMENT credit note) — same shape as the
+    // quotation prefill: items resolved by product name on load.
+    const rpStored = sessionStorage.getItem('replacement_prefill')
+    if (rpStored) {
+      try {
+        const rp = JSON.parse(rpStored)
+        if (Array.isArray(rp.items) && rp.items.length > 0) {
+          return rp.items.map((it: Partial<BillingItem>) => ({ ...createEmptyItem(), ...it, id: generateRowId() }))
+        }
+      } catch { /* ignore */ }
+    }
     // Check quotation prefill first
     const qtStored = sessionStorage.getItem('quotation_prefill')
     if (qtStored) {
@@ -2188,19 +2202,35 @@ export default function NewSalePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Replacement prefill (from a REPLACEMENT credit note): record the source so
+  // the new invoice links back + settles the CN on save; customer/products are
+  // resolved by the shared resolution effect above.
+  useEffect(() => {
+    const rpStored = sessionStorage.getItem('replacement_prefill')
+    if (!rpStored) return
+    try {
+      const rp = JSON.parse(rpStored)
+      setReplacementSource({ creditNoteId: rp.creditNoteId, creditNoteNo: rp.creditNoteNo, customerName: rp.customerName })
+      toast.info(`No-charge replacement for ${rp.creditNoteNo} — items pre-loaded at 100% discount (₹0)`)
+    } catch { /* ignore */ }
+    sessionStorage.removeItem('replacement_prefill')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Auto-populate customer + resolve product/batch after quotation prefill.
   // We no longer wait for a full master-data load; we issue targeted server
   // queries by name (/customers?q=, /products?q=) and pick the closest match.
   useEffect(() => {
-    if (!quotationSource) return
+    const src = quotationSource ?? replacementSource
+    if (!src) return
     let cancelled = false
 
     ;(async () => {
       // 1) Resolve the customer by name (one focused query, not full catalog)
       try {
-        const cRes = await api.get('/customers', { params: { q: quotationSource.customerName, take: 5 } })
+        const cRes = await api.get('/customers', { params: { q: src.customerName, take: 5 } })
         const cData = Array.isArray(cRes.data) ? cRes.data : (cRes.data?.data ?? [])
-        const matched = cData.find((c: Customer) => c.name.toLowerCase() === quotationSource.customerName.toLowerCase())
+        const matched = cData.find((c: Customer) => c.name.toLowerCase() === src.customerName.toLowerCase())
           ?? cData[0]
         if (matched && !cancelled) setSelectedCustomer(matched)
       } catch { /* non-blocking */ }
@@ -2251,7 +2281,7 @@ export default function NewSalePage() {
 
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quotationSource])
+  }, [quotationSource, replacementSource])
 
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CREDIT')
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
@@ -3289,9 +3319,11 @@ export default function NewSalePage() {
 
     // Cash/UPI invoices must record how much was actually received — it's
     // mandatory so the paid amount and any change returned are never left blank.
-    // (Credit sales are pay-later, so amount received legitimately stays 0.)
+    // (Credit sales are pay-later, so amount received legitimately stays 0;
+    // and a ₹0 invoice — e.g. a no-charge replacement — has nothing to collect.)
     if (
       invoiceType !== 'quotation' &&
+      Number(totals.grandTotal) > 0 &&
       (effectivePaymentMode === 'CASH' || effectivePaymentMode === 'UPI') &&
       !(Number(paymentDetails.amountReceived) > 0)
     ) {
@@ -3350,6 +3382,8 @@ export default function NewSalePage() {
         customerName: selectedCustomer!.name,
         customerId: selectedCustomer!.id,
         paymentMode: effectivePaymentMode.toUpperCase(),
+        // No-charge replacement — backend gives it its own REPL number series.
+        ...(replacementSource && { isReplacement: true }),
 
         subtotal: Number(totals.subtotal) || 0,
         productDiscount: Number(totals.productDiscount) || 0,
@@ -3480,6 +3514,14 @@ export default function NewSalePage() {
         // If this invoice was converted from a quotation, mark it as CONVERTED
         if (quotationSource) {
           try { await api.patch(`/quotations/${quotationSource.id}/status`, { status: 'CONVERTED' }) } catch { /* non-critical */ }
+        }
+        // If this invoice fulfils a REPLACEMENT credit note, link it back and
+        // mark the credit note settled (replacement goods delivered).
+        if (replacementSource) {
+          try {
+            await api.patch(`/credit-notes/${replacementSource.creditNoteId}/replacement`, { invoiceId: savedInvoice.id })
+            toast.success(`Replacement issued — credit note ${replacementSource.creditNoteNo} settled`)
+          } catch { /* non-critical — invoice still saved */ }
         }
         const autoPrint = useSettingsStore.getState().generalSettings.autoPrint
         if (autoPrint) printInvoicePdf({

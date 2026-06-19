@@ -52,9 +52,11 @@ export function exportToCsv(rows: Record<string, unknown>[], filename: string): 
         .join(','),
     ),
   ]
-  // Trailing `\r\n` so `wc -l` and most text-editor "line count" reports
-  // see N+1 lines (header + N rows) rather than N — matches RFC 4180.
-  const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8;' })
+  // Lead with a UTF-8 BOM so Excel reads the file as UTF-8 instead of Latin-1
+  // — without it, ₹, em-dashes, and accented names render as mojibake
+  // (e.g. "â‚¹", "â€"") on Windows. Trailing `\r\n` so line-count reports see
+  // N+1 lines (header + N rows) — matches RFC 4180.
+  const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -90,7 +92,9 @@ export function exportToPdf(
   autoTable(doc, {
     startY: 28,
     head: [headers.map((h) => h.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()))],
-    body: rows.map((row) => headers.map((h) => String(row[h] ?? ''))),
+    // jsPDF's Helvetica has no ₹ glyph (it prints as a stray character), so
+    // strip it everywhere — the amount columns are clearly money regardless.
+    body: rows.map((row) => headers.map((h) => String(row[h] ?? '').replace(/₹\s?/g, ''))),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
     margin: { left: 14, right: 14 },

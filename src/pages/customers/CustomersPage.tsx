@@ -205,6 +205,12 @@ const GSTIN_OPTIONS = [
   { value: 'none', label: 'No GSTIN' },
 ] as const
 
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All Status' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+] as const
+
 const SOURCE_FILTER_OPTIONS = [
   { value: 'all', label: 'All Sources' },
   ...CUSTOMER_SOURCES.map((s) => ({ value: s, label: s })),
@@ -275,6 +281,7 @@ const CUSTOMER_COLUMNS: ColumnDef[] = [
   { id: 'paidAmount', label: 'Paid Amount', defaultVisible: true },
   { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
   { id: 'pending', label: 'Pending', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
 export default function CustomersPage() {
@@ -313,6 +320,7 @@ export default function CustomersPage() {
   const [gstinFilter, setGstinFilter] = usePersistedState<string>('filters:customers.list:gstin', 'all')
   const [sourceFilter, setSourceFilter] = usePersistedState<string>('filters:customers.list:source', 'all')
   const [monthFilter, setMonthFilter] = usePersistedState<string>('filters:customers.list:month', 'all')
+  const [statusFilter, setStatusFilter] = usePersistedState<string>('filters:customers.list:status', 'all')
   // Custom-range bounds (yyyy-mm-dd), used only when monthFilter === 'custom'.
   const [customFrom, setCustomFrom] = usePersistedState<string>('filters:customers.list:from', '')
   const [customTo, setCustomTo] = usePersistedState<string>('filters:customers.list:to', '')
@@ -424,8 +432,9 @@ export default function CustomersPage() {
       if (from) params.set('createdFrom', from)
       if (to) params.set('createdTo', to)
     }
+    if (statusFilter !== 'all') params.set('active', statusFilter === 'active' ? 'true' : 'false')
     return params
-  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo])
+  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter])
 
   const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -477,7 +486,7 @@ export default function CustomersPage() {
   useBranchRefresh(fetchSummary)
 
   // Reset page to 1 whenever any filter or search changes
-  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo])
+  useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -486,7 +495,8 @@ export default function CustomersPage() {
     (outstandingFilter !== 'all' ? 1 : 0) +
     (gstinFilter !== 'all' ? 1 : 0) +
     (sourceFilter !== 'all' ? 1 : 0) +
-    (monthFilter !== 'all' ? 1 : 0)
+    (monthFilter !== 'all' ? 1 : 0) +
+    (statusFilter !== 'all' ? 1 : 0)
 
   const clearFilters = () => {
     setCustomerTypeFilter('all')
@@ -496,6 +506,7 @@ export default function CustomersPage() {
     setMonthFilter('all')
     setCustomFrom('')
     setCustomTo('')
+    setStatusFilter('all')
   }
 
   // Refresh list + summary + the global master-data cache (used by other pages' dropdowns).
@@ -886,6 +897,13 @@ export default function CustomersPage() {
             options={GSTIN_OPTIONS}
           />
           <EnumSelect
+            label="Status"
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+            onClear={() => setStatusFilter('all')}
+            options={STATUS_OPTIONS}
+          />
+          <EnumSelect
             label="Added"
             value={monthFilter}
             onValueChange={setMonthFilter}
@@ -1024,6 +1042,7 @@ export default function CustomersPage() {
                   {cols.isVisible('paidAmount') && <TableHead className="text-right">Paid Amount</TableHead>}
                   {cols.isVisible('outstanding') && <TableHead className="text-right">Outstanding</TableHead>}
                   {cols.isVisible('pending') && <TableHead className="text-right">Pending</TableHead>}
+                  {cols.isVisible('status') && <TableHead>Status</TableHead>}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1074,9 +1093,6 @@ export default function CustomersPage() {
                         >
                           {customer.name}
                         </span>
-                        {customer.isActive === false && (
-                          <Badge variant="secondary" size="sm" className="shrink-0 text-[9px] text-muted-foreground">Inactive</Badge>
-                        )}
                       </span>
                     </TableCell>
                     {cols.isVisible('phone') && <TableCell className="text-muted-foreground">{customer.phone}</TableCell>}
@@ -1128,6 +1144,15 @@ export default function CustomersPage() {
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
+                    )}
+                    {cols.isVisible('status') && (
+                    <TableCell>
+                      {customer.isActive === false ? (
+                        <Badge variant="secondary" size="sm" dot className="text-muted-foreground">Inactive</Badge>
+                      ) : (
+                        <Badge variant="success" size="sm" dot>Active</Badge>
                       )}
                     </TableCell>
                     )}

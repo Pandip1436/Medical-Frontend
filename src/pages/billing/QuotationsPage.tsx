@@ -51,7 +51,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { EnumSelect } from '@/components/shared/EnumSelect'
-import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
+import { CustomerSearchSelect } from '@/components/shared/CustomerSearchSelect'
 import {
   Sheet,
   SheetContent,
@@ -168,6 +168,7 @@ export default function QuotationsPage() {
   const [dateTo, setDateTo] = usePersistedState('filters:billing.quotations:dateTo', '')
   const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:billing.quotations:status', 'all')
   const [selectedCustomer, setSelectedCustomer] = usePersistedState<string>('filters:billing.quotations:customer', 'all')
+  const [selectedCustomerName, setSelectedCustomerName] = usePersistedState<string>('filters:billing.quotations:customerName', '')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -282,6 +283,7 @@ export default function QuotationsPage() {
     setDateTo('')
     setSelectedStatus('all')
     setSelectedCustomer('all')
+    setSelectedCustomerName('')
   }
 
   // ── Filtering logic ──
@@ -315,17 +317,11 @@ export default function QuotationsPage() {
     return result
   }, [quotations, period, dateFrom, dateTo])
 
-  const filteredQuotations = useMemo(() => {
+  // Quotations after every filter EXCEPT the stat-card drill-down (period +
+  // search + status + customer). Drives the stat cards so they reflect the
+  // active filters; the table layers the card drill-down on top.
+  const statsBaseQuotations = useMemo(() => {
     let result = [...periodQuotations]
-
-    // Stat-card drill-down
-    if (cardFilter === 'converted') {
-      result = result.filter((qt) => qt.status === 'CONVERTED')
-    } else if (cardFilter === 'pending') {
-      result = result.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED')
-    } else if (cardFilter === 'rejected') {
-      result = result.filter((qt) => qt.status === 'REJECTED')
-    }
 
     // Search
     if (searchQuery.trim()) {
@@ -342,53 +338,47 @@ export default function QuotationsPage() {
       result = result.filter((qt) => qt.status === selectedStatus)
     }
 
-    // Customer
+    // Customer (by id — set via the picker)
     if (selectedCustomer && selectedCustomer !== 'all') {
-      result = result.filter((qt) => qt.customerName === selectedCustomer)
+      result = result.filter((qt) => qt.customerId === selectedCustomer)
     }
 
     return result
-  }, [periodQuotations, cardFilter, searchQuery, selectedStatus, selectedCustomer])
+  }, [periodQuotations, searchQuery, selectedStatus, selectedCustomer])
 
-  // Backend-paginated customer fetcher. Quotations match by customerName,
-  // so we keep value === name for compatibility with the existing filter.
-  const customerFetcher = useCallback(
-    async ({ skip, take, query }: { skip: number; take: number; query: string }) => {
-      const params = new URLSearchParams({ skip: String(skip), take: String(take) })
-      if (query) params.set('q', query)
-      const res = await api.get(`/customers?${params.toString()}`)
-      const payload = res.data
-      const items = (payload?.data ?? []) as Array<{ id: string; name: string }>
-      return {
-        data: items.map((c) => ({ value: c.name, label: c.name })),
-        hasMore: Boolean(payload?.hasMore),
-      }
-    },
-    [],
-  )
+  const filteredQuotations = useMemo(() => {
+    let result = statsBaseQuotations
+    // Stat-card drill-down (layered on top of the other filters)
+    if (cardFilter === 'converted') {
+      result = result.filter((qt) => qt.status === 'CONVERTED')
+    } else if (cardFilter === 'pending') {
+      result = result.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED')
+    } else if (cardFilter === 'rejected') {
+      result = result.filter((qt) => qt.status === 'REJECTED')
+    }
+    return result
+  }, [statsBaseQuotations, cardFilter])
 
-  const selectedCustomerLabel =
-    selectedCustomer && selectedCustomer !== 'all' ? selectedCustomer : undefined
-
-  // ── Stats ── (reflect the selected period, independent of card/table filters)
+  // ── Stats ── (reflect period + search + status + customer, but NOT the card
+  // drill-down — so clicking a card never rewrites its own total)
 
   const stats = useMemo(() => {
-    const total = periodQuotations.reduce((sum, qt) => sum + qt.total, 0)
-    const convertedCount = periodQuotations.filter((qt) => qt.status === 'CONVERTED').length
-    const convertedTotal = periodQuotations.filter((qt) => qt.status === 'CONVERTED').reduce((sum, qt) => sum + qt.total, 0)
-    const pendingCount = periodQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').length
-    const pendingTotal = periodQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').reduce((sum, qt) => sum + qt.total, 0)
-    const rejectedCount = periodQuotations.filter((qt) => qt.status === 'REJECTED').length
+    const total = statsBaseQuotations.reduce((sum, qt) => sum + qt.total, 0)
+    const convertedCount = statsBaseQuotations.filter((qt) => qt.status === 'CONVERTED').length
+    const convertedTotal = statsBaseQuotations.filter((qt) => qt.status === 'CONVERTED').reduce((sum, qt) => sum + qt.total, 0)
+    const pendingCount = statsBaseQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').length
+    const pendingTotal = statsBaseQuotations.filter((qt) => qt.status === 'DRAFT' || qt.status === 'SENT' || qt.status === 'ACCEPTED').reduce((sum, qt) => sum + qt.total, 0)
+    const rejectedCount = statsBaseQuotations.filter((qt) => qt.status === 'REJECTED').length
     return {
       total,
-      totalCount: periodQuotations.length,
+      totalCount: statsBaseQuotations.length,
       convertedCount,
       convertedTotal,
       pendingCount,
       pendingTotal,
       rejectedCount,
     }
-  }, [periodQuotations])
+  }, [statsBaseQuotations])
 
   // ── Pagination ──
 
@@ -567,15 +557,10 @@ export default function QuotationsPage() {
             options={STATUS_OPTIONS}
           />
 
-          <PaginatedSelect
-            label="Customer"
+          <CustomerSearchSelect
             value={selectedCustomer}
-            onValueChange={(val) => { setSelectedCustomer(val); setCurrentPage(1) }}
-            onClear={() => { setSelectedCustomer('all'); setCurrentPage(1) }}
-            fetcher={customerFetcher}
-            pinnedOption={{ value: 'all', label: 'All Customers' }}
-            selectedLabel={selectedCustomerLabel}
-            pageSize={10}
+            selectedName={selectedCustomerName}
+            onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }}
           />
 
           {/* Custom date range — only when period is 'custom', full-width row below */}

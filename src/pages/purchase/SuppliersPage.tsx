@@ -206,14 +206,23 @@ export default function SuppliersPage() {
 
   // Directory-wide money KPIs for the stat cards (total purchases + pending
   // payments). Fetched from the dedicated summary endpoint.
-  const [moneySummary, setMoneySummary] = useState<{ totalPurchases: number; pendingPayments: number } | null>(null)
+  const [moneySummary, setMoneySummary] = useState<{ totalCount: number; activeCount: number; inactiveCount: number; totalPurchases: number; pendingPayments: number } | null>(null)
   const fetchMoneySummary = useCallback(async () => {
     try {
-      const res = await api.get('/suppliers/summary')
+      // Pass the active filters so the stat cards reflect the same set as the
+      // table (minus pagination).
+      const params = buildQueryParams({ paginated: false })
+      const res = await api.get(`/suppliers/summary?${params.toString()}`)
       const data = res.data?.data ?? res.data
-      if (data) setMoneySummary({ totalPurchases: Number(data.totalPurchases ?? 0), pendingPayments: Number(data.pendingPayments ?? 0) })
+      if (data) setMoneySummary({
+        totalCount: Number(data.totalCount ?? 0),
+        activeCount: Number(data.activeCount ?? 0),
+        inactiveCount: Number(data.inactiveCount ?? 0),
+        totalPurchases: Number(data.totalPurchases ?? 0),
+        pendingPayments: Number(data.pendingPayments ?? 0),
+      })
     } catch { /* silent — cards fall back to a dash */ }
-  }, [])
+  }, [buildQueryParams])
   useEffect(() => { fetchMoneySummary() }, [fetchMoneySummary])
   useBranchRefresh(fetchMoneySummary)
   // (supplierStats + fetchSupplierStats removed — the supplier detail page now
@@ -360,7 +369,7 @@ export default function SuppliersPage() {
         {([
           {
             label: 'Total Suppliers',
-            value: stats.totalCount.toString(),
+            value: (moneySummary?.totalCount ?? stats.totalCount).toString(),
             subtitle: 'in directory',
             icon: Users,
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -374,8 +383,8 @@ export default function SuppliersPage() {
           },
           {
             label: 'Active',
-            value: stats.activeCount.toString(),
-            subtitle: `${stats.inactiveCount} inactive`,
+            value: (moneySummary?.activeCount ?? stats.activeCount).toString(),
+            subtitle: `${moneySummary?.inactiveCount ?? stats.inactiveCount} inactive`,
             icon: CheckCircle2,
             iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
             borderAccent: 'border-l-emerald-500',

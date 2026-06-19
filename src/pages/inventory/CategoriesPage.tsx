@@ -160,13 +160,10 @@ export default function CategoriesPage() {
     }
   }
 
-  const filtered = useMemo(() => {
+  // Base set after the Status dropdown + search (but NOT the card drill-down).
+  // The stat cards are computed from this so they reflect the active filter.
+  const statBase = useMemo(() => {
     let result = [...categories]
-
-    // Stat-card drill-down
-    if (cardFilter === 'active') result = result.filter(c => c.isActive)
-    else if (cardFilter === 'withProducts') result = result.filter(c => (c._count?.products ?? 0) > 0)
-
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter(c =>
@@ -177,19 +174,27 @@ export default function CategoriesPage() {
     if (selectedStatus === 'active') result = result.filter(c => c.isActive)
     else if (selectedStatus === 'inactive') result = result.filter(c => !c.isActive)
     return result
-  }, [categories, search, selectedStatus, cardFilter])
+  }, [categories, search, selectedStatus])
+
+  const filtered = useMemo(() => {
+    let result = statBase
+    // Stat-card drill-down layers on top of the filtered base.
+    if (cardFilter === 'active') result = result.filter(c => c.isActive)
+    else if (cardFilter === 'withProducts') result = result.filter(c => (c._count?.products ?? 0) > 0)
+    return result
+  }, [statBase, cardFilter])
 
   useEffect(() => {
     setCurrentPage(1)
   }, [search, selectedStatus])
 
   const stats = useMemo(() => {
-    const total = categories.length
-    const active = categories.filter(c => c.isActive).length
-    const withProducts = categories.filter(c => (c._count?.products ?? 0) > 0).length
-    const totalProducts = categories.reduce((s, c) => s + (c._count?.products ?? 0), 0)
+    const total = statBase.length
+    const active = statBase.filter(c => c.isActive).length
+    const withProducts = statBase.filter(c => (c._count?.products ?? 0) > 0).length
+    const totalProducts = statBase.reduce((s, c) => s + (c._count?.products ?? 0), 0)
     return { total, active, withProducts, totalProducts }
-  }, [categories])
+  }, [statBase])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)

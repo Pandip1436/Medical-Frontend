@@ -91,6 +91,10 @@ export interface CreditNote {
   reviewedAt?: string | null
   reviewNote?: string | null
   reviewedBy?: { id: string; name: string } | null
+  // Settlement completion. For REPLACEMENT, set once the replacement sales
+  // invoice (replacementInvoiceId) has been issued to the customer.
+  settledAt?: string | null
+  replacementInvoiceId?: string | null
   notes?: string
   createdAt: string
 }
@@ -114,13 +118,13 @@ const SETTLEMENT_OPTIONS = [
   { value: 'all', label: 'All Modes' },
   { value: 'REFUND', label: 'Refund' },
   { value: 'CREDIT', label: 'Adjust Against Outstanding' },
-  { value: 'REPLACEMENT', label: 'Store Credit' },
+  { value: 'REPLACEMENT', label: 'Replacement' },
 ] as const
 
 const settlementConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'info'; icon: typeof Wallet }> = {
   REFUND:      { label: 'Refund',        variant: 'success', icon: Wallet },
   CREDIT:      { label: 'Adjust',        variant: 'warning', icon: BadgeCheck },
-  REPLACEMENT: { label: 'Store Credit',  variant: 'info',    icon: RefreshCw },
+  REPLACEMENT: { label: 'Replacement',   variant: 'info',    icon: RefreshCw },
 }
 
 // Status filter options + per-status visual config. Keep the visual variants

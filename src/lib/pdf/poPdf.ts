@@ -106,14 +106,21 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
       (Math.round(it.requiredQty * Number(it.expectedRate) * 100) / 100).toFixed(2),
       it.remarks ?? '',
     ]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
+    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
     columnStyles: {
-      0: { halign: 'right', cellWidth: 8 },
-      2: { halign: 'right' },
-      3: { halign: 'right' },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
+      0: { cellWidth: 8 },   // #
+      2: { cellWidth: 22 },  // Ordered Qty
+      3: { cellWidth: 22 },  // Received Qty
+      4: { cellWidth: 24 },  // Rate
+      5: { cellWidth: 26 },  // Amount
+    },
+    // Align header AND body identically per column so the numbers sit directly
+    // under their labels (#, quantities centred; money right-aligned).
+    didParseCell: (data) => {
+      const i = data.column.index;
+      if (i === 0 || i === 2 || i === 3) data.cell.styles.halign = 'center';
+      else if (i === 4 || i === 5) data.cell.styles.halign = 'right';
     },
     margin: { left: 14, right: 14 },
   })

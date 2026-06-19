@@ -22,7 +22,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: 'warning' | 'succes
 // the customer detail page, notifications, or the Approvals page. Same scaffold
 // as the invoice / Purchase-Entry detail pages.
 export default function CreditNoteDetailPage() {
-  const { search } = useRoute()
+  const { path, search } = useRoute()
   const id = new URLSearchParams(search).get('id')
 
   const [cn, setCn] = useState<CreditNote | null>(null)
@@ -45,9 +45,15 @@ export default function CreditNoteDetailPage() {
   }, [])
 
   useEffect(() => {
+    // `id` comes from the global route's search params, which can briefly hold
+    // the NEXT page's id during a navigation transition (e.g. clicking through
+    // to an invoice detail) before this page unmounts. Only fetch while this
+    // route is actually active so we don't fire GET /credit-notes/<invoiceId>
+    // and surface a spurious "Credit note not found" toast.
+    if (path !== '/billing/credit-notes/detail') return
     if (id) fetchCn(id)
     else { setIsLoading(false); setError('No credit note id provided') }
-  }, [id, fetchCn])
+  }, [id, path, fetchCn])
 
   const goBack = () => routerGoBack('/billing/credit-notes')
 

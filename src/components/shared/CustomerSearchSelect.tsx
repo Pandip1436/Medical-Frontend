@@ -1,49 +1,47 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Search, X, Loader2, Building2 } from 'lucide-react'
+import { ChevronDown, Search, X, Loader2, User } from 'lucide-react'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
-interface SupplierLite {
+interface CustomerLite {
   id: string
   name: string
 }
 
-interface SupplierSearchSelectProps {
+interface CustomerSearchSelectProps {
   label?: string
-  /** 'all' (or '') when no supplier is selected, else the supplier id. */
+  /** 'all' (or '') when no customer is selected, else the customer id. */
   value: string
-  /** Display name of the currently-selected supplier (the list is paginated,
+  /** Display name of the currently-selected customer (the list is paginated,
    *  so the parent owns the chosen label for the trigger text). */
   selectedName?: string
-  /** Called with the picked supplier's id + name. id is 'all' when cleared. */
+  /** Called with the picked customer's id + name. id is 'all' when cleared. */
   onChange: (value: string, name: string) => void
   className?: string
 }
 
 /**
- * Supplier picker backed by the server-paginated `/suppliers` endpoint with a
- * debounced search box + infinite scroll. Built for directories with hundreds
- * of suppliers where loading the full list up-front isn't viable. Mirrors the
- * New Sale customer-picker pattern. Only fetches while the dropdown is open.
+ * Customer picker backed by the server-paginated `/customers` endpoint with a
+ * debounced search box + infinite scroll. Mirrors SupplierSearchSelect: the
+ * parent owns the selected name (so the trigger label is reliable even though
+ * the list is paginated), and the dropdown renders in a portal so it escapes
+ * `overflow-hidden` filter-panel ancestors. Only fetches while open.
  */
-export function SupplierSearchSelect({
-  label = 'Supplier',
+export function CustomerSearchSelect({
+  label = 'Customer',
   value,
   selectedName,
   onChange,
   className,
-}: SupplierSearchSelectProps) {
+}: CustomerSearchSelectProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
-  const search = usePaginatedSearch<SupplierLite>({ endpoint: '/suppliers', pageSize: 20, enabled: open })
+  const search = usePaginatedSearch<CustomerLite>({ endpoint: '/customers', pageSize: 20, enabled: open })
 
-  // Position the portaled dropdown under the trigger, and keep it pinned as the
-  // page scrolls/resizes. Rendering in a portal (vs. an absolute child) is what
-  // lets it escape `overflow-hidden` filter-panel ancestors that were clipping it.
   useLayoutEffect(() => {
     if (!open) return
     const update = () => {
@@ -61,8 +59,6 @@ export function SupplierSearchSelect({
     }
   }, [open])
 
-  // Close on outside click (guarded so it only fires while open). Both the
-  // trigger and the portaled panel count as "inside".
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
@@ -75,7 +71,7 @@ export function SupplierSearchSelect({
   }, [open])
 
   const hasValue = Boolean(value && value !== 'all')
-  const triggerText = hasValue ? (selectedName || 'Selected supplier') : 'All Suppliers'
+  const triggerText = hasValue ? (selectedName || 'Selected customer') : 'All Customers'
 
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -116,7 +112,7 @@ export function SupplierSearchSelect({
                   autoFocus
                   value={search.query}
                   onChange={(e) => search.setQuery(e.target.value)}
-                  placeholder="Search suppliers..."
+                  placeholder="Search customers..."
                   className="h-8 w-full rounded-md bg-muted/40 pl-8 pr-2 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </div>
@@ -133,17 +129,17 @@ export function SupplierSearchSelect({
                 onClick={() => { onChange('all', ''); setOpen(false) }}
                 className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-accent/60"
               >
-                All Suppliers
+                All Customers
               </button>
-              {search.items.map((s) => (
+              {search.items.map((c) => (
                 <button
-                  key={s.id}
+                  key={c.id}
                   type="button"
-                  onClick={() => { onChange(s.id, s.name); setOpen(false) }}
+                  onClick={() => { onChange(c.id, c.name); setOpen(false) }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/60"
                 >
-                  <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                  <span className="truncate">{s.name}</span>
+                  <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                  <span className="truncate">{c.name}</span>
                 </button>
               ))}
               {search.loading && (
@@ -153,7 +149,7 @@ export function SupplierSearchSelect({
               )}
               {!search.loading && search.items.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                  {search.query ? `No suppliers match "${search.query}"` : 'No suppliers found'}
+                  {search.query ? `No customers match "${search.query}"` : 'No customers found'}
                 </div>
               )}
             </div>
