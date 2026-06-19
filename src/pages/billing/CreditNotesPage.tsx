@@ -44,7 +44,7 @@ import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { exportToCsv } from '@/lib/exportUtils'
+import { exportToCsv, csvText } from '@/lib/exportUtils'
 import { navigate, useRoute } from '@/lib/router'
 import { printCreditNote } from './CreditNoteDetailContent'
 
@@ -464,9 +464,9 @@ export default function CreditNotesPage() {
                 if (!filtered.length) { toast.info('No credit notes to export'); return }
                 exportToCsv(filtered.map(cn => ({
                   'Credit Note #': cn.creditNoteNo,
-                  Date: formatDate(cn.date),
+                  Date: csvText(formatDate(cn.date)),
                   Customer: cn.customerName,
-                  Phone: cn.customerPhone ?? '',
+                  Phone: csvText(cn.customerPhone ?? ''),
                   'Invoice #': cn.invoiceNumber,
                   Reason: cn.reason,
                   Status: statusConfig[cn.status]?.label ?? cn.status,
@@ -476,7 +476,7 @@ export default function CreditNotesPage() {
                   SGST: cn.sgst,
                   Total: cn.totalAmount,
                   'Reviewed By': cn.reviewedBy?.name ?? '',
-                  'Reviewed At': cn.reviewedAt ? formatDate(cn.reviewedAt) : '',
+                  'Reviewed At': cn.reviewedAt ? csvText(formatDate(cn.reviewedAt)) : '',
                 })), 'credit-notes')
               }}
             >

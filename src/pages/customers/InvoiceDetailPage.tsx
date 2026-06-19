@@ -4,6 +4,7 @@ import { ArrowLeft, Receipt, FileX2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import api from '@/lib/api'
 import { goBack as routerGoBack, useRoute, navigate } from '@/lib/router'
@@ -98,10 +99,26 @@ export default function InvoiceDetailPage() {
                   </div>
                   <div>
                     <p className="font-mono text-base font-semibold">{invoice.invoiceNumber}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(invoice.date)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {formatDate(invoice.date)}
+                      {invoice.isReplacement && invoice.replacementForCreditNote && (
+                        <> · No-charge replacement for {invoice.replacementForCreditNote}</>
+                      )}
+                    </p>
                   </div>
                 </div>
-                <StatusBadge status={invoice.status} className="px-3 py-1 text-sm" />
+                {/* Replacement invoices are no-charge, so the PAID status is
+                    meaningless — show a "Replacement" badge in its place. */}
+                {invoice.isReplacement ? (
+                  <Badge
+                    variant="outline"
+                    className="border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400"
+                  >
+                    Replacement
+                  </Badge>
+                ) : (
+                  <StatusBadge status={invoice.status} className="px-3 py-1 text-sm" />
+                )}
               </div>
             </CardHeader>
             <CardContent className="pt-4">

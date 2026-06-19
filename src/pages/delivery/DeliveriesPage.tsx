@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Truck, Search, PackageSearch, ChevronRight, Phone, MapPin, RefreshCw, Loader2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,10 +19,15 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { displayDeliveryStatus } from '@/lib/courierOcr'
 import type { DeliveryTracking, DeliveryStatus } from '@/types'
 
+// How many shipments to pull per request — the list pages in as the user
+// scrolls instead of fetching everything up front.
+const PAGE_SIZE = 10
+
 export default function DeliveriesPage() {
   const [items, setItems] = useState<DeliveryTracking[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<DeliveryStatus | 'ALL'>('ALL')
   const [courier, setCourier] = useState<string>('ALL')
@@ -30,31 +35,68 @@ export default function DeliveriesPage() {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   const [courierCounts, setCourierCounts] = useState<Record<string, number>>({})
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await api.get('/delivery', {
+  // Guards the infinite-scroll observer against firing a second fetch while one
+  // is already in flight (a ref so the observer reads it synchronously).
+  const loadingMoreRef = useRef(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // Fetch a single page. `skip` drives pagination; counts come back on every
+  // page so the headline chips stay fresh.
+  const fetchPage = useCallback(
+    (skip: number) =>
+      api.get('/delivery', {
         params: {
           q: q || undefined,
           status: status === 'ALL' ? undefined : status,
           courier: courier === 'ALL' ? undefined : courier,
           from: dateRange.from,
           to: dateRange.to,
-          take: 100,
+          skip,
+          take: PAGE_SIZE,
         },
-      })
+      }),
+    [q, status, courier, dateRange],
+  )
+
+  // Reset load — first page. Used on mount, filter change and branch refresh.
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetchPage(0)
       setItems(res.data.items ?? [])
       setTotal(res.data.total ?? 0)
       setStatusCounts(res.data.statusCounts ?? {})
       setCourierCounts(res.data.courierCounts ?? {})
     } catch {
       setItems([])
+      setTotal(0)
       setStatusCounts({})
       setCourierCounts({})
     } finally {
       setLoading(false)
     }
-  }, [q, status, courier, dateRange])
+  }, [fetchPage])
+
+  // Append the next page as the user scrolls toward the bottom.
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const res = await fetchPage(items.length)
+      setItems((prev) => [...prev, ...(res.data.items ?? [])])
+      setTotal(res.data.total ?? 0)
+      setStatusCounts(res.data.statusCounts ?? {})
+      setCourierCounts(res.data.courierCounts ?? {})
+    } catch {
+      /* keep what we have; the sentinel will retry on the next scroll */
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [fetchPage, items.length])
+
+  const hasMore = items.length < total
 
   // Debounce search; reload on filter / branch change.
   useEffect(() => {
@@ -62,6 +104,20 @@ export default function DeliveriesPage() {
     return () => clearTimeout(t)
   }, [load, q])
   useBranchRefresh(load)
+
+  // Infinite scroll — load the next page when the sentinel scrolls into view.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || loading || !hasMore) return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore()
+      },
+      { rootMargin: '300px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [loadMore, loading, hasMore])
 
   // Bulk "Check All" — refresh every active shipment's tracking in one click.
   const [checkingAll, setCheckingAll] = useState(false)
@@ -200,6 +256,19 @@ export default function DeliveriesPage() {
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />
             </motion.div>
           ))}
+
+          {/* Infinite-scroll sentinel + status footer */}
+          <div ref={sentinelRef} />
+          {loadingMore && (
+            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading more…
+            </div>
+          )}
+          {!hasMore && items.length > 0 && (
+            <p className="py-4 text-center text-xs text-muted-foreground/70">
+              All {total} {total === 1 ? 'shipment' : 'shipments'} loaded
+            </p>
+          )}
         </div>
       )}
     </motion.div>

@@ -44,22 +44,26 @@ export const productSchema = z
 
 export type ProductFormValues = z.input<typeof productSchema>
 
-export const productFormDefaults: ProductFormValues = {
+// Numeric fields start EMPTY (not a literal 0) so the user isn't forced to
+// clear a "0" before typing. They're held as empty strings in the form and
+// coerced back to numbers by `z.coerce.number()` on submit (empty → 0, which
+// still trips the `min(0.01)` "required" checks on MRP / Selling Price).
+export const productFormDefaults = {
   name: '',
   genericName: '',
   manufacturer: '',
   hsnCode: '',
   schedule: 'NONE',
-  mrp: 0,
-  sellingRate: 0,
+  mrp: '',
+  sellingRate: '',
   gstRate: 5,
-  minStock: 0,
+  minStock: '',
   categoryId: '',
   packSize: '',
   unitOfMeasure: '',
-  purchaseRate: 0,
-  wholesaleRate: 0,
+  purchaseRate: '',
+  wholesaleRate: '',
   rackLocation: '',
-  maxStock: 0,
-  reorderQty: 0,
-}
+  maxStock: '',
+  reorderQty: '',
+} as unknown as ProductFormValues

@@ -1016,21 +1016,21 @@ export default function ProductsPage() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div className="grid gap-2">
                           <Label htmlFor="mrp">MRP (₹) <span className="text-rose-500">*</span></Label>
-                          <Input id="mrp" type="number" step="0.01" {...form.register('mrp')} error={!!form.formState.errors.mrp} />
+                          <Input id="mrp" type="number" step="0.01" placeholder="e.g. 250" {...form.register('mrp')} error={!!form.formState.errors.mrp} />
                           {form.formState.errors.mrp && <p className="text-xs text-rose-500">{form.formState.errors.mrp.message}</p>}
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="sellingRate">Selling Price (₹) <span className="text-rose-500">*</span></Label>
-                          <Input id="sellingRate" type="number" step="0.01" {...form.register('sellingRate')} error={!!form.formState.errors.sellingRate} />
+                          <Input id="sellingRate" type="number" step="0.01" placeholder="e.g. 235" {...form.register('sellingRate')} error={!!form.formState.errors.sellingRate} />
                           {form.formState.errors.sellingRate && <p className="text-xs text-rose-500">{form.formState.errors.sellingRate.message}</p>}
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="purchaseRate">Purchase Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="purchaseRate" type="number" step="0.01" {...form.register('purchaseRate')} />
+                          <Input id="purchaseRate" type="number" step="0.01" placeholder="e.g. 180" {...form.register('purchaseRate')} />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="wholesaleRate">Wholesale Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="wholesaleRate" type="number" step="0.01" {...form.register('wholesaleRate')} />
+                          <Input id="wholesaleRate" type="number" step="0.01" placeholder="e.g. 200" {...form.register('wholesaleRate')} />
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-2 rounded-xl border border-border/40 bg-muted/30 px-4 py-3">
@@ -1068,16 +1068,16 @@ export default function ProductsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="grid gap-2">
                           <Label htmlFor="minStock">Min Stock <span className="text-rose-500">*</span></Label>
-                          <Input id="minStock" type="number" {...form.register('minStock')} error={!!form.formState.errors.minStock} />
+                          <Input id="minStock" type="number" placeholder="e.g. 10" {...form.register('minStock')} error={!!form.formState.errors.minStock} />
                           {form.formState.errors.minStock && <p className="text-xs text-rose-500">{form.formState.errors.minStock.message}</p>}
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="maxStock">Max Stock <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="maxStock" type="number" {...form.register('maxStock')} />
+                          <Input id="maxStock" type="number" placeholder="e.g. 100" {...form.register('maxStock')} />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="reorderQty">Reorder Qty <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="reorderQty" type="number" {...form.register('reorderQty')} />
+                          <Input id="reorderQty" type="number" placeholder="e.g. 20" {...form.register('reorderQty')} />
                         </div>
                       </div>
                     </div>

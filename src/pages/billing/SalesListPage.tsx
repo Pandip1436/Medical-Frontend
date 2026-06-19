@@ -101,7 +101,6 @@ const PAYMENT_MODE_OPTIONS = [
   { value: 'CARD', label: 'Card' },
   { value: 'UPI', label: 'UPI' },
   { value: 'CREDIT', label: 'Credit' },
-  { value: 'SPLIT', label: 'Split' },
 ] as const
 
 const STATUS_OPTIONS = [

@@ -88,16 +88,33 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   doc.setDrawColor(180)
   doc.line(14, 34, pageWidth - 14, 34)
 
+  // A replacement invoice fulfils a REPLACEMENT credit note at no charge.
+  // Detect via the flag (set on reprint) or the REPL/ number series (set at
+  // save time, before the credit-note link exists).
+  const isReplacement =
+    invoice.isReplacement === true ||
+    (invoice.invoiceNumber ?? '').toUpperCase().startsWith('REPL')
+
   const title = invoice.type === 'QUOTATION' ? 'QUOTATION' : 'TAX INVOICE'
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
   doc.text(title, pageWidth / 2, 41, { align: 'center' })
 
+  // Loud, unmissable stamp so the physical bill can't be mistaken for a
+  // chargeable sale.
+  if (isReplacement) {
+    doc.setFontSize(10)
+    doc.setTextColor(2, 132, 199) // sky-600
+    doc.text('REPLACEMENT - NO CHARGE', pageWidth / 2, 46, { align: 'center' })
+    doc.setTextColor(0, 0, 0)
+  }
+
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   const leftX = 14
   const rightX = pageWidth / 2 + 5
-  let y = 48
+  // Push the detail block down a touch when the replacement stamp is present.
+  let y = isReplacement ? 53 : 48
   doc.text(`Invoice No: ${invoice.invoiceNumber}`, leftX, y)
   doc.text(`Date: ${formatDate(invoice.date)}`, rightX, y)
   y += 5

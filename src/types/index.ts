@@ -218,6 +218,8 @@ export interface Invoice {
   // True when this invoice was issued to fulfil a REPLACEMENT credit note
   // (a no-charge replacement). Surfaced by the billing list for badging.
   isReplacement?: boolean
+  // The credit note this replacement invoice fulfils (detail page only).
+  replacementForCreditNote?: string | null
 }
 
 export interface PurchaseOrder {

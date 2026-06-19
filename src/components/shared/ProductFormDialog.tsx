@@ -117,7 +117,7 @@ export function ProductFormDialog({
   const packagingError = !!(errors.hsnCode)
   const pricingFilled = Number(watch('mrp')) > 0 && Number(watch('sellingRate')) > 0
   const pricingError = !!(errors.mrp || errors.sellingRate)
-  const stockFilled = watch('minStock') !== undefined && watch('minStock') !== null
+  const stockFilled = String(watch('minStock') ?? '').trim() !== ''
   const stockError = !!errors.minStock
 
   const sections = [
@@ -281,23 +281,23 @@ export function ProductFormDialog({
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">MRP (₹) *</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('mrp')} error={!!errors.mrp} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 250" {...register('mrp')} error={!!errors.mrp} />
                     {errors.mrp && <p className="text-[11px] text-rose-500">{errors.mrp.message}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Selling Price (₹) *</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('sellingRate')} error={!!errors.sellingRate} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 235" {...register('sellingRate')} error={!!errors.sellingRate} />
                     {errors.sellingRate && <p className="text-[11px] text-rose-500">{errors.sellingRate.message}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹){OPTIONAL}</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('purchaseRate')} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 180" {...register('purchaseRate')} />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹){OPTIONAL}</Label>
-                    <Input className="h-9" type="number" step="0.01" {...register('wholesaleRate')} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 200" {...register('wholesaleRate')} />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate *</Label>
@@ -323,16 +323,16 @@ export function ProductFormDialog({
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Min Stock *</Label>
-                    <Input className="h-9" type="number" {...register('minStock')} error={!!errors.minStock} />
+                    <Input className="h-9" type="number" placeholder="e.g. 10" {...register('minStock')} error={!!errors.minStock} />
                     {errors.minStock && <p className="text-[11px] text-rose-500">{errors.minStock.message}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Max Stock{OPTIONAL}</Label>
-                    <Input className="h-9" type="number" {...register('maxStock')} />
+                    <Input className="h-9" type="number" placeholder="e.g. 100" {...register('maxStock')} />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Reorder Qty{OPTIONAL}</Label>
-                    <Input className="h-9" type="number" {...register('reorderQty')} />
+                    <Input className="h-9" type="number" placeholder="e.g. 20" {...register('reorderQty')} />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rack Location{OPTIONAL}</Label>
