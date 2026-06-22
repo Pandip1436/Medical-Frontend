@@ -172,26 +172,31 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
         amt.toFixed(2),
       ]
     }),
-    styles: { fontSize: 8, cellPadding: 1.5 },
+    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    // Explicit widths (sum = 182mm = full usable width after 14mm margins) so
+    // all 12 columns fit and fill the page. Counts/percents centred, money
+    // right-aligned, text left.
     columnStyles: {
-      0: { halign: 'right', cellWidth: 8 },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'right' },
-      7: { halign: 'right' },
-      8: { halign: 'right' },
-      9: { halign: 'right' },
-      10: { halign: 'right' },
-      11: { halign: 'right' },
+      0:  { halign: 'center', cellWidth: 7 },  // #
+      1:  { halign: 'left',   cellWidth: 32 }, // Product
+      2:  { halign: 'left',   cellWidth: 15 }, // Batch
+      3:  { halign: 'center', cellWidth: 13 }, // Expiry
+      4:  { halign: 'center', cellWidth: 9 },  // Qty
+      5:  { halign: 'right',  cellWidth: 15 }, // MRP
+      6:  { halign: 'right',  cellWidth: 15 }, // Rate
+      7:  { halign: 'center', cellWidth: 12 }, // Disc%
+      8:  { halign: 'right',  cellWidth: 17 }, // Taxable
+      9:  { halign: 'center', cellWidth: 11 }, // GST%
+      10: { halign: 'right',  cellWidth: 15 }, // GST Rs
+      11: { halign: 'right',  cellWidth: 21 }, // Amount
     },
-    // Right-align the header labels of the numeric columns so they sit directly
-    // above their right-aligned values (columnStyles alone leaves the head cells
-    // left-aligned, which makes the figures look shifted from their headers).
+    // Header text is left-aligned by default — force each header cell to use its
+    // column's alignment so labels sit directly above their values.
     didParseCell: (data) => {
-      if (data.section === 'head' && [0, 4, 5, 6, 7, 8, 9, 10, 11].includes(data.column.index)) {
-        data.cell.styles.halign = 'right'
-      }
+      if (data.section !== 'head') return
+      const align = (['center', 'left', 'left', 'center', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right'] as const)[data.column.index]
+      if (align) data.cell.styles.halign = align
     },
     margin: { left: 14, right: 14 },
   })

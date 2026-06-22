@@ -7,9 +7,27 @@ import {
   applySheetFormatting,
   buildExportMetadataRows,
   readExportMetadata,
+  looksLikeMargAddressBook,
+  parseMargAddressBook,
+  looksLikeMargPartyTable,
+  parseMargPartyTable,
+  parseLooseSheet,
+  type LooseAliasGroup,
 } from './excelTemplateFormat'
 
 export type { ExportMetadata }
+
+// Synonyms for tolerant header-mapped import (other-ERP flat exports).
+const SUPPLIER_ALIAS_GROUPS: LooseAliasGroup[] = [
+  { field: 'name', aliases: ['name', 'supplier name', 'supplier', 'party name', 'party', 'company', 'company name', 'firm', 'firm name', 'vendor', 'vendor name', 'account name', 'ledger name', 'ledger', 'account', 'dealer', 'distributor'] },
+  { field: 'phone', aliases: ['phone', 'mobile', 'mobile no', 'mobile number', 'phone no', 'phone number', 'contact no', 'contact number', 'contact', 'telephone', 'tel', 'cell', 'mob', 'mob no', 'whatsapp'] },
+  { field: 'contactPerson', aliases: ['contact person', 'contact name', 'person', 'owner', 'proprietor', 'representative'] },
+  { field: 'email', aliases: ['email', 'e mail', 'email id', 'mail', 'email address'] },
+  { field: 'gstin', aliases: ['gstin', 'gst', 'gst no', 'gst number', 'gstin no', 'gst in', 'gstno', 'tin'] },
+  { field: 'drugLicense', aliases: ['drug license', 'drug licence', 'dl no', 'dl number', 'dl', 'license no', 'licence no', 'drug lic'] },
+  { field: 'address', aliases: ['address', 'addr', 'location', 'full address', 'street', 'area', 'city', 'place', 'town'] },
+  { field: 'openingBalance', aliases: ['opening balance', 'balance', 'outstanding', 'opening', 'closing balance', 'os', 'due', 'amount', 'balance amount'] },
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Supplier import workbook — template + parser. Mirror of the customer side.
@@ -1022,6 +1040,103 @@ export async function parseSupplierImportWorkbook(
       purchaseRate: toOptionalNumber(raw.purchase_rate),
     })
   })
+
+  // ── Fallbacks for non-template files (other ERP exports) ──
+  const emptyOrphans = {
+    orphanPOs: 0,
+    orphanGRNs: 0,
+    orphanDebitNotes: 0,
+    orphanActivities: 0,
+    orphanBatches: 0,
+  }
+
+  // Fallback 1: MARG ERP "address book" (multi-row party blocks). Checked
+  // before generic mapping, which would misread its repeated page headers.
+  if (suppliers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      if (!looksLikeMargAddressBook(aoa)) continue
+      const abSuppliers: ParsedSupplier[] = []
+      let skippedNoPhone = 0
+      for (const p of parseMargAddressBook(aoa)) {
+        if (!p.phone) { skippedNoPhone++; continue }
+        abSuppliers.push({
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          gstin: p.gstin, drugLicense: p.dlNumber,
+          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+        })
+      }
+      if (abSuppliers.length > 0) {
+        return {
+          suppliers: abSuppliers,
+          ...emptyOrphans,
+          errors: skippedNoPhone
+            ? [{ sheet: 'Suppliers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
+            : [],
+          exportMetadata,
+        }
+      }
+    }
+  }
+
+  // Fallback 2: MARG ERP "party master" flat export (exact-coded columns).
+  // Checked before generic mapping, which would grab `ledger` as the name.
+  if (suppliers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      if (!looksLikeMargPartyTable(aoa)) continue
+      const ptSuppliers: ParsedSupplier[] = []
+      let skippedNoPhone = 0
+      for (const p of parseMargPartyTable(aoa)) {
+        if (!p.phone) { skippedNoPhone++; continue }
+        ptSuppliers.push({
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          email: p.email, gstin: p.gstin, drugLicense: p.dlNumber,
+          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+        })
+      }
+      if (ptSuppliers.length > 0) {
+        return {
+          suppliers: ptSuppliers,
+          ...emptyOrphans,
+          errors: skippedNoPhone
+            ? [{ sheet: 'Suppliers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
+            : [],
+          exportMetadata,
+        }
+      }
+    }
+  }
+
+  // Fallback 3: tolerant header mapping for other flat ERP exports.
+  if (suppliers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      const rows = parseLooseSheet(aoa, SUPPLIER_ALIAS_GROUPS)
+      if (rows.length === 0) continue
+      const looseSuppliers: ParsedSupplier[] = []
+      const looseErrors: ParseError[] = []
+      for (const { sourceRow, values: v } of rows) {
+        const name = v.name ?? ''
+        const phone = v.phone ?? ''
+        if (!name && !phone) continue
+        if (!name || !phone) {
+          looseErrors.push({ sheet: 'Suppliers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'Phone is required.' })
+          continue
+        }
+        looseSuppliers.push({
+          sourceRow, name, phone,
+          contactPerson: v.contactPerson, email: v.email, gstin: v.gstin,
+          drugLicense: v.drugLicense, address: v.address,
+          openingBalance: toOptionalNumber(v.openingBalance),
+          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+        })
+      }
+      if (looseSuppliers.length > 0) {
+        return { suppliers: looseSuppliers, ...emptyOrphans, errors: looseErrors, exportMetadata }
+      }
+    }
+  }
 
   return {
     suppliers,

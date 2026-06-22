@@ -102,12 +102,17 @@ const DUPLICATE_OPTIONS: Array<{
   {
     value: 'UPDATE',
     label: 'Update existing',
-    hint: "If a name matches, refresh that product's details from the file.",
+    hint: "If a name matches, refresh that product's details from the file. New names are added.",
+  },
+  {
+    value: 'UPDATE_ONLY',
+    label: 'Update matches only',
+    hint: 'Update existing products by name; skip (don\'t add) any name that doesn\'t exist. Best for HSN/GST top-ups.',
   },
   {
     value: 'SKIP',
     label: 'Skip duplicates',
-    hint: 'Leave matching products untouched.',
+    hint: 'Leave matching products untouched. New names are added.',
   },
   {
     value: 'CREATE',
@@ -369,18 +374,28 @@ export function ImportProductsDrawer({
                 <RefreshCw className="mr-1.5 h-4 w-4" />
                 Choose another file
               </Button>
-              <Button
-                onClick={commitImport}
-                disabled={
-                  !parseResult ||
-                  parseResult.products.length === 0 ||
-                  (previewResult?.errors.length ?? 0) >=
-                    (parsedCounts?.products ?? 0)
-                }
-              >
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                Import {parsedCounts?.products ?? 0} products
-              </Button>
+              {(() => {
+                // Reflect what will actually be written: created + updated from
+                // the live preview (so UPDATE_ONLY shows only the matches, not
+                // the skipped rows). Falls back to the parsed total pre-preview.
+                const willWrite = previewResult
+                  ? previewResult.summary.products.created + previewResult.summary.products.updated
+                  : parsedCounts?.products ?? 0
+                const verb = duplicateHandling === 'UPDATE_ONLY' ? 'Update' : 'Import'
+                return (
+                  <Button
+                    onClick={commitImport}
+                    disabled={
+                      !parseResult ||
+                      parseResult.products.length === 0 ||
+                      willWrite === 0
+                    }
+                  >
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    {verb} {willWrite} products
+                  </Button>
+                )
+              })()}
             </>
           ) : null}
 
@@ -497,6 +512,9 @@ function UploadStage({
         </ul>
         <p className="text-muted-foreground">
           <span className="font-medium text-foreground">Stock batches</span> are NOT imported here — they come via GRN. Set <code className="px-1 bg-muted rounded">total_stock</code> as a starting number if you want, but it'll drift from real batch quantities once GRNs land.
+        </p>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">MARG ERP exports</span> are also supported — upload the MARG <code className="px-1 bg-muted rounded">.xls</code>/<code className="px-1 bg-muted rounded">.xlsx</code> directly. We auto-detect both the <span className="font-medium text-foreground">price list</span> (name, pack, purchase, MRP, GST) and the <span className="font-medium text-foreground">HSN/SAC master</span> (name, pack, GST, HSN code).
         </p>
       </div>
     </>
@@ -802,7 +820,7 @@ function DuplicateHandlingRadio({
     <RadioGroup
       value={value}
       onValueChange={(v) => onChange(v as DuplicateHandling)}
-      className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+      className="grid grid-cols-1 sm:grid-cols-2 gap-2"
     >
       {DUPLICATE_OPTIONS.map((opt) => (
         <Label

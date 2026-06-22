@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn, formatDateTime, timeAgo } from '@/lib/utils'
 
 import { useJustdial } from './useJustdial'
@@ -61,6 +62,8 @@ export function JustdialCard() {
   } = useJustdial()
 
   const [copied, setCopied] = useState(false)
+  // Which confirm dialog is open (replaces native window.confirm()).
+  const [confirmAction, setConfirmAction] = useState<null | 'rotate' | 'disconnect'>(null)
   const connected = !!status?.connected
   const url = status?.webhookUrl ?? null
 
@@ -75,12 +78,13 @@ export function JustdialCard() {
   }
 
   const handleRotate = async () => {
-    if (!confirm('Rotate the webhook URL? The current URL stops working immediately — you\'ll need to paste the new one into Just Dial again.')) return
     try {
       await rotateWebhook()
       toast.success('Webhook URL rotated. Paste the new one into Just Dial.')
     } catch {
       toast.error('Rotate failed')
+    } finally {
+      setConfirmAction(null)
     }
   }
 
@@ -103,12 +107,13 @@ export function JustdialCard() {
   }
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect Just Dial? New leads will stop arriving until you re-activate.')) return
     try {
       await disconnect()
       toast.success('Just Dial disconnected.')
     } catch {
       toast.error('Failed to disconnect')
+    } finally {
+      setConfirmAction(null)
     }
   }
 
@@ -258,7 +263,7 @@ export function JustdialCard() {
                 {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
                 Send test push
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={handleRotate} disabled={generating} className="gap-1.5">
+              <Button type="button" variant="outline" size="sm" onClick={() => setConfirmAction('rotate')} disabled={generating} className="gap-1.5">
                 {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 Rotate URL
               </Button>
@@ -266,7 +271,7 @@ export function JustdialCard() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleDisconnect}
+                onClick={() => setConfirmAction('disconnect')}
                 disabled={generating}
                 className="gap-1.5 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:text-rose-400"
               >
@@ -333,6 +338,21 @@ export function JustdialCard() {
             </div>
           </div>
         )}
+        <ConfirmDialog
+          open={confirmAction !== null}
+          onOpenChange={(o) => { if (!o) setConfirmAction(null) }}
+          destructive={confirmAction === 'disconnect'}
+          icon={confirmAction === 'disconnect' ? PowerOff : RefreshCw}
+          title={confirmAction === 'disconnect' ? 'Disconnect Just Dial?' : 'Rotate the webhook URL?'}
+          description={
+            confirmAction === 'disconnect'
+              ? <>New leads will stop arriving until you re-activate.</>
+              : <>The current URL stops working immediately — you'll need to paste the new one into Just Dial again.</>
+          }
+          confirmLabel={confirmAction === 'disconnect' ? 'Disconnect' : 'Rotate URL'}
+          busyLabel={confirmAction === 'disconnect' ? 'Disconnecting…' : 'Rotating…'}
+          onConfirm={confirmAction === 'disconnect' ? handleDisconnect : handleRotate}
+        />
       </CardContent>
     </Card>
   )

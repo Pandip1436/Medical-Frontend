@@ -7,6 +7,7 @@ import { USE_MOCK_DATA, mockQuotationsForLead } from '../mockData'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 import type { Lead } from '../types'
@@ -132,7 +133,8 @@ export function QuotationsTab({ lead, onCreateQuote }: QuotationsTabProps) {
               {items.map((q) => (
                 <li
                   key={q.id}
-                  className="flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/30"
+                  className="flex cursor-pointer items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/30"
+                  onClick={() => navigate(`/billing/quotations?quotationId=${q.id}`)}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

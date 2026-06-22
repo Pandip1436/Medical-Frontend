@@ -124,14 +124,26 @@ function buildNotePdf(kind: NoteKind, note: NoteData, options?: { autoPrint?: bo
       Number(it.gstPercent).toFixed(1),
       Number(it.amount).toFixed(2),
     ]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
+    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    // Explicit widths (sum = 182mm = full usable width after 14mm margins) +
+    // per-column alignment: counts centred, money right-aligned, text left.
     columnStyles: {
-      0: { halign: 'right', cellWidth: 8 },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'right' },
-      7: { halign: 'right' },
+      0: { halign: 'center', cellWidth: 8 },  // #
+      1: { halign: 'left',   cellWidth: 50 }, // Product
+      2: { halign: 'left',   cellWidth: 22 }, // Batch
+      3: { halign: 'center', cellWidth: 18 }, // Expiry
+      4: { halign: 'center', cellWidth: 16 }, // Qty
+      5: { halign: 'right',  cellWidth: 22 }, // Rate
+      6: { halign: 'center', cellWidth: 16 }, // GST%
+      7: { halign: 'right',  cellWidth: 30 }, // Amount
+    },
+    // Header text is left-aligned by default — force each header cell to use
+    // its column's alignment so labels sit directly above their values.
+    didParseCell: (data: { section: string; column: { index: number }; cell: { styles: { halign: string } } }) => {
+      if (data.section !== 'head') return
+      const align = ['center', 'left', 'left', 'center', 'center', 'right', 'center', 'right'][data.column.index]
+      if (align) data.cell.styles.halign = align
     },
     margin: { left: 14, right: 14 },
   })

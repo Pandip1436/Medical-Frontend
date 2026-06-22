@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn, formatDateTime, timeAgo } from '@/lib/utils'
 
 import { useIndiamart } from './useIndiamart'
@@ -64,6 +65,8 @@ export function IndiamartCard() {
   } = useIndiamart()
 
   const [copied, setCopied] = useState(false)
+  // Which confirm dialog is open (replaces native window.confirm()).
+  const [confirmAction, setConfirmAction] = useState<null | 'rotate' | 'disconnect'>(null)
   const connected = !!status?.connected
   const url = status?.webhookUrl ?? null
 
@@ -78,12 +81,13 @@ export function IndiamartCard() {
   }
 
   const handleRotate = async () => {
-    if (!confirm('Rotate the webhook URL? The current URL stops working immediately — you\'ll need to paste the new one into IndiaMART again (OTP required).')) return
     try {
       await rotateWebhook()
       toast.success('Webhook URL rotated. Paste the new one into IndiaMART.')
     } catch {
       toast.error('Rotate failed')
+    } finally {
+      setConfirmAction(null)
     }
   }
 
@@ -109,12 +113,13 @@ export function IndiamartCard() {
   }
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect IndiaMART? IndiaMART will keep retrying for ~48 h until you re-activate.')) return
     try {
       await disconnect()
       toast.success('IndiaMART disconnected.')
     } catch {
       toast.error('Failed to disconnect')
+    } finally {
+      setConfirmAction(null)
     }
   }
 
@@ -316,7 +321,7 @@ export function IndiamartCard() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleRotate}
+                onClick={() => setConfirmAction('rotate')}
                 disabled={generating}
                 className="gap-1.5"
               >
@@ -331,7 +336,7 @@ export function IndiamartCard() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleDisconnect}
+                onClick={() => setConfirmAction('disconnect')}
                 disabled={generating}
                 className="gap-1.5 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:text-rose-400"
               >
@@ -405,6 +410,22 @@ export function IndiamartCard() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={confirmAction !== null}
+          onOpenChange={(o) => { if (!o) setConfirmAction(null) }}
+          destructive={confirmAction === 'disconnect'}
+          icon={confirmAction === 'disconnect' ? PowerOff : RefreshCw}
+          title={confirmAction === 'disconnect' ? 'Disconnect IndiaMART?' : 'Rotate the webhook URL?'}
+          description={
+            confirmAction === 'disconnect'
+              ? <>IndiaMART will keep retrying for ~48&nbsp;h until you re-activate.</>
+              : <>The current URL stops working immediately — you'll need to paste the new one into IndiaMART again (OTP&nbsp;required).</>
+          }
+          confirmLabel={confirmAction === 'disconnect' ? 'Disconnect' : 'Rotate URL'}
+          busyLabel={confirmAction === 'disconnect' ? 'Disconnecting…' : 'Rotating…'}
+          onConfirm={confirmAction === 'disconnect' ? handleDisconnect : handleRotate}
+        />
       </CardContent>
     </Card>
   )

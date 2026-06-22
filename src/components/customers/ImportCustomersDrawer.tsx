@@ -108,6 +108,58 @@ interface ImportResult {
   warnings: ImportRowWarning[]
 }
 
+// The backend caps each request at 2000 customers (one bounded transaction per
+// call). Large files (e.g. a full MARG address book of 5000+ parties) are sent
+// in sequential chunks and the per-chunk results merged. Sequential commit also
+// means chunk N+1 sees chunk N's just-created rows, so cross-chunk phone dedup
+// still works.
+const IMPORT_CHUNK_SIZE = 1000
+
+// Deep-add two ImportSummary trees (all leaves are numbers).
+function addNumberTree<T>(a: T, b: T): T {
+  if (typeof a === 'number') return (a + (typeof b === 'number' ? b : 0)) as unknown as T
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(a as Record<string, unknown>)) {
+    out[k] = addNumberTree(
+      (a as Record<string, unknown>)[k],
+      (b as Record<string, unknown> | undefined)?.[k],
+    )
+  }
+  return out as unknown as T
+}
+
+function mergeImportResults(results: ImportResult[]): ImportResult {
+  const [first, ...rest] = results
+  let summary = first.summary
+  const duplicates = [...first.duplicates]
+  const errors = [...first.errors]
+  const warnings = [...first.warnings]
+  for (const r of rest) {
+    summary = addNumberTree(summary, r.summary)
+    duplicates.push(...r.duplicates)
+    errors.push(...r.errors)
+    warnings.push(...r.warnings)
+  }
+  return { dryRun: first.dryRun, summary, duplicates, errors, warnings }
+}
+
+// POST an import payload, transparently chunking when over the cap.
+async function postImportChunked(
+  endpoint: string,
+  payload: { duplicateHandling: DuplicateHandling; dryRun: boolean; customers: unknown[] },
+): Promise<ImportResult> {
+  const { customers, ...rest } = payload
+  if (customers.length <= IMPORT_CHUNK_SIZE) {
+    return (await api.post<ImportResult>(endpoint, payload)).data
+  }
+  const results: ImportResult[] = []
+  for (let i = 0; i < customers.length; i += IMPORT_CHUNK_SIZE) {
+    const chunk = customers.slice(i, i + IMPORT_CHUNK_SIZE)
+    results.push((await api.post<ImportResult>(endpoint, { ...rest, customers: chunk })).data)
+  }
+  return mergeImportResults(results)
+}
+
 interface ImportCustomersDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -216,11 +268,8 @@ export function ImportCustomersDrawer({
           setPreviewResult(null)
           return
         }
-        const res = await api.post<ImportResult>(
-          '/customers/import/preview',
-          payload,
-        )
-        setPreviewResult(res.data)
+        const data = await postImportChunked('/customers/import/preview', payload)
+        setPreviewResult(data)
       } catch (err: unknown) {
         const msg =
           (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -291,13 +340,13 @@ export function ImportCustomersDrawer({
     if (!parseResult) return
     setStage('committing')
     try {
-      const res = await api.post<ImportResult>(
+      const data = await postImportChunked(
         '/customers/import/commit',
         buildPayload(parseResult, duplicateHandling, false),
       )
-      setCommitResult(res.data)
+      setCommitResult(data)
       setStage('done')
-      const s = res.data.summary
+      const s = data.summary
       toast.success(
         `Imported ${s.customers.created} new customers, updated ${s.customers.updated}, with ${s.invoices.created} invoices and ${s.payments.created} payments.`,
       )
@@ -553,6 +602,12 @@ function UploadStage({
           <li><span className="text-foreground font-medium">Activities</span> — calls, WhatsApp, emails, notes, reminders.</li>
           <li><span className="text-foreground font-medium">Prescriptions</span> — doctor name and validity.</li>
         </ul>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Other ERP files</span> also work — upload a
+          MARG address-book export, or any spreadsheet whose columns have recognizable headers
+          (name, mobile/phone, GSTIN, address, email…). We auto-detect the layout and map the
+          customer master (transaction history isn't read in this mode).
+        </p>
       </div>
     </>
   )

@@ -101,6 +101,55 @@ interface ImportResult {
   warnings: ImportRowWarning[]
 }
 
+// The backend caps each request at 2000 suppliers (one bounded transaction per
+// call). Large files (e.g. a full MARG address book) are sent in sequential
+// chunks and the per-chunk results merged. Sequential commit also means chunk
+// N+1 sees chunk N's just-created rows, so cross-chunk phone dedup still works.
+const IMPORT_CHUNK_SIZE = 1000
+
+function addNumberTree<T>(a: T, b: T): T {
+  if (typeof a === 'number') return (a + (typeof b === 'number' ? b : 0)) as unknown as T
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(a as Record<string, unknown>)) {
+    out[k] = addNumberTree(
+      (a as Record<string, unknown>)[k],
+      (b as Record<string, unknown> | undefined)?.[k],
+    )
+  }
+  return out as unknown as T
+}
+
+function mergeImportResults(results: ImportResult[]): ImportResult {
+  const [first, ...rest] = results
+  let summary = first.summary
+  const duplicates = [...first.duplicates]
+  const errors = [...first.errors]
+  const warnings = [...first.warnings]
+  for (const r of rest) {
+    summary = addNumberTree(summary, r.summary)
+    duplicates.push(...r.duplicates)
+    errors.push(...r.errors)
+    warnings.push(...r.warnings)
+  }
+  return { dryRun: first.dryRun, summary, duplicates, errors, warnings }
+}
+
+async function postImportChunked(
+  endpoint: string,
+  payload: { duplicateHandling: DuplicateHandling; dryRun: boolean; suppliers: unknown[] },
+): Promise<ImportResult> {
+  const { suppliers, ...rest } = payload
+  if (suppliers.length <= IMPORT_CHUNK_SIZE) {
+    return (await api.post<ImportResult>(endpoint, payload)).data
+  }
+  const results: ImportResult[] = []
+  for (let i = 0; i < suppliers.length; i += IMPORT_CHUNK_SIZE) {
+    const chunk = suppliers.slice(i, i + IMPORT_CHUNK_SIZE)
+    results.push((await api.post<ImportResult>(endpoint, { ...rest, suppliers: chunk })).data)
+  }
+  return mergeImportResults(results)
+}
+
 interface ImportSuppliersDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -199,11 +248,8 @@ export function ImportSuppliersDrawer({
           setPreviewResult(null)
           return
         }
-        const res = await api.post<ImportResult>(
-          '/suppliers/import/preview',
-          payload,
-        )
-        setPreviewResult(res.data)
+        const data = await postImportChunked('/suppliers/import/preview', payload)
+        setPreviewResult(data)
       } catch (err: unknown) {
         const msg =
           (err as { response?: { data?: { message?: string } } })?.response
@@ -274,13 +320,13 @@ export function ImportSuppliersDrawer({
     if (!parseResult) return
     setStage('committing')
     try {
-      const res = await api.post<ImportResult>(
+      const data = await postImportChunked(
         '/suppliers/import/commit',
         buildPayload(parseResult, duplicateHandling, false),
       )
-      setCommitResult(res.data)
+      setCommitResult(data)
       setStage('done')
-      const s = res.data.summary
+      const s = data.summary
       toast.success(
         `Imported ${s.suppliers.created} new suppliers, updated ${s.suppliers.updated}, with ${s.grns.created} GRNs, ${s.purchaseOrders.created} POs, ${s.debitNotes.created} debit notes, ${s.batches.created} batches.`,
       )
@@ -558,6 +604,12 @@ function UploadStage({
             batches received (links to existing Products).
           </li>
         </ul>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Other ERP files</span> also work — upload a
+          MARG address-book export, or any spreadsheet whose columns have recognizable headers
+          (name, mobile/phone, GSTIN, address, email…). We auto-detect the layout and map the
+          supplier master (transaction history isn't read in this mode).
+        </p>
       </div>
     </>
   )

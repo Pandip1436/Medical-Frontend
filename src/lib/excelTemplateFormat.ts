@@ -386,3 +386,272 @@ export const SHEET_COLORS = {
   debitNoteItems: 'EF4444', // red-500
   batches: '475569',      // slate-600
 } as const
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARG ERP "ADDRESS BOOK" parser (shared by customer + supplier import)
+//
+// MARG (a popular Indian chemist ERP) exports its party master as a printed
+// address book, NOT a flat table: each party is a multi-row block —
+//   row 1: PARTY NAME            | office phone | mobile | fax
+//   row 2: address line 1        |              | mobile |
+//   row 3: address line 2        | D.L.No. :    | DL no  | DL no
+//   row 4: city / address line 3 | GSTIN :      | gstin  | Date :
+//   (blank row separates parties; the PARTY NAME/& ADDRESS header repeats per
+//   page; a "MARG ERP …" line ends the report)
+// We collapse each block into one party record. Works on a raw 2D cell array so
+// it stays decoupled from the xlsx reader.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MargParty {
+  sourceRow: number
+  name: string
+  phone: string
+  address?: string
+  gstin?: string
+  dlNumber?: string
+  email?: string
+}
+
+// GSTIN: 2 digits, 5 letters, 4 digits, letter, alnum, 'Z', alnum (15 chars).
+const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z]\b/i
+const PHONE10_RE = /\b\d{10}\b/
+
+function mstr(v: unknown): string {
+  return v === null || v === undefined ? '' : String(v).trim()
+}
+
+export function looksLikeMargAddressBook(aoa: unknown[][]): boolean {
+  const head = aoa
+    .slice(0, 12)
+    .map((r) => r.map((c) => String(c ?? '')).join(' '))
+    .join(' ')
+    .toUpperCase()
+  return head.includes('ADDRESS BOOK') && head.includes('PARTY NAME')
+}
+
+function buildMargParty(block: unknown[][], sourceRow: number): MargParty | null {
+  const name = mstr(block[0]?.[0]).replace(/^#+\s*/, '').trim()
+  if (!name) return null
+
+  const cellStrings: string[] = []
+  for (const r of block) for (const c of r) { const s = mstr(c); if (s) cellStrings.push(s) }
+
+  // GSTIN — pattern match anywhere in the block.
+  let gstin: string | undefined
+  for (const s of cellStrings) {
+    const m = s.match(GSTIN_RE)
+    if (m) { gstin = m[0].toUpperCase(); break }
+  }
+
+  // Phone — prefer a 10-digit mobile in the phone columns; else a landline.
+  let phone = ''
+  for (const r of block) {
+    for (let ci = 1; ci < r.length && !phone; ci++) {
+      const m = mstr(r[ci]).match(PHONE10_RE)
+      if (m) phone = m[0]
+    }
+    if (phone) break
+  }
+  if (!phone) {
+    const office = mstr(block[0]?.[1]).replace(/\D/g, '')
+    if (office.length >= 6) phone = office
+  }
+
+  // Drug-license number — labelled "D.L.No. :" in col B, or embedded in col A.
+  let dlNumber: string | undefined
+  for (const r of block) {
+    if (/^d\.?\s*l/i.test(mstr(r[1]))) {
+      const a = mstr(r[2])
+      const b = mstr(r[3])
+      dlNumber = [a, b && !/date/i.test(b) ? b : ''].filter(Boolean).join(' ').trim() || undefined
+      break
+    }
+  }
+  if (!dlNumber) {
+    for (const r of block) {
+      const m = mstr(r[0]).match(/D\.?\s*L\.?\s*No\.?\s*:?\s*([A-Z0-9/.\- ]+?)(?:\s{2,}|GSTIN|$)/i)
+      if (m && m[1].trim()) { dlNumber = m[1].trim(); break }
+    }
+  }
+
+  // Address — column A of the rows after the name, with any inline
+  // D.L.No./GSTIN/CST labels trimmed off.
+  const address =
+    block
+      .slice(1)
+      .map((r) =>
+        mstr(r[0])
+          .replace(/\s*D\.?\s*L\.?\s*No\.?\s*:.*$/i, '')
+          .replace(/\s*GSTIN\s*:.*$/i, '')
+          .replace(/\s*CST\.?\s*NO.*$/i, '')
+          .trim(),
+      )
+      .filter(Boolean)
+      .join(', ') || undefined
+
+  return { sourceRow, name, phone, address, gstin, dlNumber }
+}
+
+export function parseMargAddressBook(aoa: unknown[][]): MargParty[] {
+  // Skip the one-time company header block — real data starts after the first
+  // "& ADDRESS" sub-header.
+  const headerIdx = aoa.findIndex((r) => mstr(r[0]).toUpperCase().startsWith('& ADDRESS'))
+  const start = headerIdx >= 0 ? headerIdx + 1 : 0
+
+  const parties: MargParty[] = []
+  let block: unknown[][] = []
+  let blockStart = start + 1
+
+  const flush = () => {
+    if (block.length) {
+      const p = buildMargParty(block, blockStart)
+      if (p) parties.push(p)
+      block = []
+    }
+  }
+
+  for (let i = start; i < aoa.length; i++) {
+    const row = aoa[i]
+    const c0 = mstr(row[0]).toUpperCase()
+    const allEmpty = row.every((c) => mstr(c) === '')
+    // Blank rows and repeated page headers / the MARG footer end the block.
+    const isNoise =
+      c0.startsWith('PARTY NAME') ||
+      c0.startsWith('& ADDRESS') ||
+      c0.includes('ADDRESS BOOK') ||
+      c0.includes('MARG ERP')
+    if (allEmpty || isNoise) { flush(); continue }
+    if (block.length === 0) blockStart = i + 1
+    block.push(row)
+  }
+  flush()
+
+  return parties
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARG ERP "party master" flat export (a.k.a. the Tally-style ledger dump).
+// One header row of exact field codes — code,type,ledger,city,group,name,
+// address1..3,pin,email,phone1,phone2,mobile,resi,licence,tin,… — then one row
+// per party. We map it by those known codes rather than fuzzy synonyms, because
+// it has several phone columns and both `name` and `ledger` columns (name is
+// the clean one; ledger is name+city padded).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function looksLikeMargPartyTableRow(keys: string[]): boolean {
+  return (
+    keys.includes('ledger') &&
+    keys.includes('name') &&
+    (keys.includes('tin') || keys.includes('licence')) &&
+    (keys.includes('mobile') || keys.includes('phone1'))
+  )
+}
+
+export function looksLikeMargPartyTable(aoa: unknown[][]): boolean {
+  for (let i = 0; i < Math.min(aoa.length, 5); i++) {
+    if (looksLikeMargPartyTableRow(aoa[i].map((c) => mstr(c).toLowerCase()))) return true
+  }
+  return false
+}
+
+export function parseMargPartyTable(aoa: unknown[][]): MargParty[] {
+  let headerIdx = -1
+  let keys: string[] = []
+  for (let i = 0; i < Math.min(aoa.length, 5); i++) {
+    const k = aoa[i].map((c) => mstr(c).toLowerCase())
+    if (looksLikeMargPartyTableRow(k)) { headerIdx = i; keys = k; break }
+  }
+  if (headerIdx < 0) return []
+
+  const col = (row: unknown[], key: string): string => {
+    const i = keys.indexOf(key)
+    return i < 0 ? '' : mstr(row[i])
+  }
+
+  const parties: MargParty[] = []
+  for (let r = headerIdx + 1; r < aoa.length; r++) {
+    const row = aoa[r]
+    // `name` is the clean party name; fall back to `ledger` (name + city).
+    const name = (col(row, 'name') || col(row, 'ledger')).replace(/\s{2,}/g, ' ').trim()
+    if (!name) continue
+    // First non-empty phone, mobile preferred over landlines.
+    const phone =
+      ['mobile', 'phone1', 'phone2', 'resi', 'contact'].map((k) => col(row, k)).find(Boolean) || ''
+    const gstin = col(row, 'tin') || col(row, 'gstin') || undefined
+    const dlNumber = col(row, 'licence') || undefined
+    const email = col(row, 'email') || undefined
+    const address =
+      ['address1', 'address2', 'address3', 'city', 'pin'].map((k) => col(row, k)).filter(Boolean).join(', ') || undefined
+    parties.push({ sourceRow: r + 1, name, phone, address, gstin, dlNumber, email })
+  }
+  return parties
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tolerant header-mapped import (shared by customer + supplier import)
+//
+// Accepts any flat spreadsheet whose columns have recognizable headers — name,
+// phone/mobile, address, gstin, email, etc. — even with title rows above the
+// header. Each caller supplies its own field→synonyms map; we return one row
+// per record keyed by the matched field names. Used as a fallback when the
+// structured template (and MARG address book) don't apply.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LooseAliasGroup {
+  field: string
+  aliases: string[]
+}
+
+export interface LooseRow {
+  sourceRow: number
+  values: Record<string, string>
+}
+
+// Lowercase, strip punctuation, collapse whitespace so "GST No." == "gst no".
+function normaliseHeaderCell(h: unknown): string {
+  return mstr(h).toLowerCase().replace(/[._/\\(),-]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// Map a header label to a field: exact synonym first, then substring match.
+function matchAliasField(header: string, groups: LooseAliasGroup[]): string | undefined {
+  if (!header) return undefined
+  for (const g of groups) if (g.aliases.includes(header)) return g.field
+  let best: { field: string; len: number } | undefined
+  for (const g of groups)
+    for (const a of g.aliases)
+      if (a.length >= 3 && (header.includes(a) || a.includes(header)))
+        if (!best || a.length > best.len) best = { field: g.field, len: a.length }
+  return best?.field
+}
+
+export function parseLooseSheet(aoa: unknown[][], groups: LooseAliasGroup[]): LooseRow[] {
+  // Find a header row in the first 25 rows: ≥2 recognized columns incl. name.
+  let headerIdx = -1
+  const colMap = new Map<number, string>()
+  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+    const m = new Map<number, string>()
+    const used = new Set<string>()
+    aoa[i].forEach((cell, ci) => {
+      const f = matchAliasField(normaliseHeaderCell(cell), groups)
+      if (f && !used.has(f)) { m.set(ci, f); used.add(f) }
+    })
+    if (m.size >= 2 && [...m.values()].includes('name')) {
+      headerIdx = i
+      m.forEach((v, k) => colMap.set(k, v))
+      break
+    }
+  }
+  if (headerIdx < 0) return []
+
+  const rows: LooseRow[] = []
+  for (let r = headerIdx + 1; r < aoa.length; r++) {
+    const row = aoa[r]
+    const values: Record<string, string> = {}
+    for (const [ci, field] of colMap) {
+      const s = mstr(row[ci])
+      if (s) values[field] = s
+    }
+    if (Object.keys(values).length > 0) rows.push({ sourceRow: r + 1, values })
+  }
+  return rows
+}

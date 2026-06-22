@@ -18,7 +18,7 @@ export type { ExportMetadata }
 // three sheets: Instructions, Categories (optional pre-create), Products.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type DuplicateHandling = 'UPDATE' | 'SKIP' | 'CREATE'
+export type DuplicateHandling = 'UPDATE' | 'SKIP' | 'CREATE' | 'UPDATE_ONLY'
 export type Schedule = 'NONE' | 'H' | 'H1' | 'X'
 export type StorageCondition =
   | 'ROOM_TEMP'
@@ -255,6 +255,206 @@ function normaliseEnum<T extends string>(
   return (allowed as readonly string[]).includes(s) ? (s as T) : undefined
 }
 
+// ─── MARG ERP price-list import ──────────────────────────────────────────────
+// MARG ERP (a popular Indian chemist ERP) exports a fixed-width ASCII price
+// list — drug-group section headers, "+---+---+" separators, and data rows laid
+// out as:  S.NO  ITEM DESCRIPTION  PACK | PURCHASE  M.R.P. | SALES TAX  COST.
+// It has no named "Products" sheet, so we detect the layout and parse it
+// positionally into the same ParsedProduct shape.
+
+// A trailing token like 15'S, 8X20'S, 10*15'S is a pack size, not part of the
+// name — a digit plus one of ' * X S.
+function isMargPack(token: string): boolean {
+  return /\d/.test(token) && /['*xs]/i.test(token)
+}
+
+// Pull every numeric value out of the price columns (everything after the
+// description cell). Handles both "18.51 24.30" packed in one cell and the
+// numbers split across separate cells. Order = purchase, MRP, tax, cost.
+function collectMargNumbers(cells: unknown[]): number[] {
+  const out: number[] = []
+  for (const c of cells) {
+    if (typeof c === 'number') {
+      if (Number.isFinite(c)) out.push(c)
+      continue
+    }
+    const s = String(c ?? '').trim()
+    if (!s) continue
+    const matches = s.match(/\d+(?:\.\d+)?/g)
+    if (matches) for (const m of matches) out.push(Number(m))
+  }
+  return out
+}
+
+// Split the description cell into serial / name / pack. Description and pack are
+// separated by a fixed-width gap (2+ spaces); the name keeps its single spaces.
+function parseMargDescription(cellA: string): { name: string; pack?: string } {
+  let rest = cellA.trim()
+  const serial = rest.match(/^(\d+)\s+(.*)$/)
+  if (serial) rest = serial[2].trim()
+  const chunks = rest.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean)
+  let name = chunks.join(' ')
+  let pack: string | undefined
+  if (chunks.length > 1 && isMargPack(chunks[chunks.length - 1])) {
+    pack = chunks[chunks.length - 1]
+    name = chunks.slice(0, -1).join(' ').trim()
+  }
+  return { name, pack }
+}
+
+const MARG_SKIP_RE =
+  /ITEM DESCRIPTION|PRICE LIST|PURCHASE|M\.?R\.?P|PAGE\s*NO|MARG ERP|SALES\s*TAX|\bCOST\b/i
+
+function looksLikeMargSheet(aoa: unknown[][]): boolean {
+  // Scan the first ~200 rows for the signature header tokens — MARG repeats the
+  // header on every page, but the title block can push the first one well down.
+  // Require M.R.P so this only matches the PRICE list (the HSN master has the
+  // same "ITEM DESCRIPTION" header but no price columns).
+  const head = aoa.slice(0, 200).map((r) => r.map((c) => String(c ?? '')).join(' ')).join(' ').toUpperCase()
+  return head.includes('ITEM DESCRIPTION') && head.includes('M.R.P')
+}
+
+function parseMargSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: ParseError[] } {
+  const products: ParsedProduct[] = []
+  const errors: ParseError[] = []
+  let currentGeneric: string | undefined
+
+  aoa.forEach((row, idx) => {
+    const rowNum = idx + 1
+    const cellA = toStr(row[0])
+    const numbers = collectMargNumbers(row.slice(1))
+    const joined = row.map(toStr).join(' ')
+
+    // Blank rows and pure +---+---+ separators carry no letters/digits.
+    if (!/[A-Za-z0-9]/.test(joined.replace(/[+\-|=_]/g, ''))) return
+    // Titles / column headers / page markers.
+    if (MARG_SKIP_RE.test(joined)) return
+
+    const hasSerial = /^\d+\s/.test(cellA)
+
+    // Section header: text in column A, no price numbers, not a numbered row →
+    // the drug group, used as the generic name for the rows beneath it.
+    if (cellA && numbers.length === 0 && !hasSerial) {
+      currentGeneric = cellA.replace(/\s{2,}/g, ' ').trim()
+      return
+    }
+
+    // Data row: a name plus at least purchase + MRP.
+    if (cellA && numbers.length >= 2) {
+      const { name, pack } = parseMargDescription(cellA)
+      if (!name) return
+      const [purchase, mrp] = numbers
+      const tax = numbers.length >= 3 ? numbers[2] : undefined
+      products.push({
+        sourceRow: rowNum,
+        name,
+        genericName: currentGeneric,
+        packSize: pack,
+        purchaseRate: purchase,
+        mrp,
+        // Chemists sell at MRP by default — seed selling price from MRP so the
+        // product is immediately billable; the operator can adjust later.
+        sellingRate: mrp,
+        gstRate: tax,
+      })
+    }
+  })
+
+  return { products, errors }
+}
+
+// Try every sheet; parse the first that matches the MARG layout.
+function parseMargWorkbook(wb: XLSX.WorkBook): { products: ParsedProduct[]; errors: ParseError[] } {
+  for (const sheetName of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], {
+      header: 1,
+      defval: '',
+      raw: true,
+    })
+    if (looksLikeMargSheet(aoa)) return parseMargSheet(aoa)
+  }
+  return { products: [], errors: [] }
+}
+
+// ─── MARG ERP "ITEM WISE HSN/SAC MASTER" import ──────────────────────────────
+// A flat product list with columns: ITEM DESCRIPTION | OLD TAX% | GST % |
+// HSN/SAC | HSN GST%. No prices — just name, GST and HSN code. GST cells read
+// like "2.5+2.5  5" (CGST+SGST  total) so we take the last number; HSN cells
+// like "30049099   12%" so we take the leading code.
+function looksLikeMargHsnSheet(aoa: unknown[][]): boolean {
+  const head = aoa.slice(0, 20).map((r) => r.map((c) => String(c ?? '')).join(' ')).join(' ').toUpperCase()
+  return head.includes('ITEM DESCRIPTION') && head.includes('HSN')
+}
+
+function parseMargHsnSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: ParseError[] } {
+  // Locate the header row and its columns.
+  let headerIdx = -1
+  let descCol = 0
+  let gstCol = -1
+  let hsnCol = -1
+  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+    const lower = aoa[i].map((c) => toStr(c).toLowerCase())
+    if (lower.some((x) => x.includes('item description')) && lower.some((x) => x.includes('hsn'))) {
+      headerIdx = i
+      descCol = lower.findIndex((x) => x.includes('item description'))
+      gstCol = lower.findIndex((x) => x.includes('gst'))
+      hsnCol = lower.findIndex((x) => x.includes('hsn'))
+      break
+    }
+  }
+  if (headerIdx < 0) return { products: [], errors: [] }
+
+  const products: ParsedProduct[] = []
+  for (let r = headerIdx + 1; r < aoa.length; r++) {
+    const row = aoa[r]
+    const raw = toStr(row[descCol])
+    if (!raw) continue
+
+    // Name + pack — split on the fixed-width gap; do NOT strip a leading number
+    // (names like "10 LITRE O2" / "3-KAT" legitimately start with digits).
+    const chunks = raw.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean)
+    let name = chunks.join(' ')
+    let pack: string | undefined
+    if (chunks.length > 1 && isMargPack(chunks[chunks.length - 1])) {
+      pack = chunks[chunks.length - 1]
+      name = chunks.slice(0, -1).join(' ').trim()
+    }
+    if (!name) continue
+
+    // GST = the total (last number) in "2.5+2.5  5".
+    let gstRate: number | undefined
+    if (gstCol >= 0) {
+      const nums = toStr(row[gstCol]).match(/\d+(?:\.\d+)?/g)
+      if (nums) gstRate = Number(nums[nums.length - 1])
+    }
+    // HSN = the leading 4–8 digit code in "30049099   12%".
+    let hsnCode: string | undefined
+    if (hsnCol >= 0) {
+      const m = toStr(row[hsnCol]).match(/\d{4,8}/)
+      if (m) hsnCode = m[0]
+    }
+
+    // Skip repeated page headers / company block / footer — real item rows
+    // always carry an HSN code and/or a GST rate; noise rows carry neither.
+    if (hsnCode === undefined && gstRate === undefined) continue
+
+    products.push({ sourceRow: r + 1, name, packSize: pack, gstRate, hsnCode })
+  }
+  return { products, errors: [] }
+}
+
+function parseMargHsnWorkbook(wb: XLSX.WorkBook): { products: ParsedProduct[]; errors: ParseError[] } {
+  for (const sheetName of wb.SheetNames) {
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], {
+      header: 1,
+      defval: '',
+      raw: true,
+    })
+    if (looksLikeMargHsnSheet(aoa)) return parseMargHsnSheet(aoa)
+  }
+  return { products: [], errors: [] }
+}
+
 export async function parseProductImportWorkbook(
   file: File,
 ): Promise<ParseResult> {
@@ -356,6 +556,23 @@ export async function parseProductImportWorkbook(
       isActive: toBool(raw.is_active),
     })
   })
+
+  // Fallback 1: MARG ERP price-list layout (fixed-width, drug-group sections).
+  if (products.length === 0) {
+    const marg = parseMargWorkbook(wb)
+    if (marg.products.length > 0) {
+      return { categories: [], products: marg.products, errors: marg.errors, exportMetadata }
+    }
+  }
+
+  // Fallback 2: MARG ERP "ITEM WISE HSN/SAC MASTER" layout (name + GST + HSN,
+  // no prices).
+  if (products.length === 0) {
+    const hsn = parseMargHsnWorkbook(wb)
+    if (hsn.products.length > 0) {
+      return { categories: [], products: hsn.products, errors: hsn.errors, exportMetadata }
+    }
+  }
 
   return { categories, products, errors, exportMetadata }
 }

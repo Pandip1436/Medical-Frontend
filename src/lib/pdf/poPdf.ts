@@ -108,12 +108,15 @@ export function generatePoPdf(po: PoPdfData, options?: { autoPrint?: boolean }) 
     ]),
     styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    // Widths sum to 182mm = full usable width after 14mm margins.
     columnStyles: {
       0: { cellWidth: 8 },   // #
+      1: { cellWidth: 50 },  // Product
       2: { cellWidth: 22 },  // Ordered Qty
       3: { cellWidth: 22 },  // Received Qty
       4: { cellWidth: 24 },  // Rate
       5: { cellWidth: 26 },  // Amount
+      6: { cellWidth: 30 },  // Remarks
     },
     // Align header AND body identically per column so the numbers sit directly
     // under their labels (#, quantities centred; money right-aligned).

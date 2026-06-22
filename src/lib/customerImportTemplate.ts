@@ -10,7 +10,28 @@ import {
   applySheetFormatting,
   buildExportMetadataRows,
   readExportMetadata,
+  looksLikeMargAddressBook,
+  parseMargAddressBook,
+  looksLikeMargPartyTable,
+  parseMargPartyTable,
+  parseLooseSheet,
+  type LooseAliasGroup,
 } from './excelTemplateFormat'
+
+// Synonyms for tolerant header-mapped import (other-ERP flat exports).
+const CUSTOMER_ALIAS_GROUPS: LooseAliasGroup[] = [
+  { field: 'name', aliases: ['name', 'customer name', 'customer', 'party name', 'party', 'client', 'client name', 'account name', 'ledger name', 'ledger', 'account', 'buyer', 'buyer name'] },
+  { field: 'phone', aliases: ['phone', 'mobile', 'mobile no', 'mobile number', 'phone no', 'phone number', 'contact no', 'contact number', 'contact', 'telephone', 'tel', 'cell', 'mob', 'mob no', 'whatsapp'] },
+  { field: 'alternatePhone', aliases: ['alternate phone', 'alt phone', 'alternate mobile', 'alternate no', 'phone 2', 'mobile 2', 'second phone'] },
+  { field: 'email', aliases: ['email', 'e mail', 'email id', 'mail', 'email address'] },
+  { field: 'address', aliases: ['address', 'addr', 'location', 'full address', 'street', 'area', 'city', 'place', 'town'] },
+  { field: 'type', aliases: ['type', 'customer type', 'category'] },
+  { field: 'source', aliases: ['source', 'acquisition source', 'lead source', 'referred by', 'reference'] },
+  { field: 'gstin', aliases: ['gstin', 'gst', 'gst no', 'gst number', 'gstin no', 'gst in', 'gstno', 'tin'] },
+  { field: 'dlNumber', aliases: ['dl number', 'dl no', 'drug license', 'drug licence', 'dl', 'license no', 'licence no'] },
+  { field: 'creditLimit', aliases: ['credit limit', 'cr limit', 'limit'] },
+  { field: 'openingBalance', aliases: ['opening balance', 'balance', 'outstanding', 'opening', 'closing balance', 'os', 'due', 'amount', 'balance amount'] },
+]
 
 export type { ExportMetadata }
 
@@ -1179,6 +1200,105 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       items: cnRef ? (cnItemsByRef.get(cnRef) ?? []) : [],
     })
   })
+
+  // ── Fallbacks for non-template files (other ERP exports) ──
+  const emptyOrphans = {
+    orphanInvoices: 0,
+    orphanPayments: 0,
+    orphanActivities: 0,
+    orphanPrescriptions: 0,
+    orphanQuotations: 0,
+    orphanCreditNotes: 0,
+  }
+
+  // Fallback 1: MARG ERP "address book" (multi-row party blocks). Checked
+  // before generic mapping, which would misread its repeated page headers.
+  if (customers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      if (!looksLikeMargAddressBook(aoa)) continue
+      const abCustomers: ParsedCustomer[] = []
+      let skippedNoPhone = 0
+      for (const p of parseMargAddressBook(aoa)) {
+        if (!p.phone) { skippedNoPhone++; continue }
+        abCustomers.push({
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          gstin: p.gstin, dlNumber: p.dlNumber,
+          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+        })
+      }
+      if (abCustomers.length > 0) {
+        return {
+          customers: abCustomers,
+          ...emptyOrphans,
+          errors: skippedNoPhone
+            ? [{ sheet: 'Customers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
+            : [],
+          exportMetadata,
+        }
+      }
+    }
+  }
+
+  // Fallback 2: MARG ERP "party master" flat export (exact-coded columns).
+  // Checked before generic mapping, which would grab `ledger` as the name.
+  if (customers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      if (!looksLikeMargPartyTable(aoa)) continue
+      const ptCustomers: ParsedCustomer[] = []
+      let skippedNoPhone = 0
+      for (const p of parseMargPartyTable(aoa)) {
+        if (!p.phone) { skippedNoPhone++; continue }
+        ptCustomers.push({
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          email: p.email, gstin: p.gstin, dlNumber: p.dlNumber,
+          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+        })
+      }
+      if (ptCustomers.length > 0) {
+        return {
+          customers: ptCustomers,
+          ...emptyOrphans,
+          errors: skippedNoPhone
+            ? [{ sheet: 'Customers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
+            : [],
+          exportMetadata,
+        }
+      }
+    }
+  }
+
+  // Fallback 3: tolerant header mapping for other flat ERP exports.
+  if (customers.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
+      const rows = parseLooseSheet(aoa, CUSTOMER_ALIAS_GROUPS)
+      if (rows.length === 0) continue
+      const looseCustomers: ParsedCustomer[] = []
+      const looseErrors: ParseError[] = []
+      for (const { sourceRow, values: v } of rows) {
+        const name = v.name ?? ''
+        const phone = v.phone ?? ''
+        if (!name && !phone) continue
+        if (!name || !phone) {
+          looseErrors.push({ sheet: 'Customers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'Phone is required.' })
+          continue
+        }
+        looseCustomers.push({
+          sourceRow, name, phone,
+          alternatePhone: v.alternatePhone, email: v.email, address: v.address,
+          type: normaliseEnum(v.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
+          source: v.source, gstin: v.gstin, dlNumber: v.dlNumber,
+          creditLimit: toOptionalNumber(v.creditLimit), openingBalance: toOptionalNumber(v.openingBalance),
+          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+        })
+      }
+      if (looseCustomers.length > 0) {
+        return { customers: looseCustomers, ...emptyOrphans, errors: looseErrors, exportMetadata }
+      }
+    }
+  }
 
   return {
     customers,

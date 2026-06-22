@@ -11,7 +11,10 @@ export interface QuotationDoc {
   date: string
   customerName: string
   customerPhone?: string
-  items: { name: string; qty: number; rate: number }[]
+  // `amount` is the GST-INCLUSIVE line total (post-discount); `gstPercent` is
+  // the line's tax rate. Both optional so legacy callers still type-check —
+  // the table falls back to qty × rate / 0% GST when absent.
+  items: { name: string; qty: number; rate: number; gstPercent?: number; amount?: number }[]
   deliveryCharge?: number
   total: number
 }
@@ -53,27 +56,68 @@ export function generateQuotationPdf(qt: QuotationDoc) {
 
   autoTable(doc, {
     startY: y + 3,
-    head: [['#', 'Description', 'Qty', 'Rate', 'Amount']],
-    body: qt.items.map((it, i) => [
-      i + 1,
-      it.name,
-      it.qty,
-      Number(it.rate).toFixed(2),
-      (it.qty * Number(it.rate)).toFixed(2),
-    ]),
-    styles: { fontSize: 9, cellPadding: 2 },
+    head: [['#', 'Description', 'Qty', 'Rate', 'Taxable', 'GST %', 'Amount']],
+    body: qt.items.map((it, i) => {
+      // Prices are GST-inclusive: back the tax out of the line amount rather
+      // than adding it on top.
+      const lineAmount = it.amount != null ? Number(it.amount) : it.qty * Number(it.rate)
+      const gstPct = Number(it.gstPercent ?? 0)
+      const taxable = gstPct > 0 ? lineAmount / (1 + gstPct / 100) : lineAmount
+      return [
+        i + 1,
+        it.name,
+        it.qty,
+        Number(it.rate).toFixed(2),
+        taxable.toFixed(2),
+        `${gstPct}%`,
+        lineAmount.toFixed(2),
+      ]
+    }),
+    styles: { fontSize: 9, cellPadding: 2, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    // Explicit widths (sum = 182mm = full usable width) + per-column alignment
+    // applied to header and body so labels sit over their values.
     columnStyles: {
-      0: { halign: 'right', cellWidth: 10 },
-      2: { halign: 'right' },
-      3: { halign: 'right' },
-      4: { halign: 'right' },
+      0: { halign: 'center', cellWidth: 8 },  // #
+      1: { halign: 'left',   cellWidth: 60 }, // Description
+      2: { halign: 'center', cellWidth: 16 }, // Qty
+      3: { halign: 'right',  cellWidth: 22 }, // Rate
+      4: { halign: 'right',  cellWidth: 26 }, // Taxable
+      5: { halign: 'center', cellWidth: 18 }, // GST %
+      6: { halign: 'right',  cellWidth: 32 }, // Amount
+    },
+    didParseCell: (data: { section: string; column: { index: number }; cell: { styles: { halign: string } } }) => {
+      if (data.section !== 'head') return
+      const align = ['center', 'left', 'center', 'right', 'right', 'center', 'right'][data.column.index]
+      if (align) data.cell.styles.halign = align
     },
     margin: { left: 14, right: 14 },
   })
 
   const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8
   let totalY = afterTableY
+
+  // Taxable + GST summary (GST backed out of inclusive line amounts) so the
+  // breakdown reconciles: Taxable + GST + Delivery = Total.
+  const sumTaxable = qt.items.reduce((s, it) => {
+    const amt = it.amount != null ? Number(it.amount) : it.qty * Number(it.rate)
+    const g = Number(it.gstPercent ?? 0)
+    return s + (g > 0 ? amt / (1 + g / 100) : amt)
+  }, 0)
+  const sumGst = qt.items.reduce((s, it) => {
+    const amt = it.amount != null ? Number(it.amount) : it.qty * Number(it.rate)
+    const g = Number(it.gstPercent ?? 0)
+    return s + (g > 0 ? amt - amt / (1 + g / 100) : 0)
+  }, 0)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.text('Taxable', pageWidth - 60, totalY)
+  doc.text(fmtINR(sumTaxable), pageWidth - 14, totalY, { align: 'right' })
+  totalY += 6
+  doc.text('GST', pageWidth - 60, totalY)
+  doc.text(fmtINR(sumGst), pageWidth - 14, totalY, { align: 'right' })
+  totalY += 6
+
   if (Number(qt.deliveryCharge) > 0) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)

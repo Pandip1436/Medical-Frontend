@@ -112,15 +112,28 @@ export function generateGrnPdf(grn: GrnPdfData, options?: { autoPrint?: boolean 
       Number(it.purchaseRate).toFixed(2),
       Number(it.mrp).toFixed(2),
     ]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
+    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    // Explicit widths (sum = 182mm = full usable width after 14mm margins) so
+    // the table fills the page evenly, and per-column alignment: counts
+    // centred, money right-aligned, text left.
     columnStyles: {
-      0: { halign: 'right', cellWidth: 8 },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'right' },
-      7: { halign: 'right' },
-      8: { halign: 'right' },
+      0: { halign: 'center', cellWidth: 8 },  // #
+      1: { halign: 'left',   cellWidth: 50 }, // Product
+      2: { halign: 'left',   cellWidth: 22 }, // Batch
+      3: { halign: 'center', cellWidth: 18 }, // Expiry
+      4: { halign: 'center', cellWidth: 16 }, // Ordered
+      5: { halign: 'center', cellWidth: 18 }, // Received
+      6: { halign: 'center', cellWidth: 12 }, // Free
+      7: { halign: 'right',  cellWidth: 19 }, // Rate
+      8: { halign: 'right',  cellWidth: 19 }, // MRP
+    },
+    // Header text is left-aligned by default — force each header cell to use
+    // its column's alignment so labels sit directly above their values.
+    didParseCell: (data: { section: string; column: { index: number }; cell: { styles: { halign: string } } }) => {
+      if (data.section !== 'head') return
+      const align = ['center', 'left', 'left', 'center', 'center', 'center', 'center', 'right', 'right'][data.column.index]
+      if (align) data.cell.styles.halign = align
     },
     margin: { left: 14, right: 14 },
   })
