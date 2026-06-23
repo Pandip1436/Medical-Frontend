@@ -261,19 +261,21 @@ export default function CustomerInvoicesPage() {
 
   const handleCollectPayment = async () => {
     if (!detailInvoice || !collectAmount) return
-    const amount = parseFloat(collectAmount)
+    const raw = parseFloat(collectAmount)
     const balanceDue = Number(detailInvoice.grandTotal) - Number(detailInvoice.amountPaid)
-    if (isNaN(amount) || amount <= 0) return
-    // Never collect more than what's due. Backend enforces this too; blocking
-    // here gives instant feedback and avoids the round-trip.
-    if (amount > balanceDue + 0.01) {
+    if (isNaN(raw) || raw <= 0) return
+    // The shown balance is rounded to the rupee, so the operator may type a
+    // value a few paise over the true balance. Reject only a real over-payment
+    // (>₹1), then cap to the exact balance so it settles cleanly.
+    if (raw > balanceDue + 1) {
       toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(balanceDue)}`)
       return
     }
+    const amount = Math.min(raw, balanceDue)
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${detailInvoice.id}/collect-payment`, {
-        amountReceived: parseFloat(collectAmount),
+        amountReceived: amount,
         paymentMode: collectMode,
       })
       toast.success('Payment collected successfully')
@@ -743,7 +745,9 @@ export default function CustomerInvoicesPage() {
             // Typed collect amount overshoots the balance due — drives the
             // inline error + disabled Collect button below.
             const collectNum = parseFloat(collectAmount)
-            const collectExceeds = !isNaN(collectNum) && collectNum > balanceDue + 0.01
+            // ₹1 tolerance so typing the rupee-rounded displayed balance doesn't
+            // read as an over-payment.
+            const collectExceeds = !isNaN(collectNum) && collectNum > balanceDue + 1
             return (
               <>
                 {/* Sticky Header */}

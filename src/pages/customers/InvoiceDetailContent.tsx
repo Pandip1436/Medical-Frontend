@@ -152,14 +152,18 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   }
 
   const handleCollectPayment = async () => {
-    const amount = parseFloat(collectAmount)
-    if (!collectAmount || isNaN(amount) || amount <= 0) return
-    // Never let a collection exceed what's actually due. The backend enforces
-    // this too, but blocking here gives instant feedback and avoids the round-trip.
-    if (amount > outstanding + 0.01) {
+    const raw = parseFloat(collectAmount)
+    if (!collectAmount || isNaN(raw) || raw <= 0) return
+    // The displayed outstanding is rounded to the rupee, so the operator may
+    // type a value a few paise above the true balance (e.g. ₹13,050 when the
+    // real figure is ₹13,049.95). Reject only a meaningful over-payment (>₹1),
+    // then cap the collected amount to the exact outstanding so it settles the
+    // invoice cleanly without ever exceeding it.
+    if (raw > outstanding + 1) {
       toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(outstanding)}`)
       return
     }
+    const amount = Math.min(raw, outstanding)
     // Non-cash modes are traceable — a reference number is mandatory.
     if (refRequired && !collectRef.trim()) {
       toast.error(`Enter the ${collectMode} reference number`)
@@ -168,7 +172,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
     setCollectSubmitting(true)
     try {
       const res = await api.patch(`/billing/${invoice.id}/collect-payment`, {
-        amountReceived: parseFloat(collectAmount),
+        amountReceived: amount,
         paymentMode: collectMode,
         referenceNumber: refRequired ? collectRef.trim() : undefined,
       })
@@ -212,7 +216,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const outstanding = grandTotal - amountPaid
   // Typed amount overshoots what's due — drives the inline error + disabled state.
   const collectNum = parseFloat(collectAmount)
-  const collectExceeds = !isNaN(collectNum) && collectNum > outstanding + 0.01
+  // Tolerate the rupee-rounding of the displayed outstanding: typing the shown
+  // figure (e.g. ₹13,050 for a true ₹13,049.95 balance) must not read as "over".
+  const collectExceeds = !isNaN(collectNum) && collectNum > outstanding + 1
   // UPI / Card / Cheque collections need a reference number; Cash doesn't.
   const refRequired = collectMode !== 'CASH'
   const refMissing = refRequired && !collectRef.trim()
