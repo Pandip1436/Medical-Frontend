@@ -314,20 +314,20 @@ export default function DeliveryTrackingPage() {
 
       {/* ── Hero header ───────────────────────────────────────────────────── */}
       <Card className="overflow-hidden border-border/60">
-        <div className="relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-6 pt-6 pb-5">
+        <div className="relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-4 pt-5 pb-5 sm:px-6 sm:pt-6">
           <div className="absolute -right-8 -top-8 opacity-[0.07]">
             <Truck className="h-40 w-40" />
           </div>
-          <div className="relative flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary shadow-sm">
-                <Truck className="h-6 w-6" />
+          <div className="relative flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-3.5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary shadow-sm sm:h-12 sm:w-12">
+                <Truck className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => navigate(`/customers/invoices/detail?id=${delivery.invoiceId}`)}
-                    className="group inline-flex items-center gap-1.5 font-mono text-lg font-bold tracking-tight hover:text-primary"
+                    className="group inline-flex items-center gap-1.5 font-mono text-base font-bold tracking-tight hover:text-primary sm:text-lg"
                     title="Open invoice"
                   >
                     {delivery.invoiceNumber}
@@ -336,11 +336,11 @@ export default function DeliveryTrackingPage() {
                   <StatusBadge status={displayDeliveryStatus(delivery.status)} className="px-2.5 py-0.5" />
                 </div>
                 <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <User className="h-3.5 w-3.5" /> {delivery.customerName}
+                  <User className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{delivery.customerName}</span>
                 </p>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-1 text-right">
+            <div className="flex flex-col items-start gap-1 text-left sm:items-end sm:text-right">
               {delivery.courierName && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-background/80 px-3 py-1 text-xs font-medium shadow-sm ring-1 ring-border/50">
                   <Truck className="h-3 w-3" /> {delivery.courierName}
@@ -380,7 +380,7 @@ export default function DeliveryTrackingPage() {
                         initial={false}
                         animate={{ scale: isCurrent ? 1.1 : 1 }}
                         className={cn(
-                          'flex h-9 w-9 items-center justify-center rounded-full ring-2 transition-colors',
+                          'flex h-8 w-8 items-center justify-center rounded-full ring-2 transition-colors sm:h-9 sm:w-9',
                           done
                             ? `${cfg.ring} text-white ring-transparent shadow-sm`
                             : 'bg-background text-muted-foreground/40 ring-border',
@@ -414,7 +414,7 @@ export default function DeliveryTrackingPage() {
         </div>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
         {/* ── Left: customer + courier details ──────────────────────────────── */}
         <div className="space-y-5 lg:col-span-2">
           {/* Shipment & customer */}
@@ -476,12 +476,12 @@ export default function DeliveryTrackingPage() {
                   />
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+              <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap">
+                <Button onClick={handleSave} disabled={saving} className="w-full gap-1.5 sm:w-auto">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Save Details
                 </Button>
-                <Button variant="outline" onClick={handleCheckStatus} disabled={checking} className="gap-1.5">
+                <Button variant="outline" onClick={handleCheckStatus} disabled={checking} className="w-full gap-1.5 sm:w-auto">
                   {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                   Check Tracking Status
                 </Button>
@@ -489,7 +489,7 @@ export default function DeliveryTrackingPage() {
                   <Button
                     variant="ghost"
                     onClick={() => window.open(manualTrackUrl, '_blank', 'noopener')}
-                    className="gap-1.5 text-primary"
+                    className="w-full gap-1.5 text-primary sm:w-auto"
                   >
                     <ExternalLink className="h-4 w-4" />
                     Track on courier website

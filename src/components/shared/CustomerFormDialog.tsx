@@ -281,21 +281,12 @@ export function CustomerFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Email (optional)
-              </Label>
-              <Input type="email" placeholder="customer@example.com" {...register('email')} />
-              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Credit Limit
-              </Label>
-              <Input type="number" min={0} step="0.01" placeholder="0" {...register('creditLimit')} />
-              {errors.creditLimit && <p className="text-xs text-destructive">{errors.creditLimit.message as string}</p>}
-            </div>
+          <div className="space-y-2">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Email (optional)
+            </Label>
+            <Input type="email" placeholder="customer@example.com" {...register('email')} />
+            {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
           </div>
 
           {typeValue === 'WHOLESALE' && (

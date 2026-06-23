@@ -157,13 +157,13 @@ export default function DeliveriesPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-      <PageHeader title="Delivery Tracking" description="Courier shipments dispatched from invoices.">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+      <PageHeader title="Delivery Tracking" description="Courier shipments dispatched from invoices." className="!flex-col !items-stretch sm:!flex-row sm:!items-end">
+        <div className="flex w-full flex-wrap items-center gap-1.5 text-xs sm:w-auto sm:gap-2">
           <Stat label="Total" value={totalCount} className="bg-muted text-foreground" />
           <Stat label="Booked" value={booked} className="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
           <Stat label="In Transit" value={inTransit} className="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
           <Stat label="Delivered" value={delivered} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
-          <Button size="sm" onClick={handleCheckAll} disabled={checkingAll} className="ml-1 gap-1.5">
+          <Button size="sm" onClick={handleCheckAll} disabled={checkingAll} className="ml-auto w-full gap-1.5 sm:ml-1 sm:w-auto">
             {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {checkingAll ? 'Checking…' : 'Check All Tracking'}
           </Button>
@@ -217,9 +217,9 @@ export default function DeliveriesPage() {
               transition={{ delay: Math.min(idx * 0.03, 0.3) }}
               onClick={() => navigate(`/delivery/tracking?id=${d.id}`)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/delivery/tracking?id=${d.id}`) } }}
-              className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-border/60 bg-card p-4 text-left transition hover:border-primary/40 hover:shadow-sm"
+              className="group flex w-full cursor-pointer items-center gap-3 rounded-xl border border-border/60 bg-card p-3 text-left transition hover:border-primary/40 hover:shadow-sm sm:gap-4 sm:p-4"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-11 sm:w-11">
                 <Truck className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
