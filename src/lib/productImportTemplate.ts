@@ -345,6 +345,11 @@ function parseMargSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: 
       if (!name) return
       const [purchase, mrp] = numbers
       const tax = numbers.length >= 3 ? numbers[2] : undefined
+      // The 4th column ("COST") is the rate the business actually sells at —
+      // typically between purchase and MRP. Use it as the selling price when
+      // present; fall back to MRP (sell-at-MRP default) when the row only has
+      // purchase + MRP (+ tax).
+      const cost = numbers.length >= 4 ? numbers[3] : undefined
       products.push({
         sourceRow: rowNum,
         name,
@@ -352,9 +357,7 @@ function parseMargSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: 
         packSize: pack,
         purchaseRate: purchase,
         mrp,
-        // Chemists sell at MRP by default — seed selling price from MRP so the
-        // product is immediately billable; the operator can adjust later.
-        sellingRate: mrp,
+        sellingRate: cost && cost > 0 ? cost : mrp,
         gstRate: tax,
       })
     }

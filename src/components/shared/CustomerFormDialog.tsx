@@ -134,6 +134,8 @@ export function CustomerFormDialog({
   submitOverride,
 }: CustomerFormDialogProps) {
   const [submitting, setSubmitting] = useState(false)
+  // Salesperson names for the "Referred By" dropdown (deduped, loaded on open).
+  const [salespersonNames, setSalespersonNames] = useState<string[]>([])
   const {
     register,
     handleSubmit,
@@ -145,6 +147,23 @@ export function CustomerFormDialog({
     resolver: zodResolver(customerFormSchema),
     defaultValues: EMPTY_VALUES,
   })
+
+  // Load the salesperson list once the dialog opens.
+  useEffect(() => {
+    if (!open) return
+    api
+      .get('/salespersons')
+      .then((res) => {
+        const list: Array<{ name?: string }> = Array.isArray(res.data)
+          ? res.data
+          : res.data?.data ?? []
+        const names = Array.from(
+          new Set(list.map((s) => (s.name ?? '').trim()).filter(Boolean)),
+        )
+        setSalespersonNames(names)
+      })
+      .catch(() => setSalespersonNames([]))
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -329,7 +348,38 @@ export function CustomerFormDialog({
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Referred By (salesperson)
               </Label>
-              <Input placeholder="Salesperson name" {...register('referredBy')} />
+              <Controller
+                control={control}
+                name="referredBy"
+                render={({ field }) => {
+                  // Keep the saved name selectable even if that salesperson
+                  // isn't in the current list (e.g. left the team / imported).
+                  const options = Array.from(
+                    new Set([
+                      ...salespersonNames,
+                      ...(field.value ? [field.value] : []),
+                    ]),
+                  )
+                  return (
+                    <Select
+                      value={field.value || ''}
+                      onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select salesperson" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {options.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )
+                }}
+              />
               {errors.referredBy && <p className="text-xs text-destructive">{errors.referredBy.message}</p>}
             </div>
             <div className="space-y-2">

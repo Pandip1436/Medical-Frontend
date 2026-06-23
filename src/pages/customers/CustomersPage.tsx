@@ -133,7 +133,7 @@ const customerSchema = z.object({
   gstin: z.string().optional(),
   dlNumber: z.string().optional(),
   registrationNumber: z.string().optional(),
-  referredBy: z.string().min(1, 'Please select a salesperson'),
+  referredBy: z.string().optional(),
   source: z.string().optional(),
   notes: z.string().optional(),
   // Toggle whether this customer receives transactional WhatsApp messages
@@ -1212,7 +1212,7 @@ export default function CustomersPage() {
           <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
             <SheetTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</SheetTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Name, Phone, Type, Address and Referred By are required. Email is optional.
+              Name, Phone, Type and Address are required. Email and Referred By are optional.
             </p>
           </SheetHeader>
           <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0">
@@ -1297,7 +1297,7 @@ export default function CustomersPage() {
               {/* Row 4: Referred By + Source */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
                   <Controller control={form.control} name="referredBy" render={({ field }) => (
                     <Select value={field.value || ''} onValueChange={field.onChange}>
                       <SelectTrigger className={form.formState.errors.referredBy ? 'border-rose-500' : ''}>

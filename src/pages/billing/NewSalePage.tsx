@@ -633,7 +633,7 @@ function BillingRow({
       </TableCell>
 
       {/* Product + Schedule + Generic */}
-      <TableCell className="min-w-55 px-3 py-2.5 align-middle" ref={productRef}>
+      <TableCell className="min-w-40 px-3 py-2.5 align-middle" ref={productRef}>
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — manufacturer · generic */}
           <div className="h-3.5 flex items-center">
@@ -857,7 +857,7 @@ function BillingRow({
       </TableCell>
 
       {/* Batch + Expiry — helper on top, control below */}
-      <TableCell className="w-37.5 px-2 py-2.5 align-middle">
+      <TableCell className="w-32 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — expiry chip */}
           <div className="h-3.5 flex items-center justify-center">
@@ -992,7 +992,7 @@ function BillingRow({
       </TableCell>
 
       {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
-      <TableCell className="w-40 px-2 py-2.5 align-middle">
+      <TableCell className="w-36 px-2 py-2.5 align-middle">
         {(() => {
           const originalRate = selectedProduct
             ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
@@ -1176,11 +1176,11 @@ function BillingRow({
         {/* Column labels for the sub-rows */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6 border-b border-violet-200/30 dark:border-violet-800/20">
           <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="min-w-55 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
-          <TableCell className="w-37.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
+          <TableCell className="min-w-40 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
+          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-27.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
-          <TableCell className="w-40 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-36 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-14 px-1 py-1 align-middle"></TableCell>
           <TableCell className="w-27.5 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
@@ -1196,7 +1196,7 @@ function BillingRow({
             )}
           >
             <TableCell className="w-10 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="min-w-55 px-3 py-1.5 align-middle">
+            <TableCell className="min-w-40 px-3 py-1.5 align-middle">
               <div className="flex items-center gap-2 text-[10px]">
                 <span className="text-muted-foreground/60 whitespace-nowrap shrink-0">
                   {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
@@ -1204,10 +1204,10 @@ function BillingRow({
                 <span className="font-mono font-semibold text-primary/70 truncate">{h.invoiceNumber}</span>
               </div>
             </TableCell>
-            <TableCell className="w-37.5 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
+            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
-            <TableCell className="w-40 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-36 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
@@ -5114,15 +5114,15 @@ export default function NewSalePage() {
                     <div className="flex-1 flex flex-col min-h-0 relative">
                       {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. min-w bumped to 960px to match real column widths. */}
                       <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-auto">
-                        <Table className="w-full min-w-240">
+                        <Table className="w-full min-w-225">
                           <TableHeader className="sticky top-0 z-20 bg-gradient-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
                             <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-[0.1em] text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
-                              <TableHead className="min-w-55 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
-                              <TableHead className="w-37.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
+                              <TableHead className="min-w-40 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
+                              <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
                               <TableHead className="w-27.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
-                              <TableHead className="w-40 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
+                              <TableHead className="w-36 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
                               <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
                               <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
