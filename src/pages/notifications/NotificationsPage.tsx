@@ -336,6 +336,10 @@ interface ColumnDef {
   /** Tailwind width class applied to <th>. Omit for a flexible column
    *  that absorbs leftover space in a `table-fixed` layout. */
   width?: string
+  /** Hidden on phones (<sm) so the row fits a narrow viewport — the primary
+   *  entity column + one key metric stay; secondary detail collapses. Shown
+   *  again on tablets / iPads (sm+) where there's room for the full schema. */
+  hideOnMobile?: boolean
 }
 
 // Columns per cluster type. Order matters — the first column is treated as
@@ -345,32 +349,32 @@ interface ColumnDef {
 const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
   PAYMENT_DUE: [
     { key: 'customer',  label: 'Customer' },
-    { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-28' },
-    { key: 'due',       label: 'Due',         align: 'right', className: 'tabular-nums', width: 'w-28' },
+    { key: 'amount',    label: 'Outstanding', align: 'right', className: 'font-medium tabular-nums', width: 'w-24 sm:w-28' },
+    { key: 'due',       label: 'Due',         align: 'right', className: 'tabular-nums', width: 'w-28', hideOnMobile: true },
   ],
   SUPPLIER_PAYMENT_DUE: [
     { key: 'supplier',  label: 'Supplier' },
-    { key: 'amount',    label: 'Payable',     align: 'right', className: 'font-medium tabular-nums', width: 'w-32' },
-    { key: 'pending',   label: 'Pending',     align: 'right', className: 'tabular-nums', width: 'w-28' },
+    { key: 'amount',    label: 'Payable',     align: 'right', className: 'font-medium tabular-nums', width: 'w-24 sm:w-32' },
+    { key: 'pending',   label: 'Pending',     align: 'right', className: 'tabular-nums', width: 'w-28', hideOnMobile: true },
   ],
   EXPIRY: [
     { key: 'product',   label: 'Product' },
-    { key: 'batch',     label: 'Batch',       className: 'font-mono text-[11px]', width: 'w-32' },
-    { key: 'expiresIn', label: 'Expires in',  align: 'right', className: 'tabular-nums', width: 'w-28' },
-    { key: 'severity',  label: 'Severity',    align: 'left', width: 'w-32' },
+    { key: 'batch',     label: 'Batch',       className: 'font-mono text-[11px]', width: 'w-32', hideOnMobile: true },
+    { key: 'expiresIn', label: 'Expires in',  align: 'right', className: 'tabular-nums', width: 'w-20 sm:w-28' },
+    { key: 'severity',  label: 'Severity',    align: 'left', width: 'w-32', hideOnMobile: true },
   ],
   LOW_STOCK: [
     { key: 'product',   label: 'Product' },
-    { key: 'current',   label: 'Stock',  align: 'right', className: 'font-medium tabular-nums', width: 'w-20' },
-    { key: 'min',       label: 'Min',    align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-20' },
-    { key: 'status',    label: 'Status', align: 'left',  width: 'w-32' },
+    { key: 'current',   label: 'Stock',  align: 'right', className: 'font-medium tabular-nums', width: 'w-16 sm:w-20' },
+    { key: 'min',       label: 'Min',    align: 'right', className: 'tabular-nums text-muted-foreground', width: 'w-20', hideOnMobile: true },
+    { key: 'status',    label: 'Status', align: 'left',  width: 'w-32', hideOnMobile: true },
   ],
   APPROVAL: [
-    { key: 'customer', label: 'Customer', width: 'w-56' },
+    { key: 'customer', label: 'Customer', width: 'w-40 sm:w-56' },
     { key: 'detail',   label: 'Request' },
   ],
   REMINDER: [
-    { key: 'customer', label: 'Customer', width: 'w-56' },
+    { key: 'customer', label: 'Customer', width: 'w-40 sm:w-56' },
     { key: 'detail',   label: 'Follow-up' },
   ],
 }
@@ -1407,21 +1411,22 @@ function ClusterTable({
       <table className="w-full border-collapse">
         <thead>
           <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
-            <th className="w-6 px-3 py-2.5" aria-hidden></th>
+            <th className="w-6 px-2 py-2.5 sm:px-3" aria-hidden></th>
             {columns.map((c) => (
               <th
                 key={c.key}
                 className={cn(
-                  'px-3 py-2.5 text-left',
+                  'px-2 py-2.5 text-left sm:px-3',
                   c.align === 'right' && 'text-right',
                   c.width,
+                  c.hideOnMobile && 'hidden sm:table-cell',
                 )}
               >
                 {c.label}
               </th>
             ))}
-            <th className="w-28 px-3 py-2.5 text-right">When</th>
-            <th className="w-20 px-3 py-2.5" aria-hidden></th>
+            <th className="w-16 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
+            <th className="w-10 px-2 py-2.5 sm:w-20 sm:px-3" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — one global order so the sort toggle (newest/oldest)
@@ -1531,7 +1536,7 @@ function ClusterRow({
       )}
     >
       {/* Unread / resolved indicator */}
-      <td className="relative w-6 px-3 py-2 align-middle">
+      <td className="relative w-6 px-2 py-2 align-middle sm:px-3">
         {!n.isRead && !isResolved && (
           <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/70" aria-hidden />
         )}
@@ -1555,11 +1560,14 @@ function ClusterRow({
           <td
             key={c.key}
             className={cn(
-              'px-3 py-2 align-middle text-[12px]',
+              'px-2 py-2 align-middle text-[12px] sm:px-3',
               !isBadge && !isCustomer && 'truncate',
               c.align === 'right' && 'text-right',
               // Always highlight the primary (name/entity) column so it stands out.
               c.key === primaryKey && 'font-semibold text-foreground',
+              // Keep the body cell in lockstep with its header on phones.
+              c.hideOnMobile && 'hidden sm:table-cell',
+              c.width,
               c.className,
             )}
           >
@@ -1582,20 +1590,20 @@ function ClusterRow({
       })}
 
       {/* When */}
-      <td className="w-24 whitespace-nowrap px-3 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+      <td className="w-16 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-24 sm:px-3">
         {timeAgo(n.timestamp)}
       </td>
 
-      {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
+      {/* Actions — always visible on touch; hover-revealed on lg+ */}
       <td
-        className="w-20 px-3 py-2 align-middle text-right"
+        className="w-10 px-1 py-2 align-middle text-right sm:w-20 sm:px-3"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
           {!isResolved && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" className="h-6 w-6" aria-label="Snooze">
+                <Button size="icon-sm" variant="ghost" className="hidden h-6 w-6 sm:inline-flex" aria-label="Snooze">
                   <BellOff className="h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1690,11 +1698,13 @@ function AllTable({
       <table className="w-full border-collapse">
         <thead>
           <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
-            <th className="w-6 px-3 py-2.5" aria-hidden></th>
-            <th className="w-36 px-3 py-2.5 text-left">Type</th>
-            <th className="px-3 py-2.5 text-left">Notification</th>
-            <th className="w-28 px-3 py-2.5 text-right">When</th>
-            <th className="w-20 px-3 py-2.5" aria-hidden></th>
+            <th className="w-6 px-2 py-2.5 sm:px-3" aria-hidden></th>
+            <th className="w-10 px-2 py-2.5 text-left sm:w-36 sm:px-3">
+              <span className="hidden sm:inline">Type</span>
+            </th>
+            <th className="px-2 py-2.5 text-left sm:px-3">Notification</th>
+            <th className="w-16 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
+            <th className="w-10 px-2 py-2.5 sm:w-20 sm:px-3" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — clustering still bundles 5+ same-type alerts, but
@@ -1813,25 +1823,25 @@ function AllClusterRow({
     >
       {/* Indicator — solid dot if any item is unread. A type-tinted accent bar
           runs the full height to reinforce "this is a group". */}
-      <td className="relative w-6 px-3 py-3 align-middle">
+      <td className="relative w-6 px-2 py-3 align-middle sm:px-3">
         <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/50" aria-hidden />
         {unreadCount > 0 && <span className="block h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_0] shadow-primary/60" aria-label="Unread alerts" />}
       </td>
 
       {/* Type icon + label, bigger + bolder so the bundle row reads as a
-          heading. Icon goes from h-5 → h-7 and label from text-[12px] → text-sm. */}
-      <td className="w-36 px-3 py-3 align-middle">
+          heading. Label hides on phones (icon only) to save width. */}
+      <td className="w-10 px-2 py-3 align-middle sm:w-36 sm:px-3">
         <span className="inline-flex items-center gap-2.5">
-          <span className={cn('flex h-7 w-7 items-center justify-center rounded-md', cfg.tone)}>
+          <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', cfg.tone)}>
             <Icon className="h-4 w-4" />
           </span>
-          <span className="truncate text-sm font-semibold text-foreground">{cfg.label}</span>
+          <span className="hidden truncate text-sm font-semibold text-foreground sm:inline">{cfg.label}</span>
         </span>
       </td>
 
       {/* Summary — count + click-to-expand hint. Slightly bigger text and a
           two-line layout so the count is visually prominent. */}
-      <td className="px-3 py-3 align-middle text-[13px]">
+      <td className="px-2 py-3 align-middle text-[13px] sm:px-3">
         <span className="block font-semibold text-foreground">{cluster.items.length} alerts</span>
         <span className="mt-0.5 block text-[11px] text-muted-foreground">
           {unreadCount > 0 && <><span className="font-medium text-primary">{unreadCount} unread</span> · </>}
@@ -1840,7 +1850,7 @@ function AllClusterRow({
       </td>
 
       {/* Bulk action — only shown when expanded so the collapsed row stays clean */}
-      <td className="w-28 px-3 py-3 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+      <td className="w-12 px-2 py-3 align-middle text-right sm:w-28 sm:px-3" onClick={(e) => e.stopPropagation()}>
         {isExpanded && unresolvedIds.length > 0 && (
           <button
             type="button"
@@ -1848,13 +1858,13 @@ function AllClusterRow({
             className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[10px] font-medium text-foreground transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:border-emerald-900/40 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400"
           >
             <CheckCheck className="h-3 w-3" />
-            Resolve all
+            <span className="hidden sm:inline">Resolve all</span>
           </button>
         )}
       </td>
 
       {/* Chevron — bigger to match the new row height */}
-      <td className="w-20 px-3 py-3 align-middle text-right">
+      <td className="w-8 px-2 py-3 align-middle text-right sm:w-20 sm:px-3">
         <ChevronDown
           className={cn('inline-block h-4 w-4 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
           aria-hidden
@@ -1914,7 +1924,7 @@ function AllRow({
     >
       {/* Unread / resolved indicator. When indented, swap the dot for a thin
           vertical guide-line so the eye traces back to the bundle header. */}
-      <td className={cn('relative w-6 px-3 py-2 align-middle')}>
+      <td className={cn('relative w-6 px-2 py-2 align-middle sm:px-3')}>
         {!n.isRead && !isResolved && !indented && (
           <span className="absolute inset-y-0 left-0 w-[3px] bg-primary/70" aria-hidden />
         )}
@@ -1931,39 +1941,41 @@ function AllRow({
         ) : null}
       </td>
 
-      {/* Type — small icon + short label, fixed width so labels line up.
+      {/* Type — icon (always) + label (sm+ only, fixed width so labels line up).
           When indented, push right so child items visually nest. */}
-      <td className={cn('w-36 px-3 py-2 align-middle', indented && 'pl-8')}>
+      <td className={cn('w-10 px-2 py-2 align-middle sm:w-36 sm:px-3', indented && 'pl-4 sm:pl-8')}>
         <span className="inline-flex items-center gap-2">
-          <span className={cn('flex h-5 w-5 items-center justify-center rounded-md', cfg.tone)}>
+          <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-md', cfg.tone)}>
             <Icon className="h-3 w-3" />
           </span>
-          <span className="truncate text-[12px] text-foreground/80">{cfg.label}</span>
+          <span className="hidden truncate text-[12px] text-foreground/80 sm:inline">{cfg.label}</span>
         </span>
       </td>
 
-      {/* Detail — title + highlighted lead entity + muted rest, one line */}
-      <td className="px-3 py-2 align-middle text-[12px]">
-        <span className="block truncate">
+      {/* Detail — title + highlighted lead entity + muted rest. Wraps to two
+          lines on phones (where the message needs the room); single truncated
+          line on sm+ where the dedicated columns leave less width. */}
+      <td className="min-w-0 px-2 py-2 align-middle text-[12px] sm:px-3">
+        <span className="line-clamp-2 sm:block sm:truncate">
           <NotificationDetail n={n} />
         </span>
       </td>
 
       {/* When */}
-      <td className="w-28 whitespace-nowrap px-3 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70">
+      <td className="w-16 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-28 sm:px-3">
         {timeAgo(n.timestamp)}
       </td>
 
-      {/* Actions — hover-revealed; stop propagation so taps don't trigger nav */}
+      {/* Actions — always visible on touch; hover-revealed on lg+ */}
       <td
-        className="w-20 px-3 py-2 align-middle text-right"
+        className="w-10 px-1 py-2 align-middle text-right sm:w-20 sm:px-3"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
           {!isResolved && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" className="h-6 w-6" aria-label="Snooze">
+                <Button size="icon-sm" variant="ghost" className="hidden h-6 w-6 sm:inline-flex" aria-label="Snooze">
                   <BellOff className="h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>
