@@ -938,7 +938,7 @@ function BillingRow({
       </TableCell>
 
       {/* Qty — helper on top, stepper below */}
-      <TableCell className="w-27.5 px-2 py-2.5 align-middle">
+      <TableCell className="w-36 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — stock available */}
           <div className="h-3.5 flex items-center justify-center">
@@ -992,7 +992,7 @@ function BillingRow({
       </TableCell>
 
       {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
-      <TableCell className="w-36 px-2 py-2.5 align-middle">
+      <TableCell className="w-44 px-2 py-2.5 align-middle">
         {(() => {
           const originalRate = selectedProduct
             ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
@@ -3953,9 +3953,13 @@ export default function NewSalePage() {
   // ── Render ──────────────────────────────────────────────
   return (
     <TooltipProvider>
-      {/* responsive: h-dvh handles mobile viewport collapse; outer scrolls horizontally on lower-resolution desktops where the lg+ side-by-side layout can't fit (~1208px minimum: 920px table + 288px sidebar). Inner enforces lg:min-w-[1280px] so columns keep their proper desktop dimensions instead of compressing. */}
+      {/* responsive: h-dvh handles mobile viewport collapse. The page itself
+          fits the viewport at any desktop width — when the table area gets tight
+          (e.g. 1366px laptop with the app sidebar expanded) the *table* scrolls
+          horizontally on its own (it carries min-w-225 + overflow-x-auto), so the
+          header and order-summary stay put instead of the whole page scrolling. */}
       <div className="h-screen-z w-full overflow-x-auto overflow-y-hidden bg-background">
-      <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6 lg:min-w-7xl">
+      <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6">
         {/* ═══════════════════════════════════════════════════
             HEADER BAR — compact POS-style title strip
         ═══════════════════════════════════════════════════ */}
@@ -5121,8 +5125,8 @@ export default function NewSalePage() {
                               <TableHead className="min-w-40 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
                               <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
-                              <TableHead className="w-27.5 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
-                              <TableHead className="w-36 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
+                              <TableHead className="w-36 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
+                              <TableHead className="w-44 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
                               <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
                               <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>

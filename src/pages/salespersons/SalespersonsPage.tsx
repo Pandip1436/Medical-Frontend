@@ -121,14 +121,20 @@ export default function SalespersonsPage() {
     const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
     const todayStr = today.toISOString().slice(0, 10)
     try {
-      const [spRes, repRes] = await Promise.all([
-        api.get('/salespersons'),
-        api.get('/salespersons/report', { params: { from: monthStart, to: todayStr } }),
-      ])
+      const spRes = await api.get('/salespersons')
       setSalespersons(spRes.data)
-      const map: Record<string, ReportRow> = {}
-      for (const r of repRes.data as ReportRow[]) map[r.salespersonId] = r
-      setSalesByPerson(map)
+      // The team MTD report is ADMIN/ACCOUNTANT-only — a SALESPERSON can see the
+      // directory but not the team-wide sales figures. Fetch it best-effort so a
+      // 403 there doesn't blank out the whole page; the MTD/top-performer cards
+      // just stay empty for roles without report access.
+      try {
+        const repRes = await api.get('/salespersons/report', { params: { from: monthStart, to: todayStr } })
+        const map: Record<string, ReportRow> = {}
+        for (const r of repRes.data as ReportRow[]) map[r.salespersonId] = r
+        setSalesByPerson(map)
+      } catch {
+        setSalesByPerson({})
+      }
     } catch {
       toast.error('Failed to load salespersons')
     } finally {

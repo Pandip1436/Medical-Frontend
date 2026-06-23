@@ -14,6 +14,7 @@ import {
   FlaskConical,
   Package,
   Calculator,
+  UserRound,
   ArrowRight,
   Check,
 } from 'lucide-react'
@@ -83,6 +84,17 @@ const demoAccounts = [
     bg: 'bg-amber-50 dark:bg-amber-500/10',
     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
     description: 'Finance & ledger',
+  },
+  {
+    role: 'Salesperson',
+    name: 'Arun',
+    email: 'arun@gmail.com',
+    password: 'arun@123',
+    icon: UserRound,
+    color: 'text-cyan-600 dark:text-cyan-400',
+    bg: 'bg-cyan-50 dark:bg-cyan-500/10',
+    badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
+    description: 'Sales & quotations',
   },
 ]
 

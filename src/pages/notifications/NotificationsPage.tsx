@@ -888,13 +888,15 @@ export default function NotificationsPage() {
 
           <div className="flex h-[calc(100vh-160px)] min-h-100 flex-col lg:flex-row">
 
-            {/* ── Sidebar: categories ── */}
+            {/* ── Sidebar: categories ──
+                Mobile/tablet: a horizontal, scrollable chip row (saves vertical
+                space). lg+: the classic vertical sidebar. */}
             <aside className="shrink-0 border-b border-border/60 bg-gradient-to-b from-muted/30 to-transparent lg:w-56 lg:border-b-0 lg:border-r">
-              <div className="px-3 py-3">
-                <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <div className="px-2 py-2 lg:px-3 lg:py-3">
+                <p className="hidden px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 lg:block">
                   Folders
                 </p>
-                <nav className="space-y-0.5">
+                <nav className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:block lg:space-y-0.5 lg:overflow-visible lg:pb-0">
                   {visibleCategories.map((cat) => {
                     const Icon = cat.icon
                     const count = categoryCounts[cat.key]
@@ -905,7 +907,7 @@ export default function NotificationsPage() {
                         type="button"
                         onClick={() => selectCategory(cat.key)}
                         className={cn(
-                          'group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-all',
+                          'group relative flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-all lg:w-full lg:shrink',
                           isActive
                             ? 'bg-gradient-to-r from-accent to-accent/40 font-medium text-foreground shadow-sm ring-1 ring-border/50'
                             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -940,9 +942,10 @@ export default function NotificationsPage() {
             {/* ── Main: list (now full width with no detail pane) ── */}
             <section className="flex min-h-0 flex-1 flex-col">
 
-              {/* Search row */}
-              <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-                <div className="relative flex-1">
+              {/* Search row — wraps on the narrowest phones so the view toggles
+                  drop to a second line instead of squashing the search box. */}
+              <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5">
+                <div className="relative min-w-[150px] flex-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={searchQuery}
@@ -1211,9 +1214,10 @@ function NotificationRow({
         {timeAgo(n.timestamp)}
       </span>
 
-      {/* Actions — hover-revealed; chevron is the resting affordance */}
+      {/* Actions — always visible on touch (mobile/tablet); hover-revealed on
+          lg+ where a pointer hover exists. */}
       <span className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
-        <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:flex group-hover:opacity-100 focus-within:flex focus-within:opacity-100">
+        <span className="flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
           {!isResolved && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1587,7 +1591,7 @@ function ClusterRow({
         className="w-20 px-3 py-2 align-middle text-right"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
           {!isResolved && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1955,7 +1959,7 @@ function AllRow({
         className="w-20 px-3 py-2 align-middle text-right"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
           {!isResolved && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
