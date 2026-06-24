@@ -5775,6 +5775,16 @@ export default function NewSalePage() {
                               </div>
                             )}
 
+                            {/* Delivery / Packaging — conditional, non-taxable add-on.
+                                Without this cell the charge silently inflates the
+                                grand total (e.g. a ₹200 fee looked like a bug). */}
+                            {Number(selectedHistoryInvoice.deliveryCharge) > 0 && (
+                              <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">Delivery</span>
+                                <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(Number(selectedHistoryInvoice.deliveryCharge))}</span>
+                              </div>
+                            )}
+
                             {/* Round Off — conditional */}
                             {Number(selectedHistoryInvoice.roundOff) !== 0 && (
                               <div className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-background/95 px-3 py-2">
