@@ -938,130 +938,234 @@ function BillingRow({
       </TableCell>
 
       {/* Qty — helper on top, stepper below */}
-      <TableCell className="w-36 px-2 py-2.5 align-middle">
-        <div className="flex flex-col gap-0.5">
-          {/* Helper row (top) — stock available */}
-          <div className="h-3.5 flex items-center justify-center">
-            {selectedBatch && item.quantity > 0 ? (
-              <span className={cn(
-                'text-[11px] font-semibold tabular-nums',
-                qtyExceeds ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'
-              )}>
-                {qtyExceeds ? `Max ${selectedBatch.quantity}` : `of ${selectedBatch.quantity}`}
-              </span>
-            ) : null}
-          </div>
-          {/* Stepper */}
-          <div className={cn(
-            "flex items-center gap-0.5 bg-muted/30 rounded-lg p-0.5 border transition-all",
-            qtyExceeds ? 'border-rose-400/50 bg-rose-50/30 dark:bg-rose-900/10' : 'border-border/30 focus-within:border-primary/40'
-          )}>
-            <button
-              type="button"
-              onClick={() => handleQtyChange(item.quantity - 1)}
-              disabled={(invoiceType === 'invoice' && !item.productId) || item.quantity <= 0}
-              className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-            >
-              <Minus className="h-3 w-3" />
-            </button>
-            <input
-              ref={qtyRef}
-              type="number"
-              min={0}
-              max={invoiceType === 'quotation' ? undefined : (selectedBatch?.quantity ?? 9999)}
-              value={item.quantity || ''}
-              onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
-              className={cn(
-                'w-full h-7 border-0 bg-transparent text-sm text-center font-black font-mono',
-                'focus:outline-none focus:ring-0',
-                'disabled:opacity-40 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                qtyExceeds && 'text-rose-600'
-              )}
-              disabled={invoiceType === 'invoice' && !item.productId}
-            />
-            <button
-              type="button"
-              onClick={() => handleQtyChange(item.quantity + 1)}
-              disabled={invoiceType === 'invoice' && !item.productId}
-              className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      </TableCell>
+    <TableCell className="w-40 px-2 py-2.5 align-middle">
+  <div className="flex flex-col gap-1.5">
+    {/* Stock Available */}
+    <div className="min-h-5 flex items-center justify-center">
+      {selectedBatch && item.quantity > 0 && (
+        <span
+          className={cn(
+            "text-[11px] font-medium tabular-nums",
+            qtyExceeds
+              ? "text-rose-600 dark:text-rose-400"
+              : "text-muted-foreground"
+          )}
+        >
+          {qtyExceeds
+            ? `Max ${selectedBatch.quantity}`
+            : `of ${selectedBatch.quantity}`}
+        </span>
+      )}
+    </div>
+
+    {/* Quantity Stepper */}
+    <div
+      className={cn(
+        "flex items-center rounded-xl border p-1 transition-all",
+        "focus-within:ring-2 focus-within:ring-primary/10",
+        qtyExceeds
+          ? "border-rose-400 bg-rose-50/30 dark:bg-rose-900/10"
+          : "border-border/40 bg-muted/20"
+      )}
+    >
+      {/* Minus */}
+      <button
+        type="button"
+        onClick={() => handleQtyChange(item.quantity - 1)}
+        disabled={
+          (invoiceType === "invoice" && !item.productId) ||
+          item.quantity <= 0
+        }
+        className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Input */}
+      <input
+        ref={qtyRef}
+        type="number"
+        min={0}
+        max={
+          invoiceType === "quotation"
+            ? undefined
+            : selectedBatch?.quantity ?? 9999
+        }
+        value={item.quantity || ""}
+        onChange={(e) =>
+          handleQtyChange(parseInt(e.target.value) || 0)
+        }
+        disabled={
+          invoiceType === "invoice" && !item.productId
+        }
+        className={cn(
+          "h-8 min-w-[50px] flex-1 border-0 bg-transparent",
+          "text-center text-sm font-bold tabular-nums",
+          "focus:outline-none focus:ring-0",
+          "disabled:opacity-40",
+          "[appearance:textfield]",
+          "[&::-webkit-outer-spin-button]:appearance-none",
+          "[&::-webkit-inner-spin-button]:appearance-none",
+          qtyExceeds && "text-rose-600"
+        )}
+      />
+
+      {/* Plus */}
+      <button
+        type="button"
+        onClick={() => handleQtyChange(item.quantity + 1)}
+        disabled={
+          invoiceType === "invoice" && !item.productId
+        }
+        className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+
+    {/* Warning */}
+    {qtyExceeds && (
+      <div className="text-[10px] text-center text-rose-600 font-medium">
+        Insufficient Stock
+      </div>
+    )}
+  </div>
+</TableCell>
 
       {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
-      <TableCell className="w-44 px-2 py-2.5 align-middle">
-        {(() => {
-          const originalRate = selectedProduct
-            ? Number(billingType === 'wholesale' ? selectedProduct.wholesaleRate : selectedProduct.sellingRate)
-            : 0
-          const isModified = originalRate > 0 && Math.abs(Number(item.rate) - originalRate) > 0.001
-          const overMrp = item.mrp > 0 && Number(item.rate) > item.mrp
-          return (
-            <div className="flex flex-col gap-0.5">
-              {/* Helper row (top) — original rate diff only */}
-              <div className="h-3.5 flex items-center justify-center gap-2 text-[11px] font-mono px-1">
-                {item.productId && originalRate > 0 && (
-                  <span className={cn(
-                    'inline-flex items-center gap-0.5 font-semibold tabular-nums',
-                    isModified ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
-                  )}>
-                    {isModified ? (
-                      <span className="line-through">{formatCurrency(originalRate)}</span>
-                    ) : (
-                      <span>Rate A {formatCurrency(originalRate)}</span>
-                    )}
-                  </span>
-                )}
-              </div>
+      {/* Rate Column */}
+<TableCell className="w-44 px-2 py-2.5 align-middle">
+  {(() => {
+    const originalRate = selectedProduct
+      ? Number(
+          billingType === "wholesale"
+            ? selectedProduct.wholesaleRate
+            : selectedProduct.sellingRate
+        )
+      : 0;
 
-              {/* Editable rate stepper */}
-              <div className={cn(
-                'flex items-center gap-0.5 rounded-lg border bg-muted/30 p-0.5 transition-all focus-within:border-primary/40',
-                isModified ? 'border-amber-400/50 bg-amber-50/30 dark:bg-amber-900/15' : 'border-border/30',
-                overMrp && 'border-rose-400/50 bg-rose-50/30 dark:bg-rose-900/10'
-              )}>
-                <button
-                  type="button"
-                  onClick={() => handleRateChange(Math.max(0, Number(item.rate) - 1))}
-                  disabled={invoiceType === 'invoice' && !item.productId}
-                  className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-                >
-                  <Minus className="h-3 w-3" />
-                </button>
-                <input
-                  type="number"
-                  step={0.01}
-                  min={0}
-                  max={item.mrp > 0 ? item.mrp : undefined}
-                  value={item.rate || ''}
-                  onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
-                  title={item.mrp > 0 ? `Maximum: MRP ₹${item.mrp}` : undefined}
-                  className={cn(
-                    'w-full h-7 border-0 bg-transparent text-sm text-center font-black font-mono tabular-nums',
-                    'focus:outline-none focus:ring-0',
-                    'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                    overMrp ? 'text-rose-600 dark:text-rose-400'
-                      : isModified ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-foreground'
-                  )}
-                  disabled={invoiceType === 'invoice' && !item.productId}
-                />
-                <button
-                  type="button"
-                  onClick={() => handleRateChange(Number(item.rate) + 1)}
-                  disabled={invoiceType === 'invoice' && !item.productId}
-                  className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition-all disabled:opacity-30"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
-              </div>
-            </div>
-          )
-        })()}
-      </TableCell>
+    const isModified =
+      originalRate > 0 &&
+      Math.abs(Number(item.rate) - originalRate) > 0.001;
+
+    const overMrp =
+      item.mrp > 0 && Number(item.rate) > item.mrp;
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        {/* Original Rate */}
+        <div className="min-h-5 flex items-center justify-center">
+          {item.productId && originalRate > 0 && (
+            <span
+              className={cn(
+                "text-[11px] font-medium tabular-nums",
+                isModified
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {isModified ? (
+                <span className="line-through opacity-70">
+                  {formatCurrency(originalRate)}
+                </span>
+              ) : (
+                <span className="opacity-70">
+                  {formatCurrency(originalRate)}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* Rate Stepper */}
+        <div
+          className={cn(
+            "flex items-center rounded-xl border p-1 transition-all",
+            "focus-within:ring-2 focus-within:ring-primary/10",
+            isModified
+              ? "border-amber-400 bg-amber-50/30 dark:bg-amber-900/10"
+              : "border-border/40",
+            overMrp &&
+              "border-rose-400 bg-rose-50/30 dark:bg-rose-900/10"
+          )}
+        >
+          {/* Minus */}
+          <button
+            type="button"
+            onClick={() =>
+              handleRateChange(
+                Math.max(0, Number(item.rate) - 1)
+              )
+            }
+            disabled={
+              invoiceType === "invoice" && !item.productId
+            }
+            className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+
+          {/* Input */}
+          <input
+            type="number"
+            step={0.01}
+            min={0}
+            max={item.mrp > 0 ? item.mrp : undefined}
+            value={item.rate || ""}
+            onChange={(e) =>
+              handleRateChange(
+                parseFloat(e.target.value) || 0
+              )
+            }
+            title={
+              item.mrp > 0
+                ? `Maximum MRP ₹${item.mrp}`
+                : undefined
+            }
+            disabled={
+              invoiceType === "invoice" && !item.productId
+            }
+            className={cn(
+              "h-8 flex-1 min-w-0 border-0 bg-transparent",
+              "text-center text-sm font-bold tabular-nums",
+              "focus:outline-none focus:ring-0",
+              "disabled:opacity-40",
+              "[appearance:textfield]",
+              "[&::-webkit-outer-spin-button]:appearance-none",
+              "[&::-webkit-inner-spin-button]:appearance-none",
+              overMrp
+                ? "text-rose-600 dark:text-rose-400"
+                : isModified
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-foreground"
+            )}
+          />
+
+          {/* Plus */}
+          <button
+            type="button"
+            onClick={() =>
+              handleRateChange(Number(item.rate) + 1)
+            }
+            disabled={
+              invoiceType === "invoice" && !item.productId
+            }
+            className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Warning */}
+        {overMrp && (
+          <div className="text-[10px] text-center text-rose-600 font-medium">
+            Exceeds MRP
+          </div>
+        )}
+      </div>
+    );
+  })()}
+</TableCell>
 
       {/* Disc% — helper spacer on top to align with other cells */}
       <TableCell className="w-20 px-2 py-2.5 align-middle">
