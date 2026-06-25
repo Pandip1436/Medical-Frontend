@@ -857,7 +857,7 @@ function BillingRow({
       </TableCell>
 
       {/* Batch + Expiry — helper on top, control below */}
-      <TableCell className="w-32 px-2 py-2.5 align-middle">
+      <TableCell className="w-36 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — expiry chip */}
           <div className="h-3.5 flex items-center justify-center">
@@ -911,34 +911,83 @@ function BillingRow({
 
       {/* MRP — editable in quotation mode (product may not exist in inventory),
           read-only reference in invoice mode (auto-filled from batch). */}
-      <TableCell className="w-20 px-2 py-2.5 align-middle">
-        <div className="flex flex-col gap-0.5 items-end">
-          <div className="h-3.5" aria-hidden />
-          {invoiceType === 'quotation' ? (
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              value={item.mrp || ''}
-              onChange={(e) => {
-                const mrp = Math.max(0, parseFloat(e.target.value) || 0)
-                onUpdate(item.id, { mrp })
-              }}
-              placeholder="0"
-              className="h-8 w-full rounded-md border border-border/40 bg-muted/30 px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-background"
-            />
-          ) : item.productId && item.mrp > 0 ? (
-            <span className="font-mono text-sm font-semibold tabular-nums text-muted-foreground h-8 inline-flex items-center">
-              {formatCurrency(item.mrp)}
-            </span>
-          ) : (
-            <span className="text-muted-foreground/30 text-xs h-8 inline-flex items-center">—</span>
-          )}
-        </div>
-      </TableCell>
+  <TableCell className="w-24 px-2 py-2.5 align-middle">
+  <div className="flex flex-col gap-1.5 items-end">
+    {/* Helper Row */}
+    <div className="min-h-5 flex items-center justify-end w-full">
+      {item.productId && item.mrp > 0 && (
+        <span className="text-[11px] text-muted-foreground font-medium">
+          MRP
+        </span>
+      )}
+    </div>
+
+    {invoiceType === "quotation" ? (
+      <input
+        type="number"
+        step={0.01}
+        min={0}
+        value={item.mrp || ""}
+        onChange={(e) => {
+          const mrp = Math.max(
+            0,
+            parseFloat(e.target.value) || 0
+          );
+
+          onUpdate(item.id, { mrp });
+        }}
+        placeholder="0"
+        className="
+          h-8 w-25 rounded-xl
+          border border-border/40
+          bg-muted/20
+          px-2
+          text-right
+          text-sm
+          font-semibold
+          tabular-nums
+          transition-all
+          focus:outline-none
+          focus:ring-2
+          focus:ring-primary/10
+          focus:border-primary/40
+          focus:bg-background
+        "
+      />
+    ) : item.productId && item.mrp > 0 ? (
+      <div
+        className="
+          h-8 w-full
+          flex items-center justify-end
+          rounded-xl
+          border border-border/30
+          bg-muted/20
+          px-2
+          text-sm
+          font-semibold
+          tabular-nums
+          text-muted-foreground
+        "
+      >
+        {formatCurrency(item.mrp)}
+      </div>
+    ) : (
+      <div
+        className="
+          h-8 w-full
+          flex items-center justify-center
+          text-muted-foreground/40
+          text-sm
+        "
+      >
+        —
+      </div>
+    )}
+  </div>
+</TableCell>
 
       {/* Qty — helper on top, stepper below */}
-    <TableCell className="w-40 px-2 py-2.5 align-middle">
+     <TableCell className="w-36 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
     {/* Stock Available */}
     <div className="min-h-5 flex items-center justify-center">
@@ -1033,8 +1082,8 @@ function BillingRow({
 </TableCell>
 
       {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
-      {/* Rate Column */}
-<TableCell className="w-44 px-2 py-2.5 align-middle">
+     {/* Rate Column */}
+<TableCell className="w-40 px-2 py-2.5 align-middle">
   {(() => {
     const originalRate = selectedProduct
       ? Number(
@@ -1168,68 +1217,165 @@ function BillingRow({
 </TableCell>
 
       {/* Disc% — helper spacer on top to align with other cells */}
-      <TableCell className="w-20 px-2 py-2.5 align-middle">
-        <div className="flex flex-col gap-0.5">
-          <div className="h-3.5" aria-hidden />
-          <div className={cn(
-            'relative flex items-center rounded-lg border bg-muted/30 transition-all focus-within:border-primary/40 focus-within:bg-background',
-            item.discountPercent > 0 ? 'border-rose-300/50 bg-rose-50/30 dark:bg-rose-900/10' : 'border-border/30'
-          )}>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={item.discountPercent || ''}
-              onChange={(e) => handleDiscountChange(parseFloat(e.target.value) || 0)}
-              placeholder="0"
-              className={cn(
-                'w-full h-8 border-0 bg-transparent text-xs text-center font-bold font-mono tabular-nums',
-                'placeholder:text-muted-foreground/30',
-                'focus:outline-none focus:ring-0',
-                'disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                item.discountPercent > 0 ? 'text-rose-600 dark:text-rose-400 pr-4' : 'text-foreground pr-4'
-              )}
-              disabled={invoiceType === 'invoice' && !item.productId}
-            />
-            <span className={cn(
-              'absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold pointer-events-none',
-              item.discountPercent > 0 ? 'text-rose-500/70' : 'text-muted-foreground/40'
-            )}>%</span>
-          </div>
-        </div>
-      </TableCell>
+   <TableCell className="w-20 px-2 py-2.5 align-middle">
+  <div className="flex flex-col gap-1.5">
+    {/* Helper Row */}
+    <div className="min-h-5 flex items-center justify-center">
+      {item.discountPercent > 0 && (
+        <span className="text-[11px] text-rose-500 font-medium">
+          Discount
+        </span>
+      )}
+    </div>
+
+    {/* Discount Input */}
+    <div
+      className={cn(
+        "relative flex items-center rounded-xl border transition-all",
+        "focus-within:ring-2 focus-within:ring-primary/10",
+        item.discountPercent > 0
+          ? "border-rose-400 bg-rose-50/30 dark:bg-rose-900/10"
+          : "border-border/40 bg-muted/20"
+      )}
+    >
+      <input
+        type="number"
+        min={0}
+        max={100}
+        step={0.5}
+        value={item.discountPercent || ""}
+        onChange={(e) =>
+          handleDiscountChange(
+            parseFloat(e.target.value) || 0
+          )
+        }
+        placeholder="0"
+        disabled={
+          invoiceType === "invoice" && !item.productId
+        }
+        className={cn(
+          "h-8 w-full bg-transparent border-0",
+          "text-center text-sm font-bold tabular-nums",
+          "placeholder:text-muted-foreground/30",
+          "focus:outline-none focus:ring-0",
+          "disabled:opacity-40",
+          "pr-6",
+          "[appearance:textfield]",
+          "[&::-webkit-outer-spin-button]:appearance-none",
+          "[&::-webkit-inner-spin-button]:appearance-none",
+          item.discountPercent > 0
+            ? "text-rose-600 dark:text-rose-400"
+            : "text-foreground"
+        )}
+      />
+
+      <span
+        className={cn(
+          "absolute right-2 top-1/2 -translate-y-1/2",
+          "text-xs font-semibold pointer-events-none",
+          item.discountPercent > 0
+            ? "text-rose-500"
+            : "text-muted-foreground/50"
+        )}
+      >
+        %
+      </span>
+    </div>
+
+    {/* Discount Amount */}
+    {item.discountPercent > 0 && (
+      <div className="text-[10px] text-center text-rose-500 font-medium">
+        Applied
+      </div>
+    )}
+  </div>
+</TableCell>
 
       {/* GST — editable in quotation mode (no fixed product GST rate), badge in invoice mode */}
-      <TableCell className="w-14 px-1 py-2.5 text-center align-middle">
-        <div className="flex flex-col gap-0.5 items-center">
-          <div className="h-3.5" aria-hidden />
-          {invoiceType === 'quotation' ? (
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={item.gstPercent || ''}
-              onChange={(e) => {
-                const gst = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))
-                const updates: Partial<BillingItem> = { gstPercent: gst }
-                const tempItem = { ...item, ...updates }
-                updates.amount = calculateItemAmount(tempItem)
-                onUpdate(item.id, updates)
-              }}
-              placeholder="0"
-              className="h-8 w-full rounded-md border border-border/40 bg-muted/30 px-1 text-center font-mono text-[11px] font-bold tabular-nums focus:outline-none focus:ring-1 focus:ring-primary/40 focus:bg-background"
-            />
-          ) : item.gstPercent ? (
-            <span className="inline-flex items-center rounded-md bg-muted/40 px-1.5 py-1.5 text-[10px] font-black font-mono text-muted-foreground/80 tabular-nums">
-              {item.gstPercent}%
-            </span>
-          ) : (
-            <span className="text-muted-foreground/30 text-xs py-1.5">—</span>
-          )}
-        </div>
-      </TableCell>
+     <TableCell className="w-26 px-2 py-2.5 text-center align-middle">
+  <div className="flex flex-col gap-1.5 items-center">
+    {/* Helper Row */}
+    <div className="min-h-5 flex items-center justify-center">
+      {item.gstPercent > 0 && (
+        <span className="text-[11px] text-muted-foreground font-medium">
+          GST
+        </span>
+      )}
+    </div>
+
+    {invoiceType === "quotation" ? (
+      <input
+        type="number"
+        min={0}
+        max={100}
+        step={0.5}
+        value={item.gstPercent || ""}
+        onChange={(e) => {
+          const gst = Math.max(
+            0,
+            Math.min(100, parseFloat(e.target.value) || 0)
+          );
+
+          const updates: Partial<BillingItem> = {
+            gstPercent: gst,
+          };
+
+          const tempItem = {
+            ...item,
+            ...updates,
+          };
+
+          updates.amount = calculateItemAmount(tempItem);
+
+          onUpdate(item.id, updates);
+        }}
+        placeholder="0"
+        className="
+          h-8 w-20 rounded-xl
+          border border-border/40
+          bg-muted/20
+          text-center
+          text-sm
+          font-bold
+          tabular-nums
+          transition-all
+          focus:outline-none
+          focus:ring-2
+          focus:ring-primary/10
+          focus:border-primary/40
+          focus:bg-background
+        "
+      />
+    ) : item.gstPercent ? (
+      <div
+        className="
+          h-8 min-w-[52px]
+          flex items-center justify-center
+          rounded-xl
+          border border-border/30
+          bg-muted/20
+          px-2
+          text-xs
+          font-semibold
+          tabular-nums
+        "
+      >
+        {item.gstPercent}%
+      </div>
+    ) : (
+      <div
+        className="
+          h-8 min-w-[52px]
+          flex items-center justify-center
+          text-muted-foreground/40
+          text-sm
+        "
+      >
+        —
+      </div>
+    )}
+  </div>
+</TableCell>
 
       {/* Amount */}
       <TableCell className="w-27.5 px-3 py-2.5 text-right align-middle">
