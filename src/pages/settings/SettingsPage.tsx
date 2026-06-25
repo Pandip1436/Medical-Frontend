@@ -51,6 +51,7 @@ import { cn, formatDateTime, formatBytes } from '@/lib/utils'
 import { IndiamartCard } from './integrations/IndiamartCard'
 import { JustdialCard } from './integrations/JustdialCard'
 import NumberingSection from '@/pages/numbering/NumberingPage'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -452,6 +453,7 @@ function BackupDataSection() {
   const [isBackingUp, setIsBackingUp] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -490,17 +492,18 @@ function BackupDataSection() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this backup? The file in R2 will also be removed.')) return
-    setDeletingId(id)
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeletingId(deleteTarget)
     try {
-      await api.delete(`/backups/${id}`)
+      await api.delete(`/backups/${deleteTarget}`)
       toast.success('Backup deleted')
       await fetchHistory()
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? 'Delete failed')
     } finally {
       setDeletingId(null)
+      setDeleteTarget(null)
     }
   }
 
@@ -670,7 +673,7 @@ function BackupDataSection() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 cursor-pointer text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDelete(b.id)}
+                              onClick={() => setDeleteTarget(b.id)}
                               disabled={deletingId === b.id}
                               title="Delete"
                             >
@@ -687,6 +690,15 @@ function BackupDataSection() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+        title="Delete this backup?"
+        description="The backup file stored in Cloudflare R2 will also be permanently removed. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      />
     </motion.div>
   )
 }

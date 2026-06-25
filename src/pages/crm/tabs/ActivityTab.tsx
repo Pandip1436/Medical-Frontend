@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn, formatDate } from '@/lib/utils'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 import {
   LeadActivityDialog,
@@ -72,6 +73,7 @@ export function ActivityTab({ lead }: ActivityTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogType, setDialogType] = useState<LeadActivityType>('NOTE')
   const [editing, setEditing] = useState<LeadActivity | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<LeadActivity | null>(null)
 
   const fetchActivities = useCallback(async () => {
     setLoading(true)
@@ -145,12 +147,18 @@ export function ActivityTab({ lead }: ActivityTabProps) {
     }
   }
 
-  const handleDelete = async (activity: LeadActivity) => {
-    if (!window.confirm('Delete this activity?')) return
+  const handleDelete = (activity: LeadActivity) => {
+    setDeleteTarget(activity)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const activity = deleteTarget
     if (USE_MOCK_DATA) {
       mockDeleteActivity(lead.id, activity.id)
       toast.success('Activity deleted')
       fetchActivities()
+      setDeleteTarget(null)
       return
     }
     try {
@@ -160,6 +168,8 @@ export function ActivityTab({ lead }: ActivityTabProps) {
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
       toast.error(e?.response?.data?.message ?? 'Delete failed')
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -401,6 +411,15 @@ export function ActivityTab({ lead }: ActivityTabProps) {
         type={dialogType}
         editing={editing}
         onSubmit={handleCreate}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+        title="Delete activity?"
+        description="This will permanently remove this activity from the lead timeline. This action cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
       />
     </div>
   )

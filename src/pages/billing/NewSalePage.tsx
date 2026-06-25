@@ -106,6 +106,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { cn, formatCurrencyFull as formatCurrency, generateInvoiceNumber, formatDate } from '@/lib/utils'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -3342,17 +3343,22 @@ export default function NewSalePage() {
 
   // Discard (delete) a reminder.
   const [deletingReminderId, setDeletingReminderId] = useState<string | null>(null)
-  const handleDeleteReminder = async (r: any) => {
-    if (!window.confirm(`Discard the reminder "${r.title}"? This cannot be undone.`)) return
-    setDeletingReminderId(r.id)
+  const [deleteReminderTarget, setDeleteReminderTarget] = useState<any | null>(null)
+  const handleDeleteReminder = (r: any) => {
+    setDeleteReminderTarget(r)
+  }
+  const confirmDeleteReminder = async () => {
+    if (!deleteReminderTarget) return
+    setDeletingReminderId(deleteReminderTarget.id)
     try {
-      await api.delete(`/reminders/${r.id}`)
+      await api.delete(`/reminders/${deleteReminderTarget.id}`)
       toast.success('Reminder discarded')
       fetchCustomerReminders({ silent: true })
     } catch {
       toast.error('Failed to discard reminder')
     } finally {
       setDeletingReminderId(null)
+      setDeleteReminderTarget(null)
     }
   }
 
@@ -6804,6 +6810,14 @@ export default function NewSalePage() {
         </DialogContent>
       </Dialog>
 
+      <ConfirmDialog
+        open={!!deleteReminderTarget}
+        onOpenChange={(open) => { if (!open) setDeleteReminderTarget(null) }}
+        title={`Discard the reminder "${deleteReminderTarget?.title}"?`}
+        description="This action cannot be undone."
+        confirmLabel="Discard"
+        onConfirm={confirmDeleteReminder}
+      />
     </TooltipProvider>
   )
 }

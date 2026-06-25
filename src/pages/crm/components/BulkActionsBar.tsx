@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   CheckCircle2,
   ChevronDown,
@@ -45,6 +46,7 @@ export function BulkActionsBar({
   onChanged,
 }: BulkActionsBarProps) {
   const [busy, setBusy] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   if (selectedIds.length === 0) return null
 
   const bulkStage = async (stage: LeadStage) => {
@@ -71,13 +73,11 @@ export function BulkActionsBar({
     }
   }
 
-  const bulkDelete = async () => {
-    if (
-      !window.confirm(
-        `Delete ${selectedIds.length} selected lead${selectedIds.length === 1 ? '' : 's'}? This cannot be undone.`,
-      )
-    )
-      return
+  const bulkDelete = () => {
+    setDeleteConfirmOpen(true)
+  }
+
+  const confirmBulkDelete = async () => {
     setBusy(true)
     try {
       let count: number
@@ -95,58 +95,70 @@ export function BulkActionsBar({
       toast.error(e?.response?.data?.message ?? 'Bulk delete failed')
     } finally {
       setBusy(false)
+      setDeleteConfirmOpen(false)
     }
   }
 
   return (
-    <div className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.25rem))]">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur [-webkit-backdrop-filter:blur(8px)]">
-        <span className="px-2 text-xs font-semibold">
-          {selectedIds.length} selected
-        </span>
+    <>
+      <div className="fixed inset-x-0 z-40 flex justify-center px-4 pointer-events-none bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+0.25rem))]">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur [-webkit-backdrop-filter:blur(8px)]">
+          <span className="px-2 text-xs font-semibold">
+            {selectedIds.length} selected
+          </span>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={busy} className="gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>Change Stage</span>
-              <ChevronDown className="h-3 w-3 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
-            {STAGES.map((s) => (
-              <DropdownMenuItem
-                key={s.value}
-                onSelect={() => bulkStage(s.value)}
-                className="cursor-pointer text-xs"
-              >
-                {s.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={busy} className="gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>Change Stage</span>
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44">
+              {STAGES.map((s) => (
+                <DropdownMenuItem
+                  key={s.value}
+                  onSelect={() => bulkStage(s.value)}
+                  className="cursor-pointer text-xs"
+                >
+                  {s.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:border-rose-800/60 dark:text-rose-400"
-          onClick={bulkDelete}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          <span>Delete</span>
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:border-rose-800/60 dark:text-rose-400"
+            onClick={bulkDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete</span>
+          </Button>
 
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onClear}
-          className="h-8 w-8"
-          aria-label="Clear selection"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClear}
+            className="h-8 w-8"
+            aria-label="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title={`Delete ${selectedIds.length} selected leads?`}
+        description={`Delete ${selectedIds.length} selected lead${selectedIds.length === 1 ? '' : 's'}? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmBulkDelete}
+      />
+    </>
   )
 }

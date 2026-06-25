@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   Calendar,
   Check,
@@ -83,6 +84,27 @@ export function LeadsTable({
   const allSelected = data.length > 0 && data.every((d) => selectedIds.includes(d.id))
   const someSelected = !allSelected && data.some((d) => selectedIds.includes(d.id))
 
+  const [deleteLeadTarget, setDeleteLeadTarget] = useState<Lead | null>(null)
+
+  const confirmDeleteLead = async () => {
+    if (!deleteLeadTarget) return
+    const lead = deleteLeadTarget
+    try {
+      if (USE_MOCK_DATA) {
+        mockDeleteLead(lead.id)
+      } else {
+        await api.delete(`/leads/${lead.id}`)
+      }
+      toast.success('Lead deleted')
+      onChanged?.()
+    } catch (err: unknown) {
+      const e2 = err as { response?: { data?: { message?: string } } }
+      toast.error(e2?.response?.data?.message ?? 'Failed to delete lead')
+    } finally {
+      setDeleteLeadTarget(null)
+    }
+  }
+
   return (
     // The shadcn <Table> primitive has its OWN inner div with `overflow-auto`.
     // We let it scroll natively (so users can see all columns) but apply
@@ -150,11 +172,21 @@ export function LeadsTable({
                 }}
                 onClick={() => onRowClick(lead)}
                 onChanged={onChanged}
+                onDelete={() => setDeleteLeadTarget(lead)}
               />
             ))
           )}
         </TableBody>
       </Table>
+
+      <ConfirmDialog
+        open={!!deleteLeadTarget}
+        onOpenChange={(open) => { if (!open) setDeleteLeadTarget(null) }}
+        title={`Delete lead ${deleteLeadTarget?.leadNumber}?`}
+        description={`Delete lead ${deleteLeadTarget?.leadNumber} (${deleteLeadTarget?.title})? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteLead}
+      />
     </div>
   )
 }
@@ -166,6 +198,7 @@ function LeadRow({
   onToggleSelected,
   onClick,
   onChanged,
+  onDelete,
 }: {
   lead: Lead
   show: (id: string) => boolean
@@ -173,6 +206,7 @@ function LeadRow({
   onToggleSelected: () => void
   onClick: () => void
   onChanged?: () => void
+  onDelete: () => void
 }) {
   const fullName =
     `${lead.contact.firstName ?? ''} ${lead.contact.lastName ?? ''}`.trim() ||
@@ -181,26 +215,9 @@ function LeadRow({
     ? `${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`
     : '—'
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (
-      !window.confirm(
-        `Delete lead ${lead.leadNumber} (${lead.title})? This cannot be undone.`,
-      )
-    )
-      return
-    try {
-      if (USE_MOCK_DATA) {
-        mockDeleteLead(lead.id)
-      } else {
-        await api.delete(`/leads/${lead.id}`)
-      }
-      toast.success('Lead deleted')
-      onChanged?.()
-    } catch (err: unknown) {
-      const e2 = err as { response?: { data?: { message?: string } } }
-      toast.error(e2?.response?.data?.message ?? 'Failed to delete lead')
-    }
+    onDelete()
   }
 
   return (

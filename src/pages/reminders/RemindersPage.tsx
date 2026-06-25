@@ -19,6 +19,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { cn, timeAgo, daysLeftInWeek } from '@/lib/utils'
 import { goBack } from '@/lib/router'
 import api from '@/lib/api'
@@ -211,6 +212,9 @@ export default function RemindersPage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Delete confirmation — the id of the reminder being deleted, or null.
+  const [deleteTarget, setDeleteTarget] = useState<Reminder | null>(null)
+
   const fetchReminders = useCallback(async () => {
     setLoading(true)
     try {
@@ -348,11 +352,12 @@ export default function RemindersPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this reminder?')) return
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.delete(`/reminders/${id}`)
+      await api.delete(`/reminders/${deleteTarget.id}`)
       toast.success('Reminder deleted')
+      setDeleteTarget(null)
       setSelectedId(null)
       fetchReminders()
     } catch {
@@ -582,7 +587,7 @@ export default function RemindersPage() {
                       reminder={selectedReq}
                       onClose={() => fromDeepLink ? goBack('/notifications') : setSelectedId(null)}
                       onEdit={() => openEdit(selectedReq)}
-                      onDelete={() => handleDelete(selectedReq.id)}
+                      onDelete={() => setDeleteTarget(selectedReq)}
                       onContactLogged={fetchReminders}
                     />
                   </motion.aside>
@@ -714,6 +719,20 @@ export default function RemindersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation — replaces native window.confirm() */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+        title="Delete this reminder?"
+        description={
+          deleteTarget
+            ? <>Permanently delete the reminder for <b>{deleteTarget.customer.name}</b>. This cannot be undone.</>
+            : undefined
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      />
     </motion.div>
   )
 }

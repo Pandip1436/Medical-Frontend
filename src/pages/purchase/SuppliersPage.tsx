@@ -63,6 +63,7 @@ import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { Supplier } from '@/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -357,6 +358,22 @@ export default function SuppliersPage() {
     }
   }
 
+  const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false)
+
+  async function handleBulkDeactivate() {
+    try {
+      await Promise.all(
+        [...selectedIds].map((id) => api.patch(`/suppliers/${id}`, { isActive: false }))
+      )
+      toast.success(`${selectedIds.size} supplier(s) deactivated`)
+      setSelectedIds(new Set())
+      await fetchMasterData()
+      setBulkDeactivateOpen(false)
+    } catch {
+      toast.error('Failed to deactivate suppliers')
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -597,22 +614,7 @@ export default function SuppliersPage() {
                   <Printer className="mr-1 h-3.5 w-3.5" />
                   Print
                 </Button>
-                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={async () => {
-                  const ok = window.confirm(
-                    `Deactivate ${selectedIds.size} supplier${selectedIds.size === 1 ? '' : 's'}? They will be hidden from active lists but their history will be preserved.`,
-                  )
-                  if (!ok) return
-                  try {
-                    await Promise.all(
-                      [...selectedIds].map((id) => api.patch(`/suppliers/${id}`, { isActive: false }))
-                    )
-                    toast.success(`${selectedIds.size} supplier(s) deactivated`)
-                    setSelectedIds(new Set())
-                    await fetchMasterData()
-                  } catch {
-                    toast.error('Failed to deactivate suppliers')
-                  }
-                }}>
+                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setBulkDeactivateOpen(true)}>
                   <UserX className="mr-1 h-3.5 w-3.5" />
                   Deactivate
                 </Button>
@@ -858,6 +860,15 @@ export default function SuppliersPage() {
         open={importDrawerOpen}
         onOpenChange={setImportDrawerOpen}
         onImported={fetchMasterData}
+      />
+
+      <ConfirmDialog
+        open={bulkDeactivateOpen}
+        onOpenChange={setBulkDeactivateOpen}
+        title={`Deactivate ${selectedIds.size} supplier${selectedIds.size === 1 ? '' : 's'}?`}
+        description="They will be hidden from active lists but their history will be preserved."
+        confirmLabel="Deactivate"
+        onConfirm={handleBulkDeactivate}
       />
     </motion.div>
   )

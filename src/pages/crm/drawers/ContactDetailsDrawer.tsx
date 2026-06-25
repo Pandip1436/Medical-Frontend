@@ -30,6 +30,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { cn, formatDate } from '@/lib/utils'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 
 interface ContactDetail {
   id: string
@@ -90,6 +91,7 @@ export function ContactDetailsDrawer({
   // Save commits it back to the server (or to the local state in mock mode).
   const [draft, setDraft] = useState<ContactDetail | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (!contactId) {
@@ -191,22 +193,14 @@ export function ContactDetailsDrawer({
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
+    setDeleteConfirmOpen(true)
+  }
+
+  const confirmDelete = async () => {
     if (!contact) return
-    const name =
-      `${contact.firstName} ${contact.lastName ?? ''}`.trim() || 'this contact'
-    if (
-      !window.confirm(
-        `Delete ${name}? This will fail if any leads are still linked.`,
-      )
-    )
-      return
     try {
       if (USE_MOCK_DATA) {
-        // Mock contacts are embedded inside leads — deleting a contact
-        // removes every lead that references it. Real backend handles the
-        // FK constraint and rejects if linked leads exist, so the message
-        // here matches that behaviour conceptually.
         mockDeleteContact(contact.id)
       } else {
         await api.delete(`/contacts/${contact.id}`)
@@ -216,6 +210,8 @@ export function ContactDetailsDrawer({
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
       toast.error(e?.response?.data?.message ?? 'Failed to delete contact')
+    } finally {
+      setDeleteConfirmOpen(false)
     }
   }
 
@@ -234,298 +230,308 @@ export function ContactDetailsDrawer({
     .join('\n')
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full p-0 sm:max-w-110"
-      >
-        {/* pr-12 reserves space for the Sheet primitive's built-in
-            absolute-positioned close X at right-4 top-4 — otherwise Edit/
-            Delete buttons slide under it. */}
-        <SheetHeader className="border-b border-border/40 px-5 py-3.5 pr-12">
-          <div className="flex items-center justify-between gap-3">
-            <SheetTitle className="text-base font-semibold">
-              Contact Details
-            </SheetTitle>
-            <div className="flex items-center gap-1.5">
-              {editing ? (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={cancelEdit}
-                    disabled={saving}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    <span>Cancel</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={saveEdit}
-                    disabled={saving}
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    <span>{saving ? 'Saving…' : 'Save'}</span>
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    disabled={!contact}
-                    onClick={enterEditMode}
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                    <span>Edit</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:border-rose-800/60 dark:text-rose-400"
-                    disabled={!contact}
-                    onClick={handleDelete}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Delete</span>
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        </SheetHeader>
-
-        {loading && !contact ? (
-          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-            Loading…
-          </div>
-        ) : error && !contact ? (
-          <div className="px-5 py-10 text-center text-sm text-rose-600 dark:text-rose-400">
-            {error}
-          </div>
-        ) : !contact ? null : editing && draft ? (
-          // ── Edit form ──
-          <div className="overflow-y-auto px-5 py-4">
-            <p className="mb-4 text-xs text-muted-foreground">
-              Update contact details. Required fields are marked with{' '}
-              <span className="text-rose-500">*</span>.
-            </p>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
-                <Field label="First Name" required>
-                  <Input
-                    value={draft.firstName}
-                    onChange={(e) =>
-                      setDraft({ ...draft, firstName: e.target.value })
-                    }
-                    placeholder="John"
-                  />
-                </Field>
-                <Field label="Last Name">
-                  <Input
-                    value={draft.lastName ?? ''}
-                    onChange={(e) =>
-                      setDraft({ ...draft, lastName: e.target.value })
-                    }
-                    placeholder="Doe"
-                  />
-                </Field>
-              </div>
-
-              <Field label="Phone" required>
-                <div className="grid grid-cols-[80px_1fr] gap-2">
-                  <Input
-                    value={draft.phoneCountryCode}
-                    onChange={(e) =>
-                      setDraft({ ...draft, phoneCountryCode: e.target.value })
-                    }
-                    placeholder="+91"
-                  />
-                  <Input
-                    value={draft.phone}
-                    inputMode="numeric"
-                    onChange={(e) =>
-                      setDraft({ ...draft, phone: e.target.value })
-                    }
-                    placeholder="9999999999"
-                  />
-                </div>
-              </Field>
-
-              <Field label="Email">
-                <Input
-                  type="email"
-                  value={draft.email ?? ''}
-                  onChange={(e) =>
-                    setDraft({ ...draft, email: e.target.value })
-                  }
-                  placeholder="john@example.com"
-                />
-              </Field>
-
-              <Field label="Job Title">
-                <Input
-                  value={draft.jobTitle ?? ''}
-                  onChange={(e) =>
-                    setDraft({ ...draft, jobTitle: e.target.value })
-                  }
-                  placeholder="Sales Manager"
-                />
-              </Field>
-
-              <Field label="Address">
-                <Input
-                  value={draft.address ?? ''}
-                  onChange={(e) =>
-                    setDraft({ ...draft, address: e.target.value })
-                  }
-                  placeholder="Street, area"
-                />
-              </Field>
-
-              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
-                <Field label="City">
-                  <Input
-                    value={draft.city ?? ''}
-                    onChange={(e) =>
-                      setDraft({ ...draft, city: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="State">
-                  <Input
-                    value={draft.state ?? ''}
-                    onChange={(e) =>
-                      setDraft({ ...draft, state: e.target.value })
-                    }
-                  />
-                </Field>
-              </div>
-
-              <Field label="Country">
-                <Input
-                  value={draft.country ?? ''}
-                  onChange={(e) =>
-                    setDraft({ ...draft, country: e.target.value })
-                  }
-                  placeholder="India"
-                />
-              </Field>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-y-auto px-5 py-4">
-            {/* ── Identity card: avatar + name + role + status ── */}
-            <div className="mb-4 flex items-start gap-3 rounded-lg border border-border/40 bg-muted/15 p-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-base font-bold text-primary">
-                {fullName.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-lg font-semibold leading-tight">
-                    {fullName}
-                  </h2>
-                  <Badge
-                    size="sm"
-                    className={cn(
-                      'font-medium',
-                      contact.status === 'ACTIVE'
-                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
-                        : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {contact.status === 'ACTIVE' ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-                {(contact.jobTitle || contact.company?.name) && (
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {[contact.jobTitle, contact.company?.name]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className="w-full p-0 sm:max-w-110"
+        >
+          {/* pr-12 reserves space for the Sheet primitive's built-in
+              absolute-positioned close X at right-4 top-4 — otherwise Edit/
+              Delete buttons slide under it. */}
+          <SheetHeader className="border-b border-border/40 px-5 py-3.5 pr-12">
+            <div className="flex items-center justify-between gap-3">
+              <SheetTitle className="text-base font-semibold">
+                Contact Details
+              </SheetTitle>
+              <div className="flex items-center gap-1.5">
+                {editing ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={cancelEdit}
+                      disabled={saving}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      <span>Cancel</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={saveEdit}
+                      disabled={saving}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      <span>{saving ? 'Saving…' : 'Save'}</span>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={!contact}
+                      onClick={enterEditMode}
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                      <span>Edit</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-500/10 hover:text-rose-800 dark:border-rose-800/60 dark:text-rose-400"
+                      disabled={!contact}
+                      onClick={handleDelete}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Delete</span>
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
+          </SheetHeader>
 
-            {/* ── Quick contact: Email + Phone in side-by-side tiles ── */}
-            <div className="mb-4 grid grid-cols-2 gap-2">
-              <ContactTile
-                icon={Mail}
-                label="Email"
-                href={contact.email ? `mailto:${contact.email}` : undefined}
-                value={contact.email ?? '—'}
-                tone="violet"
-              />
-              <ContactTile
-                icon={Phone}
-                label="Phone"
-                href={phone ? `tel:${phone}` : undefined}
-                value={phone || '—'}
-                tone="emerald"
-              />
+          {loading && !contact ? (
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+              Loading…
             </div>
-
-            {/* ── Address (full width, only when populated) ── */}
-            {address && (
-              <DetailBlock label="Address" icon={MapPin}>
-                <p className="whitespace-pre-line text-sm leading-relaxed">
-                  {address}
-                </p>
-              </DetailBlock>
-            )}
-
-            {/* ── Source + Owner side-by-side ── */}
-            <div className="mb-4 grid grid-cols-2 gap-3">
-              <DetailBlock label="Source" inline>
-                <Badge variant="outline" size="sm" className="font-mono">
-                  {capitalize(contact.source)}
-                </Badge>
-              </DetailBlock>
-              <DetailBlock label="Owner" icon={UserIcon} inline>
-                <p className="truncate text-sm font-medium">
-                  {contact.ownerUser?.name ?? '—'}
-                </p>
-              </DetailBlock>
+          ) : error && !contact ? (
+            <div className="px-5 py-10 text-center text-sm text-rose-600 dark:text-rose-400">
+              {error}
             </div>
+          ) : !contact ? null : editing && draft ? (
+            // ── Edit form ──
+            <div className="overflow-y-auto px-5 py-4">
+              <p className="mb-4 text-xs text-muted-foreground">
+                Update contact details. Required fields are marked with{' '}
+                <span className="text-rose-500">*</span>.
+              </p>
 
-            {/* Notes — surfaces when present, full width */}
-            {contact.notes && (
-              <DetailBlock label="Notes">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {contact.notes}
-                </p>
-              </DetailBlock>
-            )}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
+                  <Field label="First Name" required>
+                    <Input
+                      value={draft.firstName}
+                      onChange={(e) =>
+                        setDraft({ ...draft, firstName: e.target.value })
+                      }
+                      placeholder="John"
+                    />
+                  </Field>
+                  <Field label="Last Name">
+                    <Input
+                      value={draft.lastName ?? ''}
+                      onChange={(e) =>
+                        setDraft({ ...draft, lastName: e.target.value })
+                      }
+                      placeholder="Doe"
+                    />
+                  </Field>
+                </div>
 
-            {/* ── Footer: Created / Updated side-by-side ── */}
-            <div className="mt-2 grid grid-cols-2 gap-3 border-t border-border/40 pt-3 text-[11px] text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <Calendar className="h-3 w-3 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider">
-                    Created
-                  </p>
-                  <p className="truncate">{formatDate(contact.createdAt)}</p>
+                <Field label="Phone" required>
+                  <div className="grid grid-cols-[80px_1fr] gap-2">
+                    <Input
+                      value={draft.phoneCountryCode}
+                      onChange={(e) =>
+                        setDraft({ ...draft, phoneCountryCode: e.target.value })
+                      }
+                      placeholder="+91"
+                    />
+                    <Input
+                      value={draft.phone}
+                      inputMode="numeric"
+                      onChange={(e) =>
+                        setDraft({ ...draft, phone: e.target.value })
+                      }
+                      placeholder="9999999999"
+                    />
+                  </div>
+                </Field>
+
+                <Field label="Email">
+                  <Input
+                    type="email"
+                    value={draft.email ?? ''}
+                    onChange={(e) =>
+                      setDraft({ ...draft, email: e.target.value })
+                    }
+                    placeholder="john@example.com"
+                  />
+                </Field>
+
+                <Field label="Job Title">
+                  <Input
+                    value={draft.jobTitle ?? ''}
+                    onChange={(e) =>
+                      setDraft({ ...draft, jobTitle: e.target.value })
+                    }
+                    placeholder="Sales Manager"
+                  />
+                </Field>
+
+                <Field label="Address">
+                  <Input
+                    value={draft.address ?? ''}
+                    onChange={(e) =>
+                      setDraft({ ...draft, address: e.target.value })
+                    }
+                    placeholder="Street, area"
+                  />
+                </Field>
+
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
+                  <Field label="City">
+                    <Input
+                      value={draft.city ?? ''}
+                      onChange={(e) =>
+                        setDraft({ ...draft, city: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="State">
+                    <Input
+                      value={draft.state ?? ''}
+                      onChange={(e) =>
+                        setDraft({ ...draft, state: e.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Country">
+                  <Input
+                    value={draft.country ?? ''}
+                    onChange={(e) =>
+                      setDraft({ ...draft, country: e.target.value })
+                    }
+                    placeholder="India"
+                  />
+                </Field>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-y-auto px-5 py-4">
+              {/* ── Identity card: avatar + name + role + status ── */}
+              <div className="mb-4 flex items-start gap-3 rounded-lg border border-border/40 bg-muted/15 p-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-base font-bold text-primary">
+                  {fullName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="truncate text-lg font-semibold leading-tight">
+                      {fullName}
+                    </h2>
+                    <Badge
+                      size="sm"
+                      className={cn(
+                        'font-medium',
+                        contact.status === 'ACTIVE'
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      {contact.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </div>
+                  {(contact.jobTitle || contact.company?.name) && (
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {[contact.jobTitle, contact.company?.name]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Calendar className="h-3 w-3 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider">
-                    Updated
+
+              {/* ── Quick contact: Email + Phone in side-by-side tiles ── */}
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <ContactTile
+                  icon={Mail}
+                  label="Email"
+                  href={contact.email ? `mailto:${contact.email}` : undefined}
+                  value={contact.email ?? '—'}
+                  tone="violet"
+                />
+                <ContactTile
+                  icon={Phone}
+                  label="Phone"
+                  href={phone ? `tel:${phone}` : undefined}
+                  value={phone || '—'}
+                  tone="emerald"
+                />
+              </div>
+
+              {/* ── Address (full width, only when populated) ── */}
+              {address && (
+                <DetailBlock label="Address" icon={MapPin}>
+                  <p className="whitespace-pre-line text-sm leading-relaxed">
+                    {address}
                   </p>
-                  <p className="truncate">{formatDate(contact.updatedAt)}</p>
+                </DetailBlock>
+              )}
+
+              {/* ── Source + Owner side-by-side ── */}
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <DetailBlock label="Source" inline>
+                  <Badge variant="outline" size="sm" className="font-mono">
+                    {capitalize(contact.source)}
+                  </Badge>
+                </DetailBlock>
+                <DetailBlock label="Owner" icon={UserIcon} inline>
+                  <p className="truncate text-sm font-medium">
+                    {contact.ownerUser?.name ?? '—'}
+                  </p>
+                </DetailBlock>
+              </div>
+
+              {/* Notes — surfaces when present, full width */}
+              {contact.notes && (
+                <DetailBlock label="Notes">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {contact.notes}
+                  </p>
+                </DetailBlock>
+              )}
+
+              {/* ── Footer: Created / Updated side-by-side ── */}
+              <div className="mt-2 grid grid-cols-2 gap-3 border-t border-border/40 pt-3 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3 w-3 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider">
+                      Created
+                    </p>
+                    <p className="truncate">{formatDate(contact.createdAt)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3 w-3 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider">
+                      Updated
+                    </p>
+                    <p className="truncate">{formatDate(contact.updatedAt)}</p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+          )}
+        </SheetContent>
+      </Sheet>
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete contact?"
+        description={`Delete "${contact?.firstName} ${contact?.lastName ?? ''}"? This will fail if any leads are still linked.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      />
+    </>
   )
 }
 
