@@ -1048,7 +1048,7 @@ function BillingRow({
           invoiceType === "invoice" && !item.productId
         }
         className={cn(
-          "h-8 min-w-[50px] flex-1 border-0 bg-transparent",
+          "h-8 w-10 flex-1 border-0 bg-transparent",
           "text-center text-sm font-bold tabular-nums",
           "focus:outline-none focus:ring-0",
           "disabled:opacity-40",
