@@ -191,9 +191,13 @@ export default function ProductsPage() {
     mode: 'onBlur',
   })
 
-  const mrpVal = Number(form.watch('mrp')) || 0
+  // Margin reflects actual profit on a sale, so it's based on the SELLING
+  // price (what the pharmacy receives) minus the purchase cost — not MRP,
+  // which is only the legal ceiling. Using MRP would show a healthy margin
+  // even when selling below cost. Negative margin → the sale loses money.
+  const sellingRateVal = Number(form.watch('sellingRate')) || 0
   const purchaseRateVal = Number(form.watch('purchaseRate')) || 0
-  const margin = mrpVal > 0 ? (((mrpVal - purchaseRateVal) / mrpVal) * 100).toFixed(1) : '0.0'
+  const margin = sellingRateVal > 0 ? (((sellingRateVal - purchaseRateVal) / sellingRateVal) * 100).toFixed(1) : '0.0'
 
   // Fields per section — used for the header progress indicator (error
   // detection + "filled" check). Sections render together in one scroll,
@@ -1026,16 +1030,18 @@ export default function ProductsPage() {
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="purchaseRate">Purchase Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="purchaseRate" type="number" step="0.01" placeholder="e.g. 180" {...form.register('purchaseRate')} />
+                          <Input id="purchaseRate" type="number" step="0.01" placeholder="e.g. 180" {...form.register('purchaseRate')} error={!!form.formState.errors.purchaseRate} />
+                          {form.formState.errors.purchaseRate && <p className="text-xs text-rose-500">{form.formState.errors.purchaseRate.message}</p>}
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="wholesaleRate">Wholesale Rate (₹) <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input id="wholesaleRate" type="number" step="0.01" placeholder="e.g. 200" {...form.register('wholesaleRate')} />
+                          <Input id="wholesaleRate" type="number" step="0.01" placeholder="e.g. 200" {...form.register('wholesaleRate')} error={!!form.formState.errors.wholesaleRate} />
+                          {form.formState.errors.wholesaleRate && <p className="text-xs text-rose-500">{form.formState.errors.wholesaleRate.message}</p>}
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-2 rounded-xl border border-border/40 bg-muted/30 px-4 py-3">
                         <span className="text-sm text-muted-foreground">Margin:</span>
-                        <span className={cn('text-sm font-semibold', Number(margin) > 20 ? 'text-emerald-600 dark:text-emerald-400' : Number(margin) > 10 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground')}>{margin}%</span>
+                        <span className={cn('text-sm font-semibold', Number(margin) < 0 ? 'text-rose-600 dark:text-rose-400' : Number(margin) > 20 ? 'text-emerald-600 dark:text-emerald-400' : Number(margin) > 10 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground')}>{margin}%</span>
                       </div>
                     </div>
                     <div className="border-t border-border/40 pt-5">

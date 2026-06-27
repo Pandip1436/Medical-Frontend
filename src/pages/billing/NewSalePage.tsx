@@ -334,6 +334,7 @@ function BillingRow({
   productPurchases,
   showInlineHistory = true,
   onRequestAddProduct,
+  batchesUsedByOthers,
 }: {
   item: BillingItem
   index: number
@@ -347,6 +348,8 @@ function BillingRow({
   productPurchases: Record<string, Array<{ date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }>>
   showInlineHistory?: boolean
   onRequestAddProduct?: (rowId: string, prefillName?: string) => void
+  // batchIds already selected on other rows of the same product — disabled here.
+  batchesUsedByOthers?: Set<string>
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
@@ -892,19 +895,26 @@ function BillingRow({
               <SelectValue placeholder="Select Batch" />
             </SelectTrigger>
             <SelectContent className="bg-popover/95 backdrop-blur-xl">
-              {productBatches.map((b, idx) => (
-                <SelectItem key={b.id} value={b.id} className="text-xs">
+              {productBatches.map((b, idx) => {
+                // A batch already on another row of this product is locked out
+                // here so the same stock can't be billed twice.
+                const usedElsewhere = !!batchesUsedByOthers?.has(b.id)
+                return (
+                <SelectItem key={b.id} value={b.id} className="text-xs" disabled={usedElsewhere}>
                   <div className="flex items-center justify-between gap-3 w-full min-w-40">
                     <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
                     <div className="flex items-center gap-1.5">
-                      {idx === 0 && (
+                      {usedElsewhere ? (
+                        <Badge variant="outline" className="text-[8px] px-1 h-3.5 text-muted-foreground">In use</Badge>
+                      ) : idx === 0 && (
                         <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
                       )}
                       <span className="text-[10px] opacity-60">Qty: {b.quantity}</span>
                     </div>
                   </div>
                 </SelectItem>
-              ))}
+                )
+              })}
             </SelectContent>
           </Select>
         </div>
@@ -1378,6 +1388,37 @@ function BillingRow({
   </div>
 </TableCell>
 
+      {/* Taxable — pre-GST base. Rate is GST-inclusive, so back it out of the
+          post-discount line amount: amount ÷ (1 + gst%). */}
+      <TableCell className="w-24 px-2 py-2.5 text-right align-middle">
+        <div className="flex flex-col gap-0.5 items-end">
+          <div className="h-3.5" aria-hidden />
+          <span className={cn(
+            'font-mono tracking-tight tabular-nums h-8 inline-flex items-center text-sm',
+            item.amount > 0 ? 'font-semibold text-muted-foreground' : 'font-bold text-muted-foreground/30'
+          )}>
+            {item.amount > 0
+              ? formatCurrency(item.amount / (1 + (item.gstPercent || 0) / 100))
+              : '₹0.00'}
+          </span>
+        </div>
+      </TableCell>
+
+      {/* GST ₹ — tax amount inside the line: amount − taxable base. */}
+      <TableCell className="w-24 px-2 py-2.5 text-right align-middle">
+        <div className="flex flex-col gap-0.5 items-end">
+          <div className="h-3.5" aria-hidden />
+          <span className={cn(
+            'font-mono tracking-tight tabular-nums h-8 inline-flex items-center text-sm',
+            item.amount > 0 ? 'font-semibold text-muted-foreground' : 'font-bold text-muted-foreground/30'
+          )}>
+            {item.amount > 0
+              ? formatCurrency(item.amount - item.amount / (1 + (item.gstPercent || 0) / 100))
+              : '₹0.00'}
+          </span>
+        </div>
+      </TableCell>
+
       {/* Amount */}
       <TableCell className="w-27.5 px-3 py-2.5 text-right align-middle">
         <div className="flex flex-col gap-0.5 items-end">
@@ -1415,7 +1456,7 @@ function BillingRow({
         {/* Title strip */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6">
           <TableCell className="w-10 px-2 py-1.5 text-center align-middle text-violet-500/70">↳</TableCell>
-          <TableCell colSpan={9} className="px-3 py-1.5 align-middle">
+          <TableCell colSpan={11} className="px-3 py-1.5 align-middle">
             <div className="flex items-center gap-1.5">
               <History className="h-3 w-3 text-violet-500/70" />
               <span className="text-[9px] font-bold uppercase tracking-widest text-violet-500/80">
@@ -1434,6 +1475,8 @@ function BillingRow({
           <TableCell className="w-36 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-14 px-1 py-1 align-middle"></TableCell>
+          <TableCell className="w-24 px-2 py-1 align-middle"></TableCell>
+          <TableCell className="w-24 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-27.5 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
           <TableCell className="w-10 px-1 py-1 align-middle"></TableCell>
         </TableRow>
@@ -1461,6 +1504,8 @@ function BillingRow({
             <TableCell className="w-36 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-24 px-2 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-24 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
               <Badge
                 variant={h.status === 'PAID' ? 'success' : h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
@@ -2937,52 +2982,56 @@ export default function NewSalePage() {
       // didn't preload the master catalog.
       syncProductBatchesIntoStore(product)
 
-      const existingIdx = items.findIndex((i) => i.productId === product.id)
-      if (existingIdx !== -1) {
-        // Increment quantity of existing item
-        const existing = items[existingIdx]
-        const newQty = existing.quantity + 1
-        const updates: Partial<BillingItem> = { quantity: newQty }
-        const tempItem = { ...existing, ...updates }
-        updates.amount = calculateItemAmount(tempItem)
-        setItems((prev) =>
-          prev.map((item) => (item.id === existing.id ? { ...item, ...updates } : item))
+      // Add the product as a NEW row (instead of merging) so it can be billed
+      // across multiple batches — each click takes the next FEFO batch that
+      // isn't already in the cart. Per-row quantity uses the +/- stepper.
+      const productBatches = useMasterDataStore.getState().batches
+        .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
+        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+      const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+      // Use last sold rate to this customer if available
+      const lastRate = customerLastRates[product.id]
+      const rate = lastRate ?? defaultRate
+
+      // Decide the batch INSIDE the updater so rapid repeat clicks read the
+      // latest cart (prev) — a stale `items` snapshot was making a second click
+      // re-pick the FEFO-first batch, so two rows landed on the same batch and
+      // oversold it. Each new row must take a DISTINCT batch.
+      let noFreshBatch = false
+      setItems((prev) => {
+        const nonEmpty = prev.filter((i) => i.productId)
+        const usedBatchIds = new Set(
+          nonEmpty.filter((i) => i.productId === product.id && i.batchId).map((i) => i.batchId)
         )
-      } else {
-        // Create new pre-filled item
-        const productBatches = useMasterDataStore.getState().batches
-          .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
-          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
-
-        const firstBatch = productBatches[0]
-        const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
-        // Use last sold rate to this customer if available
-        const lastRate = customerLastRates[product.id]
-        const rate = lastRate ?? defaultRate
-        if (lastRate !== undefined) {
-          toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
+        const batch = productBatches.find((b) => !usedBatchIds.has(b.id))
+        if (!batch) {
+          // Every available batch of this product is already on the bill —
+          // don't add a duplicate row that would oversell the same stock.
+          noFreshBatch = true
+          return prev
         }
-
         const newItem: BillingItem = {
           ...createEmptyItem(),
           productId: product.id,
           productName: product.name,
           gstPercent: product.gstRate,
-          mrp: Number(firstBatch?.mrp || product.mrp) || 0,
+          mrp: Number(batch.mrp || product.mrp) || 0,
           rate: Number(rate) || 0,
           schedule: product.schedule,
-          batchId: firstBatch?.id ?? '',
-          batchNumber: firstBatch?.batchNumber ?? '',
-          expiryDate: firstBatch?.expiryDate ?? '',
+          batchId: batch.id,
+          batchNumber: batch.batchNumber,
+          expiryDate: batch.expiryDate,
           quantity: 1,
         }
         newItem.amount = calculateItemAmount(newItem)
+        return [...nonEmpty, newItem]
+      })
 
-        setItems((prev) => {
-          // Remove any empty items first
-          const nonEmpty = prev.filter((i) => i.productId)
-          return [...nonEmpty, newItem]
-        })
+      if (noFreshBatch) {
+        toast.warning(`All available batches of ${product.name} are already in the bill`)
+      } else if (lastRate !== undefined) {
+        toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
       }
 
       // Switch to Products tab so the newly added/incremented row is visible.
@@ -5157,11 +5206,13 @@ export default function NewSalePage() {
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹) <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
-                            <Input className="h-9" type="number" step="0.01" {...productForm.register('purchaseRate')} />
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('purchaseRate')} error={!!productForm.formState.errors.purchaseRate} />
+                            {productForm.formState.errors.purchaseRate && <p className="text-[11px] text-rose-500">{productForm.formState.errors.purchaseRate.message}</p>}
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹) <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
-                            <Input className="h-9" type="number" step="0.01" {...productForm.register('wholesaleRate')} />
+                            <Input className="h-9" type="number" step="0.01" {...productForm.register('wholesaleRate')} error={!!productForm.formState.errors.wholesaleRate} />
+                            {productForm.formState.errors.wholesaleRate && <p className="text-[11px] text-rose-500">{productForm.formState.errors.wholesaleRate.message}</p>}
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate *</Label>
@@ -5385,6 +5436,8 @@ export default function NewSalePage() {
                               <TableHead className="w-44 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
                               <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
+                              <TableHead className="w-24 px-2 py-3.5 text-right h-auto whitespace-nowrap">Taxable</TableHead>
+                              <TableHead className="w-24 px-2 py-3.5 text-right h-auto whitespace-nowrap">GST ₹</TableHead>
                               <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
                               <TableHead className="w-10 px-1 py-3.5 h-auto"></TableHead>
                             </TableRow>
@@ -5404,6 +5457,14 @@ export default function NewSalePage() {
                                   productPurchases={productPurchases}
                                   showInlineHistory={showInlineHistory}
                                   onRequestAddProduct={openAddProductForm}
+                                  // Batches already taken by OTHER rows of the same product —
+                                  // disabled in this row's batch picker so one batch can't be
+                                  // billed on two lines (which would oversell its stock).
+                                  batchesUsedByOthers={new Set(
+                                    items
+                                      .filter((o) => o.id !== item.id && o.productId === item.productId && o.batchId)
+                                      .map((o) => o.batchId)
+                                  )}
                                 />
                               ))}
                             </AnimatePresence>

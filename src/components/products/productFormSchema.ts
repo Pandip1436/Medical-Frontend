@@ -41,6 +41,34 @@ export const productSchema = z
       path: ['sellingRate'],
     },
   )
+  // Don't sell below cost — a purchase rate above the selling price means
+  // every sale loses money, which is almost always a data-entry mistake.
+  // Purchase rate is optional (0 = not entered), so only check when it's set.
+  .refine(
+    (data) => Number(data.purchaseRate) <= 0 || Number(data.purchaseRate) <= Number(data.sellingRate),
+    {
+      message: 'Purchase rate cannot exceed selling price',
+      path: ['purchaseRate'],
+    },
+  )
+  // Cost above the legal max retail price (MRP) is impossible to recover —
+  // the product could never be sold at a profit. Only check when set.
+  .refine(
+    (data) => Number(data.purchaseRate) <= 0 || Number(data.purchaseRate) <= Number(data.mrp),
+    {
+      message: 'Purchase rate cannot exceed MRP',
+      path: ['purchaseRate'],
+    },
+  )
+  // Wholesale rate is still a retail-bound price and cannot exceed the MRP
+  // ceiling. Optional (0 = not entered), so only check when it's set.
+  .refine(
+    (data) => Number(data.wholesaleRate) <= 0 || Number(data.wholesaleRate) <= Number(data.mrp),
+    {
+      message: 'Wholesale rate cannot exceed MRP',
+      path: ['wholesaleRate'],
+    },
+  )
 
 export type ProductFormValues = z.input<typeof productSchema>
 
