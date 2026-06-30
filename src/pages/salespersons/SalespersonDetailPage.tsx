@@ -585,7 +585,7 @@ function SalesRow({ inv }: { inv: Invoice }) {
     <TableRow
       className="group cursor-pointer border-b border-border/30 hover:bg-muted/20"
       title="View invoice details"
-      onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+      onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
     >
       <TableCell className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
       <TableCell className="px-3 py-2.5 max-w-50">

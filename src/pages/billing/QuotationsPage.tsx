@@ -214,12 +214,6 @@ export default function QuotationsPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [detailQt, setDetailQt] = useState<Quotation | null>(null)
 
-  // Split view pagination state
-  const [splitPage, setSplitPage] = useState(1)
-  const [splitItems, setSplitItems] = useState<Quotation[]>([])
-  const [splitTotal, setSplitTotal] = useState(0)
-  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
-
   // Master data — needed for filter dropdowns AND to resolve customerId →
   // phone for WhatsApp share.
   const { customers, fetchMasterData } = useMasterDataStore()
@@ -274,80 +268,6 @@ export default function QuotationsPage() {
   useEffect(() => { fetchQuotations() }, [fetchQuotations, path])
   useBranchRefresh(fetchQuotations)
 
-  // ── Split view server-side pagination ──
-
-  useEffect(() => {
-    if (effectiveView !== 'split') return
-    const fetchSplitPage = async () => {
-      setSplitLoadingMore(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
-        params.set('take', String(SPLIT_PAGE_SIZE))
-
-        // Period → dateFrom / dateTo
-        const now = new Date()
-        const todayStr = now.toISOString().slice(0, 10)
-        if (period === 'today') {
-          params.set('dateFrom', todayStr)
-          params.set('dateTo', todayStr)
-        } else if (period === 'week') {
-          params.set('dateFrom', weekStartISO(now))
-        } else if (period === 'month') {
-          const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-          params.set('dateFrom', monthStart)
-        } else if (period === 'custom') {
-          if (dateFrom) params.set('dateFrom', dateFrom)
-          if (dateTo) params.set('dateTo', dateTo)
-        }
-
-        if (selectedStatus && selectedStatus !== 'all') params.set('status', selectedStatus)
-        if (selectedCustomer && selectedCustomer !== 'all') params.set('customerId', selectedCustomer)
-        if (searchQuery.trim()) params.set('q', searchQuery.trim())
-
-        const res = await api.get(`/quotations?${params.toString()}`)
-        const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
-        const newTotal = typeof res.data?.total === 'number' ? res.data.total : raw.length
-        const mapped: Quotation[] = raw.map((qt: any) => ({
-          id: qt.id,
-          quotationNumber: qt.quotationNumber ?? '',
-          date: qt.date ?? qt.createdAt ?? new Date().toISOString(),
-          customerId: qt.customerId ?? undefined,
-          customerName: qt.customerName ?? '',
-          customerPhone: qt.customerPhone ?? undefined,
-          items: (qt.items ?? []).map((it: any) => ({
-            name: it.productName ?? '',
-            qty: Number(it.quantity) || 0,
-            rate: Number(it.rate) || 0,
-            discountPercent: Number(it.discountPercent) || 0,
-            gstPercent: Number(it.gstPercent) || 0,
-            amount: Number(it.amount) || 0,
-          })),
-          subtotal: Number(qt.subtotal) || 0,
-          cgst: Number(qt.cgst) || 0,
-          sgst: Number(qt.sgst) || 0,
-          deliveryCharge: Number(qt.deliveryCharge) || 0,
-          total: Number(qt.total) || 0,
-          status: qt.status as QuotationStatus,
-        }))
-        setSplitItems(prev => splitPage === 1 ? mapped : [...prev, ...mapped])
-        setSplitTotal(newTotal)
-      } catch {
-        // silent
-      } finally {
-        setSplitLoadingMore(false)
-      }
-    }
-    fetchSplitPage()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitPage, effectiveView])
-
-  // Reset split pagination when filters change
-  useEffect(() => {
-    setSplitItems([])
-    setSplitTotal(0)
-    setSplitPage(1)
-  }, [period, dateFrom, dateTo, selectedStatus, selectedCustomer, searchQuery, cardFilter])
 
   // Deep-link support: open the quotation drawer when arrived with
   // `?quotationId=<id>` (e.g. from the Customer Detail page's Quotations tab).
@@ -660,15 +580,12 @@ export default function QuotationsPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <QuotationSplitView
-            quotations={splitItems}
-            loading={splitLoadingMore && splitPage === 1}
-            loadingMore={splitLoadingMore && splitPage > 1}
-            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
-            onLoadMore={() => setSplitPage(p => p + 1)}
+            quotations={filteredQuotations}
+            loading={isLoading}
             selectedQuotationId={selectedQuotationId}
             onSelectQuotation={selectQuotation}
             onExitSplitView={exitSplitView}
-            onRefresh={() => { setSplitItems([]); setSplitTotal(0); setSplitPage(1) }}
+            onRefresh={fetchQuotations}
             isCardFieldVisible={cardCols.isVisible}
           />
         </div>
@@ -1248,40 +1165,45 @@ export default function QuotationsPage() {
                 </div>
 
                 {/* Action buttons — vary by status */}
-                <div className="px-5 py-3 flex gap-2">
-                  {canMarkSent && (
-                    <Button
-                      className="flex-1 gap-2"
-                      onClick={() => { handleUpdateStatus(detailQt, 'SENT'); setDetailQt(null) }}
-                    >
-                      <Send className="h-4 w-4" />
-                      Mark as Sent
-                    </Button>
-                  )}
-                  {canAccept && (
-                    <Button
-                      variant="outline"
-                      className="flex-1 gap-2 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
-                      onClick={() => { handleUpdateStatus(detailQt, 'ACCEPTED'); setDetailQt(null) }}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Accept
-                    </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
+                  {!canMarkSent && !canAccept && !canReject && !canConvert && (
+                    <p className="text-xs text-muted-foreground italic">
+                      No further actions for {statusLabel[detailQt.status].toLowerCase()} quotations.
+                    </p>
                   )}
                   {canReject && (
                     <Button
                       variant="outline"
-                      className="flex-1 gap-2 text-rose-700 hover:text-rose-700 dark:text-rose-400"
+                      className="gap-2 text-rose-700 hover:text-rose-700 dark:text-rose-400"
                       onClick={() => { handleUpdateStatus(detailQt, 'REJECTED'); setDetailQt(null) }}
                     >
                       <XCircle className="h-4 w-4" />
                       Reject
                     </Button>
                   )}
+                  {canAccept && (
+                    <Button
+                      variant="outline"
+                      className="gap-2 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400"
+                      onClick={() => { handleUpdateStatus(detailQt, 'ACCEPTED'); setDetailQt(null) }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Accept
+                    </Button>
+                  )}
+                  {canMarkSent && (
+                    <Button
+                      className="gap-2"
+                      onClick={() => { handleUpdateStatus(detailQt, 'SENT'); setDetailQt(null) }}
+                    >
+                      <Send className="h-4 w-4" />
+                      Mark as Sent
+                    </Button>
+                  )}
                   {canConvert && (
                     <Button
                       variant={canMarkSent || canAccept ? 'outline' : 'default'}
-                      className="flex-1 gap-2"
+                      className="gap-2"
                       onClick={() => { handleConvert(detailQt); setDetailQt(null) }}
                     >
                       <ArrowRightLeft className="h-4 w-4" />
@@ -1289,14 +1211,9 @@ export default function QuotationsPage() {
                       <span className="sm:hidden">Convert</span>
                     </Button>
                   )}
-                  {!canMarkSent && !canAccept && !canReject && !canConvert && (
-                    <div className="flex-1 text-xs text-muted-foreground italic flex items-center">
-                      No further actions for {statusLabel[detailQt.status].toLowerCase()} quotations.
-                    </div>
-                  )}
                   <Button
                     variant="outline"
-                    className="shrink-0 gap-2"
+                    className="gap-2"
                     onClick={() => shareQuotationViaWhatsApp(detailQt, phoneFor(detailQt))}
                   >
                     <Share2 className="h-4 w-4" />

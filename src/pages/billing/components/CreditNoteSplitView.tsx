@@ -71,13 +71,14 @@ export function CreditNoteSplitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select first credit note when list loads and nothing is selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedCreditNoteId && creditNotes.length > 0) {
-      onSelectCreditNote(creditNotes[0].id)
-    }
-  }, [creditNotes.length, selectedCreditNoteId])
+    if (creditNotes.length === 0) return
+    if (selectedCreditNoteId && creditNotes.some(cn => cn.id === selectedCreditNoteId)) return
+    onSelectCreditNote(creditNotes[0].id)
+  }, [creditNotes])
 
   const displayed = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

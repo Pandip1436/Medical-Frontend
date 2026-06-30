@@ -306,7 +306,7 @@ export default function DeliveryTrackingPage() {
           variant="outline"
           size="sm"
           className="gap-1.5"
-          onClick={() => navigate(`/customers/invoices/detail?id=${delivery.invoiceId}`)}
+          onClick={() => navigate(`/billing/sales?view=split&invoiceId=${delivery.invoiceId}`)}
         >
           <Receipt className="h-3.5 w-3.5" /> View Invoice
         </Button>
@@ -326,7 +326,7 @@ export default function DeliveryTrackingPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => navigate(`/customers/invoices/detail?id=${delivery.invoiceId}`)}
+                    onClick={() => navigate(`/billing/sales?view=split&invoiceId=${delivery.invoiceId}`)}
                     className="group inline-flex items-center gap-1.5 font-mono text-base font-bold tracking-tight hover:text-primary sm:text-lg"
                     title="Open invoice"
                   >

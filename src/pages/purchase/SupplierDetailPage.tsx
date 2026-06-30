@@ -680,7 +680,7 @@ export default function SupplierDetailPage() {
                         r.sourceType === 'GRN' && r.sourceId
                           ? `/purchase/grn-list?grnId=${r.sourceId}`
                           : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
-                            ? `/purchase/debit-notes?id=${r.sourceId}`
+                            ? `/purchase/debit-notes?debitNoteId=${r.sourceId}`
                             : null
                       return (
                         <TableRow
@@ -828,7 +828,7 @@ export default function SupplierDetailPage() {
                   <TableRow
                     key={r.id}
                     className="cursor-pointer hover:bg-muted/20"
-                    onClick={() => navigate(`/purchase/debit-notes?id=${r.id}`)}
+                    onClick={() => navigate(`/purchase/debit-notes?debitNoteId=${r.id}`)}
                   >
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                     <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{r.debitNoteNo}</TableCell>

@@ -69,13 +69,14 @@ export function InvoiceSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select the first invoice when the list loads and nothing is selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedInvoiceId && invoices.length > 0) {
-      onSelectInvoice(invoices[0].id)
-    }
-  }, [invoices.length, selectedInvoiceId])
+    if (invoices.length === 0) return
+    if (selectedInvoiceId && invoices.some(inv => inv.id === selectedInvoiceId)) return
+    onSelectInvoice(invoices[0].id)
+  }, [invoices])
 
   // Local search filters within the parent's already-filtered list.
   const displayedInvoices = useMemo(() => {

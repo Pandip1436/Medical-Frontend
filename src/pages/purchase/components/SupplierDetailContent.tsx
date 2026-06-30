@@ -520,7 +520,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                           r.sourceType === 'GRN' && r.sourceId
                             ? `/purchase/grn-list?grnId=${r.sourceId}`
                             : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
-                              ? `/purchase/debit-notes?id=${r.sourceId}`
+                              ? `/purchase/debit-notes?debitNoteId=${r.sourceId}`
                               : null
                         return (
                           <TableRow
@@ -702,7 +702,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                       <p className="text-sm font-medium text-muted-foreground">No debit notes</p>
                       <p className="text-xs text-muted-foreground/60 mt-1">No purchase returns / debit notes in this period.</p>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => navigate('/purchase/debit-notes/new')} className="gap-1.5">
+                    <Button size="sm" variant="outline" onClick={() => navigate('/purchase/returns')} className="gap-1.5">
                       <Plus className="h-3.5 w-3.5" />
                       New Debit Note
                     </Button>
@@ -718,7 +718,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                     <TableRow
                       key={r.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/purchase/debit-notes?id=${r.id}`)}
+                      onClick={() => navigate(`/purchase/debit-notes?debitNoteId=${r.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{r.debitNoteNo}</TableCell>

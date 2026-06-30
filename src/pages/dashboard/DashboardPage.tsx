@@ -87,7 +87,7 @@ function buildActivities(recentInvoices: RecentInvoice[]): ActivityItem[] {
       detail: inv.invoiceNumber,
       timestamp: inv.date ?? new Date().toISOString(),
       // Deep-link to the dedicated invoice detail page (same destination notifications use).
-      href: inv.id ? `/customers/invoices/detail?id=${inv.id}` : undefined,
+      href: inv.id ? `/billing/sales?view=split&invoiceId=${inv.id}` : undefined,
     }
   })
 }

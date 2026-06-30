@@ -237,7 +237,7 @@ export default function DeliveriesPage() {
                 {/* Invoice id + courier / tracking / mobile */}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground/80">
                   <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/customers/invoices/detail?id=${d.invoiceId}`) }}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/billing/sales?view=split&invoiceId=${d.invoiceId}`) }}
                     className="inline-flex items-center gap-1 font-mono font-semibold text-foreground hover:text-primary hover:underline"
                     title="Open invoice"
                   >

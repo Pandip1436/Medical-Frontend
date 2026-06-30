@@ -157,13 +157,6 @@ export default function GRNListPage() {
   const [loading, setLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
-  // Split view pagination state
-  const [splitPage, setSplitPage] = useState(1)
-  const [splitItems, setSplitItems] = useState<GRN[]>([])
-  const [splitTotal, setSplitTotal] = useState(0)
-  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
-  // Track whether a fetch for this splitPage has already been dispatched
-  const splitPageFetchedRef = useRef<number>(0)
 
   // Filters — persisted to server via usePageFilter
   const [search, setSearch] = usePageFilter<string>('purchase.grnList', 'search', '')
@@ -177,6 +170,9 @@ export default function GRNListPage() {
   const [cardFilter, setCardFilter] = usePageFilter<'all' | 'short' | 'damaged'>('purchase.grnList', 'card', 'all')
   const [payTab, setPayTab] = usePageFilter<PayTabKey>('purchase.grnList', 'payTab', 'all')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.grnList', 'splitShowStats', true)
+
+  // Server does not filter by payTab — apply the same client-side filter
+  // here that the table view uses (grnPayStatus-based).
   const [splitShowFilters, setSplitShowFilters] = useState(false)
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
@@ -204,54 +200,6 @@ export default function GRNListPage() {
   const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
   const selectedGrnId = urlParams.get('grnId')
 
-  // ── Split view: fetch a page of GRNs when splitPage changes ──
-  useEffect(() => {
-    if (effectiveView !== 'split') return
-    // Avoid double-fetching the same page (StrictMode / re-render guard)
-    if (splitPageFetchedRef.current === splitPage) return
-    splitPageFetchedRef.current = splitPage
-
-    const fetchSplitPage = async () => {
-      setSplitLoadingMore(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
-        params.set('take', String(SPLIT_PAGE_SIZE))
-        if (search.trim()) params.set('search', search.trim())
-        if (period && period !== 'all') params.set('period', period)
-        if (period === 'custom') {
-          if (dateFrom) params.set('dateFrom', dateFrom)
-          if (dateTo) params.set('dateTo', dateTo)
-        }
-        if (selectedSupplier !== 'all') params.set('supplierId', selectedSupplier)
-        if (selectedSource !== 'all') params.set('source', selectedSource)
-        if (selectedPayment !== 'all') params.set('paymentStatus', selectedPayment)
-        if (payTab !== 'all') params.set('payTab', payTab)
-        const res = await api.get(`/grn?${params.toString()}`)
-        const payload = res.data
-        const incoming: GRN[] = Array.isArray(payload) ? payload : (payload?.data ?? [])
-        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
-        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
-        setSplitTotal(newTotal)
-      } catch {
-        // silent — main table fetch already toasts on error
-      } finally {
-        setSplitLoadingMore(false)
-      }
-    }
-    fetchSplitPage()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitPage, effectiveView])
-
-  // ── Split view: reset pagination when filters change ──
-  useEffect(() => {
-    if (effectiveView !== 'split') return
-    setSplitItems([])
-    setSplitTotal(0)
-    splitPageFetchedRef.current = 0
-    setSplitPage(1)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, period, dateFrom, dateTo, selectedSupplier, selectedSource, selectedPayment, payTab, effectiveView])
 
   const selectGrn = useCallback((id: string | null) => {
     if (window.location.pathname !== '/purchase/grn-list') return
@@ -577,12 +525,9 @@ export default function GRNListPage() {
 
         <div className="min-h-0 flex-1">
           <GRNSplitView
-            grns={splitItems}
+            grns={filtered}
             allGrns={grns}
-            loading={splitLoadingMore && splitPage === 1}
-            loadingMore={splitLoadingMore && splitPage > 1}
-            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
-            onLoadMore={() => setSplitPage(p => p + 1)}
+            loading={loading}
             selectedGrnId={selectedGrnId}
             onSelectGrn={selectGrn}
             onExitSplitView={exitSplitView}

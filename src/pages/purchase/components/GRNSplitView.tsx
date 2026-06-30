@@ -82,13 +82,14 @@ export function GRNSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select the first GRN when none is selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedGrnId && grns.length > 0) {
-      onSelectGrn(grns[0].id)
-    }
-  }, [grns.length, selectedGrnId])
+    if (grns.length === 0) return
+    if (selectedGrnId && grns.some(g => g.id === selectedGrnId)) return
+    onSelectGrn(grns[0].id)
+  }, [grns])
 
   const displayedGrns = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

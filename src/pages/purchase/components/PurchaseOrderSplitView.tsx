@@ -78,13 +78,14 @@ export function PurchaseOrderSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select first PO when list loads and nothing is selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedPoId && purchaseOrders.length > 0) {
-      onSelectPo(purchaseOrders[0].id)
-    }
-  }, [purchaseOrders.length, selectedPoId])
+    if (purchaseOrders.length === 0) return
+    if (selectedPoId && purchaseOrders.some(po => po.id === selectedPoId)) return
+    onSelectPo(purchaseOrders[0].id)
+  }, [purchaseOrders])
 
   const displayed = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

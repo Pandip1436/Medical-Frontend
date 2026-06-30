@@ -1018,7 +1018,7 @@ export function GRNDetailContent({
                                           {txns.map((t) => (
                                             <TableRow
                                               key={t.key}
-                                              onClick={() => navigate(`/customers/invoices/detail?id=${t.invoiceId}`)}
+                                              onClick={() => navigate(`/billing/sales?view=split&invoiceId=${t.invoiceId}`)}
                                               className="cursor-pointer"
                                             >
                                               <TableCell className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</TableCell>

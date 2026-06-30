@@ -238,11 +238,6 @@ export default function SalesListPage() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
 
-  // Split-view pagination (server-side, infinite scroll)
-  const [splitPage, setSplitPage] = useState(1)
-  const [splitItems, setSplitItems] = useState<Invoice[]>([])
-  const [splitTotal, setSplitTotal] = useState(0)
-  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
 
   // Real Data State
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -357,59 +352,6 @@ export default function SalesListPage() {
     navigate('/billing/sales?view=table')
   }, [])
 
-  // Fetch one page of invoices for the split view (server-side pagination).
-  useEffect(() => {
-    if (effectiveView !== 'split') return
-    const fetchSplitPage = async () => {
-      setSplitLoadingMore(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
-        params.set('take', String(SPLIT_PAGE_SIZE))
-        if (searchQuery.trim()) params.set('search', searchQuery.trim())
-        if (period && period !== 'all') params.set('period', period)
-        if (period === 'custom') {
-          if (dateFrom) params.set('dateFrom', dateFrom)
-          if (dateTo) params.set('dateTo', dateTo)
-        }
-        if (selectedPaymentMode && selectedPaymentMode !== 'all') params.set('paymentMode', selectedPaymentMode)
-        if (selectedStatus && selectedStatus !== 'all') params.set('status', selectedStatus)
-        if (selectedSalespersonId && selectedSalespersonId !== 'all') params.set('salespersonId', selectedSalespersonId)
-        if (statusTab && statusTab !== 'all') params.set('statusTab', statusTab)
-        if (cardFilter && cardFilter !== 'all') params.set('cardFilter', cardFilter)
-        const res = await api.get(`/billing?${params.toString()}`)
-        const payload = res.data
-        const incoming: Invoice[] = payload?.data ?? (Array.isArray(payload) ? payload : [])
-        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
-        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
-        setSplitTotal(newTotal)
-      } catch {
-        // silent
-      } finally {
-        setSplitLoadingMore(false)
-      }
-    }
-    fetchSplitPage()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitPage, effectiveView])
-
-  // Reset split pagination whenever any filter changes.
-  useEffect(() => {
-    setSplitItems([])
-    setSplitTotal(0)
-    setSplitPage(1)
-  }, [
-    searchQuery,
-    period,
-    dateFrom,
-    dateTo,
-    selectedPaymentMode,
-    selectedStatus,
-    selectedSalespersonId,
-    statusTab,
-    cardFilter,
-    effectiveView,
-  ])
 
   // Sync Payment — reconcile the selected invoice against the payment gateway.
   const [reconciling, setReconciling] = useState(false)
@@ -906,11 +848,8 @@ export default function SalesListPage() {
 
         <div className="min-h-0 flex-1">
           <InvoiceSplitView
-            invoices={splitItems}
-            loading={splitLoadingMore && splitPage === 1}
-            loadingMore={splitLoadingMore && splitPage > 1}
-            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
-            onLoadMore={() => setSplitPage(p => p + 1)}
+            invoices={filteredInvoices}
+            loading={isLoading}
             selectedInvoiceId={selectedInvoiceId}
             onSelectInvoice={selectInvoice}
             onExitSplitView={exitSplitView}
@@ -1303,7 +1242,7 @@ export default function SalesListPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.15, delay: idx * 0.02 }}
                   className="flex flex-col gap-2 p-4 cursor-pointer active:bg-muted/30"
-                  onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                  onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                 >
                   {/* Row 1: Invoice # + Status */}
                   <div className="flex items-center justify-between">
@@ -1355,7 +1294,7 @@ export default function SalesListPage() {
                       </div>
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
-                          onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                          onView={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                           onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                           onDelete={() => removeOrCancel(inv)}
                           deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
@@ -1432,7 +1371,7 @@ export default function SalesListPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                    onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -1537,7 +1476,7 @@ export default function SalesListPage() {
                     )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                        onView={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                         onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                         onDelete={() => removeOrCancel(inv)}
                         deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}

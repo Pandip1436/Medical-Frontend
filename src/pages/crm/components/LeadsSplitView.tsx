@@ -86,14 +86,14 @@ export function LeadsSplitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  // Auto-select the first lead when the rail finishes loading and nothing
-  // is selected yet — saves the user one click on page open.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   useEffect(() => {
-    if (!selectedLeadId && list.data.length > 0) {
-      onSelectLead(list.data[0].id)
-    }
+    if (list.data.length === 0) return
+    if (selectedLeadId && list.data.some(l => l.id === selectedLeadId)) return
+    onSelectLead(list.data[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list.data.length])
+  }, [list.data])
 
   // Reset the "pending" guard once a loadMore request finishes.
   useEffect(() => {

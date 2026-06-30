@@ -62,13 +62,14 @@ export function SupplierSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select first supplier when list loads and nothing selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedSupplierId && suppliers.length > 0) {
-      onSelectSupplier(suppliers[0].id)
-    }
-  }, [suppliers.length, selectedSupplierId])
+    if (suppliers.length === 0) return
+    if (selectedSupplierId && suppliers.some(s => s.id === selectedSupplierId)) return
+    onSelectSupplier(suppliers[0].id)
+  }, [suppliers])
 
   const displayed = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

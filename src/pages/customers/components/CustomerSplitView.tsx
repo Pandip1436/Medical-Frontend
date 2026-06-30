@@ -63,13 +63,14 @@ export function CustomerSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select first customer when list loads and nothing selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedCustomerId && customers.length > 0) {
-      onSelectCustomer(customers[0].id)
-    }
-  }, [customers.length, selectedCustomerId])
+    if (customers.length === 0) return
+    if (selectedCustomerId && customers.some(c => c.id === selectedCustomerId)) return
+    onSelectCustomer(customers[0].id)
+  }, [customers])
 
   const displayed = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

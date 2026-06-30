@@ -131,12 +131,6 @@ export default function DebitNotesPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
 
-  // Split-view pagination state
-  const [splitPage, setSplitPage] = useState(1)
-  const [splitItems, setSplitItems] = useState<ApiReturn[]>([])
-  const [splitTotal, setSplitTotal] = useState(0)
-  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
-
   // Filters — usePageFilter for persistence across sessions
   const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.debitNotes', 'search', '')
   const [period, setPeriod] = usePageFilter<string>('purchase.debitNotes', 'period', 'today')
@@ -207,66 +201,6 @@ export default function DebitNotesPage() {
   useEffect(() => { fetchReturns() }, [fetchReturns])
   useBranchRefresh(fetchReturns)
 
-  // ── Split-view server-side pagination ──────────────────────────────────────
-
-  // Reset split pagination whenever any filter changes
-  useEffect(() => {
-    setSplitItems([])
-    setSplitTotal(0)
-    setSplitPage(1)
-  }, [period, dateFrom, dateTo, selectedType, selectedStatus, selectedSupplier, searchQuery])
-
-  // Fetch one page for the split view
-  useEffect(() => {
-    if (effectiveView !== 'split') return
-    const fetchSplitPage = async () => {
-      if (splitPage === 1) setSplitItems([])
-      setSplitLoadingMore(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
-        params.set('take', String(SPLIT_PAGE_SIZE))
-
-        // Period → dateFrom / dateTo
-        const now = new Date()
-        const todayStr = now.toISOString().slice(0, 10)
-        if (period === 'today') {
-          params.set('dateFrom', todayStr)
-          params.set('dateTo', todayStr)
-        } else if (period === 'week') {
-          params.set('dateFrom', weekStartISO(now))
-        } else if (period === 'month') {
-          const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-          params.set('dateFrom', monthStart)
-        } else if (period === 'quarter') {
-          const qMonth = Math.floor(now.getMonth() / 3) * 3
-          const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
-          params.set('dateFrom', quarterStart)
-        } else if (period === 'custom') {
-          if (dateFrom) params.set('dateFrom', dateFrom)
-          if (dateTo)   params.set('dateTo', dateTo)
-        }
-
-        if (selectedType !== 'all')     params.set('type', selectedType)
-        if (selectedStatus !== 'all')   params.set('status', selectedStatus)
-        if (selectedSupplier !== 'all') params.set('supplierId', selectedSupplier)
-        if (searchQuery.trim())         params.set('search', searchQuery.trim())
-
-        const res = await api.get(`/purchase-returns?${params.toString()}`)
-        const payload = res.data
-        const incoming: ApiReturn[] = payload?.data ?? (Array.isArray(payload) ? payload : [])
-        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
-        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
-        setSplitTotal(newTotal)
-      } catch {
-        // silent — avoid noisy toasts on scroll
-      } finally {
-        setSplitLoadingMore(false)
-      }
-    }
-    fetchSplitPage()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitPage, effectiveView])
 
   // Debit notes within the selected period only — drives both the summary
   // cards and the list, so the cards always reflect the period independent of
@@ -517,15 +451,12 @@ export default function DebitNotesPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <DebitNoteSplitView
-            debitNotes={splitItems}
-            loading={splitLoadingMore && splitPage === 1}
-            loadingMore={splitLoadingMore && splitPage > 1}
-            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
-            onLoadMore={() => setSplitPage(p => p + 1)}
+            debitNotes={pastReturns}
+            loading={returnsLoading}
             selectedDebitNoteId={selectedDebitNoteId}
             onSelectDebitNote={selectDebitNote}
             onExitSplitView={exitSplitView}
-            onRefresh={() => { setSplitItems([]); setSplitTotal(0); setSplitPage(1) }}
+            onRefresh={fetchReturns}
             isCardFieldVisible={cardCols.isVisible}
           />
         </div>

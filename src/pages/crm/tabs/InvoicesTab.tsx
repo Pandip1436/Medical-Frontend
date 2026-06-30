@@ -126,7 +126,7 @@ export function InvoicesTab({ lead, onCreateInvoice }: InvoicesTabProps) {
                 <li
                   key={inv.id}
                   className="flex cursor-pointer items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/30"
-                  onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                  onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

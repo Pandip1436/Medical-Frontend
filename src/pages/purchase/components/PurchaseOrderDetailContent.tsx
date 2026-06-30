@@ -154,21 +154,21 @@ export function PurchaseOrderDetailContent({ purchaseOrder: po, onRefresh }: Pur
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</p>
           <p className="font-mono text-base font-bold text-primary">{formatCurrency(po.totalAmount)}</p>
         </div>
-        <div className="flex flex-wrap gap-2 px-5 py-3">
-          <Button className="flex-1 gap-2" onClick={() => printPoPdf(poDoc)}>
-            <Printer className="h-4 w-4" />
-            Print
-          </Button>
-          <Button variant="outline" className="flex-1 gap-2" onClick={() => downloadPoPdf(poDoc)}>
+        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
+          <Button variant="outline" className="gap-2" onClick={() => downloadPoPdf(poDoc)}>
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Download PDF</span>
             <span className="sm:hidden">PDF</span>
+          </Button>
+          <Button className="gap-2" onClick={() => printPoPdf(poDoc)}>
+            <Printer className="h-4 w-4" />
+            Print
           </Button>
           {canReceive && (
             <Button
               variant={isPartial ? 'outline' : 'default'}
               className={cn(
-                'flex-1 gap-2',
+                'gap-2',
                 isPartial && 'border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/20',
               )}
               onClick={() => navigate(`/purchase/grn?poId=${po.id}`)}

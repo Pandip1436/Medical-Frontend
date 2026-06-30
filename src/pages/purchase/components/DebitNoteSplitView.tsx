@@ -65,13 +65,14 @@ export function DebitNoteSplitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // Auto-select first debit note when list loads and nothing is selected.
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedDebitNoteId && debitNotes.length > 0) {
-      onSelectDebitNote(debitNotes[0].id)
-    }
-  }, [debitNotes.length, selectedDebitNoteId])
+    if (debitNotes.length === 0) return
+    if (selectedDebitNoteId && debitNotes.some(dn => dn.id === selectedDebitNoteId)) return
+    onSelectDebitNote(debitNotes[0].id)
+  }, [debitNotes])
 
   const displayed = useMemo(() => {
     const q = localSearch.trim().toLowerCase()

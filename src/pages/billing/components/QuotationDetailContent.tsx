@@ -161,38 +161,38 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
           <p className="font-mono text-base font-bold">{formatCurrency(qt.total)}</p>
         </div>
 
-        <div className="flex flex-wrap gap-2 px-5 py-3">
-          {canMarkSent && (
-            <Button className="flex-1 gap-2" onClick={() => handleStatus('SENT')}>
-              <Send className="h-4 w-4" />
-              Mark as Sent
-            </Button>
-          )}
-          {canAccept && (
-            <Button variant="outline" className="flex-1 gap-2 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400" onClick={() => handleStatus('ACCEPTED')}>
-              <CheckCircle2 className="h-4 w-4" />
-              Accept
-            </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
+          {!canMarkSent && !canAccept && !canReject && !canConvert && (
+            <p className="text-xs text-muted-foreground italic">
+              No further actions for {statusLabel[qt.status].toLowerCase()} quotations.
+            </p>
           )}
           {canReject && (
-            <Button variant="outline" className="flex-1 gap-2 text-rose-700 hover:text-rose-700 dark:text-rose-400" onClick={() => handleStatus('REJECTED')}>
+            <Button variant="outline" className="gap-2 text-rose-700 hover:text-rose-700 dark:text-rose-400" onClick={() => handleStatus('REJECTED')}>
               <XCircle className="h-4 w-4" />
               Reject
             </Button>
           )}
+          {canAccept && (
+            <Button variant="outline" className="gap-2 text-emerald-700 hover:text-emerald-700 dark:text-emerald-400" onClick={() => handleStatus('ACCEPTED')}>
+              <CheckCircle2 className="h-4 w-4" />
+              Accept
+            </Button>
+          )}
+          {canMarkSent && (
+            <Button className="gap-2" onClick={() => handleStatus('SENT')}>
+              <Send className="h-4 w-4" />
+              Mark as Sent
+            </Button>
+          )}
           {canConvert && (
-            <Button variant={canMarkSent || canAccept ? 'outline' : 'default'} className="flex-1 gap-2" onClick={handleConvert}>
+            <Button variant={canMarkSent || canAccept ? 'outline' : 'default'} className="gap-2" onClick={handleConvert}>
               <ArrowRightLeft className="h-4 w-4" />
               <span className="hidden sm:inline">Convert to Invoice</span>
               <span className="sm:hidden">Convert</span>
             </Button>
           )}
-          {!canMarkSent && !canAccept && !canReject && !canConvert && (
-            <div className="flex-1 text-xs text-muted-foreground italic flex items-center">
-              No further actions for {statusLabel[qt.status].toLowerCase()} quotations.
-            </div>
-          )}
-          <Button variant="outline" className="shrink-0 gap-2" onClick={() => shareQuotationViaWhatsApp(qt, qt.customerPhone)}>
+          <Button variant="outline" className="gap-2" onClick={() => shareQuotationViaWhatsApp(qt, qt.customerPhone)}>
             <Share2 className="h-4 w-4" />
             Share
           </Button>

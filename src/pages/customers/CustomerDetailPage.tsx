@@ -778,9 +778,9 @@ export default function CustomerDetailPage() {
                         const balance = Number(r.balance ?? 0)
                         const target =
                           r.sourceType === 'INVOICE' && r.sourceId
-                            ? `/customers/invoices/detail?id=${r.sourceId}`
+                            ? `/billing/sales?view=split&invoiceId=${r.sourceId}`
                             : r.sourceType === 'CREDIT_NOTE' && r.sourceId
-                              ? `/billing/credit-notes?id=${r.sourceId}`
+                              ? `/billing/credit-notes?creditNoteId=${r.sourceId}`
                               : null
                         return (
                           <TableRow
@@ -849,7 +849,7 @@ export default function CustomerDetailPage() {
                     <TableRow
                       key={inv.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                      onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{inv.date ? formatDate(inv.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{inv.invoiceNumber}</TableCell>
@@ -904,7 +904,7 @@ export default function CustomerDetailPage() {
                     <TableRow
                       key={cn.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/billing/credit-notes?id=${cn.id}`)}
+                      onClick={() => navigate(`/billing/credit-notes?creditNoteId=${cn.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{cn.date ? formatDate(cn.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{cn.creditNoteNo}</TableCell>

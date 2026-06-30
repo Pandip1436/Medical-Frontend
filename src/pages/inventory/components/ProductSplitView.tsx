@@ -56,14 +56,16 @@ export function ProductSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.hasMore, list.loadMore])
 
-  // Auto-select first product on initial load
   const handleSelect = useCallback((id: string) => onSelectProduct(id), [onSelectProduct])
 
+  // When the list changes (filter/tab applied), keep the selection if it's
+  // still visible; otherwise snap to the first item in the new list.
   useEffect(() => {
-    if (!selectedProductId && list.data.length > 0) {
-      handleSelect(list.data[0].id)
-    }
-  }, [selectedProductId, list.data, handleSelect])
+    if (list.data.length === 0) return
+    if (selectedProductId && list.data.some(p => p.id === selectedProductId)) return
+    handleSelect(list.data[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.data])
 
   const detailContent = selectedProductId ? (
     <ProductDetailContent productId={selectedProductId} />
