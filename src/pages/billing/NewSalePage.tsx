@@ -637,7 +637,7 @@ function BillingRow({
       </TableCell>
 
       {/* Product + Schedule + Generic */}
-      <TableCell className="min-w-40 px-3 py-2.5 align-middle" ref={productRef}>
+      <TableCell className="min-w-32 px-3 py-2.5 align-middle" ref={productRef}>
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — manufacturer · generic */}
           <div className="h-3.5 flex items-center">
@@ -861,7 +861,7 @@ function BillingRow({
       </TableCell>
 
       {/* Batch + Expiry — helper on top, control below */}
-      <TableCell className="w-36 px-2 py-2.5 align-middle">
+      <TableCell className="w-32 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — expiry chip */}
           <div className="h-3.5 flex items-center justify-center">
@@ -922,7 +922,7 @@ function BillingRow({
 
       {/* MRP — editable in quotation mode (product may not exist in inventory),
           read-only reference in invoice mode (auto-filled from batch). */}
-  <TableCell className="w-24 px-2 py-2.5 align-middle">
+  <TableCell className="w-20 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5 items-end">
     {/* Helper Row */}
     <div className="min-h-5 flex items-center justify-end w-full">
@@ -949,7 +949,7 @@ function BillingRow({
         }}
         placeholder="0"
         className="
-          h-8 w-25 rounded-xl
+          h-8 w-full rounded-xl
           border border-border/40
           bg-muted/20
           px-2
@@ -998,7 +998,7 @@ function BillingRow({
 </TableCell>
 
       {/* Qty — helper on top, stepper below */}
-     <TableCell className="w-36 px-2 py-2.5 align-middle">
+     <TableCell className="w-28 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
     {/* Stock Available */}
     <div className="min-h-5 flex items-center justify-center">
@@ -1094,7 +1094,7 @@ function BillingRow({
 
       {/* Rate — original price diff on top (MRP moved to its own column), editable stepper below */}
      {/* Rate Column */}
-<TableCell className="w-40 px-2 py-2.5 align-middle">
+<TableCell className="w-32 px-2 py-2.5 align-middle">
   {(() => {
     const originalRate = selectedProduct
       ? Number(
@@ -1228,7 +1228,7 @@ function BillingRow({
 </TableCell>
 
       {/* Disc% — helper spacer on top to align with other cells */}
-   <TableCell className="w-20 px-2 py-2.5 align-middle">
+   <TableCell className="w-16 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
     {/* Helper Row */}
     <div className="min-h-5 flex items-center justify-center">
@@ -1303,7 +1303,7 @@ function BillingRow({
 </TableCell>
 
       {/* GST — editable in quotation mode (no fixed product GST rate), badge in invoice mode */}
-     <TableCell className="w-26 px-2 py-2.5 text-center align-middle">
+     <TableCell className="w-18 px-1 py-2.5 text-center align-middle">
   <div className="flex flex-col gap-1.5 items-center">
     {/* Helper Row */}
     <div className="min-h-5 flex items-center justify-center">
@@ -1342,7 +1342,7 @@ function BillingRow({
         }}
         placeholder="0"
         className="
-          h-8 w-20 rounded-xl
+          h-8 w-full rounded-xl
           border border-border/40
           bg-muted/20
           text-center
@@ -1390,7 +1390,7 @@ function BillingRow({
 
       {/* Taxable — pre-GST base. Rate is GST-inclusive, so back it out of the
           post-discount line amount: amount ÷ (1 + gst%). */}
-      <TableCell className="w-24 px-2 py-2.5 text-right align-middle">
+      <TableCell className="w-20 px-2 py-2.5 text-right align-middle">
         <div className="flex flex-col gap-0.5 items-end">
           <div className="h-3.5" aria-hidden />
           <span className={cn(
@@ -1405,7 +1405,7 @@ function BillingRow({
       </TableCell>
 
       {/* GST ₹ — tax amount inside the line: amount − taxable base. */}
-      <TableCell className="w-24 px-2 py-2.5 text-right align-middle">
+      <TableCell className="w-20 px-2 py-2.5 text-right align-middle">
         <div className="flex flex-col gap-0.5 items-end">
           <div className="h-3.5" aria-hidden />
           <span className={cn(
@@ -1420,7 +1420,7 @@ function BillingRow({
       </TableCell>
 
       {/* Amount */}
-      <TableCell className="w-27.5 px-3 py-2.5 text-right align-middle">
+      <TableCell className="w-24 px-3 py-2.5 text-right align-middle">
         <div className="flex flex-col gap-0.5 items-end">
           <div className="h-3.5" aria-hidden />
           <span className={cn(
@@ -1468,16 +1468,16 @@ function BillingRow({
         {/* Column labels for the sub-rows */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6 border-b border-violet-200/30 dark:border-violet-800/20">
           <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="min-w-40 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
+          <TableCell className="min-w-32 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
           <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-27.5 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
-          <TableCell className="w-36 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-28 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
+          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-16 px-2 py-1 align-middle"></TableCell>
+          <TableCell className="w-18 px-1 py-1 align-middle"></TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-14 px-1 py-1 align-middle"></TableCell>
-          <TableCell className="w-24 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-24 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-27.5 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
+          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
+          <TableCell className="w-24 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
           <TableCell className="w-10 px-1 py-1 align-middle"></TableCell>
         </TableRow>
         {/* Per-history record rows */}
@@ -1490,7 +1490,7 @@ function BillingRow({
             )}
           >
             <TableCell className="w-10 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="min-w-40 px-3 py-1.5 align-middle">
+            <TableCell className="min-w-32 px-3 py-1.5 align-middle">
               <div className="flex items-center gap-2 text-[10px]">
                 <span className="text-muted-foreground/60 whitespace-nowrap shrink-0">
                   {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
@@ -1500,13 +1500,13 @@ function BillingRow({
             </TableCell>
             <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-27.5 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
-            <TableCell className="w-36 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-28 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
+            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-16 px-2 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-18 px-1 py-1.5 align-middle"></TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-14 px-1 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-24 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-24 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-27.5 px-3 py-1.5 text-right align-middle">
+            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-24 px-3 py-1.5 text-right align-middle">
               <Badge
                 variant={h.status === 'PAID' ? 'success' : h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
                 size="sm"
@@ -5423,22 +5423,27 @@ export default function NewSalePage() {
                 {tableView === 'products' && (
                   <div className="flex-1 flex flex-col min-h-0">
                     <div className="flex-1 flex flex-col min-h-0 relative">
-                      {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. min-w bumped to 960px to match real column widths. */}
+                      {/* responsive: was overflow-x-hidden, which silently clipped columns when the panel was narrower than the table's ~880px content. Now scrolls horizontally so all columns stay reachable on tablets and narrower laptops. Columns compacted (Qty/Rate/GST/Disc/derived cols tightened) so the table fits the panel without horizontal scroll on typical laptops. */}
                       <div className="hidden md:block absolute inset-0 [&>div]:h-full [&>div]:rounded-none [&>div]:border-0 [&>div]:overflow-y-auto [&>div]:overflow-x-auto">
-                        <Table className="w-full min-w-225">
+                        {/* 80% zoom on the table grid only: shrinks all columns
+                            to fit the panel width without horizontal scroll, while
+                            the scroll viewport (outer wrapper) stays full size.
+                            Scoped to this sales table — the rest of the page and
+                            other screens are unaffected. */}
+                        <Table className="w-full min-w-200 [zoom:0.8]">
                           <TableHeader className="sticky top-0 z-20 bg-gradient-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
                             <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-[0.1em] text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
-                              <TableHead className="min-w-40 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
+                              <TableHead className="min-w-32 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
                               <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
-                              <TableHead className="w-36 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
-                              <TableHead className="w-44 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
-                              <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
-                              <TableHead className="w-14 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
-                              <TableHead className="w-24 px-2 py-3.5 text-right h-auto whitespace-nowrap">Taxable</TableHead>
-                              <TableHead className="w-24 px-2 py-3.5 text-right h-auto whitespace-nowrap">GST ₹</TableHead>
-                              <TableHead className="w-27.5 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
+                              <TableHead className="w-28 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
+                              <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
+                              <TableHead className="w-16 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
+                              <TableHead className="w-18 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
+                              <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">Taxable</TableHead>
+                              <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">GST ₹</TableHead>
+                              <TableHead className="w-24 px-3 py-3.5 text-right h-auto whitespace-nowrap">Amount</TableHead>
                               <TableHead className="w-10 px-1 py-3.5 h-auto"></TableHead>
                             </TableRow>
                           </TableHeader>
@@ -6235,7 +6240,7 @@ export default function NewSalePage() {
             {/* ═══════════════════════════════════════════════════
                 UNIFIED CHECKOUT PANEL — Payment + Actions in one card
             ═══════════════════════════════════════════════════ */}
-            <Card className="flex-1 flex flex-col min-h-0 shadow-md shadow-black/5 border-border/60 ring-1 ring-border/30">
+            <Card className="flex-1 flex flex-col min-h-0 shadow-md shadow-black/5 border-border/60 ring-1 ring-border/30  [zoom:0.9]">
               {/* Single scroll region: Order Summary + Payment scroll together so credit-mode content (Outstanding card + Due Date) is always reachable on short laptop screens. Net Payable also shown on the F8 Save & Print button so it isn't lost when scrolled. */}
               <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
                 {/* Invoice Summary Section — moved from footer */}

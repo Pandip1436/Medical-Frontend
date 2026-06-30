@@ -5,9 +5,7 @@ import {
   Sun,
   Moon,
   ChevronRight,
-  User,
   Settings,
-  HelpCircle,
   LogOut,
   Menu,
   Building2,
@@ -295,20 +293,8 @@ export function Header({ breadcrumbs }: HeaderProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <a href={hashHref('/settings')} className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Profile
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <a href={hashHref('/settings')} className="flex items-center gap-2">
                 <Settings className="h-4 w-4" />
                 Settings
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <a href={hashHref('/dashboard')} className="flex items-center gap-2">
-                <HelpCircle className="h-4 w-4" />
-                Help
               </a>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

@@ -912,6 +912,7 @@ export default function NotificationsPage() {
                         onClick={() => selectCategory(cat.key)}
                         className={cn(
                           'group relative flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-all lg:w-full lg:shrink',
+                          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                           isActive
                             ? 'bg-gradient-to-r from-accent to-accent/40 font-medium text-foreground shadow-sm ring-1 ring-border/50'
                             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'

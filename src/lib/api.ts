@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 
 // Single source of truth for the API base URL.
 // Set VITE_API_URL in .env.production for deployment.
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+export const API_BASE_URL = import.meta.env.VITE_API_URL
 
 // Extension to AxiosRequestConfig: callers can suppress the global error
 // toast for a specific request when they want to render their own field-level
@@ -51,12 +51,11 @@ api.interceptors.request.use(
 
     const branchId = getActiveBranchId();
     if (branchId && config.url && !isBranchExempt(config.url)) {
-      // GET: inject as query param
-      if (config.method === 'get') {
-        config.params = { ...config.params, branchId };
-      }
-      // POST/PUT/PATCH: inject as query param so ValidationPipe whitelist doesn't strip it
-      if (['post', 'put', 'patch'].includes(config.method ?? '')) {
+      // Inject as a query param for every method (incl. DELETE). Using a query
+      // param — rather than the body — keeps it safe from the backend's
+      // ValidationPipe whitelist (which would strip an unknown body field) and
+      // works for methods that have no body (GET/DELETE).
+      if (['get', 'post', 'put', 'patch', 'delete'].includes(config.method ?? '')) {
         config.params = { ...config.params, branchId };
       }
     }

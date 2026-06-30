@@ -56,6 +56,10 @@ interface NavItem {
   icon: LucideIcon
   href: string
   adminOnly?: boolean
+  // Roles for which this item is hidden from the sidebar even though the
+  // page itself stays accessible (e.g. Notifications is reached via the
+  // header bell for salespersons, so the sidebar entry is decluttered).
+  hiddenForRoles?: string[]
   // Highlighted shortcut (e.g. Quick Sale): rendered as an accent action
   // button rather than a plain link, and skips active-state styling.
   action?: boolean
@@ -79,7 +83,7 @@ const navigationGroups: NavGroup[] = [
     alwaysOpen: true,
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-      { label: 'Notifications', icon: Bell, href: '/notifications' },
+      { label: 'Notifications', icon: Bell, href: '/notifications', hiddenForRoles: ['SALESPERSON'] },
       { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
       { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals', adminOnly: true },
       { label: 'Quick Sale', icon: Zap, href: '/billing/new', action: true },
@@ -310,6 +314,9 @@ export function Sidebar({ currentPath }: SidebarProps) {
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => {
+          // Per-role sidebar hide — page stays accessible (e.g. reached via
+          // the header bell), only the nav entry is removed for these roles.
+          if (item.hiddenForRoles && userRoles(user).some((r) => item.hiddenForRoles!.includes(r))) return false
           if (allowedPaths === null) return true // Admin: all items
           if (item.adminOnly) return false // non-admin never sees adminOnly items
           return allowedPaths.has(item.href)

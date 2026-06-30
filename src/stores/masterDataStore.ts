@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import api from '@/lib/api'
 import type { Product, Customer, Batch, Supplier, PurchaseOrder, Category } from '@/types'
+import { userRoles, isAdminish } from '@/types'
+import { useAuthStore } from '@/stores/authStore'
+import { rolePermissions } from '@/App'
 
 interface MasterDataState {
   products: Product[]
@@ -44,6 +47,16 @@ function unwrapList<T>(data: unknown): T[] {
   return Array.isArray(wrapped) ? (wrapped as T[]) : []
 }
 
+// Best-effort access check mirroring App's canAccess. Used to skip master-data
+// fetches a role can't reach (e.g. SALESPERSON has no supplier/purchase access)
+// so they don't 403 — and toast "Forbidden" — on every app load.
+function canReach(path: string): boolean {
+  const user = useAuthStore.getState().user
+  return isAdminish(user) || userRoles(user).some((r) => (rolePermissions[r] ?? []).includes(path))
+}
+const canReachSuppliers = () =>
+  canReach('/purchase/suppliers') || canReach('/purchase/suppliers/outstanding')
+
 export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   products: [],
   batches: [],
@@ -58,11 +71,21 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     if (get().isLoading) return  // prevent duplicate in-flight calls
     set({ isLoading: true })
     try {
+      // Suppliers + purchase orders are purchase-side master data. Roles with
+      // no purchase access (e.g. SALESPERSON) would only 403 on these, so we
+      // skip the preload for them — they get empty lists instead of a row of
+      // "Forbidden" error toasts on every app load. Gating reuses the same
+      // rolePermissions map that drives sidebar/route access.
+      const wantSuppliers = canReachSuppliers()
+      const wantPurchaseOrders = canReach('/purchase/orders')
+
       const results = await Promise.allSettled([
         api.get('/products'),
         api.get('/customers'),
-        api.get('/suppliers'),
-        api.get('/purchase-orders'),
+        wantSuppliers ? api.get('/suppliers') : Promise.resolve({ data: [] as Supplier[] }),
+        wantPurchaseOrders
+          ? api.get('/purchase-orders')
+          : Promise.resolve({ data: [] as PurchaseOrder[] }),
       ])
 
       const [prodRes, custRes, suppRes, poRes] = results
@@ -139,6 +162,12 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     inFlight.suppliers = (async () => {
       set({ isLoading: true })
       try {
+        // Skip for roles with no supplier access (e.g. SALESPERSON opening the
+        // Products page, which preloads suppliers for a filter it won't show).
+        if (!canReachSuppliers()) {
+          set({ suppliers: [] })
+          return
+        }
         const res = await api.get('/suppliers')
         const suppliers: Supplier[] = unwrapList<Supplier>(res.data)
         set({ suppliers })

@@ -65,7 +65,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
     if (!isCourierApplicable) return
     let active = true
     api
-      .get(`/delivery/invoice/${invoice.id}`)
+      // Optional feature + not every role can read delivery (e.g. SALESPERSON),
+      // so suppress the global error toast — a 403/empty here is non-fatal.
+      .get(`/delivery/invoice/${invoice.id}`, { suppressGlobalToast: true } as any)
       .then((r) => { if (active) setDelivery(r.data ?? null) })
       .catch(() => { /* tracking is optional — ignore */ })
     return () => { active = false }

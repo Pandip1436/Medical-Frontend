@@ -10,6 +10,7 @@ import type { DeliveryStatus } from '@/types'
 export const COURIERS = [
   'ST Courier',
   'The Professional Couriers',
+  'Shree Tirupati Courier',
   'DTDC',
   'Blue Dart',
   'Delhivery',
@@ -29,6 +30,7 @@ export interface OcrResult {
 // Map of detectable keywords → canonical courier name.
 const COURIER_KEYWORDS: { match: RegExp; name: string }[] = [
   { match: /professional\s*couri?er/i, name: 'The Professional Couriers' },
+  { match: /shree\s*tirupati|tirupati\s*couri?er/i, name: 'Shree Tirupati Courier' },
   { match: /\bst\s*couri?er/i, name: 'ST Courier' },
   { match: /\bdtdc\b/i, name: 'DTDC' },
   { match: /blue\s*dart/i, name: 'Blue Dart' },
