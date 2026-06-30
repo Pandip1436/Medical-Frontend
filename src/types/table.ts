@@ -10,4 +10,8 @@ export interface ColumnDef {
   required?: boolean
   /** Whether the column is shown by default (before the user customizes). */
   defaultVisible?: boolean
+  /** Whether the user can reposition this field left ↔ right in the card. */
+  positionable?: boolean
+  /** Default side of the card row when positionable. */
+  defaultPosition?: 'left' | 'right'
 }

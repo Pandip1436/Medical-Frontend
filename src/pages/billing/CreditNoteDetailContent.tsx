@@ -475,7 +475,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
       </div>
 
       {/* ── Actions — sticky bar at the bottom of the viewport ── */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         {canReview ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {/* Reject stays enabled even with an empty note — handleReject toasts

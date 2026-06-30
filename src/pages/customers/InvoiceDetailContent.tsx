@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Printer, Download, ShoppingCart, Wallet,
   Stethoscope, CalendarDays, CalendarClock, Pencil,
-  Send, QrCode, RefreshCw, History, Eye, Phone, MapPin,
+  Send, QrCode, History, Eye, Phone, MapPin,
   Truck, Loader2, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -50,7 +50,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const [collectSubmitting, setCollectSubmitting] = useState(false)
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false)
   const [regeneratingQr, setRegeneratingQr] = useState(false)
-  const [reconciling, setReconciling] = useState(false)
   // On-screen invoice preview — the same styled document the New Sale page shows.
   const [previewOpen, setPreviewOpen] = useState(false)
   // Courier toggle — reflects whether a delivery tracking record exists for
@@ -125,29 +124,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
       toast.error(typeof msg === 'string' ? msg : 'Failed to generate payment QR')
     } finally {
       setRegeneratingQr(false)
-    }
-  }
-
-  const handleReconcile = async () => {
-    setReconciling(true)
-    try {
-      const res = await api.post(`/billing/${invoice.id}/reconcile-payment-link`)
-      const applied = res.data?.applied ?? []
-      const newPayments = applied.filter((a: any) => !a.duplicate)
-      if (newPayments.length === 0) {
-        toast.info('No new payments found at the gateway')
-      } else {
-        toast.success(`Reconciled ${newPayments.length} payment(s) from gateway`)
-        // Re-fetch the invoice so the UI reflects the updated paid amount.
-        try {
-          const fresh = await api.get(`/billing/${invoice.id}`)
-          onUpdated(fresh.data)
-        } catch { /* swallow — toast already shown */ }
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to reconcile payment')
-    } finally {
-      setReconciling(false)
     }
   }
 
@@ -482,39 +458,35 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
               </div>
             )}
 
-            {/* Totals — right-aligned boxed summary (one row per line, the grand
-                total highlighted). When collecting, this sits in the right
-                grid column; when fully paid it right-aligns on its own. */}
-            <div className="flex justify-end">
-              <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:max-w-xs">
-                <div className="divide-y divide-border/30">
-                  {([
-                    { label: 'Subtotal', value: Number(invoice.subtotal) },
-                    Number(invoice.productDiscount) > 0 ? { label: 'Discount', value: -Number(invoice.productDiscount) } : null,
-                    { label: 'Taxable', value: Number(invoice.taxableAmount) },
-                    { label: 'CGST', value: Number(invoice.cgst) },
-                    { label: 'SGST', value: Number(invoice.sgst) },
-                    Number(invoice.igst) > 0 ? { label: 'IGST', value: Number(invoice.igst) } : null,
-                    Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery / Packaging', value: Number(invoice.deliveryCharge) } : null,
-                    Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: Number(invoice.roundOff) } : null,
-                  ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
-                    <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                      <span className="text-[13px] text-muted-foreground">{row.label}</span>
-                      <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between border-t-2 border-border/60 bg-emerald-50 px-4 py-3 dark:bg-emerald-950/20">
-                  <span className="text-xs font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Grand Total</span>
+            {/* Totals — compact single horizontal row to save vertical space */}
+            <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                {([
+                  { label: 'Subtotal', value: Number(invoice.subtotal) },
+                  Number(invoice.productDiscount) > 0 ? { label: 'Disc', value: -Number(invoice.productDiscount) } : null,
+                  { label: 'Taxable', value: Number(invoice.taxableAmount) },
+                  { label: 'CGST', value: Number(invoice.cgst) },
+                  { label: 'SGST', value: Number(invoice.sgst) },
+                  Number(invoice.igst) > 0 ? { label: 'IGST', value: Number(invoice.igst) } : null,
+                  Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(invoice.deliveryCharge) } : null,
+                  Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: Number(invoice.roundOff) } : null,
+                ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
+                  <div key={row.label} className="flex items-center gap-1">
+                    <span className="text-[11px] text-muted-foreground">{row.label}</span>
+                    <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
+                  </div>
+                ))}
+                <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Grand Total</span>
                   <span className="font-mono text-lg font-black tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(grandTotal)}</span>
                 </div>
-                {amountPaid > 0 && (
-                  <div className="flex items-center justify-between border-t border-border/30 px-4 py-2.5">
-                    <span className="text-[13px] text-muted-foreground">Paid</span>
-                    <span className="font-mono text-sm tabular-nums text-emerald-600 dark:text-emerald-400">{formatCurrency(amountPaid)}</span>
-                  </div>
-                )}
               </div>
+              {amountPaid > 0 && (
+                <div className="mt-1.5 flex items-center gap-3 border-t border-border/30 pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Paid</span>
+                  <span className="font-mono text-sm tabular-nums text-emerald-600 dark:text-emerald-400">{formatCurrency(amountPaid)}</span>
+                </div>
+              )}
             </div>
           </div>
         )
@@ -533,7 +505,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           stays reachable while scrolling the invoice. Server actions (WhatsApp
           / QR / Sync) sit to the left of the document actions (Download /
           Print). Edit & Repurchase live in the top header. */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         {isAutoSendApplicable && (
           <>
             <Button
@@ -555,16 +527,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             >
               <QrCode className={`h-4 w-4 ${regeneratingQr ? 'animate-pulse' : ''}`} />
               {regeneratingQr ? 'Generating…' : 'Generate QR'}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 gap-2"
-              onClick={handleReconcile}
-              disabled={reconciling}
-              title="Poll Razorpay for payments captured against this invoice's QR. Use if a webhook was missed."
-            >
-              <RefreshCw className={`h-4 w-4 ${reconciling ? 'animate-spin' : ''}`} />
-              {reconciling ? 'Syncing…' : 'Sync Payment'}
             </Button>
             <span className="mx-1 hidden h-6 w-px bg-border/60 sm:block" aria-hidden />
           </>

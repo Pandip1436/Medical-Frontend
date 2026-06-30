@@ -875,34 +875,28 @@ export function GRNDetailContent({
         </div>
       )}
 
-      {/* GST / tax breakdown — always shown (single or multi item). Taxable
-          base + CGST/SGST (derived from the GST-inclusive PE total) + grand total. */}
-      <div className="flex justify-end">
-        <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:w-72">
-          <div className="border-b border-border/40 bg-muted/20 px-4 py-2.5">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Tax Summary</p>
+      {/* GST / tax breakdown — compact single horizontal row */}
+      <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">Taxable</span>
+            <span className="font-mono text-sm tabular-nums">{formatCurrency(taxableView)}</span>
           </div>
-          <div className="divide-y divide-border/40">
-            <div className="flex items-center justify-between px-4 py-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Taxable Amount</span>
-              <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(taxableView)}</span>
-            </div>
-            {gstTotalView > 0 && (
-              <>
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CGST</span>
-                  <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(cgstView)}</span>
-                </div>
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">SGST</span>
-                  <span className="font-mono text-sm font-semibold tabular-nums">{formatCurrency(sgstView)}</span>
-                </div>
-              </>
-            )}
-            <div className="flex items-center justify-between bg-primary/5 px-4 py-2.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</span>
-              <span className="font-mono text-sm font-bold tabular-nums text-primary">{formatCurrency(grandTotalView)}</span>
-            </div>
+          {gstTotalView > 0 && (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">CGST</span>
+                <span className="font-mono text-sm tabular-nums">{formatCurrency(cgstView)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">SGST</span>
+                <span className="font-mono text-sm tabular-nums">{formatCurrency(sgstView)}</span>
+              </div>
+            </>
+          )}
+          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Grand Total</span>
+            <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(grandTotalView)}</span>
           </div>
         </div>
       </div>

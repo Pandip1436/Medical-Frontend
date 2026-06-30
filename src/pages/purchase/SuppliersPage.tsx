@@ -14,6 +14,8 @@ import {
   AlertCircle,
   ClipboardList,
   Upload,
+  Filter,
+  BarChart3,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -50,7 +52,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn, formatCurrency } from '@/lib/utils'
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import {
   exportSuppliersToWorkbook,
@@ -60,8 +62,11 @@ import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ImportSuppliersDrawer } from '@/components/suppliers/ImportSuppliersDrawer'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { SupplierSplitView } from './components/SupplierSplitView'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { Supplier } from '@/types'
@@ -113,8 +118,33 @@ const SUPPLIER_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'paymentTerms', label: 'Payment Terms', defaultVisible: true },
+  { id: 'gstin', label: 'GSTIN', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
+
 export default function SuppliersPage() {
   const cols = useColumnVisibility('purchase.suppliers', SUPPLIER_COLUMNS)
+  const cardCols = useColumnVisibility('purchase.suppliers.card', CARD_FIELDS)
+  const { search: routeSearch } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
+
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedSupplierId = urlParams.get('supplierId')
+
+  const selectSupplier = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/purchase/suppliers') return
+    const params = new URLSearchParams()
+    if (id) params.set('supplierId', id)
+    navigate(`/purchase/suppliers${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/purchase/suppliers?view=table')
+  }, [])
   // Master store is kept only for the directory-wide stats cards (counts that
   // don't change with filters), and for the importSuppliers action.
   const {
@@ -128,21 +158,25 @@ export default function SuppliersPage() {
 
   // ── Server-side filtered/paginated supplier list ──
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [allSuppliers, setAllSuppliers] = useState<Supplier[]>([])
   const [totalSuppliers, setTotalSuppliers] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
 
-  // Search
-  const [searchQuery, setSearchQuery] = usePersistedState('filters:purchase.suppliers:search', '')
+  // Filters (usePageFilter for persistence)
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.suppliers', 'search', '')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('purchase.suppliers', 'status', 'all')
+  const [selectedPaymentTerms, setSelectedPaymentTerms] = usePageFilter<string>('purchase.suppliers', 'paymentTerms', 'all')
+  const [selectedGstin, setSelectedGstin] = usePageFilter<string>('purchase.suppliers', 'gstin', 'all')
+  const [outstandingMin, setOutstandingMin] = usePageFilter<string>('purchase.suppliers', 'outMin', '')
+  const [outstandingMax, setOutstandingMax] = usePageFilter<string>('purchase.suppliers', 'outMax', '')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.suppliers', 'splitShowStats', true)
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Multi-sheet history import — handled in its own drawer.
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
-
-  // ── Filters (persisted to sessionStorage so they survive refresh + back) ──
-  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:purchase.suppliers:status', 'all')
-  const [selectedPaymentTerms, setSelectedPaymentTerms] = usePersistedState<string>('filters:purchase.suppliers:paymentTerms', 'all')
-  const [selectedGstin, setSelectedGstin] = usePersistedState<string>('filters:purchase.suppliers:gstin', 'all')
-  const [outstandingMin, setOutstandingMin] = usePersistedState('filters:purchase.suppliers:outMin', '')
-  const [outstandingMax, setOutstandingMax] = usePersistedState('filters:purchase.suppliers:outMax', '')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -179,11 +213,14 @@ export default function SuppliersPage() {
         const res = await api.get(`/suppliers?${buildQueryParams().toString()}`, { signal: controller.signal })
         const payload = res.data
         const items = (payload?.data ?? payload ?? []) as Supplier[]
+        const isFirstPage = (currentPage - 1) * PAGE_SIZE === 0
         setSuppliers(items)
+        setAllSuppliers((prev) => (isFirstPage ? items : [...prev, ...items]))
         setTotalSuppliers(typeof payload?.total === 'number' ? payload.total : items.length)
       } catch (err: any) {
         if (err?.name !== 'CanceledError' && err?.code !== 'ERR_CANCELED') {
           setSuppliers([])
+          setAllSuppliers([])
           setTotalSuppliers(0)
         }
       } finally {
@@ -374,6 +411,137 @@ export default function SuppliersPage() {
     }
   }
 
+  if (effectiveView === 'split') {
+    const ms = moneySummary
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total', value: (ms?.totalCount ?? stats.totalCount).toString(), sub: 'suppliers', borderAccent: 'border-l-blue-500' },
+                  { label: 'Active', value: (ms?.activeCount ?? stats.activeCount).toString(), sub: 'in directory', borderAccent: 'border-l-emerald-500' },
+                  { label: 'Purchases', value: formatCurrency(ms?.totalPurchases ?? 0), sub: 'all time', borderAccent: 'border-l-purple-500' },
+                  { label: 'Pending Payment', value: formatCurrency(ms?.pendingPayments ?? 0), sub: 'outstanding', borderAccent: 'border-l-rose-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={`border-l-[3px] ${s.borderAccent}`}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={splitShowFilters ? 'border-primary/50 bg-primary/5' : ''}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={splitShowStats ? 'border-primary/50 bg-primary/5' : ''}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={openAddDialog}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Add Supplier</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Status" value={selectedStatus} onValueChange={setSelectedStatus} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
+                  <EnumSelect label="Payment Terms" value={selectedPaymentTerms} onValueChange={setSelectedPaymentTerms} onClear={() => setSelectedPaymentTerms('all')} options={PAYMENT_TERMS_OPTIONS} />
+                  <EnumSelect label="GSTIN" value={selectedGstin} onValueChange={setSelectedGstin} onClear={() => setSelectedGstin('all')} options={GSTIN_OPTIONS} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => clearFilters()}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <SupplierSplitView
+            suppliers={allSuppliers}
+            loading={isLoading && currentPage === 1}
+            loadingMore={isLoading && currentPage > 1}
+            hasMore={allSuppliers.length < totalSuppliers && !isLoading}
+            onLoadMore={() => setCurrentPage((p) => p + 1)}
+            selectedSupplierId={selectedSupplierId}
+            onSelectSupplier={selectSupplier}
+            onExitSplitView={exitSplitView}
+            onRefresh={() => fetchMasterData()}
+            isCardFieldVisible={cardCols.isVisible}
+          />
+        </div>
+
+        {/* Dialogs (form + confirm) still needed even in split mode */}
+        <SupplierFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          editingSupplier={editingSupplier}
+          onSaved={() => { void fetchMasterData(); setDialogOpen(false) }}
+        />
+      </div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -524,6 +692,7 @@ export default function SuppliersPage() {
               <span className="hidden sm:inline">Purchase Orders</span>
               <span className="sm:hidden">POs</span>
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/suppliers') }} />
           </div>
         }
       >

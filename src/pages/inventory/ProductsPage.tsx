@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -7,6 +7,7 @@ import {
   Plus, Upload, Download,
   FileDown, FileSpreadsheet,
   Package, AlertTriangle, Layers, PowerOff, Power,
+  Filter, BarChart3, X, ChevronDown, Printer,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -40,13 +41,16 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
-import { navigate } from '@/lib/router'
-import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
+import { navigate, useRoute } from '@/lib/router'
+import { exportToCsv, exportToPdf, printReport, csvText } from '@/lib/exportUtils'
 import { importFromExcel } from '@/lib/excelUtils'
 import { ImportProductsDrawer } from '@/components/products/ImportProductsDrawer'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { ProductSplitView } from './components/ProductSplitView'
 import {
   exportProductsToWorkbook,
   type ProductExportPayload,
@@ -75,8 +79,17 @@ const PRODUCT_COLUMNS: ColumnDef[] = [
   { id: 'rack', label: 'Rack', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'name', label: 'Product Name', required: true, defaultVisible: true },
+  { id: 'mrp', label: 'MRP', defaultVisible: true },
+  { id: 'generic', label: 'Generic Name', defaultVisible: true },
+  { id: 'category', label: 'Category / Manufacturer', defaultVisible: true },
+  { id: 'stock', label: 'Stock Level', defaultVisible: true },
+]
+
 export default function ProductsPage() {
   const cols = useColumnVisibility('inventory.products', PRODUCT_COLUMNS)
+  const cardCols = useColumnVisibility('inventory.products.card', CARD_FIELDS)
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const importProducts = useMasterDataStore(s => s.importProducts)
@@ -106,11 +119,17 @@ export default function ProductsPage() {
       .catch(() => {})
   }, [])
 
-  const [search, setSearch] = usePersistedState('filters:inventory.products:search', '')
-  const [selectedCategoryId, setSelectedCategoryId] = usePersistedState('filters:inventory.products:category', 'all')
-  const [selectedSchedule, setSelectedSchedule] = usePersistedState('filters:inventory.products:schedule', 'all')
-  const [selectedStatus, setSelectedStatus] = usePersistedState('filters:inventory.products:status', 'all')
+  const [search, setSearch] = usePageFilter<string>('inventory.products', 'search', '')
+  const [selectedCategoryId, setSelectedCategoryId] = usePageFilter<string>('inventory.products', 'category', 'all')
+  const [selectedSchedule, setSelectedSchedule] = usePageFilter<string>('inventory.products', 'schedule', 'all')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('inventory.products', 'status', 'all')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('inventory.products', 'splitShowStats', true)
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadFilterPrefs() }, [])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   // Product pending deletion — drives the premium confirm dialog.
@@ -137,6 +156,22 @@ export default function ProductsPage() {
   const [activeSection, setActiveSection] = useState('basic')
 
   const refreshPage = useCallback(() => setRefreshKey(k => k + 1), [])
+
+  // ── Split-view URL-driven state ──────────────────────────────
+  const { search: routeSearch } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
+  // Split is the default. Pass ?view=table to switch to table mode.
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedProductId = urlParams.get('productId')
+
+  const selectProduct = useCallback((id: string) => {
+    if (window.location.pathname !== '/inventory/products') return
+    const p = new URLSearchParams()
+    if (id) p.set('productId', id)
+    navigate(`/inventory/products?${p.toString()}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => navigate('/inventory/products?view=table'), [])
 
   useEffect(() => {
     let isSubscribed = true
@@ -464,6 +499,216 @@ export default function ProductsPage() {
     ...categories.map(c => ({ value: c.id, label: c.name })),
   ]
 
+  const activeFilterCount = (selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)
+  const clearFilters = () => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }
+
+  const SCHEDULE_OPTIONS = [
+    { value: 'all', label: 'All Schedules' },
+    { value: 'H', label: 'Schedule H' },
+    { value: 'H1', label: 'Schedule H1' },
+    { value: 'X', label: 'Schedule X' },
+    { value: 'G', label: 'Schedule G' },
+    { value: 'NONE', label: 'None' },
+  ] as const
+
+  const STATUS_OPTIONS = [
+    { value: 'all', label: 'All Status' },
+    { value: 'active', label: 'Active' },
+    { value: 'inactive', label: 'Inactive' },
+  ] as const
+
+  // ── Split-view early return ──────────────────────────────────
+  if (effectiveView === 'split') {
+    const splitExportMenu = (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56 p-1.5">
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
+            onClick={handleExportExcel}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <FileSpreadsheet className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">Excel</span>
+              <span className="text-[11px] text-muted-foreground">Round-trip import workbook</span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  { label: 'Total Products', value: summaryStats.total, subtitle: 'in catalog', icon: Package, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
+                  { label: 'Low Stock', value: summaryStats.lowStock, subtitle: 'below min level', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
+                  { label: 'Out of Stock', value: summaryStats.outOfStock, subtitle: 'zero stock', icon: Package, iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500' },
+                  { label: 'Categories', value: summaryStats.categories, subtitle: 'product groups', icon: Layers, iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
+                ].map((stat) => (
+                  <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+                    <CardContent className="flex items-center gap-3 p-3">
+                      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                        <stat.icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                        <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar row */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {splitExportMenu}
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setImportDrawerOpen(true)}
+          >
+            <Upload className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Import</span>
+          </Button>
+          <Button size="sm" onClick={openAddDialog}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Add Product</span>
+          </Button>
+          <ViewModeToggle
+            view="split"
+            onViewChange={(v) => { if (v === 'table') exitSplitView() }}
+          />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect
+                    label="Category"
+                    value={selectedCategoryId}
+                    onValueChange={(val) => { setSelectedCategoryId(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedCategoryId('all'); setCurrentPage(1) }}
+                    options={categoryFilterOptions}
+                  />
+                  <EnumSelect
+                    label="Schedule"
+                    value={selectedSchedule}
+                    onValueChange={(val) => { setSelectedSchedule(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedSchedule('all'); setCurrentPage(1) }}
+                    options={SCHEDULE_OPTIONS}
+                  />
+                  <EnumSelect
+                    label="Status"
+                    value={selectedStatus}
+                    onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+                    options={STATUS_OPTIONS}
+                  />
+                </div>
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearFilters}>
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="min-h-0 flex-1">
+          <ProductSplitView
+            selectedProductId={selectedProductId}
+            onSelectProduct={selectProduct}
+            onExitSplitView={exitSplitView}
+            isCardFieldVisible={cardCols.isVisible}
+            filters={{
+              categoryId: selectedCategoryId,
+              schedule: selectedSchedule,
+              status: selectedStatus,
+            }}
+          />
+        </div>
+
+        <ConfirmDialog
+          open={!!deleteTarget}
+          onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}
+          title="Delete product?"
+          description={
+            <>
+              This will permanently delete{' '}
+              <span className="font-semibold text-foreground">"{deleteTarget?.name}"</span>.
+              This action cannot be undone.
+            </>
+          }
+          confirmLabel="Delete"
+          onConfirm={confirmDelete}
+        />
+      </div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -530,11 +775,15 @@ export default function ProductsPage() {
         onSearchChange={val => { setSearch(val); setCurrentPage(1) }}
         searchPlaceholder="Search products by name, generic, manufacturer..."
         resultsCount={totalCount}
-        activeFilterCount={(selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)}
-        onClearFilters={() => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={() => { clearFilters() }}
         columnsNode={<ColumnsToggle columns={PRODUCT_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
+            <ViewModeToggle
+              view="table"
+              onViewChange={(v) => { if (v === 'split') navigate('/inventory/products') }}
+            />
             <Button
               variant="outline"
               size="sm"

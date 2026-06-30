@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronRight,
   FileText,
@@ -11,6 +13,10 @@ import {
   Receipt,
   IndianRupee,
   AlertTriangle,
+  Filter,
+  BarChart3,
+  Download,
+  X,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,6 +42,9 @@ import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { exportToCsv } from '@/lib/exportUtils'
+import { DebitNoteSplitView } from './components/DebitNoteSplitView'
 
 // ─────────────────────────────────────────────────────────────
 // DEBIT NOTES HISTORY PAGE
@@ -49,9 +58,9 @@ export type ApiReturnItem = {
   purchaseRate: number | string; rate?: number | string;
   gstPercent: number | string; amount: number | string;
 }
-type ApiReturn = {
+export type ApiReturn = {
   id: string; debitNoteNo: string; date: string;
-  supplierId: string; supplierName: string;
+  supplierId: string; supplierName: string; supplierPhone?: string | null;
   reason: string; items: ApiReturnItem[];
   subtotal: number | string; cgst?: number | string; sgst?: number | string;
   totalAmount: number | string; status: string;
@@ -102,28 +111,49 @@ const DEBIT_NOTE_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'amount', label: 'Amount', defaultVisible: true },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'debitNoteNo', label: 'Debit Note No.', defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'type', label: 'Type', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+]
+
+const SPLIT_PAGE_SIZE = 30
+
 export default function DebitNotesPage() {
   const cols = useColumnVisibility('purchase.debitNotes', DEBIT_NOTE_COLUMNS)
+  const cardCols = useColumnVisibility('purchase.debitNotes.card', CARD_FIELDS)
   const [pastReturns, setPastReturns] = useState<ApiReturn[]>([])
   const [allReturns, setAllReturns] = useState<ApiReturn[]>([])
   const [returnsLoading, setReturnsLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = usePersistedState('filters:purchase.debitNotes:search', '')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
 
-  // ── Filters (period defaults to "today", mirroring the Invoice List).
-  // Persisted to sessionStorage so they survive refresh + navigate-back. ──
-  const [period, setPeriod] = usePersistedState('filters:purchase.debitNotes:period', 'today')
-  const [dateFrom, setDateFrom] = usePersistedState('filters:purchase.debitNotes:dateFrom', '')
-  const [dateTo, setDateTo] = usePersistedState('filters:purchase.debitNotes:dateTo', '')
-  const [selectedType, setSelectedType] = usePersistedState('filters:purchase.debitNotes:type', 'all')
-  const [selectedStatus, setSelectedStatus] = usePersistedState('filters:purchase.debitNotes:status', 'all')
-  const [selectedSupplier, setSelectedSupplier] = usePersistedState('filters:purchase.debitNotes:supplier', 'all')
-  const [selectedSupplierName, setSelectedSupplierName] = usePersistedState('filters:purchase.debitNotes:supplierName', '')
-  // Stat-card drill-down: clicking a summary card narrows the list to that
-  // subset (short-billing / settled) on top of the period. Kept separate from
-  // the Type/Status enum filters so a card click and the dropdowns can coexist.
-  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'short-billing' | 'settled'>('filters:purchase.debitNotes:card', 'all')
+  // Split-view pagination state
+  const [splitPage, setSplitPage] = useState(1)
+  const [splitItems, setSplitItems] = useState<ApiReturn[]>([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
+
+  // Filters — usePageFilter for persistence across sessions
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.debitNotes', 'search', '')
+  const [period, setPeriod] = usePageFilter<string>('purchase.debitNotes', 'period', 'today')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.debitNotes', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('purchase.debitNotes', 'dateTo', '')
+  const [selectedType, setSelectedType] = usePageFilter<string>('purchase.debitNotes', 'type', 'all')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('purchase.debitNotes', 'status', 'all')
+  const [selectedSupplier, setSelectedSupplier] = usePageFilter<string>('purchase.debitNotes', 'supplier', 'all')
+  const [selectedSupplierName, setSelectedSupplierName] = usePageFilter<string>('purchase.debitNotes', 'supplierName', '')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.debitNotes', 'splitShowStats', true)
+
+  // Stat-card drill-down — not persisted (intentional: resets on page open)
+  const [cardFilter, setCardFilter] = useState<'all' | 'short-billing' | 'settled'>('all')
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Master data — Supplier filter pulls from the full suppliers list
   const { suppliers, fetchMasterData } = useMasterDataStore()
@@ -134,13 +164,30 @@ export default function DebitNotesPage() {
   // on the list with `?id=<id>` (Supplier Detail → Debit Notes tab,
   // notifications) redirect to the standalone detail page.
   const { search } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(search), [search])
+
   useEffect(() => {
-    const target = new URLSearchParams(search).get('id')
+    const target = urlParams.get('id')
     // `replace` so the intermediate `?id=` URL never lands in the back stack —
     // otherwise Back returns here and immediately re-redirects ("press back
     // twice" bug).
     if (target) navigate(`/purchase/debit-notes/detail?id=${target}`, { replace: true })
-  }, [search])
+  }, [urlParams])
+
+  // Split is default; ?view=table → table view
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedDebitNoteId = urlParams.get('debitNoteId')
+
+  const selectDebitNote = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/purchase/debit-notes') return
+    const params = new URLSearchParams()
+    if (id) params.set('debitNoteId', id)
+    navigate(`/purchase/debit-notes${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/purchase/debit-notes?view=table')
+  }, [])
 
 
   const fetchReturns = useCallback(async () => {
@@ -159,6 +206,67 @@ export default function DebitNotesPage() {
 
   useEffect(() => { fetchReturns() }, [fetchReturns])
   useBranchRefresh(fetchReturns)
+
+  // ── Split-view server-side pagination ──────────────────────────────────────
+
+  // Reset split pagination whenever any filter changes
+  useEffect(() => {
+    setSplitItems([])
+    setSplitTotal(0)
+    setSplitPage(1)
+  }, [period, dateFrom, dateTo, selectedType, selectedStatus, selectedSupplier, searchQuery])
+
+  // Fetch one page for the split view
+  useEffect(() => {
+    if (effectiveView !== 'split') return
+    const fetchSplitPage = async () => {
+      if (splitPage === 1) setSplitItems([])
+      setSplitLoadingMore(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
+        params.set('take', String(SPLIT_PAGE_SIZE))
+
+        // Period → dateFrom / dateTo
+        const now = new Date()
+        const todayStr = now.toISOString().slice(0, 10)
+        if (period === 'today') {
+          params.set('dateFrom', todayStr)
+          params.set('dateTo', todayStr)
+        } else if (period === 'week') {
+          params.set('dateFrom', weekStartISO(now))
+        } else if (period === 'month') {
+          const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+          params.set('dateFrom', monthStart)
+        } else if (period === 'quarter') {
+          const qMonth = Math.floor(now.getMonth() / 3) * 3
+          const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
+          params.set('dateFrom', quarterStart)
+        } else if (period === 'custom') {
+          if (dateFrom) params.set('dateFrom', dateFrom)
+          if (dateTo)   params.set('dateTo', dateTo)
+        }
+
+        if (selectedType !== 'all')     params.set('type', selectedType)
+        if (selectedStatus !== 'all')   params.set('status', selectedStatus)
+        if (selectedSupplier !== 'all') params.set('supplierId', selectedSupplier)
+        if (searchQuery.trim())         params.set('search', searchQuery.trim())
+
+        const res = await api.get(`/purchase-returns?${params.toString()}`)
+        const payload = res.data
+        const incoming: ApiReturn[] = payload?.data ?? (Array.isArray(payload) ? payload : [])
+        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
+        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
+        setSplitTotal(newTotal)
+      } catch {
+        // silent — avoid noisy toasts on scroll
+      } finally {
+        setSplitLoadingMore(false)
+      }
+    }
+    fetchSplitPage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitPage, effectiveView])
 
   // Debit notes within the selected period only — drives both the summary
   // cards and the list, so the cards always reflect the period independent of
@@ -288,6 +396,143 @@ export default function DebitNotesPage() {
   }, [statsBaseReturns])
 
 
+  if (effectiveView === 'split') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total Notes', value: stats.totalCount.toString(), borderAccent: 'border-l-blue-500' },
+                  { label: 'Total Debit', value: formatCurrency(stats.totalAmount), borderAccent: 'border-l-rose-500' },
+                  { label: 'Short-Billing', value: formatCurrency(stats.shortBillingTotal), borderAccent: 'border-l-amber-500' },
+                  { label: 'Settled', value: formatCurrency(stats.settledTotal), borderAccent: 'border-l-emerald-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (!pastReturns.length) { toast.error('No debit notes to export'); return }
+              exportToCsv(pastReturns.map(dn => ({
+                'Note #': dn.debitNoteNo,
+                Date: formatDate(dn.date),
+                Supplier: dn.supplierName,
+                Type: /short/i.test(dn.reason || '') ? 'Short-Billing' : 'Goods Returned',
+                PE: dn.grn?.grnNumber ?? '',
+                Amount: Number(dn.totalAmount),
+                Status: dn.status,
+              })), 'debit-notes')
+            }}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => navigate('/purchase/returns')}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">New Return</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Period" value={period} onValueChange={setPeriod} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+                  <EnumSelect label="Type" value={selectedType} onValueChange={setSelectedType} onClear={() => setSelectedType('all')} options={TYPE_OPTIONS} />
+                  <EnumSelect label="Status" value={selectedStatus} onValueChange={setSelectedStatus} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
+                  <SupplierSearchSelect value={selectedSupplier} selectedName={selectedSupplierName} onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name) }} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearFilters}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <DebitNoteSplitView
+            debitNotes={splitItems}
+            loading={splitLoadingMore && splitPage === 1}
+            loadingMore={splitLoadingMore && splitPage > 1}
+            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
+            onLoadMore={() => setSplitPage(p => p + 1)}
+            selectedDebitNoteId={selectedDebitNoteId}
+            onSelectDebitNote={selectDebitNote}
+            onExitSplitView={exitSplitView}
+            onRefresh={() => { setSplitItems([]); setSplitTotal(0); setSplitPage(1) }}
+            isCardFieldVisible={cardCols.isVisible}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
 
@@ -387,6 +632,7 @@ export default function DebitNotesPage() {
                     <span className="hidden sm:inline">New Return</span>
                     <span className="sm:hidden">New</span>
                   </Button>
+                  <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/debit-notes') }} />
                   </div>
                 }
               >

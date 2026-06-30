@@ -1,0 +1,162 @@
+import { useRef, useState, type ReactNode } from 'react'
+import { ChevronLeft, ChevronUp, FileQuestion, Search } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+
+interface SplitViewShellProps {
+  // Left rail
+  searchValue: string
+  onSearchChange: (v: string) => void
+  searchPlaceholder?: string
+  resultCount: number
+  resultLabel: string
+  loading: boolean
+  /** Rendered inside the scrollable card list area */
+  cards: ReactNode
+  onExitSplitView: () => void
+  /** Optional tabs rendered between the search strip and the result count */
+  tabsNode?: ReactNode
+
+  // Right panel
+  selectedId: string | null
+  detailLoading: boolean
+  detailError: string | null
+  /** Rendered when an item is selected and detail is loaded */
+  detailContent: ReactNode
+  emptyIcon?: ReactNode
+  emptyLabel?: string
+}
+
+/**
+ * Generic two-column split-view shell reused by Invoices, GRN, and Products.
+ * Left rail: search strip + scrollable compact card list.
+ * Right panel: detail content with loading / error / empty states.
+ */
+export function SplitViewShell({
+  searchValue,
+  onSearchChange,
+  searchPlaceholder = 'Search...',
+  resultCount,
+  resultLabel,
+  loading,
+  cards,
+  onExitSplitView,
+  tabsNode,
+  selectedId,
+  detailLoading,
+  detailError,
+  detailContent,
+  emptyIcon,
+  emptyLabel,
+}: SplitViewShellProps) {
+  const listScrollRef = useRef<HTMLDivElement>(null)
+  const [showListTop, setShowListTop] = useState(false)
+
+  const handleListScroll = () => {
+    setShowListTop((listScrollRef.current?.scrollTop ?? 0) > 120)
+  }
+
+  return (
+    <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-lg border border-border/60 bg-background md:grid-cols-[minmax(280px,30%)_1fr]">
+      {/* ── Left rail ── */}
+      <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/40">
+        {/* Header strip: back arrow + search */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onExitSplitView}
+            aria-label="Back to list"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <Input
+              icon={<Search className="h-3.5 w-3.5" />}
+              placeholder={searchPlaceholder}
+              value={searchValue}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+        </div>
+
+        {/* Optional status tabs */}
+        {tabsNode && (
+          <div className="shrink-0 border-b border-border/40">
+            {tabsNode}
+          </div>
+        )}
+
+        {/* Result count strip */}
+        <div className="shrink-0 border-b border-border/40 bg-muted/15 px-3 py-1.5 text-[11px] text-muted-foreground">
+          {loading
+            ? 'Loading…'
+            : `${resultCount} ${resultLabel}${resultCount === 1 ? '' : 's'}`}
+        </div>
+
+        {/* Scrollable card list */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={listScrollRef}
+            onScroll={handleListScroll}
+            className="h-full overflow-y-auto"
+          >
+            {loading && resultCount === 0 ? (
+              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                Loading…
+              </div>
+            ) : resultCount === 0 ? (
+              <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+                No {resultLabel}s match the current filters
+              </div>
+            ) : (
+              cards
+            )}
+          </div>
+
+          {/* Scroll-to-top button — appears after scrolling down */}
+          <button
+            type="button"
+            onClick={() => listScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+            aria-label="Scroll to top"
+            className={cn(
+              'absolute bottom-3 left-1/2 -translate-x-1/2 z-10',
+              'flex h-7 w-7 items-center justify-center rounded-full',
+              'bg-background/90 border border-border/60 shadow-md backdrop-blur-sm',
+              'text-muted-foreground hover:text-foreground hover:border-border',
+              'transition-all duration-200',
+              showListTop ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+            )}
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Right panel ── */}
+      <section className="flex min-h-0 min-w-0 flex-col">
+        {detailLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            </div>
+          </div>
+        ) : detailError ? (
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-rose-600 dark:text-rose-400">
+            {detailError}
+          </div>
+        ) : !selectedId || !detailContent ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+            {emptyIcon ?? <FileQuestion className="h-8 w-8 opacity-40" />}
+            <p>{emptyLabel ?? `Select a ${resultLabel} on the left to see its details`}</p>
+          </div>
+        ) : (
+          detailContent
+        )}
+      </section>
+    </div>
+  )
+}

@@ -5,17 +5,17 @@ import type { ColumnDef } from '@/types/table'
 export type { ColumnDef }
 
 /**
- * Per-table column show/hide, backed by the synced column-prefs store.
+ * Per-table column show/hide + left/right card positioning, backed by the
+ * synced column-prefs store.
  *
  * @param tableKey stable key for this table, e.g. 'billing.sales'
  * @param columns  the table's full column set
- *
- * Returns `{ visible, isVisible, toggle, reset }`. Required columns are always
- * forced on; stale stored ids (columns removed from the config) are dropped.
  */
 export function useColumnVisibility(tableKey: string, columns: ColumnDef[]) {
   const stored = useColumnPrefsStore((s) => s.prefs[tableKey])
+  const storedPositions = useColumnPrefsStore((s) => s.positions[tableKey])
   const setTable = useColumnPrefsStore((s) => s.setTable)
+  const setPositionStore = useColumnPrefsStore((s) => s.setPosition)
 
   const requiredIds = useMemo(
     () => columns.filter((c) => c.required).map((c) => c.id),
@@ -40,7 +40,7 @@ export function useColumnVisibility(tableKey: string, columns: ColumnDef[]) {
   const toggle = useCallback(
     (id: string) => {
       const col = columns.find((c) => c.id === id)
-      if (!col || col.required) return // required columns can't be hidden
+      if (!col || col.required) return
       const next = visible.includes(id)
         ? visible.filter((x) => x !== id)
         : [...visible, id]
@@ -51,5 +51,28 @@ export function useColumnVisibility(tableKey: string, columns: ColumnDef[]) {
 
   const reset = useCallback(() => setTable(tableKey, defaultIds), [setTable, tableKey, defaultIds])
 
-  return { visible, isVisible, toggle, reset }
+  // --- positioning ---
+
+  const isRight = useCallback(
+    (id: string) => {
+      const stored = storedPositions?.[id]
+      if (stored !== undefined) return stored === 'right'
+      // fall back to column definition default
+      const col = columns.find((c) => c.id === id)
+      return col?.defaultPosition === 'right'
+    },
+    [storedPositions, columns],
+  )
+
+  const togglePosition = useCallback(
+    (id: string) => {
+      const col = columns.find((c) => c.id === id)
+      if (!col?.positionable) return
+      const next = isRight(id) ? 'left' : 'right'
+      setPositionStore(tableKey, id, next)
+    },
+    [columns, isRight, setPositionStore, tableKey],
+  )
+
+  return { visible, isVisible, toggle, reset, isRight, togglePosition }
 }

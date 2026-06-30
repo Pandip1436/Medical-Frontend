@@ -20,6 +20,8 @@ import {
   CheckCircle2,
   Clock,
   Package,
+  Filter,
+  BarChart3,
 } from 'lucide-react'
 import { useForm, useFieldArray, useWatch, Controller, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
@@ -70,6 +72,10 @@ import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
 import type { PurchaseOrder, Product } from '@/types'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { PurchaseOrderSplitView } from './components/PurchaseOrderSplitView'
 
 // ─────────────────────────────────────────────────────────────
 // Create PO Schema
@@ -386,10 +392,35 @@ const PO_COLUMNS: ColumnDef[] = [
   { id: 'expected', label: 'Expected Delivery', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'poNumber', label: 'PO Number', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'items', label: 'Items Count', defaultVisible: true },
+]
+
 export default function PurchaseOrdersPage() {
   const cols = useColumnVisibility('purchase.orders', PO_COLUMNS)
+  const cardCols = useColumnVisibility('purchase.orders.card', CARD_FIELDS)
   const { suppliers, products, fetchMasterData } = useMasterDataStore()
   const { search } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(search), [search])
+
+  // Split is default; ?view=table → table view
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedPoId = urlParams.get('poId')
+
+  const selectPo = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/purchase/orders') return
+    const params = new URLSearchParams()
+    if (id) params.set('poId', id)
+    navigate(`/purchase/orders${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/purchase/orders?view=table')
+  }, [])
 
   // Real data
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
@@ -407,7 +438,7 @@ export default function PurchaseOrdersPage() {
     }
   }, [])
 
-   
+
   useEffect(() => {
     fetchMasterData()
     fetchPOs()
@@ -416,22 +447,22 @@ export default function PurchaseOrdersPage() {
   }, [])
   useBranchRefresh(fetchPOs)
 
-  // Search
-  const [searchQuery, setSearchQuery] = useState('')
+  // Filters (usePageFilter for persistence)
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.orders', 'search', '')
+  const [period, setPeriod] = usePageFilter<string>('purchase.orders', 'period', 'today')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.orders', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('purchase.orders', 'dateTo', '')
+  const [selectedSupplier, setSelectedSupplier] = usePageFilter<string>('purchase.orders', 'supplier', 'all')
+  const [selectedSupplierName, setSelectedSupplierName] = usePageFilter<string>('purchase.orders', 'supplierName', '')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('purchase.orders', 'status', 'all')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.orders', 'splitShowStats', true)
 
-  // Filters (period defaults to "today", mirroring the Invoice List)
-  const [period, setPeriod] = useState('today')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
-  // The picker owns the chosen supplier's display name (the list is paginated,
-  // so the trigger label can't be looked up from a full in-memory list).
-  const [selectedSupplierName, setSelectedSupplierName] = useState<string>('')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  // Stat-card drill-down: clicking a summary card narrows the list to that
-  // status bucket on top of the period. Kept separate from the Status enum
-  // filter because "pending"/"received" each span multiple PO statuses.
+  // Card drill-down and split filters — not persisted (intentional)
   const [cardFilter, setCardFilter] = useState<'all' | 'received' | 'pending' | 'partial'>('all')
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -469,12 +500,11 @@ export default function PurchaseOrdersPage() {
     }
   }
 
-  // Deep-link support: when arrived from a `?poId=<id>` URL (e.g. clicked
-  // from the Supplier Detail page's POs tab), auto-open that PO's drawer once
-  // the list has loaded. Runs only once per id so the user can manually close
-  // it without it reopening on the next render. Uses the `search` already
-  // pulled from useRoute() above.
+  // Deep-link support: when in TABLE mode and arrived from a `?poId=<id>` URL
+  // (e.g. from the Supplier Detail page), auto-open that PO's drawer.
+  // In split mode, the URL param is handled by the split view directly.
   useEffect(() => {
+    if (effectiveView !== 'table') return
     const params = new URLSearchParams(search)
     const target = params.get('poId')
     if (!target || purchaseOrders.length === 0) return
@@ -484,7 +514,7 @@ export default function PurchaseOrdersPage() {
     // openDetailPO + detailPO?.id intentionally omitted — we want to fire only
     // when the URL param or the loaded list changes, not on every fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, purchaseOrders])
+  }, [search, purchaseOrders, effectiveView])
 
   const clearFilters = () => {
     setPeriod('today')
@@ -798,6 +828,255 @@ export default function PurchaseOrdersPage() {
     }, 150)
   }
 
+  if (effectiveView === 'split') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total Orders', value: formatCurrency(stats.totalAmount), sub: `${stats.totalCount} orders`, borderAccent: 'border-l-blue-500' },
+                  { label: 'Received', value: formatCurrency(stats.receivedTotal), sub: `${stats.receivedCount} completed`, borderAccent: 'border-l-emerald-500' },
+                  { label: 'Pending', value: formatCurrency(stats.pendingTotal), sub: `${stats.pendingCount} awaiting`, borderAccent: 'border-l-amber-500' },
+                  { label: 'Partial', value: formatCurrency(stats.partialTotal), sub: `${stats.partialCount} in progress`, borderAccent: 'border-l-purple-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (!filteredPOs.length) { toast.info('No purchase orders to export'); return }
+              exportToCsv(filteredPOs.map((po) => ({
+                'PO Number': po.poNumber,
+                Date: po.date.slice(0, 10),
+                Supplier: po.supplierName,
+                Items: po.items.length,
+                Amount: po.totalAmount,
+                Status: po.status,
+              })), 'purchase-orders')
+            }}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => { setCreateDialogOpen(true); navigate('/purchase/orders?view=table') }}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Create PO</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+                  <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
+                  <SupplierSearchSelect value={selectedSupplier} selectedName={selectedSupplierName} onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => clearFilters()}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <PurchaseOrderSplitView
+            purchaseOrders={filteredPOs}
+            loading={isLoading}
+            selectedPoId={selectedPoId}
+            onSelectPo={selectPo}
+            onExitSplitView={exitSplitView}
+            onRefresh={fetchPOs}
+            isCardFieldVisible={cardCols.isVisible}          />
+        </div>
+
+        {/* Create PO Sheet (also accessible from split view) */}
+        <Sheet open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <SheetContent side="right" className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden">
+            {/* Reuse the form — same as the table-view Sheet below */}
+            <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
+              <div className="flex items-center gap-4 pr-8">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <SheetTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Create Purchase Order
+                  </SheetTitle>
+                  <SheetDescription className="text-sm">Create a new purchase order for a supplier.</SheetDescription>
+                </div>
+              </div>
+            </SheetHeader>
+            <form onSubmit={handleSubmit((data) => onSubmitPO(data, false))} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="scroll-mt-2">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
+                    <h3 className="text-sm font-semibold">Order Info</h3>
+                  </div>
+                  <div className="p-6 pb-8 space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier <span className="text-rose-500">*</span></Label>
+                        <Select value={watch('supplierId') || undefined} onValueChange={(val) => setValue('supplierId', val, { shouldValidate: true })}>
+                          <SelectTrigger className={cn(errors.supplierId && 'border-destructive')}>
+                            <SelectValue placeholder="Select supplier..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {suppliers.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {errors.supplierId && <p className="text-xs text-destructive">{errors.supplierId.message}</p>}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery <span className="text-rose-500">*</span></Label>
+                        <Controller
+                          control={control}
+                          name="expectedDelivery"
+                          render={({ field }) => (
+                            <DatePicker value={field.value} onChange={field.onChange} error={!!errors.expectedDelivery} />
+                          )}
+                        />
+                        {errors.expectedDelivery && <p className="text-xs text-destructive">{errors.expectedDelivery.message}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={handleAutoGenerate}>
+                        <Zap className="h-3.5 w-3.5" />Auto-generate from Low Stock
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                <div className="scroll-mt-2 border-t border-border/40">
+                  <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Order Items</h3>
+                    <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => append({ productId: '', productName: '', requiredQty: 1, lastPurchaseRate: 0, expectedRate: 0, remarks: '' })}>
+                      <Plus className="h-3 w-3" />Add Row
+                    </Button>
+                  </div>
+                  <div className="p-6 pb-8 space-y-3">
+                    <div className="rounded-xl border border-border/60 overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="min-w-50">Product</TableHead>
+                            <TableHead className="w-25">Req. Qty</TableHead>
+                            <TableHead className="w-27.5">Last Rate</TableHead>
+                            <TableHead className="w-30">Expected Rate</TableHead>
+                            <TableHead className="min-w-30">Remarks</TableHead>
+                            <TableHead className="w-15" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {fields.map((field, index) => (
+                            <POItemRow
+                              key={field.id}
+                              index={index}
+                              register={register}
+                              onSelectProduct={handleSelectProduct}
+                              control={control}
+                              remove={remove}
+                              errors={errors}
+                              products={products}
+                              isRemovable={fields.length > 1}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {errors.items && (
+                      <p className="text-xs text-destructive">
+                        {typeof errors.items.message === 'string' ? errors.items.message : 'Please add valid items'}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PO Total</span>
+                      <span className="text-lg font-bold font-mono">{formatCurrency(poTotal)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
+                <Button type="button" variant="outline" onClick={() => handleSubmit((data) => onSubmitPO(data, true))()}>
+                  Save as Draft
+                </Button>
+                <Button type="submit" className="gap-1.5">
+                  <Send className="h-3.5 w-3.5" />Send to Supplier
+                </Button>
+              </div>
+            </form>
+          </SheetContent>
+        </Sheet>
+      </div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -905,6 +1184,7 @@ export default function PurchaseOrdersPage() {
               <span className="hidden sm:inline">New PE</span>
               <span className="sm:hidden">PE</span>
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
           </div>
         }
       >
@@ -1534,7 +1814,7 @@ export default function PurchaseOrdersPage() {
                 </div>
 
                 {/* ── Sticky Footer: grand total + actions ── */}
-                <div className="shrink-0 border-t border-border/40 bg-background">
+                <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
                   {/* Grand Total strip */}
                   <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</p>

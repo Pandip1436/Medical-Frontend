@@ -53,7 +53,7 @@ const emptyCounts: LeadListCounts = {
  * the same payload so the top-bar pills can update in sync with the table.
  */
 export function useLeadsList(opts: UseLeadsListOptions = {}) {
-  const pageSize = opts.pageSize ?? 20
+  const pageSize = opts.pageSize ?? 30
 
   const [tab, setTab] = useState<LeadTab>(opts.tab ?? 'all')
   const [page, setPage] = useState(1)
@@ -66,6 +66,7 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
   const debouncedQ = useDebounce(filters.q, 300)
 
   const [data, setData] = useState<Lead[]>([])
+  const [allData, setAllData] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
   const [counts, setCounts] = useState<LeadListCounts>(emptyCounts)
   const [loading, setLoading] = useState(false)
@@ -96,6 +97,7 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
       // re-render, leaving the stage badge stale in the rail.
       const slice = filtered.slice(start, start + pageSize).map((l) => ({ ...l }))
       setData(slice)
+      setAllData(prev => page === 1 ? slice : [...prev, ...slice])
       setTotal(filtered.length)
       setCounts(mockCounts(filtered))
       setLoading(false)
@@ -121,7 +123,9 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
         signal: ctrl.signal,
       })
       const payload = res.data ?? {}
-      setData(Array.isArray(payload.data) ? payload.data : [])
+      const items = Array.isArray(payload.data) ? payload.data : []
+      setData(items)
+      setAllData(prev => page === 1 ? items : [...prev, ...items])
       setTotal(Number(payload.total ?? 0))
       setCounts(payload.counts ?? emptyCounts)
     } catch (err: unknown) {
@@ -153,9 +157,11 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
     return () => abortRef.current?.abort()
   }, [refetch])
 
-  // Reset page to 1 whenever the *filters* change (so the user never lands
-  // on an empty page-3 after narrowing). Tab changes also reset.
+  // Reset page to 1 (and the accumulated allData) whenever the *filters*
+  // change (so the user never lands on an empty page-3 after narrowing).
+  // Tab changes also reset.
   useEffect(() => {
+    setAllData([])
     setPage(1)
   }, [
     debouncedQ,
@@ -181,10 +187,15 @@ export function useLeadsList(opts: UseLeadsListOptions = {}) {
   return {
     // data
     data,
+    allData,
     total,
     counts,
     loading,
     error,
+    // infinite scroll helpers
+    loadingMore: loading && page > 1,
+    hasMore: allData.length < total,
+    loadMore: () => setPage(p => p + 1),
     // pagination
     page,
     setPage,

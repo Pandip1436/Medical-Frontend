@@ -1,0 +1,49 @@
+import { LayoutList, LayoutPanelLeft } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+export type ViewMode = 'table' | 'split'
+
+interface ViewModeToggleProps {
+  view: ViewMode
+  onViewChange: (v: ViewMode) => void
+  className?: string
+}
+
+export function ViewModeToggle({ view, onViewChange, className }: ViewModeToggleProps) {
+  return (
+    <div
+      className={cn(
+        'flex items-center rounded-md border border-border/60 bg-muted/30 p-0.5',
+        className,
+      )}
+    >
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        title="Table view"
+        aria-label="Table view"
+        className={cn(
+          'h-7 w-7 rounded-sm transition-all',
+          view === 'table' && 'bg-background shadow-sm text-foreground',
+        )}
+        onClick={() => onViewChange('table')}
+      >
+        <LayoutList className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        title="Split view"
+        aria-label="Split view"
+        className={cn(
+          'h-7 w-7 rounded-sm transition-all',
+          view === 'split' && 'bg-background shadow-sm text-foreground',
+        )}
+        onClick={() => onViewChange('split')}
+      >
+        <LayoutPanelLeft className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}

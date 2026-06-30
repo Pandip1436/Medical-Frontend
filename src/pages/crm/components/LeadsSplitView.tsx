@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft,
   Mail,
@@ -74,6 +74,9 @@ export function LeadsSplitView({
   const [activeTab, setActiveTab] = useState<LeadDetailTab>('details')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const pendingLoadRef = useRef(false)
+
   // useLeadsList only consumes `tab` as the initial value, so push every
   // subsequent change from the parent into the rail's internal state.
   // Without this, clicking the tab pills on the page leaves the split-view
@@ -91,6 +94,29 @@ export function LeadsSplitView({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.data.length])
+
+  // Reset the "pending" guard once a loadMore request finishes.
+  useEffect(() => {
+    if (!list.loadingMore) pendingLoadRef.current = false
+  }, [list.loadingMore])
+
+  // IntersectionObserver: fire loadMore when the sentinel scrolls into view.
+  useEffect(() => {
+    if (!list.hasMore || !list.loadMore || !sentinelRef.current) return
+    const el = sentinelRef.current
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !pendingLoadRef.current) {
+          pendingLoadRef.current = true
+          list.loadMore()
+        }
+      },
+      { threshold: 0 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.hasMore, list.loadMore])
 
   const handleDelete = () => {
     setDeleteConfirmOpen(true)
@@ -153,23 +179,31 @@ export function LeadsSplitView({
 
           {/* Scrollable card list */}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {list.loading && list.data.length === 0 ? (
+            {list.loading && list.allData.length === 0 ? (
               <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                 Loading…
               </div>
-            ) : list.data.length === 0 ? (
+            ) : list.allData.length === 0 ? (
               <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
                 No leads match the current filters
               </div>
             ) : (
-              list.data.map((lead) => (
-                <LeadCompactCard
-                  key={lead.id}
-                  lead={lead}
-                  selected={lead.id === selectedLeadId}
-                  onClick={() => onSelectLead(lead.id)}
-                />
-              ))
+              <>
+                {list.allData.map((lead) => (
+                  <LeadCompactCard
+                    key={lead.id}
+                    lead={lead}
+                    selected={lead.id === selectedLeadId}
+                    onClick={() => onSelectLead(lead.id)}
+                  />
+                ))}
+                <div ref={sentinelRef} className="h-1" />
+                {list.loadingMore && (
+                  <div className="flex justify-center py-3">
+                    <span className="text-[11px] text-muted-foreground">Loading more…</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </aside>

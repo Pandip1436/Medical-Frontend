@@ -1,11 +1,18 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   PackageCheck,
   AlertTriangle,
   ClipboardList, TrendingUp,
   CheckCircle2, XCircle, ShieldAlert,
   RotateCcw,
+  Download,
+  ChevronDown,
+  Filter,
+  BarChart3,
+  X,
+  FileSpreadsheet,
+  Printer,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -21,22 +28,31 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import api from '@/lib/api'
 import type { GRN } from '@/types'
+import { GRNSplitView } from './components/GRNSplitView'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { exportToCsv, csvText, printReport } from '@/lib/exportUtils'
 
 // ─── Helpers ──────────────────────────────────────────────────
-// Unpaid balance owed to the supplier for this GRN's invoice.
 function grnBalance(grn: GRN) {
   return Math.max(0, Number(grn.supplierInvoiceAmount || 0) - Number(grn.amountPaid || 0))
 }
 
-// Filter predicates shared by the filter bar + stat-card drill-down.
 const grnHasShort = (g: GRN) => g.items.some((i) => i.orderedQty > 0 && i.receivedQty < i.orderedQty)
 const grnHasDamage = (g: GRN) => g.items.some((i) => (i.damageQty ?? 0) > 0)
 const grnPayStatus = (g: GRN): 'PAID' | 'PARTIAL' | 'UNPAID' =>
@@ -64,8 +80,50 @@ const PAYMENT_OPTIONS = [
   { value: 'UNPAID', label: 'Unpaid' },
 ] as const
 
-// ─── Main Page ────────────────────────────────────────────────
+// ─── Status Tabs ──────────────────────────────────────────────
+type PayTabKey = 'all' | 'PAID' | 'PARTIAL' | 'UNPAID'
+
+const PAY_TABS: { key: PayTabKey; label: string; activeClass: string; countClass: string }[] = [
+  { key: 'all', label: 'All', activeClass: 'border-foreground text-foreground', countClass: 'bg-foreground/10 text-foreground' },
+  { key: 'PAID', label: 'Paid', activeClass: 'border-emerald-500 text-emerald-600 dark:text-emerald-400', countClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  { key: 'PARTIAL', label: 'Partial', activeClass: 'border-amber-500 text-amber-600 dark:text-amber-400', countClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  { key: 'UNPAID', label: 'Unpaid', activeClass: 'border-rose-500 text-rose-600 dark:text-rose-400', countClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
+]
+
+function PaymentTabs({ tab, onChange, counts }: {
+  tab: PayTabKey
+  onChange: (t: PayTabKey) => void
+  counts: Record<string, number>
+}) {
+  return (
+    <div className="flex items-center gap-0.5 px-0.5">
+      {PAY_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+            tab === t.key
+              ? t.activeClass
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
+            tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
+          )}>
+            {counts[t.key] ?? 0}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─── Column Defs ──────────────────────────────────────────────
 const PAGE_SIZE = 15
+const SPLIT_PAGE_SIZE = 30
 
 const GRN_COLUMNS: ColumnDef[] = [
   { id: 'date', label: 'Date', defaultVisible: true },
@@ -80,24 +138,50 @@ const GRN_COLUMNS: ColumnDef[] = [
   { id: 'payment', label: 'Payment', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'supplier', label: 'Supplier Name', required: true, defaultVisible: true },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'grnNumber', label: 'PE Number', defaultVisible: true },
+  { id: 'supplierInvoice', label: 'Supplier Invoice', defaultVisible: false },
+  { id: 'source', label: 'Source Badge', defaultVisible: false },
+  { id: 'value', label: 'Total Value', defaultVisible: true },
+  { id: 'status', label: 'Payment Status', defaultVisible: true },
+  { id: 'issues', label: 'Issues Badge', defaultVisible: true },
+]
+
 export default function GRNListPage() {
   const cols = useColumnVisibility('purchase.grnList', GRN_COLUMNS)
+  const cardCols = useColumnVisibility('purchase.grnList.card', CARD_FIELDS)
+
   const [grns, setGrns] = useState<GRN[]>([])
   const [loading, setLoading] = useState(false)
-  const [search, setSearch] = usePersistedState('filters:purchase.grnList:search', '')
   const [currentPage, setCurrentPage] = useState(1)
 
-  // ── Filters (period defaults to "today", mirroring the Invoice List).
-  // Persisted to sessionStorage so they survive refresh + navigate-back. ──
-  const [period, setPeriod] = usePersistedState('filters:purchase.grnList:period', 'today')
-  const [dateFrom, setDateFrom] = usePersistedState('filters:purchase.grnList:dateFrom', '')
-  const [dateTo, setDateTo] = usePersistedState('filters:purchase.grnList:dateTo', '')
-  const [selectedSupplier, setSelectedSupplier] = usePersistedState('filters:purchase.grnList:supplier', 'all')
-  const [selectedSupplierName, setSelectedSupplierName] = usePersistedState('filters:purchase.grnList:supplierName', '')
-  const [selectedSource, setSelectedSource] = usePersistedState('filters:purchase.grnList:source', 'all')
-  const [selectedPayment, setSelectedPayment] = usePersistedState('filters:purchase.grnList:payment', 'all')
-  // Stat-card drill-down: Short Items / Damaged Units narrow the list.
-  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'short' | 'damaged'>('filters:purchase.grnList:card', 'all')
+  // Split view pagination state
+  const [splitPage, setSplitPage] = useState(1)
+  const [splitItems, setSplitItems] = useState<GRN[]>([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
+  // Track whether a fetch for this splitPage has already been dispatched
+  const splitPageFetchedRef = useRef<number>(0)
+
+  // Filters — persisted to server via usePageFilter
+  const [search, setSearch] = usePageFilter<string>('purchase.grnList', 'search', '')
+  const [period, setPeriod] = usePageFilter<string>('purchase.grnList', 'period', 'today')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.grnList', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('purchase.grnList', 'dateTo', '')
+  const [selectedSupplier, setSelectedSupplier] = usePageFilter<string>('purchase.grnList', 'supplier', 'all')
+  const [selectedSupplierName, setSelectedSupplierName] = usePageFilter<string>('purchase.grnList', 'supplierName', '')
+  const [selectedSource, setSelectedSource] = usePageFilter<string>('purchase.grnList', 'source', 'all')
+  const [selectedPayment, setSelectedPayment] = usePageFilter<string>('purchase.grnList', 'payment', 'all')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'short' | 'damaged'>('purchase.grnList', 'card', 'all')
+  const [payTab, setPayTab] = usePageFilter<PayTabKey>('purchase.grnList', 'payTab', 'all')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.grnList', 'splitShowStats', true)
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadFilterPrefs() }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -113,22 +197,75 @@ export default function GRNListPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Deep-link support: legacy links arrive at the list with `?grnId=<id>`
-  // (e.g. from the Supplier Detail page's GRNs tab or notifications). The
-  // detail is now its own page, so redirect there.
   const { search: routeSearch } = useRoute()
-  useEffect(() => {
-    const params = new URLSearchParams(routeSearch)
-    const target = params.get('grnId')
-    // `replace` so the intermediate `?grnId=` URL never lands in the back
-    // stack — otherwise Back returns here and immediately re-redirects (the
-    // "press back twice" bug).
-    if (target) navigate(`/purchase/grn/detail?id=${target}`, { replace: true })
-  }, [routeSearch])
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
-  // GRNs within the selected period — drives both the summary cards and the
-  // list, so the cards always reflect the period independent of the other
-  // filters / card drill-down applied to the table.
+  // Split is the default. Pass ?view=table to switch to table mode.
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedGrnId = urlParams.get('grnId')
+
+  // ── Split view: fetch a page of GRNs when splitPage changes ──
+  useEffect(() => {
+    if (effectiveView !== 'split') return
+    // Avoid double-fetching the same page (StrictMode / re-render guard)
+    if (splitPageFetchedRef.current === splitPage) return
+    splitPageFetchedRef.current = splitPage
+
+    const fetchSplitPage = async () => {
+      setSplitLoadingMore(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
+        params.set('take', String(SPLIT_PAGE_SIZE))
+        if (search.trim()) params.set('search', search.trim())
+        if (period && period !== 'all') params.set('period', period)
+        if (period === 'custom') {
+          if (dateFrom) params.set('dateFrom', dateFrom)
+          if (dateTo) params.set('dateTo', dateTo)
+        }
+        if (selectedSupplier !== 'all') params.set('supplierId', selectedSupplier)
+        if (selectedSource !== 'all') params.set('source', selectedSource)
+        if (selectedPayment !== 'all') params.set('paymentStatus', selectedPayment)
+        if (payTab !== 'all') params.set('payTab', payTab)
+        const res = await api.get(`/grn?${params.toString()}`)
+        const payload = res.data
+        const incoming: GRN[] = Array.isArray(payload) ? payload : (payload?.data ?? [])
+        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
+        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
+        setSplitTotal(newTotal)
+      } catch {
+        // silent — main table fetch already toasts on error
+      } finally {
+        setSplitLoadingMore(false)
+      }
+    }
+    fetchSplitPage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitPage, effectiveView])
+
+  // ── Split view: reset pagination when filters change ──
+  useEffect(() => {
+    if (effectiveView !== 'split') return
+    setSplitItems([])
+    setSplitTotal(0)
+    splitPageFetchedRef.current = 0
+    setSplitPage(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, period, dateFrom, dateTo, selectedSupplier, selectedSource, selectedPayment, payTab, effectiveView])
+
+  const selectGrn = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/purchase/grn-list') return
+    const params = new URLSearchParams()
+    if (id) params.set('grnId', id)
+    navigate(`/purchase/grn-list?${params.toString()}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/purchase/grn-list?view=table')
+  }, [])
+
+  // ── Filtering logic ──
+
   const periodGrns = useMemo(() => {
     let result = [...grns]
     const now = new Date()
@@ -161,13 +298,8 @@ export default function GRNListPage() {
     return result
   }, [grns, period, dateFrom, dateTo])
 
-  // PEs after every filter EXCEPT the stat-card drill-down (period + search +
-  // supplier + source + payment). Drives the stat cards so they reflect the
-  // active filters; the table layers the card drill-down on top.
   const statsBaseGrns = useMemo(() => {
     let result = [...periodGrns]
-
-    // Search
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter((g) =>
@@ -176,28 +308,36 @@ export default function GRNListPage() {
         (g.supplierInvoiceNo ?? '').toLowerCase().includes(q)
       )
     }
-
     if (selectedSupplier !== 'all') result = result.filter((g) => g.supplierId === selectedSupplier)
     if (selectedSource === 'direct') result = result.filter((g) => !g.poId)
     else if (selectedSource === 'po') result = result.filter((g) => !!g.poId)
     if (selectedPayment !== 'all') result = result.filter((g) => grnPayStatus(g) === selectedPayment)
-
     return result
   }, [periodGrns, search, selectedSupplier, selectedSource, selectedPayment])
 
-  const filtered = useMemo(() => {
+  // After card drill-down but before pay tab — used to compute per-tab counts
+  const preTabGrns = useMemo(() => {
     let result = statsBaseGrns
-    // Stat-card drill-down (layered on top of the other filters)
     if (cardFilter === 'short') result = result.filter(grnHasShort)
     else if (cardFilter === 'damaged') result = result.filter(grnHasDamage)
     return result
   }, [statsBaseGrns, cardFilter])
 
+  const tabCounts = useMemo(() => ({
+    all: preTabGrns.length,
+    PAID: preTabGrns.filter((g) => grnPayStatus(g) === 'PAID').length,
+    PARTIAL: preTabGrns.filter((g) => grnPayStatus(g) === 'PARTIAL').length,
+    UNPAID: preTabGrns.filter((g) => grnPayStatus(g) === 'UNPAID').length,
+  }), [preTabGrns])
+
+  const filtered = useMemo(() => {
+    if (payTab === 'all') return preTabGrns
+    return preTabGrns.filter((g) => grnPayStatus(g) === payTab)
+  }, [preTabGrns, payTab])
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  // Stats reflect period + supplier + source + payment + search, but NOT the
-  // card drill-down (so clicking a card never rewrites its own total).
   const stats = useMemo(() => {
     const totalReceived = statsBaseGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.receivedQty + (i.freeQty ?? 0), 0), 0)
     const totalDamaged  = statsBaseGrns.reduce((s, g) => s + g.items.reduce((ss, i) => ss + (i.damageQty ?? 0), 0), 0)
@@ -224,8 +364,244 @@ export default function GRNListPage() {
     setSelectedSupplierName('')
     setSelectedSource('all')
     setSelectedPayment('all')
+    setPayTab('all')
   }
 
+  // ── Split view (default) ──
+  if (effectiveView === 'split') {
+    const splitExportMenu = (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64 p-1.5">
+          <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Export {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
+          </p>
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
+            onClick={() => {
+              if (filtered.length === 0) { toast.info('No entries to print'); return }
+              printReport(filtered.map((g) => ({
+                'PE #': g.grnNumber,
+                Date: formatDate(g.date),
+                Supplier: g.supplierName,
+                'Supplier Invoice': g.supplierInvoiceNo ?? '',
+                Products: g.items.length,
+                Value: formatCurrency(g.supplierInvoiceAmount || g.totalAmount),
+                Status: grnPayStatus(g),
+              })), 'Purchase Entries')
+            }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Printer className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">Print List</span>
+              <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
+            onClick={() => {
+              if (!filtered.length) { toast.info('No entries to export'); return }
+              const exported = exportToCsv(filtered.map((g) => ({
+                'PE #': g.grnNumber,
+                Date: csvText(formatDate(g.date)),
+                Supplier: g.supplierName,
+                'Supplier Invoice': csvText(g.supplierInvoiceNo ?? ''),
+                Products: g.items.length,
+                Value: Number(g.supplierInvoiceAmount || g.totalAmount),
+                'Amount Paid': Number(g.amountPaid || 0),
+                Status: grnPayStatus(g),
+              })), 'purchase-entries')
+              toast.success(`Exported ${exported} entr${exported === 1 ? 'y' : 'ies'} to purchase-entries.csv`)
+            }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <FileSpreadsheet className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">CSV</span>
+              <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total Entries', value: statsBaseGrns.length.toString(), subtitle: 'purchase entries', icon: ClipboardList, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
+                  { label: 'Units Received', value: stats.totalReceived.toString(), subtitle: 'units received', icon: TrendingUp, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-emerald-500/50' },
+                  { label: 'Short Items', value: stats.totalShort.toString(), subtitle: 'shortage items', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500', filterKey: 'short' as const, activeRing: 'ring-2 ring-amber-500/50' },
+                  { label: 'Damaged Units', value: stats.totalDamaged.toString(), subtitle: 'damaged units', icon: ShieldAlert, iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500', filterKey: 'damaged' as const, activeRing: 'ring-2 ring-rose-500/50' },
+                ] as const).map((stat) => {
+                  const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+                  return (
+                    <Card
+                      key={stat.label}
+                      hover
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
+                      className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+                    >
+                      <CardContent className="flex items-center gap-3 p-3">
+                        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                          <stat.icon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                          <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar row */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {splitExportMenu}
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => navigate('/purchase/grn')}>
+            <PackageCheck className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">New PE</span>
+          </Button>
+          <ViewModeToggle
+            view="split"
+            onViewChange={(v) => { if (v === 'table') exitSplitView() }}
+          />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect
+                    label="Period"
+                    value={period}
+                    onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+                    onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+                    options={PERIOD_OPTIONS}
+                  />
+                  <SupplierSearchSelect
+                    value={selectedSupplier}
+                    selectedName={selectedSupplierName}
+                    onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }}
+                  />
+                  <EnumSelect
+                    label="Source"
+                    value={selectedSource}
+                    onValueChange={(val) => { setSelectedSource(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedSource('all'); setCurrentPage(1) }}
+                    options={SOURCE_OPTIONS}
+                  />
+                  <EnumSelect
+                    label="Payment"
+                    value={selectedPayment}
+                    onValueChange={(val) => { setSelectedPayment(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedPayment('all'); setCurrentPage(1) }}
+                    options={PAYMENT_OPTIONS}
+                  />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => { clearFilters(); setCurrentPage(1) }}>
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="min-h-0 flex-1">
+          <GRNSplitView
+            grns={splitItems}
+            allGrns={grns}
+            loading={splitLoadingMore && splitPage === 1}
+            loadingMore={splitLoadingMore && splitPage > 1}
+            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
+            onLoadMore={() => setSplitPage(p => p + 1)}
+            selectedGrnId={selectedGrnId}
+            onSelectGrn={selectGrn}
+            onExitSplitView={exitSplitView}
+            onRefresh={load}
+            isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <PaymentTabs
+                tab={payTab}
+                onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ── Table view ──
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -233,7 +609,7 @@ export default function GRNListPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* Summary cards — click Short / Damaged to drill the list */}
+      {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {([
           { label: 'Total Entries', value: statsBaseGrns.length, icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary',      filterKey: 'all',     activeRing: 'ring-2 ring-primary/40' },
@@ -278,14 +654,15 @@ export default function GRNListPage() {
         columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            onClick={() => navigate('/purchase/grn')}
-          >
-            <PackageCheck className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">New PE</span>
-            <span className="sm:hidden">New</span>
-          </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/grn-list') }} />
+            <Button
+              size="sm"
+              onClick={() => navigate('/purchase/grn')}
+            >
+              <PackageCheck className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">New PE</span>
+              <span className="sm:hidden">New</span>
+            </Button>
           </div>
         }
       >
@@ -293,8 +670,6 @@ export default function GRNListPage() {
           label="Period"
           value={period}
           onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          // Clear = remove the date restriction → All Time (was resetting to the
-          // same 'today' value, making the X a no-op).
           onClear={() => { setPeriod('all'); setCurrentPage(1) }}
           options={PERIOD_OPTIONS}
         />
@@ -371,11 +746,9 @@ export default function GRNListPage() {
                     const dmg       = grn.items.reduce((s, i) => s + (i.damageQty ?? 0), 0)
                     const shortItemsRow = grn.items.filter(i => i.orderedQty > 0 && i.receivedQty < i.orderedQty)
                     const shortCnt  = shortItemsRow.length
-                    // Check if shortages are resolved by later supplementary GRNs against same PO
                     const laterGrnsRow = grn.poId
                       ? grns.filter(g => g.poId === grn.poId && g.id !== grn.id && new Date(g.date).getTime() >= new Date(grn.date).getTime())
                       : []
-                    // Check if debit notes cover the shortage
                     const shortageDNsRow = (grn.purchaseReturns ?? []).filter(pr =>
                       /short|excess/i.test(pr.reason ?? '')
                     )

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -18,6 +18,9 @@ import {
   Hourglass,
   XCircle,
   CheckCircle2,
+  Filter,
+  BarChart3,
+  X,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,12 +44,16 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv, csvText } from '@/lib/exportUtils'
 import { navigate, useRoute } from '@/lib/router'
 import { printCreditNote } from './CreditNoteDetailContent'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
+import { CreditNoteSplitView } from './components/CreditNoteSplitView'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -104,6 +111,7 @@ export interface CreditNote {
 // ─────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10
+const PAGE_SIZE_SPLIT = 30
 
 const PERIOD_OPTIONS = [
   { value: 'all', label: 'All Time' },
@@ -158,25 +166,48 @@ const CREDIT_NOTE_COLUMNS: ColumnDef[] = [
   { id: 'amount', label: 'Amount', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'amount', label: 'Amount', defaultVisible: true },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'creditNoteNo', label: 'Credit Note #', defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'settlement', label: 'Settlement', defaultVisible: true },
+]
+
 export default function CreditNotesPage() {
   const cols = useColumnVisibility('billing.creditNotes', CREDIT_NOTE_COLUMNS)
+  const cardCols = useColumnVisibility('billing.creditNotes.card', CARD_FIELDS)
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  // period defaults to "today" so the page opens on today's credit notes.
-  const [period, setPeriod] = useState('today')
-  // Stat-card drill-down: clicking a summary card narrows the list to that
-  // subset (pending review / refunds / adjustments) on top of the period.
-  // Kept separate from the Status / Settlement enum filters.
+
+  // Filters — usePageFilter for persistence across sessions
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('billing.creditNotes', 'search', '')
+  const [period, setPeriod] = usePageFilter<string>('billing.creditNotes', 'period', 'today')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('billing.creditNotes', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('billing.creditNotes', 'dateTo', '')
+  const [selectedSettlement, setSelectedSettlement] = usePageFilter<string>('billing.creditNotes', 'settlement', 'all')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('billing.creditNotes', 'status', 'all')
+  const [selectedCustomer, setSelectedCustomer] = usePageFilter<string>('billing.creditNotes', 'customer', 'all')
+  const [selectedReason, setSelectedReason] = usePageFilter<string>('billing.creditNotes', 'reason', 'all')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.creditNotes', 'splitShowStats', true)
+
+  // Stat-card drill-down — not persisted (intentional: resets on page open)
   const [cardFilter, setCardFilter] = useState<'all' | 'pending' | 'refund' | 'adjust'>('all')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [selectedSettlement, setSelectedSettlement] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [selectedCustomer, setSelectedCustomer] = useState('all')
-  const [selectedReason, setSelectedReason] = useState('all')
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+
+  // ── Split-view infinite scroll pagination ──
+  const [splitPage, setSplitPage] = useState(1)
+  const [splitItems, setSplitItems] = useState<CreditNote[]>([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoading, setSplitLoading] = useState(false)
+  // Ref to track in-flight requests so filter-change resets don't double-append
+  const splitFetchIdRef = useRef(0)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   const fetchCreditNotes = useCallback(async () => {
     setIsLoading(true)
@@ -193,6 +224,74 @@ export default function CreditNotesPage() {
   useEffect(() => { fetchCreditNotes() }, [fetchCreditNotes])
   useBranchRefresh(fetchCreditNotes)
 
+  // ── Split-view server-side fetch ──
+  const fetchSplitPage = useCallback(async (page: number, fetchId: number) => {
+    setSplitLoading(true)
+    try {
+      const params: Record<string, string> = {
+        skip: String((page - 1) * PAGE_SIZE_SPLIT),
+        take: String(PAGE_SIZE_SPLIT),
+      }
+
+      // Period → date range
+      const now = new Date()
+      const todayStr = now.toISOString().slice(0, 10)
+      if (period === 'today') {
+        params.dateFrom = todayStr
+        params.dateTo = todayStr
+      } else if (period === 'week') {
+        params.dateFrom = weekStartISO(now)
+      } else if (period === 'month') {
+        params.dateFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      } else if (period === 'quarter') {
+        const qMonth = Math.floor(now.getMonth() / 3) * 3
+        params.dateFrom = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
+      } else if (period === 'custom') {
+        if (dateFrom) params.dateFrom = dateFrom
+        if (dateTo)   params.dateTo   = dateTo
+      }
+
+      if (searchQuery.trim())          params.search          = searchQuery.trim()
+      if (selectedSettlement !== 'all') params.settlementMode = selectedSettlement
+      if (selectedStatus      !== 'all') params.status        = selectedStatus
+      if (selectedCustomer    !== 'all') params.customerName  = selectedCustomer
+      if (selectedReason      !== 'all') params.reason        = selectedReason
+
+      const qs = new URLSearchParams(params).toString()
+      const res = await api.get(`/credit-notes?${qs}`)
+
+      // Guard: if a newer fetch was fired while this one was in-flight, discard
+      if (fetchId !== splitFetchIdRef.current) return
+
+      const incoming: CreditNote[] = res.data.data || res.data
+      const total: number = res.data.total ?? incoming.length
+
+      setSplitItems((prev) => (page === 1 ? incoming : [...prev, ...incoming]))
+      setSplitTotal(total)
+    } catch {
+      // silently ignore — table view still works
+    } finally {
+      if (fetchId === splitFetchIdRef.current) setSplitLoading(false)
+    }
+  }, [period, dateFrom, dateTo, searchQuery, selectedSettlement, selectedStatus, selectedCustomer, selectedReason])
+
+  // Reset split pagination whenever filters change
+  useEffect(() => {
+    splitFetchIdRef.current += 1
+    setSplitItems([])
+    setSplitTotal(0)
+    setSplitPage(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, dateFrom, dateTo, searchQuery, selectedSettlement, selectedStatus, selectedCustomer, selectedReason])
+
+  // Fetch when splitPage advances (page=1 reset is handled above — the effect
+  // below will also fire because splitPage resets to 1 which re-triggers)
+  useEffect(() => {
+    const id = splitFetchIdRef.current
+    fetchSplitPage(splitPage, id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitPage, fetchSplitPage])
+
   // Deep-link support: the detail is now its own page. Legacy links that land
   // on the list with `?id=<id>` (Customer Detail → Credit Notes tab,
   // notifications, Approvals) redirect to the standalone detail page.
@@ -200,10 +299,27 @@ export default function CreditNotesPage() {
   // otherwise the detail page's Back lands here and bounces forward again
   // instead of returning to the caller (e.g. the notification folder).
   const { search: routeSearch } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
+
   useEffect(() => {
-    const target = new URLSearchParams(routeSearch).get('id')
+    const target = urlParams.get('id')
     if (target) navigate(`/billing/credit-notes/detail?id=${target}`, { replace: true })
-  }, [routeSearch])
+  }, [urlParams])
+
+  // Split is default; ?view=table → table view
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedCreditNoteId = urlParams.get('creditNoteId')
+
+  const selectCreditNote = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/billing/credit-notes') return
+    const params = new URLSearchParams()
+    if (id) params.set('creditNoteId', id)
+    navigate(`/billing/credit-notes${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/billing/credit-notes?view=table')
+  }, [])
 
   // Master data — for filters that should list ALL options
   const { customers, fetchMasterData } = useMasterDataStore()
@@ -356,6 +472,151 @@ export default function CreditNotesPage() {
     setSelectedReason('all')
   }
 
+  if (effectiveView === 'split') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {([
+                  { label: 'Pending Review', value: stats.pendingCount.toString(), iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
+                  { label: 'Total Notes', value: stats.count.toString(), iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
+                  { label: 'Total Credit', value: formatCurrency(stats.total), iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500' },
+                  { label: 'Refunds', value: formatCurrency(stats.refunds), iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500' },
+                  { label: 'Adjustments', value: formatCurrency(stats.adjustments), iconBg: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', borderAccent: 'border-l-violet-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (!filtered.length) { toast.info('No credit notes to export'); return }
+              exportToCsv(filtered.map(cn => ({
+                'Credit Note #': cn.creditNoteNo,
+                Date: csvText(formatDate(cn.date)),
+                Customer: cn.customerName,
+                'Invoice #': cn.invoiceNumber,
+                Reason: cn.reason,
+                Status: statusConfig[cn.status]?.label ?? cn.status,
+                Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
+                Total: cn.totalAmount,
+              })), 'credit-notes')
+            }}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => navigate('/billing/returns')}>
+            <RotateCcw className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">New Return</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+                  <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
+                  <EnumSelect label="Settlement" value={selectedSettlement} onValueChange={(v) => { setSelectedSettlement(v); setCurrentPage(1) }} onClear={() => setSelectedSettlement('all')} options={SETTLEMENT_OPTIONS} />
+                  <EnumSelect label="Reason" value={selectedReason} onValueChange={(v) => { setSelectedReason(v); setCurrentPage(1) }} onClear={() => setSelectedReason('all')} options={reasonOptions} />
+                  <PaginatedSelect label="Customer" value={selectedCustomer} onValueChange={(v) => { setSelectedCustomer(v); setCurrentPage(1) }} onClear={() => setSelectedCustomer('all')} fetcher={customerFetcher} pinnedOption={{ value: 'all', label: 'All Customers' }} selectedLabel={selectedCustomerLabel} pageSize={10} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => clearFilters()}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <CreditNoteSplitView
+            creditNotes={splitItems}
+            loading={splitLoading && splitPage === 1}
+            loadingMore={splitLoading && splitPage > 1}
+            hasMore={splitItems.length < splitTotal && !splitLoading}
+            onLoadMore={() => setSplitPage((p) => p + 1)}
+            selectedCreditNoteId={selectedCreditNoteId}
+            onSelectCreditNote={selectCreditNote}
+            onExitSplitView={exitSplitView}
+            onRefresh={() => {
+              splitFetchIdRef.current += 1
+              setSplitItems([])
+              setSplitTotal(0)
+              setSplitPage(1)
+            }}
+            isCardFieldVisible={cardCols.isVisible}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -491,6 +752,7 @@ export default function CreditNotesPage() {
               <span className="hidden sm:inline">New Return</span>
               <span className="sm:hidden">New</span>
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/billing/credit-notes') }} />
           </div>
         }
       >

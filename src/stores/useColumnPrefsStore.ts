@@ -2,31 +2,30 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import api from '@/lib/api'
 
-// Per-user table column visibility, keyed by a stable table key (e.g.
-// 'billing.sales'). Each value is the list of *visible* column ids for that
-// table. Persisted two ways:
-//   1. localStorage (zustand persist) — instant correct first paint, same
-//      pattern as settingsStore's cached generalSettings.
-//   2. The user's account — GET/PUT /users/me/preferences ({ columns: {...} }),
+// Per-user table column visibility + card-field positioning, keyed by a stable
+// table key (e.g. 'billing.sales'). Persisted two ways:
+//   1. localStorage (zustand persist) — instant correct first paint.
+//   2. The user's account — GET/PUT /users/me/preferences ({ columns, positions }),
 //      so choices follow them across devices. Server state wins on boot.
 
 type ColumnsMap = Record<string, string[]>
+type PositionsMap = Record<string, Record<string, 'left' | 'right'>>
 
 interface ColumnPrefsState {
   prefs: ColumnsMap
+  positions: PositionsMap
   loaded: boolean
   setTable: (tableKey: string, visibleIds: string[]) => void
+  setPosition: (tableKey: string, fieldId: string, position: 'left' | 'right') => void
   loadFromServer: () => Promise<void>
 }
 
-// Debounced server sync — coalesces rapid toggles into one PUT. Sends the whole
-// columns map so the server row is always the full canonical copy.
 let syncTimer: ReturnType<typeof setTimeout> | null = null
-function scheduleSync(columns: ColumnsMap) {
+function scheduleSync(columns: ColumnsMap, positions: PositionsMap) {
   if (syncTimer) clearTimeout(syncTimer)
   syncTimer = setTimeout(() => {
-    api.put('/users/me/preferences', { columns }).catch(() => {
-      /* offline / transient — localStorage still holds the change; retried on next toggle */
+    api.put('/users/me/preferences', { columns, positions }).catch(() => {
+      /* offline / transient — localStorage still holds the change */
     })
   }, 600)
 }
@@ -35,23 +34,40 @@ export const useColumnPrefsStore = create<ColumnPrefsState>()(
   persist(
     (set, get) => ({
       prefs: {},
+      positions: {},
       loaded: false,
 
       setTable: (tableKey, visibleIds) => {
         const prefs = { ...get().prefs, [tableKey]: visibleIds }
         set({ prefs })
-        scheduleSync(prefs)
+        scheduleSync(prefs, get().positions)
+      },
+
+      setPosition: (tableKey, fieldId, position) => {
+        const positions: PositionsMap = {
+          ...get().positions,
+          [tableKey]: { ...(get().positions[tableKey] ?? {}), [fieldId]: position },
+        }
+        set({ positions })
+        scheduleSync(get().prefs, positions)
       },
 
       loadFromServer: async () => {
         try {
           const { data } = await api.get('/users/me/preferences')
-          const cols =
-            data && typeof data === 'object' && data.columns && typeof data.columns === 'object'
+          const cols: ColumnsMap =
+            data?.columns && typeof data.columns === 'object'
               ? (data.columns as ColumnsMap)
               : {}
-          // Server wins over the local cache for any table it knows about.
-          set((state) => ({ prefs: { ...state.prefs, ...cols }, loaded: true }))
+          const pos: PositionsMap =
+            data?.positions && typeof data.positions === 'object'
+              ? (data.positions as PositionsMap)
+              : {}
+          set((state) => ({
+            prefs: { ...state.prefs, ...cols },
+            positions: { ...state.positions, ...pos },
+            loaded: true,
+          }))
         } catch {
           set({ loaded: true })
         }
@@ -59,8 +75,7 @@ export const useColumnPrefsStore = create<ColumnPrefsState>()(
     }),
     {
       name: 'pbims-column-prefs-storage',
-      // Only the prefs map is cached; `loaded` always re-resolves from the server on boot.
-      partialize: (state) => ({ prefs: state.prefs }),
+      partialize: (state) => ({ prefs: state.prefs, positions: state.positions }),
     },
   ),
 )

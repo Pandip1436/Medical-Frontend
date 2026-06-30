@@ -46,6 +46,7 @@ const pageVariants = {
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
+import { useRoute } from '@/lib/router'
 
 export default function AppLayout({
   children,
@@ -58,6 +59,7 @@ export default function AppLayout({
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
   const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
+  const { search: routeSearch } = useRoute()
 
   // Auto-logout on inactivity. Reads sessionTimeoutMinutes from generalSettings.
   useIdleTimeout()
@@ -109,11 +111,29 @@ export default function AppLayout({
   const isFullViewport = currentPath === '/billing/new'
 
   // Compact routes keep the header but use minimal padding so the page
-  // owns its own spacing (Leads list is dense and needs the extra width).
-  // Only pages that manage their own internal scrolling belong here —
-  // long-scroll pages (like Analytics) should use the default layout so
-  // `main` provides the scroll container.
-  const isCompactPage = currentPath === '/crm/leads'
+  // owns its own spacing and the split panel can fill the viewport correctly.
+  const urlSearchParams = new URLSearchParams(routeSearch)
+  // Legacy pages signal split via ?view=split. New pages use split-as-default
+  // (no param = split; ?view=table = table). Both need the compact layout.
+  const splitViewActive = urlSearchParams.get('view') === 'split'
+  const tableViewActive = urlSearchParams.get('view') === 'table'
+  // Pages where split view is the DEFAULT (compact unless ?view=table).
+  const SPLIT_DEFAULT_PAGES = [
+    '/billing/quotations',
+    '/billing/credit-notes',
+    '/purchase/orders',
+    '/purchase/debit-notes',
+    '/purchase/suppliers',
+    '/customers',
+    '/inventory/products',
+    '/crm/leads',
+  ]
+  const isCompactPage =
+    (splitViewActive && (
+      currentPath === '/billing/sales' ||
+      currentPath === '/purchase/grn-list'
+    )) ||
+    (!tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath))
 
   // Tight-scroll routes use the normal scrollable main, but with the same
   // minimal horizontal padding as compact pages — for long dashboards that

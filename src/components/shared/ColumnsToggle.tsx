@@ -17,14 +17,20 @@ interface ColumnsToggleProps {
   visible: string[]
   onToggle: (id: string) => void
   onReset?: () => void
+  /** Returns true if the given field is right-positioned in the card. */
+  isRight?: (id: string) => boolean
+  /** Toggle a field's left/right position. */
+  onTogglePosition?: (id: string) => void
 }
 
 /**
- * "Customize Columns" control — a button that opens a checkbox list to show/hide
- * a table's columns. Drop it into a page's DataTableFilterBar `actionNode`.
+ * "Customize Columns" control — checkbox list to show/hide card fields, with
+ * optional L/R position toggle for positionable fields.
  * Pairs with `useColumnVisibility(tableKey, columns)`.
  */
-export function ColumnsToggle({ columns, visible, onToggle, onReset }: ColumnsToggleProps) {
+export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, onTogglePosition }: ColumnsToggleProps) {
+  const hasPositionable = columns.some((c) => c.positionable)
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -37,7 +43,7 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset }: ColumnsTo
           <ChevronDown className="h-3 w-3 opacity-60" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-0">
+      <PopoverContent align="end" className={cn('p-0', hasPositionable ? 'w-64' : 'w-56')}>
         <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
           <h3 className="text-xs font-semibold">Toggle Columns</h3>
           {onReset && (
@@ -57,28 +63,62 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset }: ColumnsTo
             {columns.map((col) => {
               const isOn = visible.includes(col.id)
               const isLocked = !!col.required
+              const right = isRight?.(col.id) ?? col.defaultPosition === 'right'
+
               return (
-                <label
+                <div
                   key={col.id}
                   className={cn(
-                    'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors',
-                    isLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:bg-accent',
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+                    isLocked ? 'cursor-default opacity-80' : 'hover:bg-accent',
                   )}
                 >
-                  <span className="flex items-center gap-2">
+                  {/* Visibility checkbox */}
+                  <label className="flex flex-1 cursor-pointer items-center gap-2">
                     <Checkbox
                       checked={isOn}
                       disabled={isLocked}
                       onCheckedChange={() => !isLocked && onToggle(col.id)}
                     />
                     <span className={cn(isOn && 'font-medium text-foreground')}>{col.label}</span>
-                  </span>
-                  {isLocked && (
-                    <Badge variant="secondary" size="sm" className="text-[9px]">
+                  </label>
+
+                  {/* Position toggle (L/R) for positionable fields */}
+                  {col.positionable && isRight && onTogglePosition ? (
+                    <div className="flex shrink-0 items-center overflow-hidden rounded border border-border/60">
+                      <button
+                        type="button"
+                        onClick={() => right && onTogglePosition(col.id)}
+                        className={cn(
+                          'px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                          !right
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:bg-muted',
+                        )}
+                        title="Left side"
+                      >
+                        L
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => !right && onTogglePosition(col.id)}
+                        className={cn(
+                          'border-l border-border/60 px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                          right
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:bg-muted',
+                        )}
+                        title="Right side"
+                      >
+                        R
+                      </button>
+                    </div>
+                  ) : isLocked ? (
+                    <Badge variant="secondary" size="sm" className="shrink-0 text-[9px]">
                       required
                     </Badge>
-                  )}
-                </label>
+                  ) : null}
+                </div>
               )
             })}
           </div>

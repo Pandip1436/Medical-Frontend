@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Download, Plus, Search, SlidersHorizontal, Upload, X } from 'lucide-react'
+import { Download, Plus, Search, SlidersHorizontal, Upload, X, Filter, BarChart3 } from 'lucide-react'
 // Import / Export / Add Lead live next to the Filters button now — the top
 // bar was tightened by the user to tabs + view-mode toggle + analytics only.
 import { AnimatePresence, motion } from 'framer-motion'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { cn } from '@/lib/utils'
@@ -66,6 +67,7 @@ export default function LeadsListPage() {
   const effectiveView: ViewMode = selectedLeadId ? 'split' : view
 
   const selectLead = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/crm/leads') return
     const params = new URLSearchParams(window.location.search)
     if (id) params.set('leadId', id)
     else params.delete('leadId')
@@ -78,6 +80,10 @@ export default function LeadsListPage() {
   // Filter chips row is collapsed by default — matches the DataTableFilterBar
   // pattern used by Suppliers / Sales / Quotations / Credit Notes etc.
   const [filtersOpen, setFiltersOpen] = useState(false)
+
+  // Split mode collapsible panels
+  const [splitShowStats, setSplitShowStats] = useState(true)
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
 
   // Auto-open the chips when the user lands on the page with any pre-applied
   // filter (e.g. a deep link). Doesn't re-fire on user toggle.
@@ -260,17 +266,123 @@ export default function LeadsListPage() {
           scrollable region so the top bar / filters / pagination stay
           pinned and only the body scrolls. */}
       {effectiveView === 'split' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <LeadsSplitView
-            selectedLeadId={selectedLeadId}
-            onSelectLead={selectLead}
-            onExitSplitView={() => {
-              selectLead(null)
-              setView('list')
-            }}
-            onViewContact={(contactId) => setContactDrawerId(contactId)}
-            tab={list.tab}
-          />
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          {/* Collapsible stats cards */}
+          <AnimatePresence>
+            {splitShowStats && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { label: 'Total Leads', value: list.counts.all, subtitle: 'all leads', iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
+                    { label: 'Open', value: list.counts.open, subtitle: 'in progress', iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
+                    { label: 'Qualified', value: list.counts.qualified, subtitle: 'qualified leads', iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500' },
+                    { label: 'Won', value: list.counts.won, subtitle: 'closed won', iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
+                  ].map((stat) => (
+                    <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+                      <CardContent className="flex items-center gap-3 p-3">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                          <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Toolbar row */}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
+              <Download className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              title="Toggle filters"
+              onClick={() => setSplitShowFilters(!splitShowFilters)}
+              className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+            >
+              <Filter className="h-4 w-4" />
+              {list.activeFilterCount > 0 && (
+                <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                  {list.activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+              onClick={() => setSplitShowStats(!splitShowStats)}
+              className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
+            <Button size="sm" onClick={() => setAddLeadOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Add Lead</span>
+            </Button>
+          </div>
+
+          {/* Collapsible filter panel */}
+          <AnimatePresence>
+            {splitShowFilters && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+                  <LeadsFilterChips
+                    stage={list.filters.stage}
+                    onStageChange={(stage) => list.setFilters((prev) => ({ ...prev, stage }))}
+                    source={list.filters.source}
+                    onSourceChange={(source) => list.setFilters((prev) => ({ ...prev, source }))}
+                    createdFrom={list.filters.createdFrom}
+                    createdTo={list.filters.createdTo}
+                    onCreatedChange={(createdFrom, createdTo) => list.setFilters((prev) => ({ ...prev, createdFrom, createdTo }))}
+                    updatedFrom={list.filters.updatedFrom}
+                    updatedTo={list.filters.updatedTo}
+                    onUpdatedChange={(updatedFrom, updatedTo) => list.setFilters((prev) => ({ ...prev, updatedFrom, updatedTo }))}
+                    assignedToUserId={list.filters.assignedToUserId}
+                    assignedToUserName={list.filters.assignedToUserName}
+                    onAssigneeChange={list.setAssignedTo}
+                  />
+                  {list.activeFilterCount > 0 && (
+                    <div className="mt-2 flex justify-end border-t border-border/40 pt-2">
+                      <Button variant="ghost" size="sm" onClick={() => list.clearFilters()}>
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        Clear filters
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="min-h-0 flex-1">
+            <LeadsSplitView
+              selectedLeadId={selectedLeadId}
+              onSelectLead={selectLead}
+              onExitSplitView={() => {
+                selectLead(null)
+                setView('list')
+              }}
+              onViewContact={(contactId) => setContactDrawerId(contactId)}
+              tab={list.tab}
+            />
+          </div>
         </div>
       ) : effectiveView === 'kanban' ? (
         <LeadsKanbanView

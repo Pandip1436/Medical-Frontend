@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useAuthStore } from '@/stores/authStore'
-import { motion, type Variants } from 'framer-motion'
+import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -23,6 +23,8 @@ import {
   Stethoscope,
   Wallet,
   CheckCircle2,
+  Filter,
+  BarChart3,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import {
@@ -78,8 +80,11 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Customer } from '@/types'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
-import { navigate } from '@/lib/router'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
+import { navigate, useRoute } from '@/lib/router'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { CustomerSplitView } from './components/CustomerSplitView'
 
 // ─────────────────────────────────────────────────────────────
 // Animation variants
@@ -269,6 +274,60 @@ function outstandingColor(outstanding: number) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Payment tabs (same pattern as GRN list)
+// ─────────────────────────────────────────────────────────────
+
+type PayTabKey = 'all' | 'PAID' | 'PARTIAL' | 'UNPAID'
+
+const PAY_TABS: { key: PayTabKey; label: string; activeClass: string; countClass: string }[] = [
+  { key: 'all',     label: 'All',     activeClass: 'border-foreground text-foreground',                                   countClass: 'bg-foreground/10 text-foreground' },
+  { key: 'PAID',    label: 'Paid',    activeClass: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',            countClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  { key: 'PARTIAL', label: 'Partial', activeClass: 'border-amber-500 text-amber-600 dark:text-amber-400',                 countClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  { key: 'UNPAID',  label: 'Unpaid',  activeClass: 'border-rose-500 text-rose-600 dark:text-rose-400',                    countClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
+]
+
+function custPayStatus(c: Customer): 'PAID' | 'PARTIAL' | 'UNPAID' | null {
+  const outstanding = Number(c.currentOutstanding ?? 0)
+  const paid = Number((c as any).paidAmount ?? 0)
+  // No invoices at all — outstanding 0 because nothing was ever purchased
+  if (outstanding === 0 && paid === 0) return null
+  if (outstanding <= 0) return 'PAID'
+  if (paid > 0) return 'PARTIAL'
+  return 'UNPAID'
+}
+
+function CustomerPaymentTabs({ tab, onChange, counts }: {
+  tab: PayTabKey
+  onChange: (t: PayTabKey) => void
+  counts: Record<string, number>
+}) {
+  return (
+    <div className="flex items-center gap-0.5 px-0.5">
+      {PAY_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+            tab === t.key
+              ? t.activeClass
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
+            tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
+          )}>
+            {counts[t.key] ?? 0}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
 
@@ -284,8 +343,35 @@ const CUSTOMER_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'type', label: 'Type', defaultVisible: true },
+  { id: 'source', label: 'Source', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'outstanding', label: 'Outstanding', defaultVisible: true },
+  { id: 'pending', label: 'Pending Bills', defaultVisible: true },
+]
+
 export default function CustomersPage() {
   const cols = useColumnVisibility('customers.list', CUSTOMER_COLUMNS)
+  const cardCols = useColumnVisibility('customers.card', CARD_FIELDS)
+  const { search: routeSearch } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
+
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedCustomerId = urlParams.get('customerId')
+
+  const selectCustomer = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/customers') return
+    const params = new URLSearchParams()
+    if (id) params.set('customerId', id)
+    navigate(`/customers${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/customers?view=table')
+  }, [])
+
   // The store is still the cache used by other pages' customer dropdowns.
   // We don't read its list here anymore — this page drives its own paginated
   // fetch — but we keep `fetchCustomers` to refresh the cache after CRUD.
@@ -295,6 +381,7 @@ export default function CustomersPage() {
 
   // Server-driven list state
   const [pageRows, setPageRows] = useState<Customer[]>([])
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   // Bumped whenever an external mutation (import, delete, etc.) needs the
@@ -311,19 +398,23 @@ export default function CustomersPage() {
     paidAmount: 0,
   })
 
-  // Filters + pagination. Filters persisted to sessionStorage so they survive
-  // refresh + navigate-back.
-  const [searchQuery, setSearchQuery] = usePersistedState('filters:customers.list:search', '')
+  // Filters + pagination
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('customers.list', 'search', '')
   const [currentPage, setCurrentPage] = useState(1)
-  const [customerTypeFilter, setCustomerTypeFilter] = usePersistedState<string>('filters:customers.list:type', 'all')
-  const [outstandingFilter, setOutstandingFilter] = usePersistedState<string>('filters:customers.list:outstanding', 'all')
-  const [gstinFilter, setGstinFilter] = usePersistedState<string>('filters:customers.list:gstin', 'all')
-  const [sourceFilter, setSourceFilter] = usePersistedState<string>('filters:customers.list:source', 'all')
-  const [monthFilter, setMonthFilter] = usePersistedState<string>('filters:customers.list:month', 'all')
-  const [statusFilter, setStatusFilter] = usePersistedState<string>('filters:customers.list:status', 'all')
-  // Custom-range bounds (yyyy-mm-dd), used only when monthFilter === 'custom'.
-  const [customFrom, setCustomFrom] = usePersistedState<string>('filters:customers.list:from', '')
-  const [customTo, setCustomTo] = usePersistedState<string>('filters:customers.list:to', '')
+  const [customerTypeFilter, setCustomerTypeFilter] = usePageFilter<string>('customers.list', 'type', 'all')
+  const [outstandingFilter, setOutstandingFilter] = usePageFilter<string>('customers.list', 'outstanding', 'all')
+  const [gstinFilter, setGstinFilter] = usePageFilter<string>('customers.list', 'gstin', 'all')
+  const [sourceFilter, setSourceFilter] = usePageFilter<string>('customers.list', 'source', 'all')
+  const [monthFilter, setMonthFilter] = usePageFilter<string>('customers.list', 'month', 'all')
+  const [statusFilter, setStatusFilter] = usePageFilter<string>('customers.list', 'status', 'all')
+  const [customFrom, setCustomFrom] = usePageFilter<string>('customers.list', 'from', '')
+  const [customTo, setCustomTo] = usePageFilter<string>('customers.list', 'to', '')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('customers.list', 'splitShowStats', true)
+  const [payTab, setPayTab] = usePageFilter<PayTabKey>('customers.list', 'payTab', 'all')
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -448,12 +539,15 @@ export default function CustomersPage() {
         const res = await api.get(`/customers?${buildQueryParams().toString()}`, { signal: controller.signal })
         const payload = res.data
         const items = (payload?.data ?? payload ?? []) as Customer[]
+        const isFirstPage = (currentPage - 1) * PAGE_SIZE === 0
         setPageRows(items)
+        setAllCustomers((prev) => (isFirstPage ? items : [...prev, ...items]))
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
       } catch (err: unknown) {
         const e = err as { name?: string; code?: string }
         if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
           setPageRows([])
+          setAllCustomers([])
           setTotal(0)
         }
       } finally {
@@ -484,6 +578,7 @@ export default function CustomersPage() {
     return () => clearTimeout(handle)
   }, [fetchSummary, refreshToken])
   useBranchRefresh(fetchSummary)
+
 
   // Reset page to 1 whenever any filter or search changes
   useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter])
@@ -732,6 +827,142 @@ export default function CustomersPage() {
     navigate(`/customers/detail?customerId=${customer.id}`)
   }
 
+  if (effectiveView === 'split') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total', value: summary.total.toLocaleString(), sub: 'customers', borderAccent: 'border-l-blue-500' },
+                  { label: 'With Outstanding', value: summary.withOutstanding.toLocaleString(), sub: 'have balance', borderAccent: 'border-l-rose-500' },
+                  { label: 'Total Billed', value: `₹${(summary.totalAmount / 1000).toFixed(0)}k`, sub: 'all time', borderAccent: 'border-l-emerald-500' },
+                  { label: 'Outstanding', value: `₹${(summary.totalOutstanding / 1000).toFixed(0)}k`, sub: 'pending', borderAccent: 'border-l-amber-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={`border-l-[3px] ${s.borderAccent}`}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={splitShowFilters ? 'border-primary/50 bg-primary/5' : ''}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={splitShowStats ? 'border-primary/50 bg-primary/5' : ''}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Add Customer</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Type" value={customerTypeFilter} onValueChange={setCustomerTypeFilter} onClear={() => setCustomerTypeFilter('all')} options={CUSTOMER_TYPE_OPTIONS} />
+                  <EnumSelect label="Outstanding" value={outstandingFilter} onValueChange={setOutstandingFilter} onClear={() => setOutstandingFilter('all')} options={OUTSTANDING_OPTIONS} />
+                  <EnumSelect label="Status" value={statusFilter} onValueChange={setStatusFilter} onClear={() => setStatusFilter('all')} options={STATUS_OPTIONS} />
+                  <EnumSelect label="Source" value={sourceFilter} onValueChange={setSourceFilter} onClear={() => setSourceFilter('all')} options={SOURCE_FILTER_OPTIONS} />
+                  <EnumSelect label="Period Added" value={monthFilter} onValueChange={setMonthFilter} onClear={() => setMonthFilter('all')} options={PERIOD_OPTIONS} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearFilters}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear all
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <CustomerSplitView
+            customers={payTab === 'all' ? allCustomers : allCustomers.filter((c) => custPayStatus(c) === payTab)}
+            loading={isLoading && currentPage === 1}
+            loadingMore={isLoading && currentPage > 1}
+            hasMore={payTab === 'all' && allCustomers.length < total && !isLoading}
+            onLoadMore={() => setCurrentPage((p) => p + 1)}
+            selectedCustomerId={selectedCustomerId}
+            onSelectCustomer={selectCustomer}
+            onExitSplitView={exitSplitView}
+            onRefresh={() => setRefreshToken((t) => t + 1)}
+            isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <CustomerPaymentTabs
+                tab={payTab}
+                onChange={(t) => { setPayTab(t); selectCustomer(null); if (t === 'all') setCurrentPage(1) }}
+                counts={{
+                  all: total,
+                  PAID: allCustomers.filter((c) => custPayStatus(c) === 'PAID').length,
+                  PARTIAL: allCustomers.filter((c) => custPayStatus(c) === 'PARTIAL').length,
+                  UNPAID: allCustomers.filter((c) => custPayStatus(c) === 'UNPAID').length,
+                }}
+              />
+            }
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <motion.div
       variants={containerVariants}
@@ -864,6 +1095,7 @@ export default function CustomersPage() {
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Add Customer</span>
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/customers') }} />
           </div>
         }
       >

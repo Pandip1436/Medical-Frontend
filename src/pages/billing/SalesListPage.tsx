@@ -26,6 +26,9 @@ import {
   FileCode2,
   Eye,
   ArrowLeft,
+  Filter,
+  ShoppingBag,
+  BarChart3,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -69,7 +72,8 @@ import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import type { Invoice } from '@/types'
 import {
   downloadInvoicePdf,
@@ -79,12 +83,15 @@ import {
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, csvText, printReport } from '@/lib/exportUtils'
+import { InvoiceSplitView } from './components/InvoiceSplitView'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10
+const SPLIT_PAGE_SIZE = 30
 
 const PERIOD_OPTIONS = [
   { value: 'all', label: 'All Time' },
@@ -122,6 +129,61 @@ const paymentModeLabels: Record<string, string> = {
 }
 
 // ─────────────────────────────────────────────────────────────
+// STATUS TABS
+// ─────────────────────────────────────────────────────────────
+
+type StatusTabKey = 'all' | 'PAID' | 'PARTIAL' | 'UNPAID'
+
+const STATUS_TABS: {
+  key: StatusTabKey
+  label: string
+  activeClass: string
+  countClass: string
+}[] = [
+  { key: 'all', label: 'All', activeClass: 'border-foreground text-foreground', countClass: 'bg-foreground/10 text-foreground' },
+  { key: 'PAID', label: 'Paid', activeClass: 'border-emerald-500 text-emerald-600 dark:text-emerald-400', countClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  { key: 'PARTIAL', label: 'Partial', activeClass: 'border-amber-500 text-amber-600 dark:text-amber-400', countClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  { key: 'UNPAID', label: 'Unpaid', activeClass: 'border-rose-500 text-rose-600 dark:text-rose-400', countClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
+]
+
+function StatusTabs({
+  tab,
+  onChange,
+  counts,
+}: {
+  tab: StatusTabKey
+  onChange: (t: StatusTabKey) => void
+  counts: Record<string, number>
+}) {
+  return (
+    <div className="flex items-center gap-0.5 px-0.5">
+      {STATUS_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+            tab === t.key
+              ? t.activeClass
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t.label}
+          <span
+            className={cn(
+              'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
+              tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
+            )}
+          >
+            {counts[t.key] ?? 0}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 
@@ -138,28 +200,49 @@ const SALES_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'customerName', label: 'Customer Name', required: true, defaultVisible: true },
+  { id: 'phone', label: 'Phone Number', defaultVisible: false },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'invoiceNumber', label: 'Invoice #', defaultVisible: true },
+  { id: 'total', label: 'Total Amount', defaultVisible: true },
+  { id: 'paid', label: 'Paid Amount', defaultVisible: true },
+  { id: 'balance', label: 'Balance', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'paymentMode', label: 'Payment Mode', defaultVisible: false },
+]
+
 export default function SalesListPage() {
   const cols = useColumnVisibility('billing.sales', SALES_COLUMNS)
-  // Search
-  const [searchQuery, setSearchQuery] = usePersistedState('filters:billing.sales:search', '')
+  const cardCols = useColumnVisibility('billing.sales.card', CARD_FIELDS)
 
-  // Filters — period defaults to "today" so the page opens on today's sales.
-  // Persisted to sessionStorage so they survive refresh + navigate-back.
-  const [period, setPeriod] = usePersistedState('filters:billing.sales:period', 'today')
-  // Stat-card drill-down: clicking a summary card narrows the list to that
-  // subset (all sales / collected / outstanding / returns) on top of the
-  // period. Kept separate from the Status enum filter because "outstanding"
-  // spans two statuses (UNPAID + PARTIAL).
-  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'paid' | 'pending' | 'returns'>('filters:billing.sales:card', 'all')
-  const [dateFrom, setDateFrom] = usePersistedState('filters:billing.sales:dateFrom', '')
-  const [dateTo, setDateTo] = usePersistedState('filters:billing.sales:dateTo', '')
-  const [selectedPaymentMode, setSelectedPaymentMode] = usePersistedState<string>('filters:billing.sales:paymentMode', 'all')
-  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:billing.sales:status', 'all')
-  const [selectedSalespersonId, setSelectedSalespersonId] = usePersistedState<string>('filters:billing.sales:salesperson', 'all')
+  // Filters — all persisted to server (localStorage + server via usePageFilter).
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('billing.sales', 'searchQuery', '')
+  const [period, setPeriod] = usePageFilter<string>('billing.sales', 'period', 'today')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'paid' | 'pending' | 'returns'>('billing.sales', 'cardFilter', 'all')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('billing.sales', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('billing.sales', 'dateTo', '')
+  const [selectedPaymentMode, setSelectedPaymentMode] = usePageFilter<string>('billing.sales', 'paymentMode', 'all')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('billing.sales', 'status', 'all')
+  const [selectedSalespersonId, setSelectedSalespersonId] = usePageFilter<string>('billing.sales', 'salespersonId', 'all')
+  const [statusTab, setStatusTab] = usePageFilter<'all' | 'PAID' | 'PARTIAL' | 'UNPAID'>('billing.sales', 'statusTab', 'all')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.sales', 'splitShowStats', true)
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  // Load server-side filter prefs on mount so choices follow the user across devices.
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadFilterPrefs() }, [])
   const [salespersonsList, setSalespersonsList] = useState<{ id: string; name: string }[]>([])
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Split-view pagination (server-side, infinite scroll)
+  const [splitPage, setSplitPage] = useState(1)
+  const [splitItems, setSplitItems] = useState<Invoice[]>([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
 
   // Real Data State
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -254,17 +337,101 @@ export default function SalesListPage() {
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // Legacy deep-links (?invoiceId=…, from notifications / credit notes / other
-  // pages) now redirect to the standalone invoice detail page instead of
-  // opening an in-list drawer.
   const { search } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(search), [search])
+
+  // Split view is the default. Pass ?view=table to switch to table mode.
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedInvoiceId = urlParams.get('invoiceId')
+
+  // Navigate to set / clear the split-view URL params.
+  const selectInvoice = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/billing/sales') return
+    const params = new URLSearchParams()
+    params.set('view', 'split')
+    if (id) params.set('invoiceId', id)
+    navigate(`/billing/sales?${params.toString()}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/billing/sales?view=table')
+  }, [])
+
+  // Fetch one page of invoices for the split view (server-side pagination).
   useEffect(() => {
-    const target = new URLSearchParams(search).get('invoiceId')
-    // Replace (not push) so this redirecting URL never enters the back stack —
-    // back from the detail page returns to wherever the user came from
-    // (notification, reminder, etc.) instead of bouncing back here.
-    if (target) navigate(`/customers/invoices/detail?id=${target}`, { replace: true })
-  }, [search])
+    if (effectiveView !== 'split') return
+    const fetchSplitPage = async () => {
+      setSplitLoadingMore(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
+        params.set('take', String(SPLIT_PAGE_SIZE))
+        if (searchQuery.trim()) params.set('search', searchQuery.trim())
+        if (period && period !== 'all') params.set('period', period)
+        if (period === 'custom') {
+          if (dateFrom) params.set('dateFrom', dateFrom)
+          if (dateTo) params.set('dateTo', dateTo)
+        }
+        if (selectedPaymentMode && selectedPaymentMode !== 'all') params.set('paymentMode', selectedPaymentMode)
+        if (selectedStatus && selectedStatus !== 'all') params.set('status', selectedStatus)
+        if (selectedSalespersonId && selectedSalespersonId !== 'all') params.set('salespersonId', selectedSalespersonId)
+        if (statusTab && statusTab !== 'all') params.set('statusTab', statusTab)
+        if (cardFilter && cardFilter !== 'all') params.set('cardFilter', cardFilter)
+        const res = await api.get(`/billing?${params.toString()}`)
+        const payload = res.data
+        const incoming: Invoice[] = payload?.data ?? (Array.isArray(payload) ? payload : [])
+        const newTotal = typeof payload?.total === 'number' ? payload.total : incoming.length
+        setSplitItems(prev => splitPage === 1 ? incoming : [...prev, ...incoming])
+        setSplitTotal(newTotal)
+      } catch {
+        // silent
+      } finally {
+        setSplitLoadingMore(false)
+      }
+    }
+    fetchSplitPage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitPage, effectiveView])
+
+  // Reset split pagination whenever any filter changes.
+  useEffect(() => {
+    setSplitItems([])
+    setSplitTotal(0)
+    setSplitPage(1)
+  }, [
+    searchQuery,
+    period,
+    dateFrom,
+    dateTo,
+    selectedPaymentMode,
+    selectedStatus,
+    selectedSalespersonId,
+    statusTab,
+    cardFilter,
+    effectiveView,
+  ])
+
+  // Sync Payment — reconcile the selected invoice against the payment gateway.
+  const [reconciling, setReconciling] = useState(false)
+  const handleReconcileSelected = useCallback(async () => {
+    if (!selectedInvoiceId) return
+    setReconciling(true)
+    try {
+      const res = await api.post(`/billing/${selectedInvoiceId}/reconcile-payment-link`)
+      const applied: Array<{ duplicate?: boolean }> = res.data?.applied ?? []
+      const fresh = applied.filter((a) => !a.duplicate)
+      if (fresh.length === 0) {
+        toast.info('No new payments found at the gateway')
+      } else {
+        toast.success(`Reconciled ${fresh.length} payment${fresh.length === 1 ? '' : 's'} from gateway`)
+        fetchInvoices()
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to reconcile payment')
+    } finally {
+      setReconciling(false)
+    }
+  }, [selectedInvoiceId, fetchInvoices])
 
   const clearFilters = () => {
     setPeriod('today')
@@ -274,6 +441,7 @@ export default function SalesListPage() {
     setSelectedPaymentMode('all')
     setSelectedStatus('all')
     setSelectedSalespersonId('all')
+    setStatusTab('all')
   }
 
   // ── Filtering logic ──
@@ -353,9 +521,10 @@ export default function SalesListPage() {
     selectedSalespersonId,
   ])
 
-  const filteredInvoices = useMemo(() => {
+  // After cardFilter drill-down but BEFORE statusTab — used to compute per-tab counts
+  // so the tab badges always reflect "how many in this tab given all other filters".
+  const preTabInvoices = useMemo(() => {
     let result = statsBaseInvoices
-    // Stat-card drill-down (layered on top of the other filters)
     if (cardFilter === 'paid') {
       result = result.filter((inv) => inv.status === 'PAID')
     } else if (cardFilter === 'pending') {
@@ -365,6 +534,27 @@ export default function SalesListPage() {
     }
     return result
   }, [statsBaseInvoices, cardFilter])
+
+  const tabCounts = useMemo(() => ({
+    all: preTabInvoices.length,
+    PAID: preTabInvoices.filter((i) => i.status === 'PAID').length,
+    PARTIAL: preTabInvoices.filter((i) => i.status === 'PARTIAL').length,
+    UNPAID: preTabInvoices.filter((i) => i.status === 'UNPAID').length,
+  }), [preTabInvoices])
+
+  const filteredInvoices = useMemo(() => {
+    if (statusTab === 'all') return preTabInvoices
+    return preTabInvoices.filter((inv) => inv.status === statusTab)
+  }, [preTabInvoices, statusTab])
+
+  const enterSplitView = useCallback(() => {
+    const firstId = filteredInvoices[0]?.id
+    if (firstId) {
+      selectInvoice(firstId)
+    } else {
+      navigate('/billing/sales?view=split')
+    }
+  }, [filteredInvoices, selectInvoice])
 
   // ── Stats ── (reflect period + search + payment + status + salesperson, but
   // NOT the card drill-down — so clicking a card never rewrites its own total)
@@ -450,6 +640,307 @@ export default function SalesListPage() {
     selectedSalespersonId !== 'all' ? selectedSalespersonId : '',
   ].filter(Boolean).length
 
+  if (effectiveView === 'split') {
+    const splitExportMenu = (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64 p-1.5">
+          <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            Export {filteredInvoices.length} {filteredInvoices.length === 1 ? 'invoice' : 'invoices'}
+          </p>
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
+            onClick={() => {
+              if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
+              printReport(filteredInvoices.map((inv) => ({
+                Invoice: inv.invoiceNumber,
+                Date: formatDate(inv.date),
+                Customer: inv.customerName,
+                Phone: inv.customerPhone ?? '',
+                Items: inv.items?.length ?? 0,
+                Total: formatCurrency(inv.grandTotal),
+                Paid: formatCurrency(inv.amountPaid),
+                Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                Status: inv.status,
+              })), 'Sales Invoices')
+            }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Printer className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">Print List</span>
+              <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
+            onClick={() => {
+              if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
+              const exported = exportToCsv(filteredInvoices.map((inv) => ({
+                Invoice: inv.invoiceNumber,
+                Date: csvText(formatDate(inv.date)),
+                Customer: inv.customerName,
+                Phone: csvText(inv.customerPhone ?? ''),
+                Items: inv.items?.length ?? 0,
+                Total: inv.grandTotal,
+                Paid: inv.amountPaid,
+                Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+                'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
+                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                Status: inv.status,
+              })), 'sales-invoices')
+              toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
+            }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <FileSpreadsheet className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">CSV</span>
+              <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
+            onClick={async () => {
+              try {
+                const token = localStorage.getItem('auth_token')
+                const res = await fetch('/api/v1/billing/export/tally-xml', {
+                  headers: { Authorization: `Bearer ${token}` },
+                })
+                if (!res.ok) throw new Error('Export failed')
+                const blob = await res.blob()
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = 'tally-export.xml'
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success('Tally XML downloaded')
+              } catch {
+                toast.error('Failed to export Tally XML')
+              }
+            }}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <FileCode2 className="h-4 w-4" />
+            </span>
+            <span className="flex flex-col">
+              <span className="text-sm font-semibold">Tally XML</span>
+              <span className="text-[11px] text-muted-foreground">Import file for Tally</span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        {/* Collapsible stats cards — rendered first so buttons appear below them */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total Sales', value: formatCurrency(stats.totalSales), subtitle: `${stats.totalInvoices} invoices`, icon: IndianRupee, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
+                  { label: 'Collected', value: formatCurrency(stats.paidTotal), subtitle: `${stats.paidCount} paid`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'paid' as const, activeRing: 'ring-2 ring-emerald-500/50' },
+                  { label: 'Outstanding', value: formatCurrency(stats.pendingTotal), subtitle: `${stats.creditCount} pending`, icon: Clock, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500', filterKey: 'pending' as const, activeRing: 'ring-2 ring-amber-500/50' },
+                  { label: 'Returns', value: stats.returnsCount.toString(), subtitle: 'this period', icon: Undo2, iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500', filterKey: 'returns' as const, activeRing: 'ring-2 ring-rose-500/50' },
+                ] as const).map((stat) => {
+                  const active = cardFilter === stat.filterKey
+                  return (
+                    <Card
+                      key={stat.label}
+                      hover
+                      role="button"
+                      tabIndex={0}
+                      title={stat.filterKey === 'all' ? 'Show all sales in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+                      onClick={() => { setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
+                      className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+                    >
+                      <CardContent className="flex items-center gap-3 p-3">
+                        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                          <stat.icon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                          <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar row — below stats so the eye naturally flows: stats → actions → content */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {splitExportMenu}
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          {selectedInvoiceId && (
+            <Button
+              variant="outline"
+              size="sm"
+              title="Poll the payment gateway for any captured payments not yet recorded here"
+              onClick={handleReconcileSelected}
+              disabled={reconciling}
+            >
+              <RefreshCw className={cn('h-4 w-4', reconciling && 'animate-spin')} />
+              <span className="ml-1.5 hidden sm:inline">{reconciling ? 'Syncing…' : 'Sync Payment'}</span>
+            </Button>
+          )}
+          <Button size="sm" onClick={() => navigate('/billing/new')}>
+            <ShoppingBag className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">New Sale</span>
+          </Button>
+          <ViewModeToggle
+            view="split"
+            onViewChange={(v) => { if (v === 'table') exitSplitView() }}
+          />
+        </div>
+
+        {/* Collapsible filter panel — full-width grid */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect
+                    label="Period"
+                    value={period}
+                    onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+                    onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+                    options={PERIOD_OPTIONS}
+                  />
+                  <EnumSelect
+                    label="Payment Mode"
+                    value={selectedPaymentMode}
+                    onValueChange={(val) => { setSelectedPaymentMode(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedPaymentMode('all'); setCurrentPage(1) }}
+                    options={PAYMENT_MODE_OPTIONS}
+                  />
+                  <EnumSelect
+                    label="Status"
+                    value={selectedStatus}
+                    onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+                    onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+                    options={STATUS_OPTIONS}
+                  />
+                  {salespersonsList.length > 0 ? (
+                    <EnumSelect
+                      label="Salesperson"
+                      value={selectedSalespersonId}
+                      onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
+                      onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
+                      options={[
+                        { value: 'all', label: 'All Salespersons' },
+                        ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
+                      ]}
+                    />
+                  ) : <div />}
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => { clearFilters(); setCurrentPage(1) }}>
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="min-h-0 flex-1">
+          <InvoiceSplitView
+            invoices={splitItems}
+            loading={splitLoadingMore && splitPage === 1}
+            loadingMore={splitLoadingMore && splitPage > 1}
+            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
+            onLoadMore={() => setSplitPage(p => p + 1)}
+            selectedInvoiceId={selectedInvoiceId}
+            onSelectInvoice={selectInvoice}
+            onExitSplitView={exitSplitView}
+            onRefresh={fetchInvoices}
+            isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <StatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
+          />
+        </div>
+        <ConfirmDialog
+          open={!!cancelTarget}
+          onOpenChange={(o) => { if (!o) setCancelTarget(null) }}
+          title={cancelTarget?.status === 'DRAFT' ? 'Discard draft?' : 'Cancel invoice?'}
+          description={cancelTarget?.status === 'DRAFT' ? (
+            <>This permanently discards the draft for <span className="font-semibold text-foreground">{cancelTarget?.customerName}</span>. This cannot be undone.</>
+          ) : (
+            <>Invoice <span className="font-mono font-semibold text-foreground">{cancelTarget?.invoiceNumber}</span> for <span className="font-semibold text-foreground">{cancelTarget?.customerName}</span> will be marked <span className="font-semibold">CANCELLED</span>. It stays on record, but stock is <span className="font-semibold">not</span> restored automatically. This is irreversible.</>
+          )}
+          confirmLabel={cancelTarget?.status === 'DRAFT' ? 'Discard' : 'Cancel Invoice'}
+          onConfirm={confirmRemoveOrCancel}
+        />
+      </div>
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -530,6 +1021,15 @@ export default function SalesListPage() {
         })}
       </div>
 
+      {/* ── Status Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <StatusTabs
+          tab={statusTab}
+          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
+
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
         searchQuery={searchQuery}
@@ -541,6 +1041,7 @@ export default function SalesListPage() {
         columnsNode={<ColumnsToggle columns={SALES_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') enterSplitView() }} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">

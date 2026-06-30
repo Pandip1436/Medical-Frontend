@@ -16,6 +16,8 @@ import {
   XCircle,
   Package,
   Share2,
+  Filter,
+  BarChart3,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -62,14 +64,17 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageFilter } from '@/hooks/usePageFilter'
+import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { QuotationSplitView } from './components/QuotationSplitView'
 
-type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
+export type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
 
-interface QuotationItem {
+export interface QuotationItem {
   name: string
   qty: number
   rate: number
@@ -82,7 +87,7 @@ interface QuotationItem {
   amount: number
 }
 
-interface Quotation {
+export interface Quotation {
   id: string
   quotationNumber: string
   date: string
@@ -103,6 +108,7 @@ interface Quotation {
 // ─────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 10
+const SPLIT_PAGE_SIZE = 30
 
 const PERIOD_OPTIONS = [
   { value: 'all', label: 'All Time' },
@@ -150,25 +156,52 @@ const QUOTATION_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true },
 ]
 
+const CARD_FIELDS: ColumnDef[] = [
+  { id: 'total', label: 'Total', defaultVisible: true },
+  { id: 'date', label: 'Date', defaultVisible: true },
+  { id: 'quotationNumber', label: 'Quotation No.', defaultVisible: true },
+  { id: 'phone', label: 'Phone', defaultVisible: true },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'items', label: 'Items Count', defaultVisible: true },
+]
+
 export default function QuotationsPage() {
   const cols = useColumnVisibility('billing.quotations', QUOTATION_COLUMNS)
+  const cardCols = useColumnVisibility('billing.quotations.card', CARD_FIELDS)
   const { path, search: routeSearch } = useRoute()
+  const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
-  // Search
-  const [searchQuery, setSearchQuery] = usePersistedState('filters:billing.quotations:search', '')
+  // Split is default; ?view=table → table view
+  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const selectedQuotationId = urlParams.get('quotationId')
 
-  // Filters — period defaults to "today". Persisted to sessionStorage so they
-  // survive refresh + navigate-back.
-  const [period, setPeriod] = usePersistedState('filters:billing.quotations:period', 'today')
-  // Stat-card drill-down: clicking a status card narrows the list to that
-  // status on top of the period. Kept separate from the Status enum filter
-  // so the card click and the dropdown stay independent.
-  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'converted' | 'pending' | 'rejected'>('filters:billing.quotations:card', 'all')
-  const [dateFrom, setDateFrom] = usePersistedState('filters:billing.quotations:dateFrom', '')
-  const [dateTo, setDateTo] = usePersistedState('filters:billing.quotations:dateTo', '')
-  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('filters:billing.quotations:status', 'all')
-  const [selectedCustomer, setSelectedCustomer] = usePersistedState<string>('filters:billing.quotations:customer', 'all')
-  const [selectedCustomerName, setSelectedCustomerName] = usePersistedState<string>('filters:billing.quotations:customerName', '')
+  const selectQuotation = useCallback((id: string | null) => {
+    if (window.location.pathname !== '/billing/quotations') return
+    const params = new URLSearchParams()
+    if (id) params.set('quotationId', id)
+    navigate(`/billing/quotations${params.toString() ? `?${params.toString()}` : ''}`)
+  }, [])
+
+  const exitSplitView = useCallback(() => {
+    navigate('/billing/quotations?view=table')
+  }, [])
+
+  // Filters — usePageFilter for persistence
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('billing.quotations', 'search', '')
+  const [period, setPeriod] = usePageFilter<string>('billing.quotations', 'period', 'today')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('billing.quotations', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('billing.quotations', 'dateTo', '')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('billing.quotations', 'status', 'all')
+  const [selectedCustomer, setSelectedCustomer] = usePageFilter<string>('billing.quotations', 'customer', 'all')
+  const [selectedCustomerName, setSelectedCustomerName] = usePageFilter<string>('billing.quotations', 'customerName', '')
+  const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.quotations', 'splitShowStats', true)
+
+  // Stat-card drill-down — not persisted (intentional)
+  const [cardFilter, setCardFilter] = useState<'all' | 'converted' | 'pending' | 'rejected'>('all')
+  const [splitShowFilters, setSplitShowFilters] = useState(false)
+
+  const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
+  useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -180,6 +213,12 @@ export default function QuotationsPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [detailQt, setDetailQt] = useState<Quotation | null>(null)
+
+  // Split view pagination state
+  const [splitPage, setSplitPage] = useState(1)
+  const [splitItems, setSplitItems] = useState<Quotation[]>([])
+  const [splitTotal, setSplitTotal] = useState(0)
+  const [splitLoadingMore, setSplitLoadingMore] = useState(false)
 
   // Master data — needed for filter dropdowns AND to resolve customerId →
   // phone for WhatsApp share.
@@ -234,6 +273,81 @@ export default function QuotationsPage() {
   // Re-fetch whenever this page becomes active (e.g. after creating a quotation)
   useEffect(() => { fetchQuotations() }, [fetchQuotations, path])
   useBranchRefresh(fetchQuotations)
+
+  // ── Split view server-side pagination ──
+
+  useEffect(() => {
+    if (effectiveView !== 'split') return
+    const fetchSplitPage = async () => {
+      setSplitLoadingMore(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('skip', String((splitPage - 1) * SPLIT_PAGE_SIZE))
+        params.set('take', String(SPLIT_PAGE_SIZE))
+
+        // Period → dateFrom / dateTo
+        const now = new Date()
+        const todayStr = now.toISOString().slice(0, 10)
+        if (period === 'today') {
+          params.set('dateFrom', todayStr)
+          params.set('dateTo', todayStr)
+        } else if (period === 'week') {
+          params.set('dateFrom', weekStartISO(now))
+        } else if (period === 'month') {
+          const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+          params.set('dateFrom', monthStart)
+        } else if (period === 'custom') {
+          if (dateFrom) params.set('dateFrom', dateFrom)
+          if (dateTo) params.set('dateTo', dateTo)
+        }
+
+        if (selectedStatus && selectedStatus !== 'all') params.set('status', selectedStatus)
+        if (selectedCustomer && selectedCustomer !== 'all') params.set('customerId', selectedCustomer)
+        if (searchQuery.trim()) params.set('q', searchQuery.trim())
+
+        const res = await api.get(`/quotations?${params.toString()}`)
+        const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+        const newTotal = typeof res.data?.total === 'number' ? res.data.total : raw.length
+        const mapped: Quotation[] = raw.map((qt: any) => ({
+          id: qt.id,
+          quotationNumber: qt.quotationNumber ?? '',
+          date: qt.date ?? qt.createdAt ?? new Date().toISOString(),
+          customerId: qt.customerId ?? undefined,
+          customerName: qt.customerName ?? '',
+          customerPhone: qt.customerPhone ?? undefined,
+          items: (qt.items ?? []).map((it: any) => ({
+            name: it.productName ?? '',
+            qty: Number(it.quantity) || 0,
+            rate: Number(it.rate) || 0,
+            discountPercent: Number(it.discountPercent) || 0,
+            gstPercent: Number(it.gstPercent) || 0,
+            amount: Number(it.amount) || 0,
+          })),
+          subtotal: Number(qt.subtotal) || 0,
+          cgst: Number(qt.cgst) || 0,
+          sgst: Number(qt.sgst) || 0,
+          deliveryCharge: Number(qt.deliveryCharge) || 0,
+          total: Number(qt.total) || 0,
+          status: qt.status as QuotationStatus,
+        }))
+        setSplitItems(prev => splitPage === 1 ? mapped : [...prev, ...mapped])
+        setSplitTotal(newTotal)
+      } catch {
+        // silent
+      } finally {
+        setSplitLoadingMore(false)
+      }
+    }
+    fetchSplitPage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitPage, effectiveView])
+
+  // Reset split pagination when filters change
+  useEffect(() => {
+    setSplitItems([])
+    setSplitTotal(0)
+    setSplitPage(1)
+  }, [period, dateFrom, dateTo, selectedStatus, selectedCustomer, searchQuery, cardFilter])
 
   // Deep-link support: open the quotation drawer when arrived with
   // `?quotationId=<id>` (e.g. from the Customer Detail page's Quotations tab).
@@ -427,6 +541,141 @@ export default function QuotationsPage() {
     selectedCustomer !== 'all' ? selectedCustomer : '',
   ].filter(Boolean).length
 
+  if (effectiveView === 'split') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+        {/* Collapsible stats */}
+        <AnimatePresence>
+          {splitShowStats && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { label: 'Total', value: formatCurrency(stats.total), sub: `${stats.totalCount} quotations`, borderAccent: 'border-l-blue-500' },
+                  { label: 'Converted', value: formatCurrency(stats.convertedTotal), sub: `${stats.convertedCount} converted`, borderAccent: 'border-l-emerald-500' },
+                  { label: 'Pending', value: formatCurrency(stats.pendingTotal), sub: `${stats.pendingCount} pending`, borderAccent: 'border-l-amber-500' },
+                  { label: 'Rejected', value: stats.rejectedCount.toString(), sub: 'this period', borderAccent: 'border-l-rose-500' },
+                ] as const).map((s) => (
+                  <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
+                    <CardContent className="flex items-center gap-2 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (!filteredQuotations.length) { toast.info('No quotations to export'); return }
+              exportToCsv(filteredQuotations.map((qt) => ({
+                'Quotation #': qt.quotationNumber,
+                Date: qt.date?.slice(0, 10) ?? '',
+                Customer: qt.customerName,
+                Total: qt.total,
+                Status: qt.status,
+              })), 'quotations')
+            }}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Toggle filters"
+            onClick={() => setSplitShowFilters(!splitShowFilters)}
+            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
+          >
+            <Filter className="h-4 w-4" />
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            title={splitShowStats ? 'Hide stats' : 'Show stats'}
+            onClick={() => setSplitShowStats(!splitShowStats)}
+            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={() => navigate('/billing/new?type=quotation')}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Create Quotation</span>
+          </Button>
+          <ViewModeToggle view="split" onViewChange={(v) => { if (v === 'table') exitSplitView() }} />
+        </div>
+
+        {/* Collapsible filter panel */}
+        <AnimatePresence>
+          {splitShowFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
+                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                  <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+                  <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
+                  <CustomerSearchSelect value={selectedCustomer} selectedName={selectedCustomerName} onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }} />
+                  <div className="flex-none! min-w-0! flex items-end gap-2">
+                    <ColumnsToggle
+                      columns={CARD_FIELDS}
+                      visible={cardCols.visible}
+                      onToggle={cardCols.toggle}
+                      onReset={cardCols.reset}
+                    />
+                    {activeFilterCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => clearFilters()}>
+                        <X className="mr-1 h-3.5 w-3.5" />Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Split view */}
+        <div className="min-h-0 flex-1">
+          <QuotationSplitView
+            quotations={splitItems}
+            loading={splitLoadingMore && splitPage === 1}
+            loadingMore={splitLoadingMore && splitPage > 1}
+            hasMore={splitItems.length < splitTotal && !splitLoadingMore}
+            onLoadMore={() => setSplitPage(p => p + 1)}
+            selectedQuotationId={selectedQuotationId}
+            onSelectQuotation={selectQuotation}
+            onExitSplitView={exitSplitView}
+            onRefresh={() => { setSplitItems([]); setSplitTotal(0); setSplitPage(1) }}
+            isCardFieldVisible={cardCols.isVisible}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
     <motion.div
@@ -536,6 +785,7 @@ export default function QuotationsPage() {
               <FileText className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Invoice List</span>
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/billing/quotations') }} />
           </div>
         }
       >
@@ -968,7 +1218,7 @@ export default function QuotationsPage() {
               </div>
 
               {/* ── Sticky Footer: total + actions ── */}
-              <div className="shrink-0 border-t border-border/40 bg-background">
+              <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
                 {/* Subtotal / tax / delivery breakdown — populated when the
                     quotation has tax or delivery. Surfaces the same numbers
                     the backend rolled into `total`, so a reviewer can audit

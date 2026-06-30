@@ -701,7 +701,7 @@ export default function GRNPage() {
       const effectiveInvoiceNo = invoiceNo || (isReplacementFlow ? `REPL-${Date.now()}` : '')
       const effectiveInvoiceDate = invoiceDate
         ? new Date(invoiceDate).toISOString()
-        : (isReplacementFlow ? new Date().toISOString() : new Date(invoiceDate).toISOString())
+        : (isReplacementFlow ? new Date().toISOString() : '')
 
       const payload = {
         poId: selectedPOId ?? undefined,
@@ -868,7 +868,7 @@ export default function GRNPage() {
   }
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
+    <div className="relative -m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
@@ -1645,6 +1645,30 @@ export default function GRNPage() {
           </ScrollArea>
         </>
         )}
+
+        {/* ── Mobile action footer (hidden on lg+, where the right panel shows) ── */}
+        <div className="lg:hidden shrink-0 border-t border-border/40 bg-background p-3 space-y-2">
+          <Button
+            className="w-full"
+            disabled={!canConfirm || (showConfirm && isSubmitting)}
+            onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
+          >
+            {showConfirm && isSubmitting ? (
+              <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1.5 h-4 w-4" />
+            )}
+            {showConfirm
+              ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update' : 'Confirm & Create')
+              : editMode ? 'Review & Update' : 'Review & Confirm'}
+          </Button>
+          {showConfirm && (
+            <Button variant="outline" className="w-full" disabled={isSubmitting} onClick={() => setShowConfirm(false)}>
+              <ChevronLeft className="mr-1.5 h-4 w-4" />
+              Back to Edit
+            </Button>
+          )}
+        </div>
         </div>
 
         {/* ─── RIGHT: Context Panel (30%) ──────────────────────── */}
