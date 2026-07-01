@@ -137,7 +137,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
     // real figure is ₹13,049.95). Reject only a meaningful over-payment (>₹1),
     // then cap the collected amount to the exact outstanding so it settles the
     // invoice cleanly without ever exceeding it.
-    if (raw > outstanding + 1) {
+    if (raw > maxCollectible + 0.01) {
       toast.error(`Payment cannot exceed the outstanding amount of ${formatCurrency(outstanding)}`)
       return
     }
@@ -192,11 +192,15 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const grandTotal = Number(invoice.grandTotal)
   const amountPaid = Number(invoice.amountPaid)
   const outstanding = grandTotal - amountPaid
+  // The displayed outstanding is rounded to whole rupees, so the operator may
+  // legitimately type that rounded figure (e.g. ₹38,272 for a true ₹38,271.55).
+  // Allow up to that rounded value; anything beyond it is a real over-payment.
+  // (A flat ±₹1 tolerance was too loose — it silently accepted ₹38,272 on an
+  // exact ₹38,271 balance instead of flagging it.)
+  const maxCollectible = Math.max(outstanding, Math.round(outstanding))
   // Typed amount overshoots what's due — drives the inline error + disabled state.
   const collectNum = parseFloat(collectAmount)
-  // Tolerate the rupee-rounding of the displayed outstanding: typing the shown
-  // figure (e.g. ₹13,050 for a true ₹13,049.95 balance) must not read as "over".
-  const collectExceeds = !isNaN(collectNum) && collectNum > outstanding + 1
+  const collectExceeds = !isNaN(collectNum) && collectNum > maxCollectible + 0.01
   // UPI / Card / Cheque collections need a reference number; Cash doesn't.
   const refRequired = collectMode !== 'CASH'
   const refMissing = refRequired && !collectRef.trim()
@@ -424,16 +428,8 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                       )}
                       value={collectAmount}
                       onChange={(e) => setCollectAmount(e.target.value)}
-                      // Correct an over-typed amount down to the exact balance
-                      // when the field loses focus, so it never shows more than
-                      // what's due (the ₹1 rounding tolerance still applies to
-                      // what actually gets collected).
-                      onBlur={() => {
-                        const n = parseFloat(collectAmount)
-                        if (Number.isFinite(n) && n > outstanding) setCollectAmount(outstanding.toFixed(2))
-                      }}
                       min={0}
-                      max={outstanding}
+                      max={maxCollectible}
                     />
                     <Button
                       size="sm"
