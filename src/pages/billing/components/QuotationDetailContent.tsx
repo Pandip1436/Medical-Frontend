@@ -145,10 +145,18 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
           </div>
         )}
         {(Number(qt.cgst) > 0 || Number(qt.sgst) > 0) && (
-          <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-            <span>CGST + SGST</span>
-            <span className="font-mono">{formatCurrency(Number(qt.cgst) + Number(qt.sgst))}</span>
-          </div>
+          <>
+            {/* Taxable base — rate is GST-inclusive, so back the tax out of the
+                subtotal: subtotal − (cgst + sgst). */}
+            <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
+              <span>Taxable</span>
+              <span className="font-mono">{formatCurrency(Number(qt.subtotal) - Number(qt.cgst) - Number(qt.sgst))}</span>
+            </div>
+            <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
+              <span>CGST + SGST</span>
+              <span className="font-mono">{formatCurrency(Number(qt.cgst) + Number(qt.sgst))}</span>
+            </div>
+          </>
         )}
         {Number(qt.deliveryCharge) > 0 && (
           <div className="flex items-center justify-between border-b border-border/40 px-5 py-2 text-xs text-muted-foreground">
