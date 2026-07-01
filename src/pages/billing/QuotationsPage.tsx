@@ -127,6 +127,48 @@ const STATUS_OPTIONS = [
   { value: 'CONVERTED', label: 'Converted' },
 ] as const
 
+type QuotationTabKey = 'all' | 'DRAFT' | 'SENT' | 'ACCEPTED' | 'CONVERTED' | 'REJECTED'
+
+const QUOTATION_TABS: Array<{ key: QuotationTabKey; label: string; activeColor: string; badgeColor: string }> = [
+  { key: 'all',       label: 'All',       activeColor: 'border-primary text-primary',                                            badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'DRAFT',     label: 'Draft',     activeColor: 'border-slate-500 text-slate-600 dark:text-slate-400',                    badgeColor: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
+  { key: 'SENT',      label: 'Sent',      activeColor: 'border-sky-500 text-sky-600 dark:text-sky-400',                          badgeColor: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
+  { key: 'ACCEPTED',  label: 'Accepted',  activeColor: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',              badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { key: 'CONVERTED', label: 'Converted', activeColor: 'border-violet-500 text-violet-600 dark:text-violet-400',                 badgeColor: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+  { key: 'REJECTED',  label: 'Rejected',  activeColor: 'border-rose-500 text-rose-600 dark:text-rose-400',                       badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+]
+
+function QuotationStatusTabs({ tab, onChange, counts }: {
+  tab: QuotationTabKey
+  onChange: (t: QuotationTabKey) => void
+  counts: Record<QuotationTabKey, number>
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
+      {QUOTATION_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            tab === t.key
+              ? `border-b-2 bg-muted/20 ${t.activeColor}`
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
+          )}>
+            {counts[t.key]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const statusBadgeVariant: Record<QuotationStatus, 'success' | 'warning' | 'info' | 'purple' | 'destructive' | 'secondary'> = {
   CONVERTED: 'success',
   ACCEPTED: 'success',
@@ -195,6 +237,7 @@ export default function QuotationsPage() {
   const [selectedCustomer, setSelectedCustomer] = usePageFilter<string>('billing.quotations', 'customer', 'all')
   const [selectedCustomerName, setSelectedCustomerName] = usePageFilter<string>('billing.quotations', 'customerName', '')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.quotations', 'splitShowStats', true)
+  const [statusTab, setStatusTab] = usePageFilter<QuotationTabKey>('billing.quotations', 'statusTab', 'all')
 
   // Stat-card drill-down — not persisted (intentional)
   const [cardFilter, setCardFilter] = useState<'all' | 'converted' | 'pending' | 'rejected'>('all')
@@ -318,6 +361,7 @@ export default function QuotationsPage() {
     setSelectedStatus('all')
     setSelectedCustomer('all')
     setSelectedCustomerName('')
+    setStatusTab('all')
   }
 
   // ── Filtering logic ──
@@ -380,7 +424,7 @@ export default function QuotationsPage() {
     return result
   }, [periodQuotations, searchQuery, selectedStatus, selectedCustomer])
 
-  const filteredQuotations = useMemo(() => {
+  const preTabQuotations = useMemo(() => {
     let result = statsBaseQuotations
     // Stat-card drill-down (layered on top of the other filters)
     if (cardFilter === 'converted') {
@@ -392,6 +436,19 @@ export default function QuotationsPage() {
     }
     return result
   }, [statsBaseQuotations, cardFilter])
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<QuotationTabKey, number> = { all: preTabQuotations.length, DRAFT: 0, SENT: 0, ACCEPTED: 0, CONVERTED: 0, REJECTED: 0 }
+    for (const qt of preTabQuotations) {
+      if (qt.status in counts) counts[qt.status as QuotationTabKey]++
+    }
+    return counts
+  }, [preTabQuotations])
+
+  const filteredQuotations = useMemo(
+    () => statusTab === 'all' ? preTabQuotations : preTabQuotations.filter((qt) => qt.status === statusTab),
+    [preTabQuotations, statusTab]
+  )
 
   // ── Stats ── (reflect period + search + status + customer, but NOT the card
   // drill-down — so clicking a card never rewrites its own total)
@@ -459,6 +516,7 @@ export default function QuotationsPage() {
     dateTo,
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedCustomer !== 'all' ? selectedCustomer : '',
+    statusTab !== 'all' ? statusTab : '',
   ].filter(Boolean).length
 
   if (effectiveView === 'split') {
@@ -587,6 +645,13 @@ export default function QuotationsPage() {
             onExitSplitView={exitSplitView}
             onRefresh={fetchQuotations}
             isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <QuotationStatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
           />
         </div>
       </div>
@@ -755,6 +820,15 @@ export default function QuotationsPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* ── Status Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <QuotationStatusTabs
+          tab={statusTab}
+          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>
@@ -1140,36 +1214,23 @@ export default function QuotationsPage() {
                     quotation has tax or delivery. Surfaces the same numbers
                     the backend rolled into `total`, so a reviewer can audit
                     the math without opening the row in DB. */}
-                {Number(detailQt.subtotal) > 0 && (
-                  <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-                    <span>Subtotal</span>
-                    <span className="font-mono">{formatCurrency(Number(detailQt.subtotal))}</span>
-                  </div>
-                )}
-                {(Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) && (
-                  <>
-                    {/* Taxable base — rate is GST-inclusive, so back the tax out
-                        of the subtotal: subtotal − (cgst + sgst). */}
-                    <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-                      <span>Taxable</span>
-                      <span className="font-mono">{formatCurrency(Number(detailQt.subtotal) - Number(detailQt.cgst) - Number(detailQt.sgst))}</span>
+                {/* Single-line tax breakdown */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-5 py-2">
+                  {([
+                    Number(detailQt.subtotal) > 0 ? { label: 'Subtotal', value: Number(detailQt.subtotal) } : null,
+                    (Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) ? { label: 'Taxable', value: Number(detailQt.subtotal) - Number(detailQt.cgst) - Number(detailQt.sgst) } : null,
+                    (Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) ? { label: 'CGST + SGST', value: Number(detailQt.cgst) + Number(detailQt.sgst) } : null,
+                    Number(detailQt.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(detailQt.deliveryCharge) } : null,
+                  ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
+                    <div key={row.label} className="flex items-center gap-1">
+                      <span className="text-[11px] text-muted-foreground">{row.label}</span>
+                      <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
                     </div>
-                    <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-                      <span>CGST + SGST</span>
-                      <span className="font-mono">{formatCurrency(Number(detailQt.cgst) + Number(detailQt.sgst))}</span>
-                    </div>
-                  </>
-                )}
-                {Number(detailQt.deliveryCharge) > 0 && (
-                  <div className="flex items-center justify-between border-b border-border/40 px-5 py-2 text-xs text-muted-foreground">
-                    <span>Delivery / Packaging</span>
-                    <span className="font-mono">{formatCurrency(Number(detailQt.deliveryCharge))}</span>
+                  ))}
+                  <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Total</span>
+                    <span className="font-mono text-base font-black tabular-nums text-primary">{formatCurrency(detailQt.total)}</span>
                   </div>
-                )}
-                {/* Total strip — single cell */}
-                <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-                  <p className="font-mono text-base font-bold">{formatCurrency(detailQt.total)}</p>
                 </div>
 
                 {/* Action buttons — vary by status */}

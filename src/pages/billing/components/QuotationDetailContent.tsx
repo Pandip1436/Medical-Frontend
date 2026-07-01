@@ -138,35 +138,23 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
 
       {/* Sticky footer: totals + actions */}
       <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
-        {Number(qt.subtotal) > 0 && (
-          <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-            <span>Subtotal</span>
-            <span className="font-mono">{formatCurrency(Number(qt.subtotal))}</span>
-          </div>
-        )}
-        {(Number(qt.cgst) > 0 || Number(qt.sgst) > 0) && (
-          <>
-            {/* Taxable base — rate is GST-inclusive, so back the tax out of the
-                subtotal: subtotal − (cgst + sgst). */}
-            <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-              <span>Taxable</span>
-              <span className="font-mono">{formatCurrency(Number(qt.subtotal) - Number(qt.cgst) - Number(qt.sgst))}</span>
+        {/* Single-line tax breakdown */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-5 py-2">
+          {([
+            Number(qt.subtotal) > 0 ? { label: 'Subtotal', value: Number(qt.subtotal) } : null,
+            (Number(qt.cgst) > 0 || Number(qt.sgst) > 0) ? { label: 'Taxable', value: Number(qt.subtotal) - Number(qt.cgst) - Number(qt.sgst) } : null,
+            (Number(qt.cgst) > 0 || Number(qt.sgst) > 0) ? { label: 'CGST + SGST', value: Number(qt.cgst) + Number(qt.sgst) } : null,
+            Number(qt.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(qt.deliveryCharge) } : null,
+          ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
+            <div key={row.label} className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">{row.label}</span>
+              <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
             </div>
-            <div className="flex items-center justify-between px-5 py-1.5 text-xs text-muted-foreground">
-              <span>CGST + SGST</span>
-              <span className="font-mono">{formatCurrency(Number(qt.cgst) + Number(qt.sgst))}</span>
-            </div>
-          </>
-        )}
-        {Number(qt.deliveryCharge) > 0 && (
-          <div className="flex items-center justify-between border-b border-border/40 px-5 py-2 text-xs text-muted-foreground">
-            <span>Delivery / Packaging</span>
-            <span className="font-mono">{formatCurrency(Number(qt.deliveryCharge))}</span>
+          ))}
+          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Total</span>
+            <span className="font-mono text-base font-black tabular-nums text-primary">{formatCurrency(qt.total)}</span>
           </div>
-        )}
-        <div className="flex items-center justify-between border-b border-border/40 bg-primary/5 px-5 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</p>
-          <p className="font-mono text-base font-bold">{formatCurrency(qt.total)}</p>
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">

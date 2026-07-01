@@ -843,34 +843,42 @@ export function GRNDetailContent({
         </div>
       </div>
 
-      {/* Totals — stacked one-by-one, below the table and aligned right. Only
-          when it summarises more than one line (for a single item it would
-          just repeat the row above). */}
+      {/* Totals — single horizontal summary strip (only when >1 item) */}
       {grn.items.length > 1 && (
-        <div className="flex justify-end">
-          <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:w-72">
-            <div className="border-b border-border/40 bg-muted/20 px-4 py-2.5">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Totals</p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">Products</span>
+            <span className="font-mono text-sm font-semibold tabular-nums">{grn.items.length}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">Ordered</span>
+            <span className="font-mono text-sm font-semibold tabular-nums">{totalOrdered}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">Received</span>
+            <span className="font-mono text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">+{totalReceived}</span>
+          </div>
+          {totalFree > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">Free</span>
+              <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">+{totalFree}</span>
             </div>
-            <div className="divide-y divide-border/40">
-              {[
-                { label: 'Products', value: `${grn.items.length}`, tone: '' },
-                { label: 'Ordered', value: `${totalOrdered}`, tone: '' },
-                { label: 'Received', value: `+${totalReceived}`, tone: 'text-emerald-700 dark:text-emerald-300' },
-                { label: 'Free', value: totalFree > 0 ? `+${totalFree}` : '—', tone: totalFree > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground/40' },
-                { label: 'Damaged', value: totalDamaged > 0 ? `${totalDamaged}` : '—', tone: totalDamaged > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/40' },
-                { label: 'Short', value: totalShort > 0 ? `−${totalShort}` : '—', tone: totalShort > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/40' },
-              ].map((r) => (
-                <div key={r.label} className="flex items-center justify-between px-4 py-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{r.label}</span>
-                  <span className={cn('font-mono text-sm font-bold tabular-nums', r.tone)}>{r.value}</span>
-                </div>
-              ))}
-              <div className="flex items-center justify-between bg-primary/5 px-4 py-2.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Line Value</span>
-                <span className="font-mono text-sm font-bold tabular-nums text-primary">{formatCurrency(totalLineValue)}</span>
-              </div>
+          )}
+          {totalDamaged > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">Damaged</span>
+              <span className="font-mono text-sm font-semibold tabular-nums text-rose-600 dark:text-rose-400">{totalDamaged}</span>
             </div>
+          )}
+          {totalShort > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">Short</span>
+              <span className="font-mono text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400">−{totalShort}</span>
+            </div>
+          )}
+          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Line Value</span>
+            <span className="font-mono text-sm font-bold tabular-nums text-primary">{formatCurrency(totalLineValue)}</span>
           </div>
         </div>
       )}

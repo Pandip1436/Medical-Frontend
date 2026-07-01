@@ -451,26 +451,22 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
         </Table>
       </div>
 
-      {/* Totals — stacked one-per-line, right-aligned */}
-      <div className="flex justify-end">
-        <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:max-w-xs">
-          <div className="divide-y divide-border/30">
-            {([
-              { label: 'Subtotal', value: creditNote.subtotal },
-              { label: 'CGST', value: creditNote.cgst },
-              { label: 'SGST', value: creditNote.sgst },
-              creditNote.igst > 0 ? { label: 'IGST', value: creditNote.igst } : null,
-            ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
-              <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-[13px] text-muted-foreground">{row.label}</span>
-                <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
-              </div>
-            ))}
+      {/* Totals — single horizontal strip */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+        {([
+          { label: 'Subtotal', value: creditNote.subtotal },
+          { label: 'CGST', value: creditNote.cgst },
+          { label: 'SGST', value: creditNote.sgst },
+          creditNote.igst > 0 ? { label: 'IGST', value: creditNote.igst } : null,
+        ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
+          <div key={row.label} className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">{row.label}</span>
+            <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
           </div>
-          <div className="flex items-center justify-between border-t-2 border-border/60 bg-rose-50 px-4 py-3 dark:bg-rose-950/20">
-            <span className="text-xs font-bold uppercase tracking-wide text-rose-700 dark:text-rose-400">Total Credit</span>
-            <span className="font-mono text-lg font-black tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(creditNote.totalAmount)}</span>
-          </div>
+        ))}
+        <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-rose-700 dark:text-rose-400">Total Credit</span>
+          <span className="font-mono text-lg font-black tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(creditNote.totalAmount)}</span>
         </div>
       </div>
 

@@ -56,6 +56,21 @@ export function ProductSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.hasMore, list.loadMore])
 
+  // After each page completes, proactively check if the sentinel is still in
+  // the viewport. IntersectionObserver only fires on state-change (enter/exit).
+  // When the filtered list is shorter than the viewport the sentinel never
+  // leaves, so the observer alone won't re-fire — this bridges that gap.
+  useEffect(() => {
+    if (list.loadingMore || !list.hasMore || pendingLoadRef.current) return
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const rect = sentinel.getBoundingClientRect()
+    if (rect.top < window.innerHeight && rect.bottom > 0) {
+      pendingLoadRef.current = true
+      list.loadMore()
+    }
+  }, [list.loadingMore, list.hasMore, list.loadMore])
+
   const handleSelect = useCallback((id: string) => onSelectProduct(id), [onSelectProduct])
 
   // When the list changes (filter/tab applied), keep the selection if it's

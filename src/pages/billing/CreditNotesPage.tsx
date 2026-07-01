@@ -145,6 +145,46 @@ const STATUS_OPTIONS = [
   { value: 'REJECTED', label: 'Rejected' },
 ] as const
 
+type CreditNoteTabKey = 'all' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
+
+const CREDIT_NOTE_TABS: Array<{ key: CreditNoteTabKey; label: string; activeColor: string; badgeColor: string }> = [
+  { key: 'all',           label: 'All',            activeColor: 'border-primary text-primary',                                         badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'PENDING_REVIEW', label: 'Pending', activeColor: 'border-amber-500 text-amber-600 dark:text-amber-400',                 badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  { key: 'APPROVED',      label: 'Approved',        activeColor: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',           badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { key: 'REJECTED',      label: 'Rejected',        activeColor: 'border-rose-500 text-rose-600 dark:text-rose-400',                   badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+]
+
+function CreditNoteStatusTabs({ tab, onChange, counts }: {
+  tab: CreditNoteTabKey
+  onChange: (t: CreditNoteTabKey) => void
+  counts: Record<CreditNoteTabKey, number>
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
+      {CREDIT_NOTE_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            tab === t.key
+              ? `border-b-2 bg-muted/20 ${t.activeColor}`
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
+          )}>
+            {counts[t.key]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const statusConfig: Record<CreditNoteStatus, { label: string; variant: 'warning' | 'success' | 'destructive'; icon: typeof Hourglass }> = {
   PENDING_REVIEW: { label: 'Pending Review', variant: 'warning',     icon: Hourglass },
   APPROVED:       { label: 'Approved',       variant: 'success',     icon: CheckCircle2 },
@@ -192,6 +232,7 @@ export default function CreditNotesPage() {
   const [selectedCustomer, setSelectedCustomer] = usePageFilter<string>('billing.creditNotes', 'customer', 'all')
   const [selectedReason, setSelectedReason] = usePageFilter<string>('billing.creditNotes', 'reason', 'all')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.creditNotes', 'splitShowStats', true)
+  const [statusTab, setStatusTab] = usePageFilter<CreditNoteTabKey>('billing.creditNotes', 'statusTab', 'all')
 
   // Stat-card drill-down — not persisted (intentional: resets on page open)
   const [cardFilter, setCardFilter] = useState<'all' | 'pending' | 'refund' | 'adjust'>('all')
@@ -364,7 +405,7 @@ export default function CreditNotesPage() {
     return result
   }, [creditNotes, period, dateFrom, dateTo])
 
-  const filtered = useMemo(() => {
+  const preTabFiltered = useMemo(() => {
     let result = [...periodNotes]
 
     // Stat-card drill-down
@@ -407,6 +448,24 @@ export default function CreditNotesPage() {
 
     return result
   }, [periodNotes, cardFilter, searchQuery, selectedSettlement, selectedStatus, selectedCustomer, selectedReason])
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<CreditNoteTabKey, number> = { all: preTabFiltered.length, PENDING_REVIEW: 0, APPROVED: 0, REJECTED: 0 }
+    for (const cn of preTabFiltered) {
+      if (cn.status in counts) counts[cn.status as CreditNoteTabKey]++
+    }
+    return counts
+  }, [preTabFiltered])
+
+  const filtered = useMemo(
+    () => statusTab === 'all' ? preTabFiltered : preTabFiltered.filter((cn) => cn.status === statusTab),
+    [preTabFiltered, statusTab]
+  )
+
+  const tabFilteredSplitItems = useMemo(
+    () => statusTab === 'all' ? splitItems : splitItems.filter((cn) => cn.status === statusTab),
+    [splitItems, statusTab]
+  )
 
   // Backend-paginated customer fetcher. CreditNotes filter by customerName,
   // so value === name.
@@ -462,6 +521,7 @@ export default function CreditNotesPage() {
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedCustomer !== 'all' ? selectedCustomer : '',
     selectedReason !== 'all' ? selectedReason : '',
+    statusTab !== 'all' ? statusTab : '',
   ].filter(Boolean).length
 
   const clearFilters = () => {
@@ -470,6 +530,7 @@ export default function CreditNotesPage() {
     setSelectedStatus('all')
     setSelectedCustomer('all')
     setSelectedReason('all')
+    setStatusTab('all')
   }
 
   if (effectiveView === 'split') {
@@ -596,7 +657,7 @@ export default function CreditNotesPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <CreditNoteSplitView
-            creditNotes={splitItems}
+            creditNotes={tabFilteredSplitItems}
             loading={splitLoading && splitPage === 1}
             loadingMore={splitLoading && splitPage > 1}
             hasMore={splitItems.length < splitTotal && !splitLoading}
@@ -611,6 +672,13 @@ export default function CreditNotesPage() {
               setSplitPage(1)
             }}
             isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <CreditNoteStatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
           />
         </div>
       </div>
@@ -816,6 +884,15 @@ export default function CreditNotesPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* ── Status Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <CreditNoteStatusTabs
+          tab={statusTab}
+          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
 
       {/* ── Table ── */}
       <Card>

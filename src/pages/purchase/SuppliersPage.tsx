@@ -102,6 +102,54 @@ const GSTIN_OPTIONS = [
   { value: 'no', label: 'Without GSTIN' },
 ] as const
 
+type SupplierPayTabKey = 'all' | 'paid' | 'partial' | 'unpaid'
+
+function supplierPayStatus(s: Supplier): 'paid' | 'partial' | 'unpaid' {
+  const outstanding = Number(s.currentOutstanding ?? 0)
+  const paid = Number(s.paidAmount ?? 0)
+  if (outstanding <= 0) return 'paid'
+  if (paid > 0) return 'partial'
+  return 'unpaid'
+}
+
+const SUPPLIER_PAY_TABS: Array<{ key: SupplierPayTabKey; label: string; activeColor: string; badgeColor: string }> = [
+  { key: 'all',     label: 'All',     activeColor: 'border-primary text-primary',                                        badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'paid',    label: 'Paid',    activeColor: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',          badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { key: 'partial', label: 'Partial', activeColor: 'border-amber-500 text-amber-600 dark:text-amber-400',                badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  { key: 'unpaid',  label: 'Unpaid',  activeColor: 'border-rose-500 text-rose-600 dark:text-rose-400',                  badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+]
+
+function SupplierPaymentTabs({ tab, onChange, counts }: {
+  tab: SupplierPayTabKey
+  onChange: (t: SupplierPayTabKey) => void
+  counts: Record<SupplierPayTabKey, number>
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
+      {SUPPLIER_PAY_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            tab === t.key
+              ? `border-b-2 bg-muted/20 ${t.activeColor}`
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
+          )}>
+            {counts[t.key]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
@@ -170,6 +218,7 @@ export default function SuppliersPage() {
   const [outstandingMin, setOutstandingMin] = usePageFilter<string>('purchase.suppliers', 'outMin', '')
   const [outstandingMax, setOutstandingMax] = usePageFilter<string>('purchase.suppliers', 'outMax', '')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.suppliers', 'splitShowStats', true)
+  const [payTab, setPayTab] = usePageFilter<SupplierPayTabKey>('purchase.suppliers', 'payTab', 'all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
@@ -272,6 +321,7 @@ export default function SuppliersPage() {
     setSelectedGstin('all')
     setOutstandingMin('')
     setOutstandingMax('')
+    setPayTab('all')
   }
 
   // Round-trip-compatible export. Pulls the full nested data tree (suppliers
@@ -313,9 +363,26 @@ export default function SuppliersPage() {
     return { totalCount: directorySuppliers.length, activeCount, inactiveCount }
   }, [directorySuppliers])
 
+  // ── Payment tab counts + filtered lists ──
+  const tabCounts = useMemo(() => {
+    const counts: Record<SupplierPayTabKey, number> = { all: allSuppliers.length, paid: 0, partial: 0, unpaid: 0 }
+    for (const s of allSuppliers) counts[supplierPayStatus(s)]++
+    return counts
+  }, [allSuppliers])
+
+  const tabFilteredAllSuppliers = useMemo(
+    () => payTab === 'all' ? allSuppliers : allSuppliers.filter((s) => supplierPayStatus(s) === payTab),
+    [allSuppliers, payTab]
+  )
+
+  const tabFilteredSuppliers = useMemo(
+    () => payTab === 'all' ? suppliers : suppliers.filter((s) => supplierPayStatus(s) === payTab),
+    [suppliers, payTab]
+  )
+
   // ── Pagination (server-driven) ──
   const totalPages = Math.max(1, Math.ceil(totalSuppliers / PAGE_SIZE))
-  const paginatedSuppliers = suppliers
+  const paginatedSuppliers = tabFilteredSuppliers
 
   // ── Bulk select ──
 
@@ -348,6 +415,7 @@ export default function SuppliersPage() {
     selectedGstin !== 'all' ? selectedGstin : '',
     outstandingMin,
     outstandingMax,
+    payTab !== 'all' ? payTab : '',
   ].filter(Boolean).length
 
   // The form itself + its useForm wiring lives in SupplierFormDialog (shared
@@ -518,7 +586,7 @@ export default function SuppliersPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <SupplierSplitView
-            suppliers={allSuppliers}
+            suppliers={tabFilteredAllSuppliers}
             loading={isLoading && currentPage === 1}
             loadingMore={isLoading && currentPage > 1}
             hasMore={allSuppliers.length < totalSuppliers && !isLoading}
@@ -528,6 +596,13 @@ export default function SuppliersPage() {
             onExitSplitView={exitSplitView}
             onRefresh={() => fetchMasterData()}
             isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <SupplierPaymentTabs
+                tab={payTab}
+                onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
           />
         </div>
 
@@ -744,6 +819,15 @@ export default function SuppliersPage() {
           </div>
         </div>
       </DataTableFilterBar>
+
+      {/* ── Payment Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <SupplierPaymentTabs
+          tab={payTab}
+          onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>

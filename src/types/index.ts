@@ -230,7 +230,7 @@ export interface PurchaseOrder {
   supplierName: string
   items: PurchaseOrderItem[]
   totalAmount: number
-  status: 'DRAFT' | 'SENT' | 'ACKNOWLEDGED' | 'PARTIALLY_RECEIVED' | 'FULLY_RECEIVED' | 'CLOSED'
+  status: 'DRAFT' | 'SENT' | 'ACKNOWLEDGED' | 'PARTIALLY_RECEIVED' | 'FULLY_RECEIVED' | 'CLOSED' | 'CANCELLED'
   expectedDelivery: string
   createdBy: string
 }

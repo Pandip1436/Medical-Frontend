@@ -101,6 +101,44 @@ const STATUS_OPTIONS = [
   { value: 'SETTLED', label: 'Settled' },
 ] as const
 
+type StatusTabKey = 'all' | 'PENDING' | 'SETTLED'
+const STATUS_TABS: { key: StatusTabKey; label: string; activeClass: string; countClass: string }[] = [
+  { key: 'all',     label: 'All',     activeClass: 'border-foreground text-foreground',                               countClass: 'bg-foreground/10 text-foreground' },
+  { key: 'PENDING', label: 'Pending', activeClass: 'border-amber-500 text-amber-600 dark:text-amber-400',            countClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  { key: 'SETTLED', label: 'Settled', activeClass: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',      countClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+]
+
+function DebitNoteStatusTabs({ tab, onChange, counts }: {
+  tab: StatusTabKey
+  onChange: (t: StatusTabKey) => void
+  counts: Record<string, number>
+}) {
+  return (
+    <div className="flex items-center gap-0.5 px-0.5">
+      {STATUS_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+            tab === t.key
+              ? t.activeClass
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
+            tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
+          )}>
+            {counts[t.key] ?? 0}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const DEBIT_NOTE_COLUMNS: ColumnDef[] = [
   { id: 'date', label: 'Date', defaultVisible: true },
   { id: 'supplier', label: 'Supplier', required: true, defaultVisible: true },
@@ -145,6 +183,7 @@ export default function DebitNotesPage() {
   // Stat-card drill-down — not persisted (intentional: resets on page open)
   const [cardFilter, setCardFilter] = useState<'all' | 'short-billing' | 'settled'>('all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  const [statusTab, setStatusTab] = usePageFilter<StatusTabKey>('purchase.debitNotes', 'statusTab', 'all')
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
@@ -293,6 +332,7 @@ export default function DebitNotesPage() {
     selectedType !== 'all' ? selectedType : '',
     selectedStatus !== 'all' ? selectedStatus : '',
     selectedSupplier !== 'all' ? selectedSupplier : '',
+    statusTab !== 'all' ? statusTab : '',
   ].filter(Boolean).length
 
   const clearFilters = () => {
@@ -304,10 +344,23 @@ export default function DebitNotesPage() {
     setSelectedStatus('all')
     setSelectedSupplier('all')
     setSelectedSupplierName('')
+    setStatusTab('all')
   }
 
-  const totalPages = Math.max(1, Math.ceil(pastReturns.length / PAGE_SIZE))
-  const paginatedReturns = pastReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const tabCounts = useMemo(() => ({
+    all: pastReturns.length,
+    PENDING: pastReturns.filter(r => (r.status || '').toUpperCase() !== 'SETTLED').length,
+    SETTLED: pastReturns.filter(r => (r.status || '').toUpperCase() === 'SETTLED').length,
+  }), [pastReturns])
+
+  const tabFilteredReturns = useMemo(() => {
+    if (statusTab === 'all') return pastReturns
+    if (statusTab === 'PENDING') return pastReturns.filter(r => (r.status || '').toUpperCase() !== 'SETTLED')
+    return pastReturns.filter(r => (r.status || '').toUpperCase() === statusTab)
+  }, [pastReturns, statusTab])
+
+  const totalPages = Math.max(1, Math.ceil(tabFilteredReturns.length / PAGE_SIZE))
+  const paginatedReturns = tabFilteredReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   // ── Summary stats ── (reflect period + type + status + supplier + search, but
   // NOT the card drill-down — so clicking a card never rewrites its own total)
@@ -451,13 +504,20 @@ export default function DebitNotesPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <DebitNoteSplitView
-            debitNotes={pastReturns}
+            debitNotes={tabFilteredReturns}
             loading={returnsLoading}
             selectedDebitNoteId={selectedDebitNoteId}
             onSelectDebitNote={selectDebitNote}
             onExitSplitView={exitSplitView}
             onRefresh={fetchReturns}
             isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <DebitNoteStatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
           />
         </div>
       </div>
@@ -548,7 +608,7 @@ export default function DebitNotesPage() {
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 searchPlaceholder="Search by note number or supplier..."
-                resultsCount={pastReturns.length}
+                resultsCount={tabFilteredReturns.length}
                 activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
@@ -622,6 +682,15 @@ export default function DebitNotesPage() {
               </DataTableFilterBar>
             </div>
 
+            {/* ── Status Tabs ── */}
+            <div className="border-b border-border/40 bg-background">
+              <DebitNoteStatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            </div>
+
             <div className="flex-1 overflow-auto p-6">
               {returnsLoading ? (
                 <div className="flex h-full items-center justify-center">
@@ -630,7 +699,7 @@ export default function DebitNotesPage() {
                     <p className="text-xs text-muted-foreground">Loading debit notes...</p>
                   </div>
                 </div>
-              ) : pastReturns.length === 0 ? (
+              ) : tabFilteredReturns.length === 0 ? (
                 <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center bg-background/50">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                     <FileText className="h-6 w-6 text-muted-foreground" />

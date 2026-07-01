@@ -179,21 +179,17 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
         </Table>
       </div>
 
-      {/* Totals — right-aligned, Total Debit emphasized */}
-      <div className="flex justify-end">
-        <div className="w-full overflow-hidden rounded-xl border border-border/40 sm:max-w-xs">
-          <div className="divide-y divide-border/30">
-            {totalsRows.map((row) => (
-              <div key={row.label} className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-[13px] text-muted-foreground">{row.label}</span>
-                <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
-              </div>
-            ))}
+      {/* Totals — single horizontal strip */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+        {totalsRows.map((row) => (
+          <div key={row.label} className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">{row.label}</span>
+            <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
           </div>
-          <div className="flex items-center justify-between border-t-2 border-border/60 bg-primary/5 px-4 py-3">
-            <span className="text-xs font-bold uppercase tracking-wide text-primary">Total Debit Amount</span>
-            <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(d.totalAmount)}</span>
-          </div>
+        ))}
+        <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Total Debit</span>
+          <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(d.totalAmount)}</span>
         </div>
       </div>
 

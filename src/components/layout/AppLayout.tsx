@@ -115,12 +115,13 @@ export default function AppLayout({
   const urlSearchParams = new URLSearchParams(routeSearch)
   // Legacy pages signal split via ?view=split. New pages use split-as-default
   // (no param = split; ?view=table = table). Both need the compact layout.
-  const splitViewActive = urlSearchParams.get('view') === 'split'
   const tableViewActive = urlSearchParams.get('view') === 'table'
   // Pages where split view is the DEFAULT (compact unless ?view=table).
   const SPLIT_DEFAULT_PAGES = [
+    '/billing/sales',
     '/billing/quotations',
     '/billing/credit-notes',
+    '/purchase/grn-list',
     '/purchase/orders',
     '/purchase/debit-notes',
     '/purchase/suppliers',
@@ -128,12 +129,7 @@ export default function AppLayout({
     '/inventory/products',
     '/crm/leads',
   ]
-  const isCompactPage =
-    (splitViewActive && (
-      currentPath === '/billing/sales' ||
-      currentPath === '/purchase/grn-list'
-    )) ||
-    (!tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath))
+  const isCompactPage = !tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath)
 
   // Tight-scroll routes use the normal scrollable main, but with the same
   // minimal horizontal padding as compact pages — for long dashboards that

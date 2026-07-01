@@ -509,6 +509,41 @@ export function ProductDetailContent({ productId }: { productId: string }) {
             </div>
           ) : detail.product ? (
             <div className="space-y-4 p-4">
+              {/* Product details — HSN, Manufacturer, etc. (most important, shown first) */}
+              <section>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Details</p>
+                <div className="divide-y divide-border/40 rounded-lg border border-border/40 bg-muted/20">
+                  {detail.product.manufacturer && (
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground">Manufacturer</span>
+                      <span className="text-sm font-semibold">{detail.product.manufacturer}</span>
+                    </div>
+                  )}
+                  {detail.product.hsnCode && (
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground">HSN Code</span>
+                      <span className="text-sm font-mono font-semibold tracking-wider">{detail.product.hsnCode}</span>
+                    </div>
+                  )}
+                  {detail.product.schedule && detail.product.schedule !== 'NONE' && (
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground">Schedule</span>
+                      <Badge variant="warning" size="sm">Schedule {detail.product.schedule}</Badge>
+                    </div>
+                  )}
+                  {detail.product.category && (
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-xs font-medium text-muted-foreground">Category</span>
+                      <span className="text-sm font-medium">
+                        {typeof detail.product.category === 'string'
+                          ? detail.product.category
+                          : (detail.product.category as any)?.name ?? ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </section>
+
               {/* Pricing */}
               <section>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pricing</p>
@@ -573,41 +608,6 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                   </div>
                 </section>
               )}
-
-              {/* Product details */}
-              <section>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Details</p>
-                <div className="divide-y divide-border/40 rounded-lg border border-border/40 bg-muted/20">
-                  {detail.product.manufacturer && (
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">Manufacturer</span>
-                      <span className="text-[11px] font-medium">{detail.product.manufacturer}</span>
-                    </div>
-                  )}
-                  {detail.product.hsnCode && (
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">HSN Code</span>
-                      <span className="text-[11px] font-mono">{detail.product.hsnCode}</span>
-                    </div>
-                  )}
-                  {detail.product.schedule && detail.product.schedule !== 'NONE' && (
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">Schedule</span>
-                      <Badge variant="warning" size="sm" className="text-[10px]">Schedule {detail.product.schedule}</Badge>
-                    </div>
-                  )}
-                  {detail.product.category && (
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">Category</span>
-                      <span className="text-[11px] font-medium">
-                        {typeof detail.product.category === 'string'
-                          ? detail.product.category
-                          : (detail.product.category as any)?.name ?? ''}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </section>
 
               {/* Active batches */}
               {detail.batches.length > 0 && (

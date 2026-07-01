@@ -122,6 +122,47 @@ const STATUS_OPTIONS = [
   { value: 'CANCELLED', label: 'Cancelled' },
 ] as const
 
+type POTabKey = 'all' | 'pending' | 'partial' | 'received' | 'cancelled'
+
+const PO_TABS: Array<{ key: POTabKey; label: string; activeColor: string; badgeColor: string }> = [
+  { key: 'all',       label: 'All',       activeColor: 'border-primary text-primary',                                         badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'pending',   label: 'Pending',   activeColor: 'border-amber-500 text-amber-600 dark:text-amber-400',                 badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  { key: 'partial',   label: 'Partial',   activeColor: 'border-sky-500 text-sky-600 dark:text-sky-400',                      badgeColor: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
+  { key: 'received',  label: 'Received',  activeColor: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',          badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { key: 'cancelled', label: 'Cancelled', activeColor: 'border-rose-500 text-rose-600 dark:text-rose-400',                   badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+]
+
+function POStatusTabs({ tab, onChange, counts }: {
+  tab: POTabKey
+  onChange: (t: POTabKey) => void
+  counts: Record<POTabKey, number>
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
+      {PO_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            tab === t.key
+              ? `border-b-2 bg-muted/20 ${t.activeColor}`
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
+          )}>
+            {counts[t.key]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const statusBadgeConfig: Record<
   string,
   { label: string; variant: 'secondary' | 'info' | 'success' | 'destructive' | 'warning' | 'purple' }
@@ -456,6 +497,7 @@ export default function PurchaseOrdersPage() {
   const [selectedSupplierName, setSelectedSupplierName] = usePageFilter<string>('purchase.orders', 'supplierName', '')
   const [selectedStatus, setSelectedStatus] = usePageFilter<string>('purchase.orders', 'status', 'all')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.orders', 'splitShowStats', true)
+  const [statusTab, setStatusTab] = usePageFilter<POTabKey>('purchase.orders', 'statusTab', 'all')
 
   // Card drill-down and split filters — not persisted (intentional)
   const [cardFilter, setCardFilter] = useState<'all' | 'received' | 'pending' | 'partial'>('all')
@@ -524,6 +566,7 @@ export default function PurchaseOrdersPage() {
     setSelectedSupplier('all')
     setSelectedSupplierName('')
     setSelectedStatus('all')
+    setStatusTab('all')
   }
 
   // ── Filtering logic ──
@@ -589,7 +632,7 @@ export default function PurchaseOrdersPage() {
     return result
   }, [periodPOs, searchQuery, selectedSupplier, selectedStatus])
 
-  const filteredPOs = useMemo(() => {
+  const preTabPOs = useMemo(() => {
     let result = statsBasePOs
 
     // Stat-card drill-down (layered on top of the other filters)
@@ -603,6 +646,26 @@ export default function PurchaseOrdersPage() {
 
     return result
   }, [statsBasePOs, cardFilter])
+
+  const tabCounts = useMemo(() => {
+    const counts: Record<POTabKey, number> = { all: preTabPOs.length, pending: 0, partial: 0, received: 0, cancelled: 0 }
+    for (const po of preTabPOs) {
+      if (po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED') counts.pending++
+      else if (po.status === 'PARTIALLY_RECEIVED') counts.partial++
+      else if (po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED') counts.received++
+      else if (po.status === 'CANCELLED') counts.cancelled++
+    }
+    return counts
+  }, [preTabPOs])
+
+  const filteredPOs = useMemo(() => {
+    if (statusTab === 'all') return preTabPOs
+    if (statusTab === 'pending')   return preTabPOs.filter((po) => po.status === 'DRAFT' || po.status === 'SENT' || po.status === 'ACKNOWLEDGED')
+    if (statusTab === 'partial')   return preTabPOs.filter((po) => po.status === 'PARTIALLY_RECEIVED')
+    if (statusTab === 'received')  return preTabPOs.filter((po) => po.status === 'FULLY_RECEIVED' || po.status === 'CLOSED')
+    if (statusTab === 'cancelled') return preTabPOs.filter((po) => po.status === 'CANCELLED')
+    return preTabPOs
+  }, [preTabPOs, statusTab])
 
   // ── Stats ── (reflect period + supplier + status + search, but NOT the
   // card drill-down — otherwise clicking a card would rewrite its own total)
@@ -675,6 +738,7 @@ export default function PurchaseOrdersPage() {
     dateFrom, dateTo,
     selectedSupplier !== 'all' ? selectedSupplier : '',
     selectedStatus !== 'all' ? selectedStatus : '',
+    statusTab !== 'all' ? statusTab : '',
   ].filter(Boolean).length
 
   // ── Actions ──
@@ -954,7 +1018,15 @@ export default function PurchaseOrdersPage() {
             onSelectPo={selectPo}
             onExitSplitView={exitSplitView}
             onRefresh={fetchPOs}
-            isCardFieldVisible={cardCols.isVisible}          />
+            isCardFieldVisible={cardCols.isVisible}
+            tabsNode={
+              <POStatusTabs
+                tab={statusTab}
+                onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
+          />
         </div>
 
         {/* Create PO Sheet (also accessible from split view) */}
@@ -1240,6 +1312,15 @@ export default function PurchaseOrdersPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* ── Status Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <POStatusTabs
+          tab={statusTab}
+          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>

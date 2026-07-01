@@ -87,6 +87,47 @@ const CARD_FIELDS: ColumnDef[] = [
   { id: 'stock', label: 'Stock Level', defaultVisible: true },
 ]
 
+type StockTabKey = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
+
+
+const STOCK_TABS: Array<{ key: StockTabKey; label: string; activeColor: string; badgeColor: string }> = [
+  { key: 'all',         label: 'All',          activeColor: 'border-primary text-primary',                                       badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'in_stock',    label: 'In Stock',     activeColor: 'border-emerald-500 text-emerald-600 dark:text-emerald-400',         badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  { key: 'low_stock',   label: 'Low Stock',    activeColor: 'border-amber-500 text-amber-600 dark:text-amber-400',               badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  { key: 'out_of_stock', label: 'Out of Stock', activeColor: 'border-rose-500 text-rose-600 dark:text-rose-400',                badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+]
+
+function StockStatusTabs({ tab, onChange, counts }: {
+  tab: StockTabKey
+  onChange: (t: StockTabKey) => void
+  counts: Record<StockTabKey, number>
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
+      {STOCK_TABS.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            tab === t.key
+              ? `border-b-2 bg-muted/20 ${t.activeColor}`
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t.label}
+          <span className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
+          )}>
+            {counts[t.key]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function ProductsPage() {
   const cols = useColumnVisibility('inventory.products', PRODUCT_COLUMNS)
   const cardCols = useColumnVisibility('inventory.products.card', CARD_FIELDS)
@@ -124,6 +165,7 @@ export default function ProductsPage() {
   const [selectedSchedule, setSelectedSchedule] = usePageFilter<string>('inventory.products', 'schedule', 'all')
   const [selectedStatus, setSelectedStatus] = usePageFilter<string>('inventory.products', 'status', 'all')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('inventory.products', 'splitShowStats', true)
+  const [stockTab, setStockTab] = usePageFilter<StockTabKey>('inventory.products', 'stockTab', 'all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -214,6 +256,31 @@ export default function ProductsPage() {
     outOfStock: stockSummary?.outOfStock ?? 0,
     categories: categories.length,
   }), [totalCount, stockSummary, categories])
+
+  const tabCounts = useMemo(() => {
+    const outOfStock = stockSummary?.outOfStock ?? 0
+    const lowStock = stockSummary?.lowStock ?? 0
+    return {
+      all: totalCount,
+      in_stock: Math.max(0, totalCount - lowStock - outOfStock),
+      low_stock: lowStock,
+      out_of_stock: outOfStock,
+    } satisfies Record<StockTabKey, number>
+  }, [totalCount, stockSummary])
+
+  const tabFilteredProducts = useMemo(() => {
+    if (stockTab === 'all') return paginatedProducts
+    return paginatedProducts.filter(p => {
+      const stock = p.totalStock || 0
+      if (stockTab === 'out_of_stock') return stock <= 0
+      if (stockTab === 'low_stock') {
+        const min = p.minStock ?? 0
+        return stock > 0 && min > 0 && stock < min
+      }
+      // in_stock: any positive stock (aligned with backend definition)
+      return stock > 0
+    })
+  }, [paginatedProducts, stockTab])
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
 
@@ -499,8 +566,8 @@ export default function ProductsPage() {
     ...categories.map(c => ({ value: c.id, label: c.name })),
   ]
 
-  const activeFilterCount = (selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0)
-  const clearFilters = () => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setCurrentPage(1) }
+  const activeFilterCount = (selectedCategoryId !== 'all' ? 1 : 0) + (selectedSchedule !== 'all' ? 1 : 0) + (selectedStatus !== 'all' ? 1 : 0) + (stockTab !== 'all' ? 1 : 0)
+  const clearFilters = () => { setSelectedCategoryId('all'); setSelectedSchedule('all'); setSelectedStatus('all'); setStockTab('all'); setCurrentPage(1) }
 
   const SCHEDULE_OPTIONS = [
     { value: 'all', label: 'All Schedules' },
@@ -634,8 +701,8 @@ export default function ProductsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+              <div className="flex items-end gap-3 rounded-lg border border-border/40 bg-muted/20 px-4 py-3">
+                <div className="flex flex-1 items-end gap-3 *:flex-1 *:min-w-25">
                   <EnumSelect
                     label="Category"
                     value={selectedCategoryId}
@@ -658,20 +725,20 @@ export default function ProductsPage() {
                     options={STATUS_OPTIONS}
                   />
                 </div>
-                  <div className="flex-none! min-w-0! flex items-end gap-2">
-                    <ColumnsToggle
-                      columns={CARD_FIELDS}
-                      visible={cardCols.visible}
-                      onToggle={cardCols.toggle}
-                      onReset={cardCols.reset}
-                    />
-                    {activeFilterCount > 0 && (
-                      <Button variant="ghost" size="sm" onClick={clearFilters}>
-                        <X className="mr-1 h-3.5 w-3.5" />
-                        Clear
-                      </Button>
-                    )}
-                  </div>
+                <div className="flex shrink-0 items-end gap-2">
+                  <ColumnsToggle
+                    columns={CARD_FIELDS}
+                    visible={cardCols.visible}
+                    onToggle={cardCols.toggle}
+                    onReset={cardCols.reset}
+                  />
+                  {activeFilterCount > 0 && (
+                    <Button variant="ghost" size="sm" onClick={clearFilters}>
+                      <X className="mr-1 h-3.5 w-3.5" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
@@ -687,7 +754,15 @@ export default function ProductsPage() {
               categoryId: selectedCategoryId,
               schedule: selectedSchedule,
               status: selectedStatus,
+              stockFilter: stockTab !== 'all' ? stockTab : undefined,
             }}
+            tabsNode={
+              <StockStatusTabs
+                tab={stockTab}
+                onChange={(t) => { setStockTab(t); setCurrentPage(1) }}
+                counts={tabCounts}
+              />
+            }
           />
         </div>
 
@@ -879,6 +954,15 @@ export default function ProductsPage() {
         />
       </DataTableFilterBar>
 
+      {/* ── Stock Tabs ── */}
+      <div className="rounded-lg border border-border/40 bg-background">
+        <StockStatusTabs
+          tab={stockTab}
+          onChange={(t) => { setStockTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
+
       {/* ── Mobile Cards / Desktop Table ── */}
       <Card>
         {/* Mobile */}
@@ -895,11 +979,11 @@ export default function ProductsPage() {
                 </div>
               ))}
             </div>
-          ) : paginatedProducts.length === 0 ? (
+          ) : tabFilteredProducts.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">No products found</div>
           ) : (
             <div className="divide-y divide-border/40">
-              {paginatedProducts.map(product => {
+              {tabFilteredProducts.map(product => {
                 const isOutOfStock = (product.totalStock || 0) === 0
                 const isLowStock = !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
                 const cat = getProductCategory(product)
@@ -965,7 +1049,7 @@ export default function ProductsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginatedProducts.map(product => {
+              {tabFilteredProducts.map(product => {
                 const isOutOfStock = (product.totalStock || 0) === 0
                 const isLowStock = !isOutOfStock && (product.totalStock || 0) < (product.minStock || 0)
                 const cat = getProductCategory(product)
