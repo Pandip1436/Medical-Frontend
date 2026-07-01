@@ -151,7 +151,7 @@ export default function OutstandingPage() {
   const [drawerInvoicesLoading, setDrawerInvoicesLoading] = useState(false)
 
   // Inline collect-payment form (lives inside drawer)
-  const [collectMode, setCollectMode] = useState<'cash' | 'cheque' | 'neft_upi'>('cash')
+  const [collectMode, setCollectMode] = useState<'cash' | 'cheque' | 'neft_upi'>('neft_upi')
   const [collectAmount, setCollectAmount] = useState('')
   const [collectReference, setCollectReference] = useState('')
   const [collectSubmitting, setCollectSubmitting] = useState(false)
@@ -317,7 +317,7 @@ export default function OutstandingPage() {
     setSelectedRow(row)
     setCollectAmount('')
     setCollectReference('')
-    setCollectMode('cash')
+    setCollectMode('neft_upi')
     setSelectedInvoiceId(null)
     setAmountAutoFilled(true)
   }

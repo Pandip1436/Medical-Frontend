@@ -124,7 +124,7 @@ export default function SupplierOutstandingPage() {
   const [drawerGrnsLoading, setDrawerGrnsLoading] = useState(false)
 
   // Inline record-payment form (lives inside drawer)
-  const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('CASH')
+  const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
   const [payAmount, setPayAmount] = useState('')
   const [payReference, setPayReference] = useState('')
   const [paySubmitting, setPaySubmitting] = useState(false)
@@ -221,7 +221,7 @@ export default function SupplierOutstandingPage() {
     setSelectedRow(row)
     setPayAmount('')
     setPayReference('')
-    setPayMode('CASH')
+    setPayMode('NEFT_UPI')
     setSelectedGrnId(null)
     setAmountAutoFilled(true)
   }

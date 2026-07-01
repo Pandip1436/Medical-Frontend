@@ -232,7 +232,7 @@ export default function GRNPage() {
   // PARTIAL = pay a portion now; the rest goes to outstanding.
   const [payChoice, setPayChoice] = useState<'CREDIT' | 'PAID' | 'PARTIAL'>('CREDIT')
   const [paidAmount, setPaidAmount] = useState<number>(0)
-  const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('CASH')
+  const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
 
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
@@ -529,7 +529,7 @@ export default function GRNPage() {
     setInvoiceAmount(0)
     setPayChoice('CREDIT')
     setPaidAmount(0)
-    setPayMode('CASH')
+    setPayMode('NEFT_UPI')
     setDirectSupplierId('')
     setDirectSupplierName('')
     setSupplierSearch('')
@@ -804,7 +804,7 @@ export default function GRNPage() {
       setInvoiceAmount(0)
       setPayChoice('CREDIT')
       setPaidAmount(0)
-      setPayMode('CASH')
+      setPayMode('NEFT_UPI')
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
@@ -864,7 +864,7 @@ export default function GRNPage() {
     setInvoiceAmount(0)
     setPayChoice('CREDIT')
     setPaidAmount(0)
-    setPayMode('CASH')
+    setPayMode('NEFT_UPI')
   }
 
   return (

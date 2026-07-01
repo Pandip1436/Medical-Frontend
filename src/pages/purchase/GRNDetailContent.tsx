@@ -90,7 +90,7 @@ function GRNPaymentDialog({
   const balance = grnBalance(grn)
   const invoiceAmount = Number(grn.supplierInvoiceAmount || 0)
   const paidAmount = Number(grn.amountPaid || 0)
-  const [mode, setMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('CASH')
+  const [mode, setMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
   const [amount, setAmount] = useState(balance ? String(balance) : '')
   const [reference, setReference] = useState('')
   const [submitting, setSubmitting] = useState(false)
