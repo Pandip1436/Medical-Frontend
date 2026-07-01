@@ -949,7 +949,7 @@ function BillingRow({
         }}
         placeholder="0"
         className="
-          h-8 w-full rounded-xl
+          h-8 w-22 rounded-xl
           border border-border/40
           bg-muted/20
           px-2
