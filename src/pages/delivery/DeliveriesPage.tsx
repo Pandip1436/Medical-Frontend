@@ -222,31 +222,33 @@ export default function DeliveriesPage() {
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-11 sm:w-11">
                 <Truck className="h-5 w-5" />
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 overflow-hidden">
                 {/* Customer name + status first */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-sm font-semibold">{d.customerName}</span>
+                  <span className="min-w-0 max-w-full truncate text-sm font-semibold">{d.customerName}</span>
                   <StatusBadge status={displayDeliveryStatus(d.status)} />
                 </div>
                 {/* Delivery address second */}
                 {d.deliveryAddress && (
-                  <p className="mt-0.5 flex items-center gap-1 truncate text-sm text-muted-foreground">
-                    <MapPin className="h-3 w-3 shrink-0" /> {d.deliveryAddress}
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
+                    <MapPin className="h-3 w-3 shrink-0" /> <span className="min-w-0 flex-1 truncate">{d.deliveryAddress}</span>
                   </p>
                 )}
                 {/* Invoice id + courier / tracking / mobile */}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground/80">
                   <button
                     onClick={(e) => { e.stopPropagation(); navigate(`/billing/sales?view=split&invoiceId=${d.invoiceId}`) }}
-                    className="inline-flex items-center gap-1 font-mono font-semibold text-foreground hover:text-primary hover:underline"
+                    className="inline-flex shrink-0 items-center gap-1 font-mono font-semibold text-foreground hover:text-primary hover:underline"
                     title="Open invoice"
                   >
                     {d.invoiceNumber}
                     <ExternalLink className="h-3 w-3 opacity-0 transition group-hover:opacity-60" />
                   </button>
-                  {d.courierName && <span className="inline-flex items-center gap-1"><Truck className="h-3 w-3" />{d.courierName}</span>}
-                  {d.trackingId && <span className="font-mono">#{d.trackingId}</span>}
-                  {d.mobileNumber && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{d.mobileNumber}</span>}
+                  {d.courierName && <span className="inline-flex min-w-0 items-center gap-1"><Truck className="h-3 w-3 shrink-0" /><span className="truncate max-w-[10rem]">{d.courierName}</span></span>}
+                  {d.trackingId && <span className="font-mono break-all">#{d.trackingId}</span>}
+                  {d.mobileNumber && <span className="inline-flex shrink-0 items-center gap-1"><Phone className="h-3 w-3" />{d.mobileNumber}</span>}
+                  {/* Booked date — the side column is hidden on mobile, so surface it here. */}
+                  <span className="inline-flex shrink-0 items-center gap-1 sm:hidden">Booked {formatDate(d.createdAt)}</span>
                 </div>
               </div>
               <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">

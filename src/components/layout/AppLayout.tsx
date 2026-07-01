@@ -167,9 +167,13 @@ export default function AppLayout({
         animate={{ marginLeft: isMobile ? 0 : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
+          // min-w-0 is critical: without it this flex-1 column's min-width
+          // defaults to its content's min-content, so a wide header/page can
+          // stretch it past the viewport and the whole shell scrolls sideways
+          // on mobile. min-w-0 lets it shrink so `main`'s overflow-x-hidden clips.
           isFullViewport || isCompactPage
-            ? 'flex flex-1 flex-col h-screen-z overflow-hidden'
-            : 'flex flex-1 flex-col'
+            ? 'flex min-w-0 flex-1 flex-col h-screen-z overflow-hidden'
+            : 'flex min-w-0 flex-1 flex-col'
         }
       >
         {/* Header - hidden on POS-style full-viewport pages */}

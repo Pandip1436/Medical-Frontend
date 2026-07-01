@@ -405,7 +405,7 @@ export default function RemindersPage() {
               {' · '}<span className="font-semibold text-emerald-600 dark:text-emerald-400">{talkedThisMonthCount} talked</span> this month
               {' · '}{totalCount} total
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center rounded-md border border-border/60 bg-background p-0.5">
                 {STATUS_FILTERS.map(s => (
                   <button
@@ -413,7 +413,7 @@ export default function RemindersPage() {
                     type="button"
                     onClick={() => setStatusFilter(s.key)}
                     className={cn(
-                      'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                      'whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors',
                       statusFilter === s.key
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground',
@@ -466,11 +466,13 @@ export default function RemindersPage() {
               // Keep the folder rail visible on desktop; only hide it on mobile where the detail goes full-screen.
               selectedReq && 'hidden lg:block',
             )}>
-              <div className="px-3 py-3">
-                <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <div className="px-3 py-2 lg:py-3">
+                <p className="hidden px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 lg:block">
                   Customer Type
                 </p>
-                <nav className="space-y-0.5">
+                {/* Mobile: horizontal scrollable chip strip so the folder rail
+                    doesn't consume vertical space. Desktop: vertical nav. */}
+                <nav className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:block lg:space-y-0.5 lg:overflow-visible lg:pb-0">
                   {TYPE_FOLDERS.map(cat => {
                     const Icon = cat.icon
                     const count = typeCounts[cat.key]
@@ -481,7 +483,7 @@ export default function RemindersPage() {
                         type="button"
                         onClick={() => setTypeFolder(cat.key)}
                         className={cn(
-                          'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                          'group relative flex w-auto shrink-0 items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm transition-colors lg:w-full lg:shrink',
                           isActive
                             ? 'bg-accent font-medium text-foreground'
                             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
