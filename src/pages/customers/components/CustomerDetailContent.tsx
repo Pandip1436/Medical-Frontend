@@ -74,7 +74,7 @@ import {
   type SupplierActivityType as SAType,
 } from '@/components/shared/SupplierActivityDialog'
 
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import api, { API_SERVER_URL } from '@/lib/api'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import type { Customer } from '@/types'
@@ -185,9 +185,28 @@ interface CustomerDetailContentProps {
 
 export function CustomerDetailContent({ customerId }: CustomerDetailContentProps) {
   const d = useCustomerDetail(customerId)
-  const [activeTab, setActiveTab] = useState<
-    'overview' | 'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx'
-  >('overview')
+  const { path, search } = useRoute()
+  const TAB_KEYS = ['overview', 'ledger', 'activity', 'invoices', 'creditNotes', 'payments', 'quotations', 'rx'] as const
+  type CustomerTab = typeof TAB_KEYS[number]
+  const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
+  const [activeTab, setActiveTab] = useState<CustomerTab>(
+    (TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as CustomerTab) : 'overview',
+  )
+  // Mirror the active tab into the URL so browser Back — e.g. returning from an
+  // invoice's detail page — restores the same tab in this split view. Only
+  // non-default tabs are written (overview clears the param) to keep the shared
+  // /customers URL clean.
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const current = params.get('tab')
+    if (activeTab === 'overview') {
+      if (current) { params.delete('tab'); navigate(`${path}?${params.toString()}`, { replace: true }) }
+    } else if (current !== activeTab) {
+      params.set('tab', activeTab)
+      navigate(`${path}?${params.toString()}`, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
   const [editOpen, setEditOpen] = useState(false)
 
   const [activityTypeFilter, setActivityTypeFilter] = useState<'ALL' | SAType>('ALL')

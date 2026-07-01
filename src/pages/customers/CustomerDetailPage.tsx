@@ -188,9 +188,23 @@ export default function CustomerDetailPage() {
   const customerId = new URLSearchParams(search).get('customerId') ?? ''
 
   const d = useCustomerDetail(customerId)
-  const [activeTab, setActiveTab] = useState<
-    'overview' | 'ledger' | 'activity' | 'invoices' | 'creditNotes' | 'payments' | 'quotations' | 'rx'
-  >('overview')
+  const TAB_KEYS = ['overview', 'ledger', 'activity', 'invoices', 'creditNotes', 'payments', 'quotations', 'rx'] as const
+  type CustomerTab = typeof TAB_KEYS[number]
+  const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
+  const [activeTab, setActiveTab] = useState<CustomerTab>(
+    (TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as CustomerTab) : 'overview',
+  )
+  // Mirror the active tab into the URL (?tab=…) so browser Back — e.g. returning
+  // from an invoice's detail page — restores the same tab instead of snapping
+  // back to Overview. replace: true keeps tab switches out of the history stack.
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    if (params.get('tab') !== activeTab) {
+      params.set('tab', activeTab)
+      navigate(`/customers/detail?${params.toString()}`, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
   const [editOpen, setEditOpen] = useState(false)
 
   // Activity tab UI state — type filter, dialog target, edit target.
