@@ -851,6 +851,14 @@ export default function CustomerInvoicesPage() {
                           )}
                           value={collectAmount}
                           onChange={(e) => setCollectAmount(e.target.value)}
+                          // Correct an over-typed amount down to the exact
+                          // balance on blur so the field never shows more than
+                          // what's due (the ₹1 rounding tolerance still governs
+                          // what actually gets collected).
+                          onBlur={() => {
+                            const n = parseFloat(collectAmount)
+                            if (Number.isFinite(n) && n > balanceDue) setCollectAmount(balanceDue.toFixed(2))
+                          }}
                           min={0}
                           max={balanceDue}
                         />

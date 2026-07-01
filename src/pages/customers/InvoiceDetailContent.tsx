@@ -424,6 +424,14 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                       )}
                       value={collectAmount}
                       onChange={(e) => setCollectAmount(e.target.value)}
+                      // Correct an over-typed amount down to the exact balance
+                      // when the field loses focus, so it never shows more than
+                      // what's due (the ₹1 rounding tolerance still applies to
+                      // what actually gets collected).
+                      onBlur={() => {
+                        const n = parseFloat(collectAmount)
+                        if (Number.isFinite(n) && n > outstanding) setCollectAmount(outstanding.toFixed(2))
+                      }}
                       min={0}
                       max={outstanding}
                     />
