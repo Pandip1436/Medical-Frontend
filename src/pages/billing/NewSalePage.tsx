@@ -894,22 +894,22 @@ function BillingRow({
               )}>
               <SelectValue placeholder="Select Batch" />
             </SelectTrigger>
-            <SelectContent className="bg-popover/95 backdrop-blur-xl">
+            <SelectContent className="bg-popover/95 backdrop-blur-xl min-w-[220px]">
               {productBatches.map((b, idx) => {
                 // A batch already on another row of this product is locked out
                 // here so the same stock can't be billed twice.
                 const usedElsewhere = !!batchesUsedByOthers?.has(b.id)
                 return (
                 <SelectItem key={b.id} value={b.id} className="text-xs" disabled={usedElsewhere}>
-                  <div className="flex items-center justify-between gap-3 w-full min-w-40">
+                  <div className="flex items-center justify-between gap-3 w-full min-w-44 pr-1">
                     <span className="font-mono font-bold tracking-tight">{b.batchNumber}</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {usedElsewhere ? (
                         <Badge variant="outline" className="text-[8px] px-1 h-3.5 text-muted-foreground">In use</Badge>
                       ) : idx === 0 && (
                         <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
                       )}
-                      <span className="text-[10px] opacity-60">Qty: {b.quantity}</span>
+                      <span className="text-[10px] opacity-60 whitespace-nowrap">Qty: {b.quantity}</span>
                     </div>
                   </div>
                 </SelectItem>

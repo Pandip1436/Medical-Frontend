@@ -104,7 +104,10 @@ const SelectContent = React.forwardRef<
         className={cn(
           "p-1",
           position === "popper" &&
-            "h-(--radix-select-trigger-height) w-(--radix-select-trigger-width)"
+            // min-w (not w) so the dropdown is at least the trigger width but can
+            // grow to fit wider item content — otherwise items are clipped to the
+            // trigger, which breaks when the trigger is scaled down (e.g. table zoom).
+            "h-(--radix-select-trigger-height) min-w-(--radix-select-trigger-width)"
         )}
       >
         {children}
