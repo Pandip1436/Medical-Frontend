@@ -59,7 +59,7 @@ import {
   type SupplierActivityType as SAType,
 } from '@/components/shared/SupplierActivityDialog'
 
-import { navigate } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import type { Supplier } from '@/types'
 import { useSupplierDetail } from '@/hooks/useSupplierDetail'
@@ -155,7 +155,28 @@ interface SupplierDetailContentProps {
 
 export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps) {
   const d = useSupplierDetail(supplierId)
-  const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches'>('overview')
+  const { path, search } = useRoute()
+  const TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches'] as const
+  type SupplierTab = typeof TAB_KEYS[number]
+  const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
+  const [activeTab, setActiveTab] = useState<SupplierTab>(
+    (TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as SupplierTab) : 'overview',
+  )
+  // Mirror the active tab into the URL so browser Back — e.g. returning from a
+  // PE (GRN) detail page — restores the same tab in this split view. Only
+  // non-default tabs are written (overview clears it) to keep the shared
+  // /purchase/suppliers URL clean.
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const current = params.get('tab')
+    if (activeTab === 'overview') {
+      if (current) { params.delete('tab'); navigate(`${path}?${params.toString()}`, { replace: true }) }
+    } else if (current !== activeTab) {
+      params.set('tab', activeTab)
+      navigate(`${path}?${params.toString()}`, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
   const [editOpen, setEditOpen] = useState(false)
 
   const [activityTypeFilter, setActivityTypeFilter] = useState<'ALL' | SAType>('ALL')
@@ -518,9 +539,9 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                         const balance = Number(r.balance ?? 0)
                         const target =
                           r.sourceType === 'GRN' && r.sourceId
-                            ? `/purchase/grn-list?grnId=${r.sourceId}`
+                            ? `/purchase/grn/detail?id=${r.sourceId}`
                             : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
-                              ? `/purchase/debit-notes?debitNoteId=${r.sourceId}`
+                              ? `/purchase/debit-notes/detail?id=${r.sourceId}`
                               : null
                         return (
                           <TableRow
@@ -660,7 +681,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                     <TableRow
                       key={g.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/purchase/grn-list?grnId=${g.id}`)}
+                      onClick={() => navigate(`/purchase/grn/detail?id=${g.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{g.date ? formatDate(g.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{g.grnNumber}</TableCell>
@@ -718,7 +739,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                     <TableRow
                       key={r.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/purchase/debit-notes?debitNoteId=${r.id}`)}
+                      onClick={() => navigate(`/purchase/debit-notes/detail?id=${r.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{r.debitNoteNo}</TableCell>

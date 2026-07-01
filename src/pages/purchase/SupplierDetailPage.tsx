@@ -169,11 +169,26 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function SupplierDetailPage() {
-  const { search } = useRoute()
+  const { path, search } = useRoute()
   const supplierId = new URLSearchParams(search).get('supplierId') ?? ''
 
   const d = useSupplierDetail(supplierId)
-  const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches'>('overview')
+  const SUP_TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches'] as const
+  type SupplierTab = typeof SUP_TAB_KEYS[number]
+  const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
+  const [activeTab, setActiveTab] = useState<SupplierTab>(
+    (SUP_TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as SupplierTab) : 'overview',
+  )
+  // Keep the active tab in the URL so browser Back — e.g. returning from a PE
+  // (GRN) detail page — restores the same tab instead of resetting to Overview.
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    if (params.get('tab') !== activeTab) {
+      params.set('tab', activeTab)
+      navigate(`${path}?${params.toString()}`, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
   const [editOpen, setEditOpen] = useState(false)
 
   // Activity tab UI state — type filter, dialog target, edit target.
@@ -678,9 +693,9 @@ export default function SupplierDetailPage() {
                       const balance = Number(r.balance ?? 0)
                       const target =
                         r.sourceType === 'GRN' && r.sourceId
-                          ? `/purchase/grn-list?grnId=${r.sourceId}`
+                          ? `/purchase/grn/detail?id=${r.sourceId}`
                           : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
-                            ? `/purchase/debit-notes?debitNoteId=${r.sourceId}`
+                            ? `/purchase/debit-notes/detail?id=${r.sourceId}`
                             : null
                       return (
                         <TableRow
@@ -788,7 +803,7 @@ export default function SupplierDetailPage() {
                   <TableRow
                     key={g.id}
                     className="cursor-pointer hover:bg-muted/20"
-                    onClick={() => navigate(`/purchase/grn-list?grnId=${g.id}`)}
+                    onClick={() => navigate(`/purchase/grn/detail?id=${g.id}`)}
                   >
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{g.date ? formatDate(g.date) : '—'}</TableCell>
                     <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{g.grnNumber}</TableCell>
@@ -828,7 +843,7 @@ export default function SupplierDetailPage() {
                   <TableRow
                     key={r.id}
                     className="cursor-pointer hover:bg-muted/20"
-                    onClick={() => navigate(`/purchase/debit-notes?debitNoteId=${r.id}`)}
+                    onClick={() => navigate(`/purchase/debit-notes/detail?id=${r.id}`)}
                   >
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
                     <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{r.debitNoteNo}</TableCell>

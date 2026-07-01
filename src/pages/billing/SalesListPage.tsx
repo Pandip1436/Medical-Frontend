@@ -1242,7 +1242,7 @@ export default function SalesListPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.15, delay: idx * 0.02 }}
                   className="flex flex-col gap-2 p-4 cursor-pointer active:bg-muted/30"
-                  onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
+                  onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                 >
                   {/* Row 1: Invoice # + Status */}
                   <div className="flex items-center justify-between">
@@ -1294,7 +1294,7 @@ export default function SalesListPage() {
                       </div>
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
-                          onView={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
+                          onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                           onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                           onDelete={() => removeOrCancel(inv)}
                           deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
@@ -1371,7 +1371,7 @@ export default function SalesListPage() {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15, delay: idx * 0.02 }}
                     className="border-b border-border/40 transition-colors hover:bg-muted/30 cursor-pointer"
-                    onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
+                    onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -1476,7 +1476,7 @@ export default function SalesListPage() {
                     )}
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
-                        onView={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
+                        onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                         onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
                         onDelete={() => removeOrCancel(inv)}
                         deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}

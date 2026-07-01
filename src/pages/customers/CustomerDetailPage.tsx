@@ -792,9 +792,9 @@ export default function CustomerDetailPage() {
                         const balance = Number(r.balance ?? 0)
                         const target =
                           r.sourceType === 'INVOICE' && r.sourceId
-                            ? `/billing/sales?view=split&invoiceId=${r.sourceId}`
+                            ? `/customers/invoices/detail?id=${r.sourceId}`
                             : r.sourceType === 'CREDIT_NOTE' && r.sourceId
-                              ? `/billing/credit-notes?creditNoteId=${r.sourceId}`
+                              ? `/billing/credit-notes/detail?id=${r.sourceId}`
                               : null
                         return (
                           <TableRow
@@ -918,7 +918,7 @@ export default function CustomerDetailPage() {
                     <TableRow
                       key={cn.id}
                       className="cursor-pointer hover:bg-muted/20"
-                      onClick={() => navigate(`/billing/credit-notes?creditNoteId=${cn.id}`)}
+                      onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}
                     >
                       <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{cn.date ? formatDate(cn.date) : '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 font-mono text-sm font-semibold">{cn.creditNoteNo}</TableCell>
