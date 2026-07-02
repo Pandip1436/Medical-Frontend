@@ -972,7 +972,7 @@ export default function PurchaseOrdersPage() {
           >
             <BarChart3 className="h-4 w-4" />
           </Button>
-          <Button size="sm" onClick={() => { setCreateDialogOpen(true); navigate('/purchase/orders?view=table') }}>
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Create PO</span>
           </Button>
