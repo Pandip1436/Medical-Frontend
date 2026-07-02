@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Users } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
 import { CustomerCompactCard } from './CustomerCompactCard'
@@ -18,6 +18,11 @@ interface CustomerSplitViewProps {
   tabsNode?: ReactNode
   isCardFieldVisible?: (id: string) => boolean
   isCardFieldRight?: (id: string) => boolean
+  // Server-driven search (name / phone / GSTIN / address across ALL customers,
+  // not just the loaded pages). Owned by the parent so it feeds the /customers
+  // `q` query and paginates the matches.
+  searchValue?: string
+  onSearchChange?: (v: string) => void
 }
 
 export function CustomerSplitView({
@@ -33,8 +38,9 @@ export function CustomerSplitView({
   tabsNode,
   isCardFieldVisible,
   isCardFieldRight,
+  searchValue = '',
+  onSearchChange,
 }: CustomerSplitViewProps) {
-  const [localSearch, setLocalSearch] = useState('')
   const sentinelRef = useRef<HTMLDivElement>(null)
   const pendingLoadRef = useRef(false)
 
@@ -72,17 +78,6 @@ export function CustomerSplitView({
     onSelectCustomer(customers[0].id)
   }, [customers])
 
-  const displayed = useMemo(() => {
-    const q = localSearch.trim().toLowerCase()
-    if (!q) return customers
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        (c.email ?? '').toLowerCase().includes(q),
-    )
-  }, [customers, localSearch])
-
   const selectedCustomer = useMemo(
     () => customers.find((c) => c.id === selectedCustomerId) ?? null,
     [customers, selectedCustomerId],
@@ -94,16 +89,16 @@ export function CustomerSplitView({
 
   return (
     <SplitViewShell
-      searchValue={localSearch}
-      onSearchChange={setLocalSearch}
-      searchPlaceholder="Search customers…"
-      resultCount={displayed.length}
+      searchValue={searchValue}
+      onSearchChange={onSearchChange ?? (() => {})}
+      searchPlaceholder="Search name or phone…"
+      resultCount={customers.length}
       resultLabel="customer"
       loading={loading}
       tabsNode={tabsNode}
       cards={
         <>
-          {displayed.map((c) => (
+          {customers.map((c) => (
             <CustomerCompactCard
               key={c.id}
               customer={c}

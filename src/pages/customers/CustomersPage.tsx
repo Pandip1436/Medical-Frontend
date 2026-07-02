@@ -286,16 +286,6 @@ const PAY_TABS: { key: PayTabKey; label: string; activeClass: string; countClass
   { key: 'UNPAID',  label: 'Unpaid',  activeClass: 'border-rose-500 text-rose-600 dark:text-rose-400',                    countClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
 ]
 
-function custPayStatus(c: Customer): 'PAID' | 'PARTIAL' | 'UNPAID' | null {
-  const outstanding = Number(c.currentOutstanding ?? 0)
-  const paid = Number((c as any).paidAmount ?? 0)
-  // No invoices at all — outstanding 0 because nothing was ever purchased
-  if (outstanding === 0 && paid === 0) return null
-  if (outstanding <= 0) return 'PAID'
-  if (paid > 0) return 'PARTIAL'
-  return 'UNPAID'
-}
-
 function CustomerPaymentTabs({ tab, onChange, counts }: {
   tab: PayTabKey
   onChange: (t: PayTabKey) => void
@@ -390,12 +380,15 @@ export default function CustomersPage() {
   const [refreshToken, setRefreshToken] = useState(0)
 
   // Global summary (for the top stat cards — stable across filter changes)
-  const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number; totalAmount: number; paidAmount: number }>({
+  const [summary, setSummary] = useState<{ total: number; withOutstanding: number; totalOutstanding: number; totalAmount: number; paidAmount: number; paidCount: number; partialCount: number; unpaidCount: number }>({
     total: 0,
     withOutstanding: 0,
     totalOutstanding: 0,
     totalAmount: 0,
     paidAmount: 0,
+    paidCount: 0,
+    partialCount: 0,
+    unpaidCount: 0,
   })
 
   // Filters + pagination
@@ -545,8 +538,11 @@ export default function CustomersPage() {
       if (to) params.set('createdTo', to)
     }
     if (statusFilter !== 'all') params.set('active', statusFilter === 'active' ? 'true' : 'false')
+    // Payment-status folder — server-side so the list + pagination + counts all
+    // agree (was client-side over the loaded pages, so "Paid" showed 0/empty).
+    if (payTab !== 'all') params.set('paymentStatus', payTab)
     return params
-  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter])
+  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter, payTab])
 
   const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -586,6 +582,9 @@ export default function CustomersPage() {
       const params = buildQueryParams()
       params.delete('skip')
       params.delete('take')
+      // Drop the payment-status folder so the summary counts every status,
+      // giving accurate Paid / Partial / Unpaid tab badges.
+      params.delete('paymentStatus')
       const res = await api.get(`/customers/summary?${params.toString()}`)
       const data = res.data?.data ?? res.data
       if (data) setSummary(data)
@@ -890,6 +889,10 @@ export default function CustomersPage() {
             <Download className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
+            <Upload className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Import</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -958,30 +961,39 @@ export default function CustomersPage() {
         {/* Split view */}
         <div className="min-h-0 flex-1">
           <CustomerSplitView
-            customers={payTab === 'all' ? allCustomers : allCustomers.filter((c) => custPayStatus(c) === payTab)}
+            customers={allCustomers}
             loading={isLoading && currentPage === 1}
             loadingMore={isLoading && currentPage > 1}
-            hasMore={payTab === 'all' && allCustomers.length < total && !isLoading}
+            hasMore={allCustomers.length < total && !isLoading}
             onLoadMore={() => setCurrentPage((p) => p + 1)}
             selectedCustomerId={selectedCustomerId}
             onSelectCustomer={selectCustomer}
             onExitSplitView={exitSplitView}
             onRefresh={() => setRefreshToken((t) => t + 1)}
             isCardFieldVisible={cardCols.isVisible}
+            searchValue={searchQuery}
+            onSearchChange={setSearchQuery}
             tabsNode={
               <CustomerPaymentTabs
                 tab={payTab}
-                onChange={(t) => { setPayTab(t); selectCustomer(null); if (t === 'all') setCurrentPage(1) }}
+                onChange={(t) => { setPayTab(t); selectCustomer(null); setCurrentPage(1) }}
                 counts={{
-                  all: total,
-                  PAID: allCustomers.filter((c) => custPayStatus(c) === 'PAID').length,
-                  PARTIAL: allCustomers.filter((c) => custPayStatus(c) === 'PARTIAL').length,
-                  UNPAID: allCustomers.filter((c) => custPayStatus(c) === 'UNPAID').length,
+                  all: summary.total,
+                  PAID: summary.paidCount,
+                  PARTIAL: summary.partialCount,
+                  UNPAID: summary.unpaidCount,
                 }}
               />
             }
           />
         </div>
+
+        {/* Import drawer — also reachable from the split-view toolbar */}
+        <ImportCustomersDrawer
+          open={importDrawerOpen}
+          onOpenChange={setImportDrawerOpen}
+          onImported={refetchAll}
+        />
       </div>
     )
   }
@@ -1189,6 +1201,20 @@ export default function CustomersPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* ─── Payment status tabs (All / Paid / Partial / Unpaid) ─── */}
+      <motion.div variants={itemVariants} className="overflow-x-auto border-b border-border/60">
+        <CustomerPaymentTabs
+          tab={payTab}
+          onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+          counts={{
+            all: summary.total,
+            PAID: summary.paidCount,
+            PARTIAL: summary.partialCount,
+            UNPAID: summary.unpaidCount,
+          }}
+        />
+      </motion.div>
 
       {/* ─── Customers Table ─── */}
       <motion.div variants={itemVariants}>

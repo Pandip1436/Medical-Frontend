@@ -104,13 +104,10 @@ const GSTIN_OPTIONS = [
 
 type SupplierPayTabKey = 'all' | 'paid' | 'partial' | 'unpaid'
 
-function supplierPayStatus(s: Supplier): 'paid' | 'partial' | 'unpaid' {
-  const outstanding = Number(s.currentOutstanding ?? 0)
-  const paid = Number(s.paidAmount ?? 0)
-  if (outstanding <= 0) return 'paid'
-  if (paid > 0) return 'partial'
-  return 'unpaid'
-}
+// Payment-status classification (Paid / Partial / Unpaid) is now computed
+// server-side from live GRN balances — see suppliers.service.supplierPaymentStatusIds.
+// The client just sends the selected folder as a `paymentStatus` query param and
+// reads per-folder counts off the /suppliers/summary response.
 
 const SUPPLIER_PAY_TABS: Array<{ key: SupplierPayTabKey; label: string; activeColor: string; badgeColor: string }> = [
   { key: 'all',     label: 'All',     activeColor: 'border-primary text-primary',                                        badgeColor: 'bg-primary/10 text-primary' },
@@ -244,9 +241,12 @@ export default function SuppliersPage() {
       if (selectedGstin !== 'all') params.set('hasGstin', selectedGstin === 'yes' ? 'true' : 'false')
       if (outstandingMin) params.set('outstandingMin', outstandingMin)
       if (outstandingMax) params.set('outstandingMax', outstandingMax)
+      // Payment-status folder is a server-side filter (derived from live GRN
+      // balances) so the tab reflects ALL matches, not just loaded pages.
+      if (payTab !== 'all') params.set('paymentStatus', payTab.toUpperCase())
       return params
     },
-    [currentPage, searchQuery, selectedStatus, selectedPaymentTerms, selectedGstin, outstandingMin, outstandingMax],
+    [currentPage, searchQuery, selectedStatus, selectedPaymentTerms, selectedGstin, outstandingMin, outstandingMax, payTab],
   )
 
   // Fetch suppliers from backend whenever filters/search/page change (debounced for search).
@@ -293,12 +293,15 @@ export default function SuppliersPage() {
 
   // Directory-wide money KPIs for the stat cards (total purchases + pending
   // payments). Fetched from the dedicated summary endpoint.
-  const [moneySummary, setMoneySummary] = useState<{ totalCount: number; activeCount: number; inactiveCount: number; totalPurchases: number; pendingPayments: number } | null>(null)
+  const [moneySummary, setMoneySummary] = useState<{ totalCount: number; activeCount: number; inactiveCount: number; totalPurchases: number; pendingPayments: number; paidCount: number; partialCount: number; unpaidCount: number } | null>(null)
   const fetchMoneySummary = useCallback(async () => {
     try {
       // Pass the active filters so the stat cards reflect the same set as the
-      // table (minus pagination).
+      // table (minus pagination). The payment-status folder is intentionally
+      // excluded so the tab counts always show the full breakdown, not just the
+      // currently-selected folder.
       const params = buildQueryParams({ paginated: false })
+      params.delete('paymentStatus')
       const res = await api.get(`/suppliers/summary?${params.toString()}`)
       const data = res.data?.data ?? res.data
       if (data) setMoneySummary({
@@ -307,6 +310,9 @@ export default function SuppliersPage() {
         inactiveCount: Number(data.inactiveCount ?? 0),
         totalPurchases: Number(data.totalPurchases ?? 0),
         pendingPayments: Number(data.pendingPayments ?? 0),
+        paidCount: Number(data.paidCount ?? 0),
+        partialCount: Number(data.partialCount ?? 0),
+        unpaidCount: Number(data.unpaidCount ?? 0),
       })
     } catch { /* silent — cards fall back to a dash */ }
   }, [buildQueryParams])
@@ -364,21 +370,18 @@ export default function SuppliersPage() {
   }, [directorySuppliers])
 
   // ── Payment tab counts + filtered lists ──
-  const tabCounts = useMemo(() => {
-    const counts: Record<SupplierPayTabKey, number> = { all: allSuppliers.length, paid: 0, partial: 0, unpaid: 0 }
-    for (const s of allSuppliers) counts[supplierPayStatus(s)]++
-    return counts
-  }, [allSuppliers])
+  // Counts come from the server summary (true totals across all pages); the
+  // list itself is already filtered server-side by `paymentStatus`, so no
+  // client-side re-filtering is needed here.
+  const tabCounts = useMemo<Record<SupplierPayTabKey, number>>(() => ({
+    all: moneySummary?.totalCount ?? allSuppliers.length,
+    paid: moneySummary?.paidCount ?? 0,
+    partial: moneySummary?.partialCount ?? 0,
+    unpaid: moneySummary?.unpaidCount ?? 0,
+  }), [moneySummary, allSuppliers.length])
 
-  const tabFilteredAllSuppliers = useMemo(
-    () => payTab === 'all' ? allSuppliers : allSuppliers.filter((s) => supplierPayStatus(s) === payTab),
-    [allSuppliers, payTab]
-  )
-
-  const tabFilteredSuppliers = useMemo(
-    () => payTab === 'all' ? suppliers : suppliers.filter((s) => supplierPayStatus(s) === payTab),
-    [suppliers, payTab]
-  )
+  const tabFilteredAllSuppliers = allSuppliers
+  const tabFilteredSuppliers = suppliers
 
   // ── Pagination (server-driven) ──
   const totalPages = Math.max(1, Math.ceil(totalSuppliers / PAGE_SIZE))
@@ -520,6 +523,10 @@ export default function SuppliersPage() {
             <Download className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
+            <Upload className="mr-1.5 h-4 w-4" />
+            <span className="hidden sm:inline">Import</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -612,6 +619,13 @@ export default function SuppliersPage() {
           onOpenChange={setDialogOpen}
           editingSupplier={editingSupplier}
           onSaved={() => { void fetchMasterData(); setDialogOpen(false) }}
+        />
+
+        {/* Import drawer — also reachable from the split-view toolbar */}
+        <ImportSuppliersDrawer
+          open={importDrawerOpen}
+          onOpenChange={setImportDrawerOpen}
+          onImported={fetchMasterData}
         />
       </div>
     )
