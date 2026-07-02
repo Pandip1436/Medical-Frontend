@@ -5,6 +5,7 @@ import {
   Bell, Plus, Phone, CheckCircle2, XCircle, X, Clock, MessageSquare,
   Trash2, User, AlertCircle, RefreshCw, Mail, MapPin, Search, ChevronRight,
   ListFilter, Store, Building2, Stethoscope, AlertTriangle, CalendarClock, Pencil, ArrowLeft, ArrowUpDown,
+  Ban, PlayCircle, Package, Send,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 import { cn, timeAgo, daysLeftInWeek } from '@/lib/utils'
 import { goBack } from '@/lib/router'
 import api from '@/lib/api'
@@ -29,7 +31,7 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
 // ─── Types ────────────────────────────────────────────────────
-type ContactStatus = 'TALKED' | 'NOT_RESPONDED' | 'DENIED' | 'NEED_TO_TALK' | 'SCHEDULED'
+type ContactStatus = 'TALKED' | 'NOT_RESPONDED' | 'DENIED' | 'NEED_TO_TALK' | 'SCHEDULED' | 'WHATSAPP_AUTO_SENT' | 'STOPPED'
 type CustomerType = 'RETAIL' | 'WHOLESALE' | 'DOCTOR'
 type TypeKey = CustomerType | 'all'
 type StatusKey = 'all' | 'today' | 'this-week' | 'overdue'
@@ -42,6 +44,11 @@ interface ContactLog {
   followUpDate?: string | null
 }
 
+interface ReminderProduct {
+  productId: string
+  productName: string
+}
+
 interface Reminder {
   id: string
   customerId: string
@@ -51,6 +58,11 @@ interface Reminder {
   // Active one-off follow-up requested by the customer. Overrides the monthly
   // dayOfMonth schedule until the next contact is logged. null = monthly cycle.
   followUpDate?: string | null
+  // Soft-stop: false means the customer no longer wants to be reminded/contacted.
+  // Excluded from due-today checks and the auto-WhatsApp scheduler while false.
+  isActive: boolean
+  // Medicines this reminder is for — named in the auto-WhatsApp message.
+  products: ReminderProduct[]
   createdAt: string
   customer: { id: string; name: string; phone: string; type: string; email?: string | null; address?: string | null }
   contacts: ContactLog[]
@@ -58,11 +70,13 @@ interface Reminder {
 
 // ─── Config ───────────────────────────────────────────────────
 const STATUS_CONFIG: Record<ContactStatus, { label: string; variant: any; icon: typeof CheckCircle2 }> = {
-  TALKED:        { label: 'Talked',          variant: 'success',     icon: CheckCircle2 },
-  NOT_RESPONDED: { label: 'Not Responded',   variant: 'warning',     icon: AlertCircle },
-  DENIED:        { label: 'Denied',          variant: 'destructive', icon: XCircle },
-  NEED_TO_TALK:  { label: 'Need to Talk',    variant: 'info',        icon: Phone },
-  SCHEDULED:     { label: 'Scheduled',       variant: 'secondary',   icon: Clock },
+  TALKED:             { label: 'Talked',          variant: 'success',     icon: CheckCircle2 },
+  NOT_RESPONDED:       { label: 'Not Responded',   variant: 'warning',     icon: AlertCircle },
+  DENIED:              { label: 'Denied',          variant: 'destructive', icon: XCircle },
+  NEED_TO_TALK:        { label: 'Need to Talk',    variant: 'info',        icon: Phone },
+  SCHEDULED:           { label: 'Scheduled',       variant: 'secondary',   icon: Clock },
+  WHATSAPP_AUTO_SENT:  { label: 'WhatsApp Sent',   variant: 'info',        icon: Send },
+  STOPPED:             { label: 'Stopped',         variant: 'destructive', icon: Ban },
 }
 
 const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; accent: string }[] = [
@@ -208,7 +222,10 @@ export default function RemindersPage() {
   // that existing reminder (PATCH) instead of creating a new one (POST).
   const [addOpen, setAddOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ customerId: '', dayOfMonth: '', title: '', notes: '' })
+  const [form, setForm] = useState({ customerId: '', dayOfMonth: '', title: '', notes: '', productIds: [] as string[] })
+  // Names for the pre-selected products when editing, so ProductMultiSelect
+  // can render badges before/without its own search list having loaded them.
+  const [formProductNames, setFormProductNames] = useState<Record<string, string>>({})
   const [customerSearch, setCustomerSearch] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -311,7 +328,14 @@ export default function RemindersPage() {
   // locked (the backend update can't reassign a reminder to another customer).
   const openEdit = (r: Reminder) => {
     setEditingId(r.id)
-    setForm({ customerId: r.customerId, dayOfMonth: String(r.dayOfMonth), title: r.title, notes: r.notes ?? '' })
+    setForm({
+      customerId: r.customerId,
+      dayOfMonth: String(r.dayOfMonth),
+      title: r.title,
+      notes: r.notes ?? '',
+      productIds: r.products.map(p => p.productId),
+    })
+    setFormProductNames(Object.fromEntries(r.products.map(p => [p.productId, p.productName])))
     setCustomerSearch(r.customer.name)
     setAddOpen(true)
   }
@@ -328,6 +352,7 @@ export default function RemindersPage() {
           dayOfMonth: parseInt(form.dayOfMonth),
           title: form.title,
           notes: form.notes || null,
+          productIds: form.productIds,
         })
         toast.success('Reminder updated')
       } else {
@@ -337,12 +362,14 @@ export default function RemindersPage() {
           title: form.title,
           notes: form.notes || undefined,
           branchId: activeBranchId || undefined,
+          productIds: form.productIds,
         })
         toast.success('Reminder created')
       }
       setAddOpen(false)
       setEditingId(null)
-      setForm({ customerId: '', dayOfMonth: '', title: '', notes: '' })
+      setForm({ customerId: '', dayOfMonth: '', title: '', notes: '', productIds: [] })
+      setFormProductNames({})
       setCustomerSearch('')
       fetchReminders()
     } catch {
@@ -602,7 +629,12 @@ export default function RemindersPage() {
 
       {/* ── Add / Edit Reminder dialog ── */}
       <Dialog open={addOpen} onOpenChange={(open) => {
-        if (!open) { setForm({ customerId: '', dayOfMonth: '', title: '', notes: '' }); setCustomerSearch(''); setEditingId(null) }
+        if (!open) {
+          setForm({ customerId: '', dayOfMonth: '', title: '', notes: '', productIds: [] })
+          setFormProductNames({})
+          setCustomerSearch('')
+          setEditingId(null)
+        }
         setAddOpen(open)
       }}>
         <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-md">
@@ -712,6 +744,14 @@ export default function RemindersPage() {
                 onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Medicines (optional)</Label>
+              <ProductMultiSelect
+                value={form.productIds}
+                onChange={ids => setForm(f => ({ ...f, productIds: ids }))}
+                selectedNames={formProductNames}
+              />
+            </div>
           </div>
           <DialogFooter className="shrink-0 pt-2">
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
@@ -742,8 +782,11 @@ export default function RemindersPage() {
 // Map a status pill to a row predicate
 function applyStatusFilter(rows: Reminder[], status: StatusKey, today: Date): Reminder[] {
   if (status === 'all') return rows
-  if (status === 'today') return rows.filter(r => daysUntil(effectiveDue(r, today).date, today) === 0)
-  if (status === 'overdue') return rows.filter(r => {
+  // Stopped reminders never fire (backend excludes them from due-today), so
+  // they shouldn't appear as "due" here either — only under "All".
+  const active = rows.filter(r => r.isActive)
+  if (status === 'today') return active.filter(r => daysUntil(effectiveDue(r, today).date, today) === 0)
+  if (status === 'overdue') return active.filter(r => {
     const fu = followUpDateOf(r)
     // A pending follow-up that's already passed is overdue; otherwise fall back
     // to the monthly "skipped" rule (day passed this month, no contact logged).
@@ -751,7 +794,7 @@ function applyStatusFilter(rows: Reminder[], status: StatusKey, today: Date): Re
     return isSkipped(r, today)
   })
   // this-week: due later this calendar week (Mon→Sun), excluding today
-  return rows.filter(r => {
+  return active.filter(r => {
     const d = daysUntil(effectiveDue(r, today).date, today)
     return d > 0 && d <= daysLeftInWeek(today)
   })
@@ -792,7 +835,7 @@ function ReminderRow({
         'group flex cursor-pointer items-start gap-2.5 border-b border-border/30 px-3 py-2.5 transition-colors hover:bg-muted/40',
         isSelected && 'bg-accent/60',
         highlighted && 'bg-emerald-500/10 ring-1 ring-emerald-500/40',
-        doneThisCycle && 'opacity-80',
+        (doneThisCycle || !r.isActive) && 'opacity-60',
       )}
     >
       {/* Day badge — reflects the follow-up date when one is active */}
@@ -817,6 +860,11 @@ function ReminderRow({
             {r.customer.name}
           </p>
           <Badge variant="secondary" size="sm" className="text-[9px]">{r.customer.type}</Badge>
+          {!r.isActive && (
+            <Badge variant="destructive" size="sm" className="gap-0.5 text-[9px]">
+              <Ban className="h-2.5 w-2.5" /> Stopped
+            </Badge>
+          )}
           {lastStatus ? (
             <Badge variant={STATUS_CONFIG[lastStatus].variant} size="sm" className="text-[9px]">
               {STATUS_CONFIG[lastStatus].label}
@@ -841,7 +889,8 @@ function ReminderRow({
           )}
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {r.title} · <span className="font-mono">{r.customer.phone}</span>
+          {r.products.length > 0 ? r.products.map(p => p.productName).join(', ') : r.title}
+          {' · '}<span className="font-mono">{r.customer.phone}</span>
         </p>
         <p className="mt-1 text-[10px] text-muted-foreground/60">
           {nextDueLabel(r)}
@@ -880,6 +929,10 @@ function ReminderDetailPanel({
   const [logFollowUp, setLogFollowUp] = useState('')   // ISO yyyy-MM-dd, optional
   const [logSaving, setLogSaving] = useState(false)
   const [clearingFollowUp, setClearingFollowUp] = useState(false)
+  const [settingFollowUp, setSettingFollowUp] = useState(false)
+  const [stopPromptOpen, setStopPromptOpen] = useState(false)
+  const [stopReason, setStopReason] = useState('')
+  const [stopSaving, setStopSaving] = useState(false)
 
   const activeFollowUp = followUpDateOf(r)
   const followUpOverdue = !!activeFollowUp && daysUntil(activeFollowUp) < 0
@@ -904,6 +957,31 @@ function ReminderDetailPanel({
     }
   }
 
+  // Picking a date is enough on its own to schedule the follow-up — no need to
+  // also fill status/notes and hit "Save contact log". Mirrors handleClearFollowUp
+  // (a direct PATCH, no contact log entry); staff can still separately log a full
+  // contact with status/notes below if they want one on record.
+  //
+  // Deliberately NOT resetting logFollowUp back to '' after saving: the log-contact
+  // form below sends whatever's in logFollowUp as ITS followUpDate too, and logging
+  // a contact with no date clears the follow-up (reverts to monthly cycle). Leaving
+  // the just-picked date in place keeps that later save consistent instead of
+  // accidentally wiping out the follow-up we just set.
+  const handleQuickSetFollowUp = async (date: string) => {
+    setLogFollowUp(date)
+    if (!date) return
+    setSettingFollowUp(true)
+    try {
+      await api.patch(`/reminders/${r.id}`, { followUpDate: date })
+      toast.success(`Follow-up set for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+      onContactLogged()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to set follow-up')
+    } finally {
+      setSettingFollowUp(false)
+    }
+  }
+
   // Clear the active follow-up without logging a contact — reverts the reminder
   // to its plain monthly cycle.
   const handleClearFollowUp = async () => {
@@ -916,6 +994,40 @@ function ReminderDetailPanel({
       toast.error(err.response?.data?.message ?? 'Failed to clear follow-up')
     } finally {
       setClearingFollowUp(false)
+    }
+  }
+
+  // Soft-stop: customer no longer wants to be reminded/contacted (e.g.
+  // cancelled future orders). Unlike Delete, the record + history stay
+  // around and this can be reversed with Reactivate.
+  const handleStop = async () => {
+    setStopSaving(true)
+    try {
+      await api.patch(`/reminders/${r.id}`, { isActive: false })
+      if (stopReason.trim()) {
+        await api.post(`/reminders/${r.id}/contacts`, { status: 'STOPPED', notes: stopReason.trim() })
+      }
+      toast.success('Reminder stopped — no further auto-messages will be sent')
+      setStopPromptOpen(false)
+      setStopReason('')
+      onContactLogged()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to stop reminder')
+    } finally {
+      setStopSaving(false)
+    }
+  }
+
+  const handleReactivate = async () => {
+    setStopSaving(true)
+    try {
+      await api.patch(`/reminders/${r.id}`, { isActive: true })
+      toast.success('Reminder reactivated')
+      onContactLogged()
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to reactivate reminder')
+    } finally {
+      setStopSaving(false)
     }
   }
 
@@ -954,8 +1066,18 @@ function ReminderDetailPanel({
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-semibold">{r.customer.name}</p>
             <Badge variant="secondary" size="sm" className="text-[9px]">{r.customer.type}</Badge>
+            {!r.isActive && (
+              <Badge variant="destructive" size="sm" className="gap-0.5 text-[9px]">
+                <Ban className="h-2.5 w-2.5" /> Stopped
+              </Badge>
+            )}
           </div>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{r.title}</p>
+          {r.products.length > 0 && (
+            <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted-foreground/80">
+              <Package className="h-3 w-3 shrink-0" /> {r.products.map(p => p.productName).join(', ')}
+            </p>
+          )}
           <p className="mt-0.5 text-[10px] text-muted-foreground/70">
             Recurs on the {ORDINAL(r.dayOfMonth)} of every month
           </p>
@@ -1017,6 +1139,33 @@ function ReminderDetailPanel({
             </div>
           )}
 
+          {/* Stop-reminder inline confirm — reason optional, logged as a STOPPED contact */}
+          {stopPromptOpen && (
+            <div className="rounded-lg border border-rose-300/60 bg-rose-500/5 p-3 dark:border-rose-900/50">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-400">
+                <Ban className="h-3.5 w-3.5" /> Stop reminding this customer?
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                No more due-today alerts or auto-WhatsApp messages will be sent for this reminder. It stays here and can be reactivated anytime.
+              </p>
+              <Textarea
+                placeholder="Reason (optional) — e.g. customer cancelled future orders"
+                rows={2}
+                value={stopReason}
+                onChange={e => setStopReason(e.target.value)}
+                className="mt-2 text-xs"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <Button size="sm" variant="destructive" onClick={handleStop} disabled={stopSaving}>
+                  {stopSaving ? 'Stopping…' : 'Confirm Stop'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setStopPromptOpen(false); setStopReason('') }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Quick actions — Call / WhatsApp / Email */}
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Quick actions</p>
@@ -1063,12 +1212,16 @@ function ReminderDetailPanel({
                   <CalendarClock className="h-4 w-4 shrink-0 text-violet-500" />
                   <DatePicker
                     value={logFollowUp}
-                    onChange={setLogFollowUp}
+                    onChange={handleQuickSetFollowUp}
                     min={toISODate(new Date())}
+                    disabled={settingFollowUp}
                     placeholder="Set follow-up date"
                     className="h-8 flex-1 text-xs"
                   />
                 </div>
+                <p className="text-[10px] text-muted-foreground/70">
+                  Picking a date saves it immediately — no need to also save the contact log below.
+                </p>
               </div>
               {/* Status */}
               <div className="space-y-1">
@@ -1167,6 +1320,26 @@ function ReminderDetailPanel({
             <MessageSquare className="h-3.5 w-3.5" />
             {logSaving ? 'Saving…' : 'Save contact log'}
           </Button>
+          {r.isActive ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1.5 text-amber-600 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-400"
+              onClick={() => setStopPromptOpen(true)}
+            >
+              <Ban className="h-3.5 w-3.5" /> Stop reminders
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1.5 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400"
+              onClick={handleReactivate}
+              disabled={stopSaving}
+            >
+              <PlayCircle className="h-3.5 w-3.5" /> {stopSaving ? 'Reactivating…' : 'Reactivate'}
+            </Button>
+          )}
         </div>
         <Button
           size="sm"

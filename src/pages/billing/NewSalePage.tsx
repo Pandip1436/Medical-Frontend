@@ -107,6 +107,7 @@ import { cn, formatCurrencyFull as formatCurrency, generateInvoiceNumber, format
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -3330,17 +3331,26 @@ export default function NewSalePage() {
   const [reminderDay, setReminderDay] = useState('')
   const [reminderTitle, setReminderTitle] = useState('')
   const [reminderNotes, setReminderNotes] = useState('')
+  const [reminderProductIds, setReminderProductIds] = useState<string[]>([])
+  // Names for the pre-selected products (from the cart or an existing
+  // reminder), so ProductMultiSelect can render badges immediately.
+  const [reminderProductNames, setReminderProductNames] = useState<Record<string, string>>({})
   const [reminderSaving, setReminderSaving] = useState(false)
   // When set, the dialog edits this existing reminder (PATCH) instead of
   // creating a new one (POST).
   const [editingReminderId, setEditingReminderId] = useState<string | null>(null)
 
   // Open the dialog in "create" mode with an optional pre-filled title.
+  // Pre-checks the products already in the current invoice cart so staff can
+  // just confirm them rather than re-picking from scratch.
   const openNewReminder = (title = '') => {
     setEditingReminderId(null)
     setReminderDay('')
     setReminderTitle(title)
     setReminderNotes('')
+    const cartProducts = items.filter(it => it.productId)
+    setReminderProductIds([...new Set(cartProducts.map(it => it.productId))])
+    setReminderProductNames(Object.fromEntries(cartProducts.map(it => [it.productId, it.productName])))
     setReminderOpen(true)
   }
 
@@ -3350,6 +3360,9 @@ export default function NewSalePage() {
     setReminderDay(String(r.dayOfMonth ?? ''))
     setReminderTitle(r.title ?? '')
     setReminderNotes(r.notes ?? '')
+    const products = Array.isArray(r.products) ? r.products : []
+    setReminderProductIds(products.map((p: any) => p.productId))
+    setReminderProductNames(Object.fromEntries(products.map((p: any) => [p.productId, p.productName])))
     setReminderOpen(true)
   }
 
@@ -3365,6 +3378,7 @@ export default function NewSalePage() {
           dayOfMonth: parseInt(reminderDay),
           title: reminderTitle,
           notes: reminderNotes || null,
+          productIds: reminderProductIds,
         })
         toast.success('Reminder updated')
       } else {
@@ -3374,6 +3388,7 @@ export default function NewSalePage() {
           title: reminderTitle,
           notes: reminderNotes || undefined,
           branchId: activeBranchId || undefined,
+          productIds: reminderProductIds,
         })
         toast.success(`Reminder set for ${selectedCustomer.name} on day ${reminderDay} of every month`)
       }
@@ -3382,6 +3397,8 @@ export default function NewSalePage() {
       setReminderDay('')
       setReminderTitle('')
       setReminderNotes('')
+      setReminderProductIds([])
+      setReminderProductNames({})
       fetchCustomerReminders({ silent: true })
     } catch {
       toast.error(editingReminderId ? 'Failed to update reminder' : 'Failed to set reminder')
@@ -3427,12 +3444,34 @@ export default function NewSalePage() {
   const [logNotes, setLogNotes] = useState('')
   const [logFollowUp, setLogFollowUp] = useState('')
   const [logSaving, setLogSaving] = useState(false)
+  const [settingFollowUp, setSettingFollowUp] = useState(false)
 
   const openLogContact = (r: any) => {
     setLogReminder(r)
     setLogStatus('TALKED')
     setLogNotes('')
     setLogFollowUp('')
+  }
+
+  // Picking a date is enough on its own to schedule the follow-up — no need to
+  // also fill status/notes and hit "Log Contact". Direct PATCH, no contact log
+  // entry (mirrors RemindersPage's quick-set). Deliberately keeps logFollowUp
+  // populated afterward: if "Log Contact" is used later, it re-sends the same
+  // date instead of an empty one, which would otherwise clear the follow-up
+  // we just set (logging a contact with no date reverts to the monthly cycle).
+  const handleQuickSetFollowUp = async (date: string) => {
+    setLogFollowUp(date)
+    if (!date || !logReminder) return
+    setSettingFollowUp(true)
+    try {
+      await api.patch(`/reminders/${logReminder.id}`, { followUpDate: date })
+      toast.success(`Follow-up set for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+      fetchCustomerReminders({ silent: true })
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Failed to set follow-up')
+    } finally {
+      setSettingFollowUp(false)
+    }
   }
 
   const handleLogContact = async () => {
@@ -6802,6 +6841,14 @@ export default function NewSalePage() {
                 onChange={e => setReminderNotes(e.target.value)}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Medicines (optional)</Label>
+              <ProductMultiSelect
+                value={reminderProductIds}
+                onChange={setReminderProductIds}
+                selectedNames={reminderProductNames}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReminderOpen(false)}>Cancel</Button>
@@ -6857,12 +6904,13 @@ export default function NewSalePage() {
               </Label>
               <DatePicker
                 value={logFollowUp}
-                onChange={setLogFollowUp}
+                onChange={handleQuickSetFollowUp}
+                disabled={settingFollowUp}
                 placeholder="Pick a date the customer asked for"
               />
               {logFollowUp && (
                 <p className="text-[10px] text-muted-foreground">
-                  A one-off follow-up on this date overrides the monthly cycle until the next contact is logged.
+                  Saved immediately — overrides the monthly cycle until the next contact is logged without a date.
                 </p>
               )}
             </div>
