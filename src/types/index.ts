@@ -1,4 +1,4 @@
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON'
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON' | 'DELIVERY'
 
 export interface UserBranchRef {
   id: string
@@ -25,7 +25,7 @@ export interface User {
 
 // Highest privilege first — mirrors the backend ROLE_PRECEDENCE.
 export const ROLE_PRECEDENCE: UserRole[] = [
-  'SUPER_ADMIN', 'ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER', 'ACCOUNTANT', 'SALESPERSON',
+  'SUPER_ADMIN', 'ADMIN', 'PHARMACIST', 'INVENTORY_MANAGER', 'ACCOUNTANT', 'SALESPERSON', 'DELIVERY',
 ]
 
 /** The full role set for a user, falling back to the singular `role`. */

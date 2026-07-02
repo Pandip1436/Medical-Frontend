@@ -324,7 +324,10 @@ export default function SalesListPage() {
   useBranchRefresh(fetchInvoices)
 
   useEffect(() => {
-    api.get('/salespersons').then((res) => {
+    // The salesperson filter is optional and not every role can list
+    // salespersons (e.g. DELIVERY) — suppress the global 403 toast and fall
+    // back to an empty list so the invoices page still works.
+    api.get('/salespersons', { suppressGlobalToast: true } as any).then((res) => {
       setSalespersonsList(Array.isArray(res.data) ? res.data.map((s: any) => ({ id: s.id, name: s.name })) : [])
     }).catch(() => setSalespersonsList([]))
   }, [])

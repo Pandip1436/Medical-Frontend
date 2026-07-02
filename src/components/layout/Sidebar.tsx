@@ -173,6 +173,10 @@ const mobileBottomItemsByRole: Record<string, NavItem[]> = {
     { label: 'Products', icon: Package, href: '/inventory/products' },
     { label: 'Sales', icon: FileText, href: '/billing/sales' },
   ],
+  // Delivery staff: only the Delivery module.
+  DELIVERY: [
+    { label: 'Delivery', icon: Truck, href: '/delivery' },
+  ],
 }
 
 // Role-based ring colors
@@ -182,6 +186,7 @@ const roleRingColors: Record<string, string> = {
   INVENTORY_MANAGER: 'ring-amber-500',
   ACCOUNTANT: 'ring-purple-500',
   SALESPERSON: 'ring-orange-500',
+  DELIVERY: 'ring-cyan-500',
 }
 
 function useIsMobile() {

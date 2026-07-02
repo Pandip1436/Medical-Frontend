@@ -166,6 +166,13 @@ export const rolePermissions: Record<string, string[]> = {
     // Read-only view of own approval requests from notifications (see PHARMACIST).
     '/admin/approvals/detail',
   ],
+  // Delivery staff: scoped strictly to the Delivery module — nothing else.
+  // No invoices, no notifications. They fully operate Delivery Tracking
+  // (create/update/status) and that's it.
+  DELIVERY: [
+    '/delivery',
+    '/delivery/tracking',
+  ],
 }
 
 // A user may reach a path if ANY of their roles grants it. ADMIN / SUPER_ADMIN
@@ -185,6 +192,9 @@ function defaultRouteForRole(user: User | null | undefined): string {
   // A user whose ONLY role is SALESPERSON lands on their dedicated page; any
   // broader role lands on the dashboard.
   if (primaryRole(user) === 'SALESPERSON') return '/salespersons'
+  // Delivery-only staff have no dashboard access — land them on the Delivery
+  // module. (A user with DELIVERY plus a broader role keeps the dashboard.)
+  if (!isAdminish(user) && userRoles(user).every((r) => r === 'DELIVERY')) return '/delivery'
   return '/dashboard'
 }
 

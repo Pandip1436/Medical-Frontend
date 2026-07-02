@@ -91,6 +91,7 @@ const ROLE_LABELS: Record<string, string> = {
   INVENTORY_MANAGER: 'Inventory Manager',
   ACCOUNTANT: 'Accountant',
   SALESPERSON: 'Salesperson',
+  DELIVERY: 'Delivery',
 }
 
 const ROLE_BADGE: Record<string, 'purple' | 'info' | 'warning' | 'success' | 'secondary' | 'default'> = {
@@ -100,6 +101,7 @@ const ROLE_BADGE: Record<string, 'purple' | 'info' | 'warning' | 'success' | 'se
   INVENTORY_MANAGER: 'warning',
   ACCOUNTANT: 'success',
   SALESPERSON: 'secondary',
+  DELIVERY: 'info',
 }
 
 const ROLE_OPTIONS = [
@@ -110,6 +112,7 @@ const ROLE_OPTIONS = [
   { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
   { value: 'ACCOUNTANT', label: 'Accountant' },
   { value: 'SALESPERSON', label: 'Salesperson' },
+  { value: 'DELIVERY', label: 'Delivery' },
 ] as const
 
 // Full role set for a user row, falling back to the singular role.

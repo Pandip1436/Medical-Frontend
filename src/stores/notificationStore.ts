@@ -43,11 +43,14 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
   fetchNotifications: async () => {
     set({ isLoading: true })
     try {
-      const res = await api.get('/notifications')
+      // suppressGlobalToast: roles without notifications access (e.g. DELIVERY)
+      // may still trigger a background fetch (branch switch, login) — a 403 here
+      // is non-fatal and must not surface a "Forbidden resource" toast.
+      const res = await api.get('/notifications', { suppressGlobalToast: true } as any)
       const raw = Array.isArray(res.data) ? res.data : []
       set({ notifications: raw.map(mapRaw) })
     } catch {
-      // global api interceptor already shows the toast
+      // non-fatal — leave notifications empty
     } finally {
       set({ isLoading: false })
     }

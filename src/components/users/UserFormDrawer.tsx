@@ -55,6 +55,7 @@ const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
   { value: 'ACCOUNTANT', label: 'Accountant' },
   { value: 'SALESPERSON', label: 'Salesperson' },
+  { value: 'DELIVERY', label: 'Delivery' },
 ]
 
 const SUPER_ADMIN = 'SUPER_ADMIN'

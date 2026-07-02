@@ -16,7 +16,8 @@ import { navigate as routerNavigate, href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useBranchStore } from '@/stores/branchStore'
-import { isSuperAdmin } from '@/types'
+import { isSuperAdmin, isAdminish, userRoles } from '@/types'
+import { rolePermissions } from '@/App'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
@@ -61,12 +62,18 @@ export function Header({ breadcrumbs }: HeaderProps) {
   )
   const canSwitchBranch = allowedBranches.length > 1
 
+  // Roles with no notifications route (e.g. DELIVERY) don't see the bell and
+  // never poll — avoids a pointless 403 loop and hides the feature entirely.
+  const canSeeNotifications =
+    isAdminish(user) ||
+    userRoles(user).some((r) => (rolePermissions[r] ?? []).includes('/notifications'))
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchBranches() }, [])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchNotifications() }, [])
+  useEffect(() => { if (canSeeNotifications) fetchNotifications() }, [canSeeNotifications])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => startPolling(), [])
+  useEffect(() => { if (canSeeNotifications) return startPolling() }, [canSeeNotifications])
 
   const currentTheme = resolvedTheme()
 
@@ -189,7 +196,9 @@ export function Header({ breadcrumbs }: HeaderProps) {
         {/* Control cluster — bell / theme / language grouped into a single
             glass pill for a more premium, cohesive toolbar. */}
         <div className="flex items-center gap-0.5 rounded-full border border-border/50 bg-muted/40 p-0.5 shadow-sm backdrop-blur-sm">
-          {/* Notification Bell — navigates straight to notifications page */}
+          {/* Notification Bell — navigates straight to notifications page.
+              Hidden for roles without notifications access (e.g. DELIVERY). */}
+          {canSeeNotifications && (
           <Button
             variant="ghost"
             size="icon"
@@ -212,6 +221,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               )}
             </AnimatePresence>
           </Button>
+          )}
 
           {/* Theme Toggle with rotation animation */}
           <Button
@@ -291,13 +301,19 @@ export function Header({ breadcrumbs }: HeaderProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <a href={hashHref('/settings')} className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                Settings
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {/* Settings is admin-only (see Sidebar) — hide it for roles that
+                can't reach /settings, e.g. DELIVERY. */}
+            {isAdminish(user) && (
+              <>
+                <DropdownMenuItem asChild>
+                  <a href={hashHref('/settings')} className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               onClick={() => {
                 logout()
