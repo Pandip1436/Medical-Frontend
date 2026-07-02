@@ -419,19 +419,40 @@ export default function CustomersPage() {
   // Dialogs
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  // When Add is launched from the split view, remember the customer to return
+  // to once the drawer closes.
+  const [returnToSplitId, setReturnToSplitId] = useState<string | null>(null)
 
   // Auto-open the Add Customer dialog when arrived at with `?add=1` (sidebar
-  // quick-add). Strips the param so a refresh doesn't re-trigger it.
+  // quick-add, or the split-view Add button which routes through table view
+  // since the dialog only renders there). Reactive to the URL so it fires even
+  // when already mounted; strips the params via the router so a refresh won't
+  // re-trigger and routeSearch stays in sync.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('add') === '1') {
-      setAddDialogOpen(true)
-      params.delete('add')
-      const qs = params.toString()
-      window.history.replaceState(null, '', `/customers${qs ? `?${qs}` : ''}`)
-    }
+    if (urlParams.get('add') !== '1') return
+    setAddDialogOpen(true)
+    const fromSplit = urlParams.get('fromSplit')
+    if (fromSplit) setReturnToSplitId(fromSplit)
+    const params = new URLSearchParams(routeSearch)
+    params.delete('add')
+    params.delete('fromSplit')
+    // The dialog only renders in the table view, so ensure we're there (the
+    // sidebar quick-add lands on the split-default view otherwise).
+    params.set('view', 'table')
+    const qs = params.toString()
+    navigate(`/customers${qs ? `?${qs}` : ''}`, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [routeSearch])
+
+  // Return to the originating customer's split page when the drawer closes, if
+  // it was opened from there.
+  const returnToSplitIfNeeded = useCallback(() => {
+    if (returnToSplitId) {
+      const id = returnToSplitId
+      setReturnToSplitId(null)
+      navigate(`/customers?customerId=${id}`)
+    }
+  }, [returnToSplitId])
 
   // Multi-sheet history import — handled in its own drawer.
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
@@ -785,6 +806,7 @@ export default function CustomersPage() {
           setPhoneCheckError('')
           setEditingCustomer(null)
           setAddDialogOpen(false)
+          returnToSplitIfNeeded()
           return
         }
         customerId = result?.id ?? ''
@@ -817,6 +839,7 @@ export default function CustomersPage() {
       setPhoneCheckError('')
       setEditingCustomer(null)
       setAddDialogOpen(false)
+      returnToSplitIfNeeded()
       refetchAll()
     } catch {
       toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer')
@@ -890,7 +913,7 @@ export default function CustomersPage() {
           >
             <BarChart3 className="h-4 w-4" />
           </Button>
-          <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+          <Button size="sm" onClick={() => navigate(`/customers?view=table&add=1${selectedCustomerId ? `&fromSplit=${selectedCustomerId}` : ''}`)}>
             <Plus className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Add Customer</span>
           </Button>
@@ -1435,6 +1458,7 @@ export default function CustomersPage() {
       <Sheet open={addDialogOpen} onOpenChange={(open) => {
         if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError('') }
         setAddDialogOpen(open)
+        if (!open) returnToSplitIfNeeded()
       }}>
         {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
         <SheetContent
@@ -1713,7 +1737,7 @@ export default function CustomersPage() {
 
             </div>
             <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false) }}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false); returnToSplitIfNeeded() }}>Cancel</Button>
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
