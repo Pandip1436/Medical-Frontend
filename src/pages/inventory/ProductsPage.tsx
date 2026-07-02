@@ -189,6 +189,11 @@ export default function ProductsPage() {
   // New multi-sheet preview/commit drawer.
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
+  // When the edit drawer was opened from the split view (?fromSplit=1), remember
+  // the product id so closing the drawer returns to that product's split page
+  // instead of leaving the user on the table view.
+  const [returnToSplitId, setReturnToSplitId] = useState<string | null>(null)
+
   const PAGE_SIZE = 10
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -411,23 +416,29 @@ export default function ProductsPage() {
   useEffect(() => {
     const editId = urlParams.get('editId')
     if (!editId) return
+    // Opened from the split view → `fromSplit` holds the product id to return
+    // to when the drawer closes.
+    const fromSplit = urlParams.get('fromSplit')
     let cancelled = false
     ;(async () => {
       try {
         const res = await api.get(`/products/${editId}`)
-        if (!cancelled && res.data) openEditDialog(res.data)
+        if (!cancelled && res.data) {
+          openEditDialog(res.data)
+          if (fromSplit) setReturnToSplitId(fromSplit)
+        }
       } catch {
         if (!cancelled) toast.error('Could not load that product to edit')
       } finally {
-        // Strip editId ONLY on the live run. Doing it unconditionally lets a
-        // StrictMode-cancelled first run strip the param (and re-run, cancelling
-        // the second run) before the dialog ever opens — so in dev it never
-        // opened. Guarding on !cancelled keeps the param until the run that
-        // actually opens the dialog. routeSearch stays in sync (router navigate,
+        // Strip editId (+ fromSplit) ONLY on the live run. Doing it
+        // unconditionally lets a StrictMode-cancelled first run strip the param
+        // (and re-run, cancelling the second run) before the dialog ever opens —
+        // so in dev it never opened. routeSearch stays in sync (router navigate,
         // not replaceState) so a refresh won't re-trigger it.
         if (!cancelled) {
           const params = new URLSearchParams(routeSearch)
           params.delete('editId')
+          params.delete('fromSplit')
           const qs = params.toString()
           navigate(`/inventory/products${qs ? `?${qs}` : ''}`, { replace: true })
         }
@@ -436,6 +447,22 @@ export default function ProductsPage() {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSearch])
+
+  // If a drawer (edit / add / import) was opened from the split view, return to
+  // that product's split page once it closes.
+  const returnToSplitIfNeeded = useCallback(() => {
+    if (returnToSplitId) {
+      const id = returnToSplitId
+      setReturnToSplitId(null)
+      navigate(`/inventory/products?productId=${id}`)
+    }
+  }, [returnToSplitId])
+
+  // Close the edit/add drawer via all exit paths (X/overlay, Cancel, Save).
+  const closeEditDialog = useCallback(() => {
+    setDialogOpen(false)
+    returnToSplitIfNeeded()
+  }, [returnToSplitIfNeeded])
 
   // Open the Add Product drawer or Import drawer when arrived at with
   // `?action=add` / `?action=import`. The split view can't render these dialogs
@@ -446,8 +473,12 @@ export default function ProductsPage() {
     if (action !== 'add' && action !== 'import') return
     if (action === 'add') openAddDialog()
     else setImportDrawerOpen(true)
+    // fromSplit holds the product id to return to when the drawer closes.
+    const fromSplit = urlParams.get('fromSplit')
+    if (fromSplit) setReturnToSplitId(fromSplit)
     const params = new URLSearchParams(routeSearch)
     params.delete('action')
+    params.delete('fromSplit')
     const qs = params.toString()
     navigate(`/inventory/products${qs ? `?${qs}` : ''}`, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -467,9 +498,9 @@ export default function ProductsPage() {
         await api.post('/products', payload)
         toast.success(`Product "${values.name}" added successfully`)
       }
-      setDialogOpen(false)
       setCurrentPage(1)
       refreshPage()
+      closeEditDialog()
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Operation failed')
     }
@@ -709,12 +740,12 @@ export default function ProductsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate('/inventory/products?view=table&action=import')}
+            onClick={() => navigate(`/inventory/products?view=table&action=import${selectedProductId ? `&fromSplit=${selectedProductId}` : ''}`)}
           >
             <Upload className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Import</span>
           </Button>
-          <Button size="sm" onClick={() => navigate('/inventory/products?view=table&action=add')}>
+          <Button size="sm" onClick={() => navigate(`/inventory/products?view=table&action=add${selectedProductId ? `&fromSplit=${selectedProductId}` : ''}`)}>
             <Plus className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Add Product</span>
           </Button>
@@ -1157,7 +1188,7 @@ export default function ProductsPage() {
       </Card>
 
       {/* Add/Edit Drawer — slides in from the right */}
-      <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Sheet open={dialogOpen} onOpenChange={(open) => { if (open) setDialogOpen(true); else closeEditDialog() }}>
         <SheetContent
           side="right"
           className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
@@ -1470,7 +1501,7 @@ export default function ProductsPage() {
                 now lives in the header, and all sections render in a single
                 scroll, so there is no "Next" navigation. */}
             <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={closeEditDialog}>Cancel</Button>
               <Button type="submit">{editingProduct ? 'Save Changes' : 'Add Product'}</Button>
             </div>
           </form>
@@ -1526,7 +1557,7 @@ export default function ProductsPage() {
       {/* ─── Product Import Drawer (multi-sheet preview + commit) ─── */}
       <ImportProductsDrawer
         open={importDrawerOpen}
-        onOpenChange={setImportDrawerOpen}
+        onOpenChange={(open) => { setImportDrawerOpen(open); if (!open) returnToSplitIfNeeded() }}
         onImported={refreshPage}
       />
 
