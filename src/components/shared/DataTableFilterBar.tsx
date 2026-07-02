@@ -17,6 +17,9 @@ interface DataTableFilterBarProps {
   onClearFilters?: () => void
   children?: React.ReactNode // The filter inputs/dropdowns
   actionNode?: React.ReactNode // Custom actions aligned right
+  // Always-visible filter rendered at the LEFT of the search row (outside the
+  // collapsible panel) — used for the most-changed filter, e.g. Period.
+  leadingNode?: React.ReactNode
   midNode?: React.ReactNode   // Extra control between search and filters button
   // Rendered inside the expandable filters panel (below the filter inputs) —
   // e.g. the "Customize Columns" toggle, so it lives with the filters rather
@@ -38,6 +41,7 @@ export function DataTableFilterBar({
   onClearFilters,
   children,
   actionNode,
+  leadingNode,
   midNode,
   columnsNode,
   searchClassName,
@@ -49,7 +53,14 @@ export function DataTableFilterBar({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      {/* When a leading filter (with its own top label) is present, bottom-align
+          the row so its select lines up with the search box + buttons instead of
+          sitting lower than them. Without it, keep the plain centered layout. */}
+      <div className={cn('flex gap-2', leadingNode ? 'items-end' : 'items-center')}>
+        {/* Always-visible leading filter (e.g. Period) — sits outside the
+            collapsible panel so it's reachable without opening Filters. */}
+        {leadingNode && <div className="shrink-0">{leadingNode}</div>}
+
         {/* Search — fills remaining row width by default, or override via searchClassName */}
         <div className={cn('min-w-0', searchClassName ?? 'flex-1')}>
           <Input

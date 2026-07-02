@@ -431,7 +431,16 @@ export default function GRNListPage() {
         </AnimatePresence>
 
         {/* Toolbar row */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
+          <div className="mr-auto w-40 min-w-35">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
           {splitExportMenu}
           <Button
             variant="outline"
@@ -477,13 +486,6 @@ export default function GRNListPage() {
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
                 <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
-                  <EnumSelect
-                    label="Period"
-                    value={period}
-                    onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-                    onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-                    options={PERIOD_OPTIONS}
-                  />
                   <SupplierSearchSelect
                     value={selectedSupplier}
                     selectedName={selectedSupplierName}
@@ -596,6 +598,17 @@ export default function GRNListPage() {
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        leadingNode={
+          <div className="w-40">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
+        }
         columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
@@ -611,13 +624,6 @@ export default function GRNListPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Period"
-          value={period}
-          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-          options={PERIOD_OPTIONS}
-        />
         {period === 'custom' && (
           <>
             <div className="space-y-1.5">

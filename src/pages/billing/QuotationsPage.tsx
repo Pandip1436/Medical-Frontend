@@ -313,8 +313,14 @@ export default function QuotationsPage() {
 
 
   // Deep-link support: open the quotation drawer when arrived with
-  // `?quotationId=<id>` (e.g. from the Customer Detail page's Quotations tab).
+  // `?quotationId=<id>` in TABLE view. In split view `?quotationId=` selects the
+  // quotation in the split panel instead, so the drawer must stay closed —
+  // otherwise its state lingers and pops open when toggling to table view.
   useEffect(() => {
+    if (effectiveView !== 'table') {
+      setDetailQt(null)
+      return
+    }
     const params = new URLSearchParams(routeSearch)
     const target = params.get('quotationId')
     if (!target || quotations.length === 0) return
@@ -322,7 +328,7 @@ export default function QuotationsPage() {
     const match = quotations.find((q) => q.id === target)
     if (match) setDetailQt(match)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeSearch, quotations])
+  }, [routeSearch, quotations, effectiveView])
 
   const handleUpdateStatus = async (qt: Quotation, status: QuotationStatus) => {
     try {
@@ -554,7 +560,10 @@ export default function QuotationsPage() {
         </AnimatePresence>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
+          <div className="mr-auto w-40 min-w-35">
+            <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -613,7 +622,6 @@ export default function QuotationsPage() {
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
                 <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
-                  <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
                   <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
                   <CustomerSearchSelect value={selectedCustomer} selectedName={selectedCustomerName} onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }} />
                   <div className="flex-none! min-w-0! flex items-end gap-2">
@@ -747,6 +755,17 @@ export default function QuotationsPage() {
         resultsCount={filteredQuotations.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        leadingNode={
+          <div className="w-40">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
+        }
         columnsNode={<ColumnsToggle columns={QUOTATION_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
@@ -773,14 +792,6 @@ export default function QuotationsPage() {
       >
         {/* Custom 4-col grid that overrides DataTableFilterBar's inner grid for equal-width filters */}
         <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <EnumSelect
-            label="Period"
-            value={period}
-            onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-            options={PERIOD_OPTIONS}
-          />
-
           <EnumSelect
             label="Status"
             value={selectedStatus}

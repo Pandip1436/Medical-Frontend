@@ -529,9 +529,20 @@ export default function CustomerInvoicesPage() {
           resultsCount={total}
           activeFilterCount={activeFilterCount}
           onClearFilters={clearFilters}
+          leadingNode={
+            <div className="w-40">
+              <EnumSelect
+                label="Period"
+                value={period}
+                onValueChange={setPeriod}
+                onClear={() => setPeriod('all')}
+                options={PERIOD_OPTIONS}
+              />
+            </div>
+          }
         >
-          {/* Four equal-width filters in a single row at lg+; stack to 2-col at sm and 1-col on mobile */}
-          <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Three equal-width filters in a single row at lg+; stack to 2-col at sm and 1-col on mobile */}
+          <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <EnumSelect
               label="Status"
               value={statusFilter}
@@ -552,13 +563,6 @@ export default function CustomerInvoicesPage() {
               onValueChange={setSalespersonFilter}
               onClear={() => setSalespersonFilter('all')}
               options={salespersonOptions}
-            />
-            <EnumSelect
-              label="Period"
-              value={period}
-              onValueChange={setPeriod}
-              onClear={() => setPeriod('all')}
-              options={PERIOD_OPTIONS}
             />
           </div>
           {period === 'custom' && (

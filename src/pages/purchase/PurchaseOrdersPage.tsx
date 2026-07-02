@@ -927,7 +927,10 @@ export default function PurchaseOrdersPage() {
         </AnimatePresence>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
+          <div className="mr-auto w-40 min-w-35">
+            <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -987,7 +990,6 @@ export default function PurchaseOrdersPage() {
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
                 <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
-                  <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
                   <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
                   <SupplierSearchSelect value={selectedSupplier} selectedName={selectedSupplierName} onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }} />
                   <div className="flex-none! min-w-0! flex items-end gap-2">
@@ -1235,6 +1237,19 @@ export default function PurchaseOrdersPage() {
         resultsCount={filteredPOs.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        leadingNode={
+          <div className="w-40">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              // Clearing the period means "no date restriction" → All Time. (Was
+              // resetting to 'today', i.e. the same value, so the X did nothing.)
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
+        }
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
@@ -1262,16 +1277,6 @@ export default function PurchaseOrdersPage() {
       >
         {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
         <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <EnumSelect
-            label="Period"
-            value={period}
-            onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-            // Clearing the period means "no date restriction" → All Time. (Was
-            // resetting to 'today', i.e. the same value, so the X did nothing.)
-            onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-            options={PERIOD_OPTIONS}
-          />
-
           <SupplierSearchSelect
             value={selectedSupplier}
             selectedName={selectedSupplierName}

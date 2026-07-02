@@ -417,7 +417,10 @@ export default function DebitNotesPage() {
         </AnimatePresence>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
+          <div className="mr-auto w-40 min-w-35">
+            <EnumSelect label="Period" value={period} onValueChange={setPeriod} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -478,7 +481,6 @@ export default function DebitNotesPage() {
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
                 <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
-                  <EnumSelect label="Period" value={period} onValueChange={setPeriod} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
                   <EnumSelect label="Type" value={selectedType} onValueChange={setSelectedType} onClear={() => setSelectedType('all')} options={TYPE_OPTIONS} />
                   <EnumSelect label="Status" value={selectedStatus} onValueChange={setSelectedStatus} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
                   <SupplierSearchSelect value={selectedSupplier} selectedName={selectedSupplierName} onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name) }} />
@@ -611,6 +613,19 @@ export default function DebitNotesPage() {
                 resultsCount={tabFilteredReturns.length}
                 activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
+                leadingNode={
+                  <div className="w-40">
+                    <EnumSelect
+                      label="Period"
+                      value={period}
+                      onValueChange={setPeriod}
+                      // Clear = remove the date restriction → All Time (was resetting
+                      // to the same 'today' value, so the X did nothing).
+                      onClear={() => setPeriod('all')}
+                      options={PERIOD_OPTIONS}
+                    />
+                  </div>
+                }
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
                   <div className="flex items-center gap-1.5">
@@ -629,16 +644,6 @@ export default function DebitNotesPage() {
               >
                 {/* Custom equal-width grid that overrides DataTableFilterBar's inner grid */}
                 <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                  <EnumSelect
-                    label="Period"
-                    value={period}
-                    onValueChange={setPeriod}
-                    // Clear = remove the date restriction → All Time (was resetting
-                    // to the same 'today' value, so the X did nothing).
-                    onClear={() => setPeriod('all')}
-                    options={PERIOD_OPTIONS}
-                  />
-
                   <EnumSelect
                     label="Type"
                     value={selectedType}

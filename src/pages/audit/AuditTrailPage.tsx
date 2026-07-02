@@ -558,6 +558,17 @@ export default function AuditTrailPage() {
         resultsCount={total}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
+        leadingNode={
+          <div className="w-40">
+            <EnumSelect
+              label="Period"
+              value={periodFilter}
+              onValueChange={setPeriodFilter}
+              onClear={() => setPeriodFilter('today')}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
+        }
         actionNode={
           <div className="flex items-center gap-1.5">
             <Button
@@ -597,13 +608,6 @@ export default function AuditTrailPage() {
         }
       >
         <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <EnumSelect
-            label="Period"
-            value={periodFilter}
-            onValueChange={setPeriodFilter}
-            onClear={() => setPeriodFilter('today')}
-            options={PERIOD_OPTIONS}
-          />
           <EnumSelect
             label="User"
             value={userFilter}

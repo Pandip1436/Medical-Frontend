@@ -138,7 +138,7 @@ export default function ProductsPage() {
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [categories, setCategories] = useState<Category[]>([])
-  const [stockSummary, setStockSummary] = useState<{ lowStock: number; outOfStock: number } | null>(null)
+  const [stockSummary, setStockSummary] = useState<{ lowStock: number; outOfStock: number; total: number } | null>(null)
 
   // Mount-only fetches. We deliberately DO NOT call fetchProducts() here —
   // the master "all products" call is the heaviest endpoint in the app
@@ -156,6 +156,9 @@ export default function ProductsPage() {
         // would render as `[object Object], ...` if we stringified it here.
         lowStock: r.data?.lowStockAlertsCount ?? 0,
         outOfStock: r.data?.outOfStockCount ?? 0,
+        // Unfiltered catalog total — the paginated fetch's `total` now reflects
+        // the active stock filter, so the tab counts must use this instead.
+        total: r.data?.totalProducts ?? 0,
       }))
       .catch(() => {})
   }, [])
@@ -225,6 +228,7 @@ export default function ProductsPage() {
             categoryId: selectedCategoryId !== 'all' ? selectedCategoryId : undefined,
             schedule: selectedSchedule !== 'all' ? selectedSchedule : undefined,
             status: selectedStatus !== 'all' ? selectedStatus : undefined,
+            stockFilter: stockTab !== 'all' ? stockTab : undefined,
             skip: (currentPage - 1) * PAGE_SIZE,
             take: PAGE_SIZE,
           },
@@ -239,7 +243,7 @@ export default function ProductsPage() {
     }
     fetchData()
     return () => { isSubscribed = false }
-  }, [search, selectedCategoryId, selectedSchedule, selectedStatus, currentPage, refreshKey])
+  }, [search, selectedCategoryId, selectedSchedule, selectedStatus, stockTab, currentPage, refreshKey])
 
   // Manufacturer datalist: suppliers + whatever manufacturers appear on the
   // current page of products. Good-enough autocomplete without needing a
@@ -250,23 +254,27 @@ export default function ProductsPage() {
     return [...new Set([...fromSuppliers, ...fromProducts])].sort()
   }, [suppliers, paginatedProducts])
 
+  // Unfiltered catalog total. Prefer the dashboard summary; fall back to the
+  // paginated total only before it loads (correct while the 'all' tab is active).
+  const catalogTotal = stockSummary?.total ?? totalCount
+
   const summaryStats = useMemo(() => ({
-    total: totalCount,
+    total: catalogTotal,
     lowStock: stockSummary?.lowStock ?? 0,
     outOfStock: stockSummary?.outOfStock ?? 0,
     categories: categories.length,
-  }), [totalCount, stockSummary, categories])
+  }), [catalogTotal, stockSummary, categories])
 
   const tabCounts = useMemo(() => {
     const outOfStock = stockSummary?.outOfStock ?? 0
     const lowStock = stockSummary?.lowStock ?? 0
     return {
-      all: totalCount,
-      in_stock: Math.max(0, totalCount - lowStock - outOfStock),
+      all: catalogTotal,
+      in_stock: Math.max(0, catalogTotal - lowStock - outOfStock),
       low_stock: lowStock,
       out_of_stock: outOfStock,
     } satisfies Record<StockTabKey, number>
-  }, [totalCount, stockSummary])
+  }, [catalogTotal, stockSummary])
 
   const tabFilteredProducts = useMemo(() => {
     if (stockTab === 'all') return paginatedProducts
@@ -401,8 +409,7 @@ export default function ProductsPage() {
   // product fresh so it works regardless of the current paginated page, then
   // strips the param so a refresh doesn't re-trigger it.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const editId = params.get('editId')
+    const editId = urlParams.get('editId')
     if (!editId) return
     let cancelled = false
     ;(async () => {
@@ -412,14 +419,39 @@ export default function ProductsPage() {
       } catch {
         if (!cancelled) toast.error('Could not load that product to edit')
       } finally {
-        params.delete('editId')
-        const qs = params.toString()
-        window.history.replaceState(null, '', `/inventory/products${qs ? `?${qs}` : ''}`)
+        // Strip editId ONLY on the live run. Doing it unconditionally lets a
+        // StrictMode-cancelled first run strip the param (and re-run, cancelling
+        // the second run) before the dialog ever opens — so in dev it never
+        // opened. Guarding on !cancelled keeps the param until the run that
+        // actually opens the dialog. routeSearch stays in sync (router navigate,
+        // not replaceState) so a refresh won't re-trigger it.
+        if (!cancelled) {
+          const params = new URLSearchParams(routeSearch)
+          params.delete('editId')
+          const qs = params.toString()
+          navigate(`/inventory/products${qs ? `?${qs}` : ''}`, { replace: true })
+        }
       }
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [routeSearch])
+
+  // Open the Add Product drawer or Import drawer when arrived at with
+  // `?action=add` / `?action=import`. The split view can't render these dialogs
+  // (they live in the table render path), so its Add/Import buttons route here
+  // with view=table. Synchronous (no fetch) so there's no StrictMode race.
+  useEffect(() => {
+    const action = urlParams.get('action')
+    if (action !== 'add' && action !== 'import') return
+    if (action === 'add') openAddDialog()
+    else setImportDrawerOpen(true)
+    const params = new URLSearchParams(routeSearch)
+    params.delete('action')
+    const qs = params.toString()
+    navigate(`/inventory/products${qs ? `?${qs}` : ''}`, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeSearch])
 
   const onSubmit = async (values: ProductFormValues) => {
     const payload = {
@@ -677,12 +709,12 @@ export default function ProductsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setImportDrawerOpen(true)}
+            onClick={() => navigate('/inventory/products?view=table&action=import')}
           >
             <Upload className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Import</span>
           </Button>
-          <Button size="sm" onClick={openAddDialog}>
+          <Button size="sm" onClick={() => navigate('/inventory/products?view=table&action=add')}>
             <Plus className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Add Product</span>
           </Button>

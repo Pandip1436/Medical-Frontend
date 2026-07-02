@@ -419,7 +419,7 @@ export function ProductDetailContent({ productId }: { productId: string }) {
             </Button>
           </>
         )}
-        <Button size="sm" variant="outline" className="h-7" onClick={() => navigate(`/inventory/products?editId=${productId}`)}>
+        <Button size="sm" variant="outline" className="h-7" onClick={() => navigate(`/inventory/products?view=table&editId=${productId}`)}>
           Edit
         </Button>
       </div>

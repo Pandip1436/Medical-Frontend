@@ -735,7 +735,18 @@ export default function SalesListPage() {
         </AnimatePresence>
 
         {/* Toolbar row — below stats so the eye naturally flows: stats → actions → content */}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
+          {/* Period stays outside the collapsible filter panel — it's the most
+              frequently changed filter, so it's always visible on the left. */}
+          <div className="mr-auto w-40 min-w-35">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
           {splitExportMenu}
           <Button
             variant="outline"
@@ -793,13 +804,6 @@ export default function SalesListPage() {
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
                 <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
-                  <EnumSelect
-                    label="Period"
-                    value={period}
-                    onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-                    onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-                    options={PERIOD_OPTIONS}
-                  />
                   <EnumSelect
                     label="Payment Mode"
                     value={selectedPaymentMode}
@@ -977,6 +981,17 @@ export default function SalesListPage() {
         resultsCount={filteredInvoices.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        leadingNode={
+          <div className="w-40">
+            <EnumSelect
+              label="Period"
+              value={period}
+              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
+              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              options={PERIOD_OPTIONS}
+            />
+          </div>
+        }
         columnsNode={<ColumnsToggle columns={SALES_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
@@ -1094,14 +1109,6 @@ export default function SalesListPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Period"
-          value={period}
-          onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-          onClear={() => { setPeriod('all'); setCurrentPage(1) }}
-          options={PERIOD_OPTIONS}
-        />
-
         <EnumSelect
           label="Payment Mode"
           value={selectedPaymentMode}

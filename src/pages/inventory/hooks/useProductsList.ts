@@ -37,10 +37,8 @@ const PAGE_SIZE = 30
  */
 export function useProductsList(filters?: ProductListFilters): UseProductsListResult {
   const [data, setData] = useState<Product[]>([])
-  // rawTotal = server-reported total (unfiltered). Used for hasMore logic.
+  // rawTotal = server-reported total (already reflects the active filters).
   const [rawTotal, setRawTotal] = useState(0)
-  // rawLoaded = raw items fetched so far across all pages (before stockFilter).
-  const [rawLoaded, setRawLoaded] = useState(0)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -74,37 +72,23 @@ export function useProductsList(filters?: ProductListFilters): UseProductsListRe
           categoryId: f?.categoryId && f.categoryId !== 'all' ? f.categoryId : undefined,
           schedule: f?.schedule && f.schedule !== 'all' ? f.schedule : undefined,
           status: f?.status && f.status !== 'all' ? f.status : undefined,
+          // Server-side stock filter (was client-side per page, which made the
+          // filtered count/list disagree with the headline tab counts — the
+          // filtered total is now the real server total, paginated correctly).
+          stockFilter: f?.stockFilter || undefined,
         },
         signal: ctrl.signal,
       })
 
-      const rawIncoming: Product[] = res.data.data || []
+      // Server already applied the stock filter, so incoming + total are final.
+      const incoming: Product[] = res.data.data || []
       const newRawTotal: number = res.data.total || 0
       setRawTotal(newRawTotal)
 
-      // Apply client-side stock filter if requested.
-      // "in_stock" = any positive stock (aligned with backend's definition).
-      // "low_stock" = has stock but below the product's minimum threshold.
-      let incoming = rawIncoming
-      if (f?.stockFilter) {
-        incoming = rawIncoming.filter(p => {
-          const stock = p.totalStock || 0
-          if (f.stockFilter === 'out_of_stock') return stock <= 0
-          if (f.stockFilter === 'low_stock') {
-            const min = p.minStock ?? 0
-            return stock > 0 && min > 0 && stock < min
-          }
-          // in_stock: any positive stock
-          return stock > 0
-        })
-      }
-
       if (isFirstPage) {
         setData(incoming)
-        setRawLoaded(rawIncoming.length)
       } else {
         setData(prev => [...prev, ...incoming])
-        setRawLoaded(prev => prev + rawIncoming.length)
       }
     } catch (err: unknown) {
       const e = err as { code?: string; name?: string; message?: string }
@@ -145,7 +129,6 @@ export function useProductsList(filters?: ProductListFilters): UseProductsListRe
   useEffect(() => {
     setCurrentPage(1)
     setData([])       // clear stale items immediately so the old list doesn't flash
-    setRawLoaded(0)
     doFetch(searchRef.current, 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doFetch, filtersKey])
@@ -159,13 +142,10 @@ export function useProductsList(filters?: ProductListFilters): UseProductsListRe
   // Without this the IntersectionObserver calls loadMore() immediately,
   // which invokes doFetch(q, 2) and aborts the ongoing page-1 request via
   // AbortController — causing the first page's results to be skipped.
-  const hasMore = !loading && (filters?.stockFilter
-    ? rawLoaded < rawTotal
-    : data.length < rawTotal)
+  const hasMore = !loading && data.length < rawTotal
 
-  // When stockFilter active: show filtered item count (what the user sees).
-  // Otherwise: show server total (full catalogue size).
-  const total = filters?.stockFilter ? data.length : rawTotal
+  // Server total already reflects the active stock filter.
+  const total = rawTotal
 
   return { data, total, loading, loadingMore, hasMore, error, search, setSearch, loadMore, refetch }
 }
