@@ -79,6 +79,7 @@ export interface ParsedCustomer {
   whatsappNumber?: string
   invoices: ParsedInvoice[]
   payments: ParsedPayment[]
+  refunds: ParsedRefund[]
   activities: ParsedActivity[]
   prescriptions: ParsedPrescription[]
   quotations: ParsedQuotation[]
@@ -179,6 +180,16 @@ export interface ParsedPayment {
   notes?: string
 }
 
+export interface ParsedRefund {
+  sourceRow: number
+  refundNumber?: string
+  creditNoteNo: string
+  date?: string
+  amount: number
+  paymentMode?: string
+  notes?: string
+}
+
 export interface ParsedActivity {
   sourceRow: number
   type: CustomerActivityType
@@ -211,6 +222,7 @@ export interface ParseResult {
   // surfaced separately so the user can correct the workbook before commit.
   orphanInvoices: number
   orphanPayments: number
+  orphanRefunds: number
   orphanActivities: number
   orphanPrescriptions: number
   orphanQuotations: number
@@ -227,6 +239,7 @@ type SheetName =
   | 'Invoices'
   | 'Invoice Items'
   | 'Payments'
+  | 'Refunds'
   | 'Activities'
   | 'Prescriptions'
   | 'Quotations'
@@ -248,6 +261,7 @@ const CUSTOMER_COLUMNS = [
   'email',
   'address',
   'type',
+  'doctor_ref',
   'source',
   'gstin',
   'dl_number',
@@ -313,6 +327,16 @@ const PAYMENT_COLUMNS = [
   'payment_mode',
   'reference_number',
   'receipt_number',
+  'notes',
+] as const
+
+const REFUND_COLUMNS = [
+  'customer_code',
+  'credit_note_no',
+  'date',
+  'amount',
+  'payment_mode',
+  'refund_number',
   'notes',
 ] as const
 
@@ -398,6 +422,9 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   email: 'asha@example.com',
   address: '12, MG Road, Bengaluru',
   type: 'WHOLESALE',
+  // Only meaningful when type is DOCTOR — your own reference for which
+  // doctor this customer record belongs to. Leave blank otherwise.
+  doctor_ref: '',
   source: 'IndiaMART',
   gstin: '29ABCDE1234F1Z5',
   dl_number: 'KA-B-20-12345',
@@ -459,6 +486,18 @@ const SAMPLE_PAYMENT_ROW: Record<string, string | number> = {
   // receipt copy.
   receipt_number: 'RCPT/25-26/0312',
   notes: 'Part payment for INV-A',
+}
+
+const SAMPLE_REFUND_ROW: Record<string, string | number> = {
+  customer_code: 'C001',
+  credit_note_no: 'CN/25-26/0044',
+  date: '2026-05-02',
+  amount: 500,
+  payment_mode: 'CASH',
+  // Original refund reference from your legacy system. Leave blank to auto-
+  // generate.
+  refund_number: 'REF/25-26/0015',
+  notes: 'Cash refund for returned item',
 }
 
 const SAMPLE_ACTIVITY_ROW: Record<string, string | number> = {
@@ -543,12 +582,14 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['', ''],
   ['How to use', 'Fill the sheets below, then upload this file from the Import drawer.'],
   ['', ''],
-  ['Sheet: Customers', 'One row per customer. `customer_code` is YOUR own reference (e.g. C001) used to link this customer to its invoices, payments, activities and prescriptions in other sheets. It is not stored.'],
+  ['Sheet: Customers', 'One row per customer. `customer_code` is YOUR own reference (e.g. C001) used to link this customer to its invoices, payments, activities and prescriptions in other sheets. It is not stored. `doctor_ref` is only used when `type` is DOCTOR — your own reference for which doctor this customer belongs to; leave blank otherwise.'],
   ['', ''],
   ['Sheet: Invoices', 'One row per past invoice. `invoice_ref` is YOUR own reference used to link items in the Invoice Items sheet. `invoice_number` should hold the ORIGINAL invoice number from your previous system (Marg / Tally / book) — that\'s what the customer has on their bill copy. Leave it blank only if no old number exists; in that case we will auto-generate one (which will NOT match physical records).'],
   ['Sheet: Invoice Items', 'Optional. Line items linked to an Invoices row by `invoice_ref`. Header-only invoices are accepted if line detail is no longer available.'],
   ['', ''],
   ['Sheet: Payments', 'One row per past receipt. `receipt_number` works the same way as `invoice_number` — fill in the original receipt id from your old system to keep reconciliation working. Outstanding balance is set via Customers.opening_balance, not by walking payments.'],
+  ['', ''],
+  ['Sheet: Refunds', 'One row per past cash refund paid back to the customer. REQUIRED: `credit_note_no` must match a credit note you imported in the Credit Notes sheet for the same customer (a refund always belongs to exactly one credit note).'],
   ['', ''],
   ['Sheet: Activities', 'One row per call / WhatsApp / email / note / reminder.'],
   ['', ''],
@@ -604,6 +645,7 @@ export function downloadCustomerImportTemplate(): void {
   addSheet('Invoices',        SAMPLE_INVOICE_ROW,        INVOICE_COLUMNS,        SHEET_COLORS.invoices)
   addSheet('Invoice Items',   SAMPLE_INVOICE_ITEM_ROW,   INVOICE_ITEM_COLUMNS,   SHEET_COLORS.invoiceItems)
   addSheet('Payments',        SAMPLE_PAYMENT_ROW,        PAYMENT_COLUMNS,        SHEET_COLORS.payments)
+  addSheet('Refunds',         SAMPLE_REFUND_ROW,         REFUND_COLUMNS,         SHEET_COLORS.payments)
   addSheet('Activities',      SAMPLE_ACTIVITY_ROW,       ACTIVITY_COLUMNS,       SHEET_COLORS.activities)
   addSheet('Prescriptions',   SAMPLE_PRESCRIPTION_ROW,   PRESCRIPTION_COLUMNS,   SHEET_COLORS.prescriptions)
   addSheet('Quotations',      SAMPLE_QUOTATION_ROW,      QUOTATION_COLUMNS,      SHEET_COLORS.quotations)
@@ -764,6 +806,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       whatsappNumber: toOptionalStr(raw.whatsapp_number),
       invoices: [],
       payments: [],
+      refunds: [],
       activities: [],
       prescriptions: [],
       quotations: [],
@@ -1201,10 +1244,70 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
     })
   })
 
+  // ── Refunds ──
+  let orphanRefunds = 0
+  const refundRows = readSheetByName<Record<string, unknown>>(wb, 'Refunds')
+  refundRows.forEach((raw, idx) => {
+    const rowNum = idx + 2
+    const code = toStr(raw.customer_code)
+    if (!code) {
+      if (toOptionalNumber(raw.amount) !== undefined) {
+        errors.push({
+          sheet: 'Refunds',
+          row: rowNum,
+          field: 'customer_code',
+          message: 'customer_code is required to link this refund.',
+        })
+      }
+      return
+    }
+    const customer = byCode.get(code)
+    if (!customer) {
+      orphanRefunds++
+      errors.push({
+        sheet: 'Refunds',
+        row: rowNum,
+        field: 'customer_code',
+        message: `customer_code "${code}" not found in Customers sheet — refund skipped.`,
+      })
+      return
+    }
+    const creditNoteNo = toStr(raw.credit_note_no)
+    if (!creditNoteNo) {
+      errors.push({
+        sheet: 'Refunds',
+        row: rowNum,
+        field: 'credit_note_no',
+        message: 'credit_note_no is required — every refund is against a specific credit note.',
+      })
+      return
+    }
+    const amount = toOptionalNumber(raw.amount)
+    if (amount === undefined || amount <= 0) {
+      errors.push({
+        sheet: 'Refunds',
+        row: rowNum,
+        field: 'amount',
+        message: 'amount must be a number greater than zero.',
+      })
+      return
+    }
+    customer.refunds.push({
+      sourceRow: rowNum,
+      refundNumber: toOptionalStr(raw.refund_number),
+      creditNoteNo,
+      date: toISODate(raw.date),
+      amount,
+      paymentMode: toOptionalStr(raw.payment_mode),
+      notes: toOptionalStr(raw.notes),
+    })
+  })
+
   // ── Fallbacks for non-template files (other ERP exports) ──
   const emptyOrphans = {
     orphanInvoices: 0,
     orphanPayments: 0,
+    orphanRefunds: 0,
     orphanActivities: 0,
     orphanPrescriptions: 0,
     orphanQuotations: 0,
@@ -1224,7 +1327,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
         abCustomers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           gstin: p.gstin, dlNumber: p.dlNumber,
-          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+          invoices: [], payments: [], refunds: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
         })
       }
       if (abCustomers.length > 0) {
@@ -1253,7 +1356,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
         ptCustomers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           email: p.email, gstin: p.gstin, dlNumber: p.dlNumber,
-          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+          invoices: [], payments: [], refunds: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
         })
       }
       if (ptCustomers.length > 0) {
@@ -1291,7 +1394,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
           type: normaliseEnum(v.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
           source: v.source, gstin: v.gstin, dlNumber: v.dlNumber,
           creditLimit: toOptionalNumber(v.creditLimit), openingBalance: toOptionalNumber(v.openingBalance),
-          invoices: [], payments: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
+          invoices: [], payments: [], refunds: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
         })
       }
       if (looseCustomers.length > 0) {
@@ -1304,6 +1407,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
     customers,
     orphanInvoices,
     orphanPayments,
+    orphanRefunds,
     orphanActivities,
     orphanPrescriptions,
     orphanQuotations,
@@ -1381,6 +1485,17 @@ interface ExportPaymentInput {
   amount: number | string
   paymentMode?: string
   referenceNumber?: string | null
+  notes?: string | null
+}
+
+interface ExportRefundInput {
+  id: string
+  refundNumber: string
+  customerId: string | null
+  creditNoteId: string
+  createdAt: string | Date
+  amount: number | string
+  paymentMode?: string
   notes?: string | null
 }
 
@@ -1463,6 +1578,7 @@ export interface CustomerExportPayload {
   invoices: ExportInvoiceInput[]
   invoiceItems: ExportInvoiceItemInput[]
   payments: ExportPaymentInput[]
+  refunds: ExportRefundInput[]
   activities: ExportActivityInput[]
   prescriptions: ExportPrescriptionInput[]
   quotations: ExportQuotationInput[]
@@ -1549,6 +1665,7 @@ export function exportCustomersToWorkbook(
       email: c.email ?? '',
       address: c.address ?? '',
       type: c.type ?? '',
+      doctor_ref: c.doctorRef ?? '',
       gstin: c.gstin ?? '',
       dl_number: c.dlNumber ?? '',
       registration_number: c.registrationNumber ?? '',
@@ -1609,6 +1726,19 @@ export function exportCustomersToWorkbook(
     reference_number: p.referenceNumber ?? '',
     receipt_number: p.receiptNumber,
     notes: p.notes ?? '',
+  }))
+
+  const creditNoteNoById = new Map<string, string>()
+  payload.creditNotes.forEach((cn) => creditNoteNoById.set(cn.id, cn.creditNoteNo))
+
+  const refundRows = payload.refunds.map((r) => ({
+    customer_code: r.customerId ? (codeFor.get(r.customerId) ?? '') : '',
+    credit_note_no: creditNoteNoById.get(r.creditNoteId) ?? '',
+    date: isoDate(r.createdAt),
+    amount: num(r.amount),
+    payment_mode: r.paymentMode ?? '',
+    refund_number: r.refundNumber,
+    notes: r.notes ?? '',
   }))
 
   const activityRows = payload.activities.map((a) => ({
@@ -1696,6 +1826,7 @@ export function exportCustomersToWorkbook(
       invoices: invoiceRows.length,
       'invoice items': invoiceItemRows.length,
       payments: paymentRows.length,
+      refunds: refundRows.length,
       activities: activityRows.length,
       prescriptions: prescriptionRows.length,
       quotations: quotationRows.length,
@@ -1709,6 +1840,7 @@ export function exportCustomersToWorkbook(
     ['Sheet: Invoices', 'Past invoices linked by customer_code. Edit money fields, status, payment_mode, notes. invoice_number is the dedupe key on re-import.'],
     ['Sheet: Invoice Items', 'Line items linked to invoices by invoice_ref.'],
     ['Sheet: Payments', 'Past receipts. receipt_number is the dedupe key.'],
+    ['Sheet: Refunds', 'Past cash refunds, linked to credit notes by credit_note_no. refund_number is the dedupe key.'],
     ['Sheet: Activities', 'Call / WhatsApp / Email / Note / Reminder log.'],
     ['Sheet: Prescriptions', 'Doctor + validity. File uploads not supported via this round-trip.'],
     ['Sheet: Quotations', 'Past quotes. quotation_number is the dedupe key.'],
@@ -1737,6 +1869,7 @@ export function exportCustomersToWorkbook(
   addSheet('Invoices',          invoiceRows,         INVOICE_COLUMNS,          SHEET_COLORS.invoices)
   addSheet('Invoice Items',     invoiceItemRows,     INVOICE_ITEM_COLUMNS,     SHEET_COLORS.invoiceItems)
   addSheet('Payments',          paymentRows,         PAYMENT_COLUMNS,          SHEET_COLORS.payments)
+  addSheet('Refunds',           refundRows,          REFUND_COLUMNS,           SHEET_COLORS.payments)
   addSheet('Activities',        activityRows,        ACTIVITY_COLUMNS,         SHEET_COLORS.activities)
   addSheet('Prescriptions',     prescriptionRows,    PRESCRIPTION_COLUMNS,     SHEET_COLORS.prescriptions)
   addSheet('Quotations',        quotationRows,       QUOTATION_COLUMNS,        SHEET_COLORS.quotations)

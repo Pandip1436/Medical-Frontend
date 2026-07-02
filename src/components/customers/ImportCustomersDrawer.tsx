@@ -60,6 +60,7 @@ type SheetName =
   | 'Invoices'
   | 'Invoice Items'
   | 'Payments'
+  | 'Refunds'
   | 'Activities'
   | 'Prescriptions'
   | 'Quotations'
@@ -91,6 +92,7 @@ interface ImportSummary {
   invoices: { created: number; skipped: number; failed: number }
   invoiceItems: { created: number }
   payments: { created: number; skipped: number; failed: number }
+  refunds: { created: number; failed: number }
   activities: { created: number; failed: number }
   prescriptions: { created: number; failed: number }
   quotations: { created: number; skipped: number; failed: number }
@@ -251,6 +253,7 @@ export function ImportCustomersDrawer({
         whatsappNumber: c.whatsappNumber,
         invoices: c.invoices,
         payments: c.payments,
+        refunds: c.refunds,
         activities: c.activities,
         prescriptions: c.prescriptions,
         quotations: c.quotations,
@@ -348,7 +351,7 @@ export function ImportCustomersDrawer({
       setStage('done')
       const s = data.summary
       toast.success(
-        `Imported ${s.customers.created} new customers, updated ${s.customers.updated}, with ${s.invoices.created} invoices and ${s.payments.created} payments.`,
+        `Imported ${s.customers.created} new customers, updated ${s.customers.updated}, with ${s.invoices.created} invoices, ${s.payments.created} payments and ${s.refunds.created} refunds.`,
       )
       onImported()
     } catch (err: unknown) {
@@ -373,6 +376,7 @@ export function ImportCustomersDrawer({
         0,
       ),
       payments: cs.reduce((s, c) => s + c.payments.length, 0),
+      refunds: cs.reduce((s, c) => s + c.refunds.length, 0),
       activities: cs.reduce((s, c) => s + c.activities.length, 0),
       prescriptions: cs.reduce((s, c) => s + c.prescriptions.length, 0),
       quotations: cs.reduce((s, c) => s + c.quotations.length, 0),
@@ -401,7 +405,7 @@ export function ImportCustomersDrawer({
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Import customers and their full history — past invoices, payments, activities and prescriptions — in one go.
+            Import customers and their full history — past invoices, payments, refunds, activities and prescriptions — in one go.
           </p>
         </SheetHeader>
 
@@ -599,6 +603,7 @@ function UploadStage({
           <li><span className="text-foreground font-medium">Customers</span> — name, phone, type, GSTIN, opening balance, credit limit, etc.</li>
           <li><span className="text-foreground font-medium">Invoices</span> + <span className="text-foreground font-medium">Invoice Items</span> — past bills with line items, linked by an invoice reference.</li>
           <li><span className="text-foreground font-medium">Payments</span> — historical receipts with mode + reference.</li>
+          <li><span className="text-foreground font-medium">Refunds</span> — cash refunds paid back, linked to a credit note.</li>
           <li><span className="text-foreground font-medium">Activities</span> — calls, WhatsApp, emails, notes, reminders.</li>
           <li><span className="text-foreground font-medium">Prescriptions</span> — doctor name and validity.</li>
         </ul>
@@ -624,6 +629,7 @@ interface PreviewStageProps {
     invoices: number
     invoiceItems: number
     payments: number
+    refunds: number
     activities: number
     prescriptions: number
     quotations: number
@@ -685,6 +691,7 @@ function PreviewStage({
         <StatCard label="Invoices" value={parsedCounts.invoices} tone="blue" />
         <StatCard label="Invoice items" value={parsedCounts.invoiceItems} tone="blue" />
         <StatCard label="Payments" value={parsedCounts.payments} tone="purple" />
+        <StatCard label="Refunds" value={parsedCounts.refunds} tone="violet" />
         <StatCard label="Activities" value={parsedCounts.activities} tone="amber" />
         <StatCard label="Prescriptions" value={parsedCounts.prescriptions} tone="rose" />
         <StatCard label="Quotations" value={parsedCounts.quotations} tone="blue" />
@@ -699,7 +706,7 @@ function PreviewStage({
             On import this file will create {summary.customers.created} new customer{summary.customers.created === 1 ? '' : 's'}
             {summary.customers.updated > 0 ? `, update ${summary.customers.updated}` : ''}
             {summary.customers.skipped > 0 ? `, skip ${summary.customers.skipped}` : ''}
-            , and add {summary.invoices.created} invoices, {summary.payments.created} payments, {summary.activities.created} activities, {summary.prescriptions.created} prescriptions, {summary.quotations.created} quotations, {summary.creditNotes.created} credit notes.
+            , and add {summary.invoices.created} invoices, {summary.payments.created} payments, {summary.refunds.created} refunds, {summary.activities.created} activities, {summary.prescriptions.created} prescriptions, {summary.quotations.created} quotations, {summary.creditNotes.created} credit notes.
             {summary.openingBalanceApplied > 0
               ? ` Total opening balance: ${formatCurrency(summary.openingBalanceApplied)}.`
               : ''}
@@ -848,6 +855,7 @@ function PreviewStage({
             <TabsTrigger value="customers">Customers</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
+            <TabsTrigger value="refunds">Refunds</TabsTrigger>
             <TabsTrigger value="activities">Activities</TabsTrigger>
             <TabsTrigger value="prescriptions">Rx</TabsTrigger>
             <TabsTrigger value="quotations">Quotations</TabsTrigger>
@@ -861,6 +869,9 @@ function PreviewStage({
           </TabsContent>
           <TabsContent value="payments">
             <PreviewPaymentTable customers={parsed.customers} />
+          </TabsContent>
+          <TabsContent value="refunds">
+            <PreviewRefundTable customers={parsed.customers} />
           </TabsContent>
           <TabsContent value="activities">
             <PreviewActivityTable customers={parsed.customers} />
@@ -930,6 +941,7 @@ function DoneStage({ result }: { result: ImportResult }) {
           }
           tone="purple"
         />
+        <StatCard label="Refunds created" value={s.refunds.created} tone="violet" />
         <StatCard label="Activities created" value={s.activities.created} tone="amber" />
         <StatCard
           label={
@@ -1029,12 +1041,13 @@ function DuplicateHandlingRadio({
   )
 }
 
-type StatTone = 'emerald' | 'blue' | 'purple' | 'amber' | 'rose' | 'slate'
+type StatTone = 'emerald' | 'blue' | 'purple' | 'violet' | 'amber' | 'rose' | 'slate'
 
 const TONE_BG: Record<StatTone, string> = {
   emerald: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   blue: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
   purple: 'bg-purple-500/10 text-purple-700 dark:text-purple-300',
+  violet: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
   amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
   slate: 'bg-slate-500/10 text-slate-700 dark:text-slate-300',
@@ -1130,7 +1143,7 @@ function PreviewCustomerTable({ customers }: { customers: ParsedCustomer[] }) {
               {c.openingBalance ? formatCurrency(c.openingBalance) : '—'}
             </TableCell>
             <TableCell className="text-xs text-right text-muted-foreground">
-              {c.invoices.length}i · {c.payments.length}p · {c.activities.length}a
+              {c.invoices.length}i · {c.payments.length}p · {c.refunds.length}rf · {c.activities.length}a
             </TableCell>
           </TableRow>
         ))}
@@ -1175,6 +1188,41 @@ function PreviewInvoiceTable({ customers }: { customers: ParsedCustomer[] }) {
             <TableCell>
               <Badge size="sm" variant="secondary">{inv.status ?? 'UNPAID'}</Badge>
             </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
+function PreviewRefundTable({ customers }: { customers: ParsedCustomer[] }) {
+  const rows = customers.flatMap((c) => c.refunds.map((r) => ({ r, customer: c })))
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground py-2">No refunds in this file.</p>
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Customer</TableHead>
+          <TableHead>Against Credit Note</TableHead>
+          <TableHead>Date</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead>Mode</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.slice(0, 50).map(({ r, customer }) => (
+          <TableRow key={r.sourceRow}>
+            <TableCell className="text-xs">{customer.name}</TableCell>
+            <TableCell className="text-xs font-mono">{r.creditNoteNo}</TableCell>
+            <TableCell className="text-xs font-mono">
+              {r.date ? r.date.slice(0, 10) : '—'}
+            </TableCell>
+            <TableCell className="text-xs font-mono text-right">
+              {formatCurrency(r.amount)}
+            </TableCell>
+            <TableCell className="text-xs">{r.paymentMode ?? '—'}</TableCell>
           </TableRow>
         ))}
       </TableBody>

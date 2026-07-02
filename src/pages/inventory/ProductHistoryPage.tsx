@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, Download, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX, PackagePlus, SquarePen,
+  RotateCcw, PackageX, PackagePlus, SquarePen, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -459,6 +459,20 @@ export default function ProductHistoryPage() {
           </div>
         )}
       </div>
+
+      {/* Phantom-stock warning — a stock number with zero batches behind it
+          usually means the product was imported (e.g. cloned to a new branch)
+          without any real GRN receiving, so this timeline will be empty even
+          though the number above suggests otherwise. */}
+      {history && history.summary.currentStock > 0 && history.product.activeBatches === 0 && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            This product shows <b>{history.summary.currentStock}</b> in stock but has no batch records —
+            likely imported without real inventory. Add stock via a GRN to make it sellable and to populate this timeline.
+          </p>
+        </div>
+      )}
 
       {/* Summary stats */}
       {history && (

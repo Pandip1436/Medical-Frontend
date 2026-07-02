@@ -58,6 +58,7 @@ type SheetName =
   | 'GRN Items'
   | 'Debit Notes'
   | 'Debit Note Items'
+  | 'Payments'
   | 'Activities'
   | 'Batches'
 
@@ -88,6 +89,7 @@ interface ImportSummary {
   grnItems: { created: number }
   debitNotes: { created: number; skipped: number; failed: number }
   debitNoteItems: { created: number }
+  payments: { created: number; failed: number }
   activities: { created: number; failed: number }
   batches: { created: number; skipped: number; failed: number }
   openingBalanceApplied: number
@@ -233,6 +235,7 @@ export function ImportSuppliersDrawer({
         purchaseOrders: s.purchaseOrders,
         grns: s.grns,
         debitNotes: s.debitNotes,
+        payments: s.payments,
         activities: s.activities,
         batches: s.batches,
       })),
@@ -328,7 +331,7 @@ export function ImportSuppliersDrawer({
       setStage('done')
       const s = data.summary
       toast.success(
-        `Imported ${s.suppliers.created} new suppliers, updated ${s.suppliers.updated}, with ${s.grns.created} GRNs, ${s.purchaseOrders.created} POs, ${s.debitNotes.created} debit notes, ${s.batches.created} batches.`,
+        `Imported ${s.suppliers.created} new suppliers, updated ${s.suppliers.updated}, with ${s.grns.created} GRNs, ${s.purchaseOrders.created} POs, ${s.debitNotes.created} debit notes, ${s.payments.created} payments, ${s.batches.created} batches.`,
       )
       onImported()
     } catch (err: unknown) {
@@ -358,6 +361,7 @@ export function ImportSuppliersDrawer({
         0,
       ),
       debitNotes: ss.reduce((s, c) => s + c.debitNotes.length, 0),
+      payments: ss.reduce((s, c) => s + c.payments.length, 0),
       activities: ss.reduce((s, c) => s + c.activities.length, 0),
       batches: ss.reduce((s, c) => s + c.batches.length, 0),
     }
@@ -596,6 +600,10 @@ function UploadStage({
             {' + '}items — purchase returns / debits raised against the supplier.
           </li>
           <li>
+            <span className="text-foreground font-medium">Payments</span> —
+            past payments made to the supplier, optionally linked to a GRN.
+          </li>
+          <li>
             <span className="text-foreground font-medium">Activities</span> —
             calls, WhatsApp, emails, notes, reminders.
           </li>
@@ -626,6 +634,7 @@ interface PreviewStageProps {
     grns: number
     grnItems: number
     debitNotes: number
+    payments: number
     activities: number
     batches: number
   }
@@ -681,6 +690,7 @@ function PreviewStage({
         <StatCard label="GRNs" value={parsedCounts.grns} tone="purple" />
         <StatCard label="GRN items" value={parsedCounts.grnItems} tone="purple" />
         <StatCard label="Debit Notes" value={parsedCounts.debitNotes} tone="rose" />
+        <StatCard label="Payments" value={parsedCounts.payments} tone="violet" />
         <StatCard label="Activities" value={parsedCounts.activities} tone="amber" />
         <StatCard label="Batches" value={parsedCounts.batches} tone="slate" />
       </div>
@@ -697,7 +707,7 @@ function PreviewStage({
             {summary.suppliers.skipped > 0
               ? `, skip ${summary.suppliers.skipped}`
               : ''}
-            , and add {summary.purchaseOrders.created} POs, {summary.grns.created} GRNs, {summary.debitNotes.created} debit notes, {summary.activities.created} activities, {summary.batches.created} batches.
+            , and add {summary.purchaseOrders.created} POs, {summary.grns.created} GRNs, {summary.debitNotes.created} debit notes, {summary.payments.created} payments, {summary.activities.created} activities, {summary.batches.created} batches.
             {summary.openingBalanceApplied > 0
               ? ` Total opening balance: ${formatCurrency(summary.openingBalanceApplied)}.`
               : ''}
@@ -842,6 +852,7 @@ function PreviewStage({
             <TabsTrigger value="pos">POs</TabsTrigger>
             <TabsTrigger value="grns">GRNs</TabsTrigger>
             <TabsTrigger value="dns">Debit Notes</TabsTrigger>
+            <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="activities">Activities</TabsTrigger>
             <TabsTrigger value="batches">Batches</TabsTrigger>
           </TabsList>
@@ -856,6 +867,9 @@ function PreviewStage({
           </TabsContent>
           <TabsContent value="dns">
             <PreviewDNTable suppliers={parsed.suppliers} />
+          </TabsContent>
+          <TabsContent value="payments">
+            <PreviewPaymentTable suppliers={parsed.suppliers} />
           </TabsContent>
           <TabsContent value="activities">
             <PreviewActivityTable suppliers={parsed.suppliers} />
@@ -930,6 +944,7 @@ function DoneStage({ result }: { result: ImportResult }) {
           }
           tone="rose"
         />
+        <StatCard label="Payments created" value={s.payments.created} tone="violet" />
         <StatCard label="Activities created" value={s.activities.created} tone="amber" />
         <StatCard
           label={
@@ -1014,12 +1029,13 @@ function DuplicateHandlingRadio({
   )
 }
 
-type StatTone = 'emerald' | 'blue' | 'purple' | 'amber' | 'rose' | 'slate'
+type StatTone = 'emerald' | 'blue' | 'purple' | 'violet' | 'amber' | 'rose' | 'slate'
 
 const TONE_BG: Record<StatTone, string> = {
   emerald: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   blue: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
   purple: 'bg-purple-500/10 text-purple-700 dark:text-purple-300',
+  violet: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
   amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
   slate: 'bg-slate-500/10 text-slate-700 dark:text-slate-300',
@@ -1109,7 +1125,7 @@ function PreviewSupplierTable({ suppliers }: { suppliers: ParsedSupplier[] }) {
               {s.openingBalance ? formatCurrency(s.openingBalance) : '—'}
             </TableCell>
             <TableCell className="text-xs text-right text-muted-foreground">
-              {s.purchaseOrders.length}po · {s.grns.length}g · {s.debitNotes.length}dn · {s.batches.length}b
+              {s.purchaseOrders.length}po · {s.grns.length}g · {s.debitNotes.length}dn · {s.payments.length}pay · {s.batches.length}b
             </TableCell>
           </TableRow>
         ))}
@@ -1222,6 +1238,42 @@ function PreviewDNTable({ suppliers }: { suppliers: ParsedSupplier[] }) {
             </TableCell>
             <TableCell>
               <Badge size="sm" variant="secondary">{d.settlementMode ?? 'REFUND'}</Badge>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
+function PreviewPaymentTable({ suppliers }: { suppliers: ParsedSupplier[] }) {
+  const rows = suppliers.flatMap((s) =>
+    s.payments.map((p) => ({ p, supplier: s })),
+  )
+  if (rows.length === 0)
+    return <p className="text-xs text-muted-foreground py-2">No payments.</p>
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Supplier</TableHead>
+          <TableHead>Payment #</TableHead>
+          <TableHead>Against GRN</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead>Mode</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.slice(0, 50).map(({ p, supplier }) => (
+          <TableRow key={p.sourceRow}>
+            <TableCell className="text-xs">{supplier.name}</TableCell>
+            <TableCell className="text-xs font-mono">{p.paymentNumber ?? '(auto)'}</TableCell>
+            <TableCell className="text-xs font-mono">{p.grnNumber ?? '—'}</TableCell>
+            <TableCell className="text-xs font-mono text-right">
+              {formatCurrency(p.amount)}
+            </TableCell>
+            <TableCell>
+              <Badge size="sm" variant="secondary">{p.paymentMode ?? 'CASH'}</Badge>
             </TableCell>
           </TableRow>
         ))}

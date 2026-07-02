@@ -51,6 +51,7 @@ export type POStatus =
   | 'PARTIALLY_RECEIVED'
   | 'FULLY_RECEIVED'
   | 'CLOSED'
+  | 'CANCELLED'
 export type GRNStatus = 'DRAFT' | 'RECEIVED' | 'VERIFIED'
 export type PurchaseReturnStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'SETTLED'
 export type PurchaseReturnSettlement = 'REFUND' | 'REPLACEMENT' | 'ADJUST'
@@ -78,6 +79,7 @@ export interface ParsedSupplier {
   purchaseOrders: ParsedPurchaseOrder[]
   grns: ParsedGrn[]
   debitNotes: ParsedDebitNote[]
+  payments: ParsedPayment[]
   activities: ParsedActivity[]
   batches: ParsedBatch[]
 }
@@ -166,6 +168,17 @@ export interface ParsedDebitNoteItem {
   amount?: number
 }
 
+export interface ParsedPayment {
+  sourceRow: number
+  paymentNumber?: string
+  grnNumber?: string
+  date?: string
+  amount: number
+  paymentMode?: string
+  referenceNumber?: string
+  notes?: string
+}
+
 export interface ParsedActivity {
   sourceRow: number
   type: SupplierActivityType
@@ -190,6 +203,7 @@ export interface ParseResult {
   orphanPOs: number
   orphanGRNs: number
   orphanDebitNotes: number
+  orphanPayments: number
   orphanActivities: number
   orphanBatches: number
   errors: ParseError[]
@@ -204,6 +218,7 @@ type SheetName =
   | 'GRN Items'
   | 'Debit Notes'
   | 'Debit Note Items'
+  | 'Payments'
   | 'Activities'
   | 'Batches'
   | 'Instructions'
@@ -298,6 +313,17 @@ const DN_ITEM_COLUMNS = [
   'purchase_rate',
   'gst_percent',
   'amount',
+] as const
+
+const PAYMENT_COLUMNS = [
+  'supplier_code',
+  'grn_number',
+  'date',
+  'amount',
+  'payment_mode',
+  'reference_number',
+  'payment_number',
+  'notes',
 ] as const
 
 const ACTIVITY_COLUMNS = [
@@ -416,6 +442,19 @@ const SAMPLE_DN_ITEM_ROW: Record<string, string | number> = {
   amount: 500,
 }
 
+const SAMPLE_PAYMENT_ROW: Record<string, string | number> = {
+  supplier_code: 'S001',
+  grn_number: 'HS/GRN/25-26/0188',
+  date: '2026-04-20',
+  amount: 12000,
+  payment_mode: 'NEFT_UPI',
+  reference_number: 'UTR998877',
+  // Original payment reference from your legacy system. Leave blank to
+  // auto-generate. Filling it in lets you reconcile against old records.
+  payment_number: 'SPAY/25-26/0041',
+  notes: 'Part payment against GRN 0188',
+}
+
 const SAMPLE_ACTIVITY_ROW: Record<string, string | number> = {
   supplier_code: 'S001',
   type: 'CALL',
@@ -451,19 +490,21 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Sheet: Purchase Orders', 'One row per past PO. `po_ref` links items in the PO Items sheet. `po_number` should hold the ORIGINAL PO number from your previous system. Leave blank to auto-generate.'],
   ['Sheet: PO Items', 'Optional line items linked to a Purchase Orders row by `po_ref`.'],
   ['', ''],
-  ['Sheet: GRNs', 'One row per past Goods Received Note. REQUIRED: `supplier_invoice_no` (the supplier\'s bill number). `grn_ref` links items in the GRN Items sheet. Note: importing a GRN does NOT create stock batches — historical stock should be loaded separately if needed.'],
+  ['Sheet: GRNs', 'One row per past Goods Received Note. REQUIRED: `supplier_invoice_no` (the supplier\'s bill number). `grn_ref` links items in the GRN Items sheet. Importing a GRN with items that match a product WILL create a real stock batch and add to that product\'s stock — do not also add the same stock via the Batches sheet, or it will be counted twice.'],
   ['Sheet: GRN Items', 'Optional line items linked to a GRNs row by `grn_ref`.'],
   ['', ''],
   ['Sheet: Debit Notes', 'One row per past debit note / purchase return. Optional `grn_number` to link this return to a specific GRN — if filled, the GRN must exist in your system or be imported in this same file. `debit_note_ref` links items.'],
   ['Sheet: Debit Note Items', 'Optional line items linked to a Debit Notes row by `debit_note_ref`.'],
   ['', ''],
+  ['Sheet: Payments', 'One row per past payment made to this supplier. Optional `grn_number` links it to a specific GRN (must exist already or be imported in this same file) — leave blank for a lump-sum payment not tied to one GRN.'],
+  ['', ''],
   ['Sheet: Activities', 'One row per call / WhatsApp / email / note / reminder with the supplier.'],
   ['', ''],
-  ['Sheet: Batches', 'One row per historical stock-batch you received from this supplier. REQUIRED: `batch_number`, and either `product_id` (preferred — the live Product row id) OR `product_name` (case-insensitive match in your branch). The product must already exist — create it first via Products → Add, or use the products import.'],
+  ['Sheet: Batches', 'Use this ONLY for stock you are NOT already reporting via a GRN row above (GRNs create their own batch automatically). One row per additional historical stock-batch. REQUIRED: `batch_number`, and either `product_id` (preferred — the live Product row id) OR `product_name` (case-insensitive match in your branch). The product must already exist — create it first via Products → Add, or use the products import.'],
   ['', ''],
   ['Allowed values', ''],
   ['supplier.payment_terms', 'NET_30 · NET_45 · NET_60'],
-  ['po.status', 'DRAFT · SENT · ACKNOWLEDGED · PARTIALLY_RECEIVED · FULLY_RECEIVED · CLOSED'],
+  ['po.status', 'DRAFT · SENT · ACKNOWLEDGED · PARTIALLY_RECEIVED · FULLY_RECEIVED · CLOSED · CANCELLED'],
   ['grn.status', 'DRAFT · RECEIVED · VERIFIED'],
   ['debit_note.status', 'DRAFT · SENT · ACCEPTED · SETTLED'],
   ['debit_note.settlement_mode', 'REFUND · REPLACEMENT · ADJUST'],
@@ -504,6 +545,7 @@ export function downloadSupplierImportTemplate(): void {
   addSheet('GRN Items',        SAMPLE_GRN_ITEM_ROW, GRN_ITEM_COLUMNS, SHEET_COLORS.grnItems)
   addSheet('Debit Notes',      SAMPLE_DN_ROW,       DN_COLUMNS,       SHEET_COLORS.debitNotes)
   addSheet('Debit Note Items', SAMPLE_DN_ITEM_ROW,  DN_ITEM_COLUMNS,  SHEET_COLORS.debitNoteItems)
+  addSheet('Payments',         SAMPLE_PAYMENT_ROW,  PAYMENT_COLUMNS,  SHEET_COLORS.payments)
   addSheet('Activities',       SAMPLE_ACTIVITY_ROW, ACTIVITY_COLUMNS, SHEET_COLORS.activities)
   addSheet('Batches',          SAMPLE_BATCH_ROW,    BATCH_COLUMNS,    SHEET_COLORS.batches)
 
@@ -645,6 +687,7 @@ export async function parseSupplierImportWorkbook(
       purchaseOrders: [],
       grns: [],
       debitNotes: [],
+      payments: [],
       activities: [],
       batches: [],
     }
@@ -735,6 +778,7 @@ export async function parseSupplierImportWorkbook(
         'PARTIALLY_RECEIVED',
         'FULLY_RECEIVED',
         'CLOSED',
+        'CANCELLED',
       ] as const),
       items: poRef ? (poItemsByRef.get(poRef) ?? []) : [],
     })
@@ -918,6 +962,56 @@ export async function parseSupplierImportWorkbook(
     })
   })
 
+  // ── Payments ──
+  let orphanPayments = 0
+  const paymentRows = readSheetByName<Record<string, unknown>>(wb, 'Payments')
+  paymentRows.forEach((raw, idx) => {
+    const rowNum = idx + 2
+    const code = toStr(raw.supplier_code)
+    if (!code) {
+      if (toOptionalNumber(raw.amount) !== undefined) {
+        errors.push({
+          sheet: 'Payments',
+          row: rowNum,
+          field: 'supplier_code',
+          message: 'supplier_code is required to link this payment.',
+        })
+      }
+      return
+    }
+    const supplier = byCode.get(code)
+    if (!supplier) {
+      orphanPayments++
+      errors.push({
+        sheet: 'Payments',
+        row: rowNum,
+        field: 'supplier_code',
+        message: `supplier_code "${code}" not found in Suppliers sheet — payment skipped.`,
+      })
+      return
+    }
+    const amount = toOptionalNumber(raw.amount)
+    if (amount === undefined || amount <= 0) {
+      errors.push({
+        sheet: 'Payments',
+        row: rowNum,
+        field: 'amount',
+        message: 'amount must be a number greater than zero.',
+      })
+      return
+    }
+    supplier.payments.push({
+      sourceRow: rowNum,
+      paymentNumber: toOptionalStr(raw.payment_number),
+      grnNumber: toOptionalStr(raw.grn_number),
+      date: toISODate(raw.date),
+      amount,
+      paymentMode: toOptionalStr(raw.payment_mode),
+      referenceNumber: toOptionalStr(raw.reference_number),
+      notes: toOptionalStr(raw.notes),
+    })
+  })
+
   // ── Activities ──
   let orphanActivities = 0
   const activityRows = readSheetByName<Record<string, unknown>>(wb, 'Activities')
@@ -1046,6 +1140,7 @@ export async function parseSupplierImportWorkbook(
     orphanPOs: 0,
     orphanGRNs: 0,
     orphanDebitNotes: 0,
+    orphanPayments: 0,
     orphanActivities: 0,
     orphanBatches: 0,
   }
@@ -1063,7 +1158,7 @@ export async function parseSupplierImportWorkbook(
         abSuppliers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           gstin: p.gstin, drugLicense: p.dlNumber,
-          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
         })
       }
       if (abSuppliers.length > 0) {
@@ -1092,7 +1187,7 @@ export async function parseSupplierImportWorkbook(
         ptSuppliers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           email: p.email, gstin: p.gstin, drugLicense: p.dlNumber,
-          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
         })
       }
       if (ptSuppliers.length > 0) {
@@ -1129,7 +1224,7 @@ export async function parseSupplierImportWorkbook(
           contactPerson: v.contactPerson, email: v.email, gstin: v.gstin,
           drugLicense: v.drugLicense, address: v.address,
           openingBalance: toOptionalNumber(v.openingBalance),
-          purchaseOrders: [], grns: [], debitNotes: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
         })
       }
       if (looseSuppliers.length > 0) {
@@ -1143,6 +1238,7 @@ export async function parseSupplierImportWorkbook(
     orphanPOs,
     orphanGRNs,
     orphanDebitNotes,
+    orphanPayments,
     orphanActivities,
     orphanBatches,
     errors,
@@ -1242,6 +1338,18 @@ interface ExportDebitNoteItemInput {
   amount?: number | string
 }
 
+interface ExportSupplierPaymentInput {
+  id: string
+  paymentNumber: string
+  supplierId: string
+  grnId?: string | null
+  createdAt: string | Date
+  amount: number | string
+  paymentMode?: string
+  referenceNumber?: string | null
+  notes?: string | null
+}
+
 interface ExportSupplierActivityInput {
   id: string
   supplierId: string
@@ -1276,6 +1384,7 @@ export interface SupplierExportPayload {
   grnItems: ExportGrnItemInput[]
   debitNotes: ExportDebitNoteInput[]
   debitNoteItems: ExportDebitNoteItemInput[]
+  payments: ExportSupplierPaymentInput[]
   activities: ExportSupplierActivityInput[]
   batches: ExportBatchInput[]
 }
@@ -1438,6 +1547,17 @@ export function exportSuppliersToWorkbook(
     amount: num(it.amount),
   }))
 
+  const paymentRows = payload.payments.map((p) => ({
+    supplier_code: codeFor.get(p.supplierId) ?? '',
+    grn_number: p.grnId ? (grnNumberById.get(p.grnId) ?? '') : '',
+    date: isoDate(p.createdAt),
+    amount: num(p.amount),
+    payment_mode: p.paymentMode ?? '',
+    reference_number: p.referenceNumber ?? '',
+    payment_number: p.paymentNumber,
+    notes: p.notes ?? '',
+  }))
+
   const activityRows = payload.activities.map((a) => ({
     supplier_code: codeFor.get(a.supplierId) ?? '',
     type: a.type,
@@ -1475,6 +1595,7 @@ export function exportSuppliersToWorkbook(
       GRNs: grnRows.length,
       'GRN items': grnItemRows.length,
       'debit notes': dnRows.length,
+      payments: paymentRows.length,
       activities: activityRows.length,
       batches: batchRows.length,
     },
@@ -1490,6 +1611,7 @@ export function exportSuppliersToWorkbook(
     ['Sheet: GRN Items', 'Line items linked to GRNs by grn_ref.'],
     ['Sheet: Debit Notes', 'Purchase returns linked by supplier_code (+ optional grn_number to link to a GRN).'],
     ['Sheet: Debit Note Items', 'Returned items linked to debit notes by debit_note_ref.'],
+    ['Sheet: Payments', 'Past payments made to this supplier, linked by supplier_code (+ optional grn_number). payment_number is the dedupe key.'],
     ['Sheet: Activities', 'Call / WhatsApp / Email / Note / Reminder log.'],
     ['Sheet: Batches', 'Stock batches. product_id is the live Product row id.'],
   ])
@@ -1520,6 +1642,7 @@ export function exportSuppliersToWorkbook(
   addSheet('GRN Items',        grnItemRows,  GRN_ITEM_COLUMNS,  SHEET_COLORS.grnItems)
   addSheet('Debit Notes',      dnRows,       DN_COLUMNS,        SHEET_COLORS.debitNotes)
   addSheet('Debit Note Items', dnItemRows,   DN_ITEM_COLUMNS,   SHEET_COLORS.debitNoteItems)
+  addSheet('Payments',         paymentRows,  PAYMENT_COLUMNS,   SHEET_COLORS.payments)
   addSheet('Activities',       activityRows, ACTIVITY_COLUMNS,  SHEET_COLORS.activities)
   addSheet('Batches',          batchRows,    BATCH_COLUMNS,     SHEET_COLORS.batches)
 

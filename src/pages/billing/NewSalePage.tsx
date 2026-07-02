@@ -895,7 +895,7 @@ function BillingRow({
               )}>
               <SelectValue placeholder="Select Batch" />
             </SelectTrigger>
-            <SelectContent className="bg-popover/95 backdrop-blur-xl min-w-[220px]">
+            <SelectContent className="bg-popover/95 backdrop-blur-xl min-w-55">
               {productBatches.map((b, idx) => {
                 // A batch already on another row of this product is locked out
                 // here so the same stock can't be billed twice.
@@ -1361,7 +1361,7 @@ function BillingRow({
     ) : item.gstPercent ? (
       <div
         className="
-          h-8 min-w-[52px]
+          h-8 min-w-13
           flex items-center justify-center
           rounded-xl
           border border-border/30
@@ -1377,7 +1377,7 @@ function BillingRow({
     ) : (
       <div
         className="
-          h-8 min-w-[52px]
+          h-8 min-w-13
           flex items-center justify-center
           text-muted-foreground/40
           text-sm
@@ -4260,8 +4260,8 @@ export default function NewSalePage() {
               className={cn(
                 'group col-span-2 inline-flex items-center justify-center gap-2 lg:gap-3 px-2 lg:px-4 py-3 text-primary-foreground transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-0',
                 isCreditBlocked && isPharmacist
-                  ? 'bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-500/95 hover:to-amber-600/90 shadow-lg shadow-amber-500/25'
-                  : 'bg-gradient-to-br from-primary to-primary/80 hover:from-primary/95 hover:to-primary/75 shadow-lg shadow-primary/30'
+                  ? 'bg-linear-to-br from-amber-500 to-amber-600 hover:from-amber-500/95 hover:to-amber-600/90 shadow-lg shadow-amber-500/25'
+                  : 'bg-linear-to-br from-primary to-primary/80 hover:from-primary/95 hover:to-primary/75 shadow-lg shadow-primary/30'
               )}
             >
               {isCreditBlocked && isPharmacist
@@ -5470,8 +5470,8 @@ export default function NewSalePage() {
                             Scoped to this sales table — the rest of the page and
                             other screens are unaffected. */}
                         <Table className="w-full min-w-200 [zoom:0.8]">
-                          <TableHeader className="sticky top-0 z-20 bg-gradient-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
-                            <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-[0.1em] text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
+                          <TableHeader className="sticky top-0 z-20 bg-linear-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
+                            <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
                               <TableHead className="min-w-32 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
                               <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
@@ -6283,7 +6283,7 @@ export default function NewSalePage() {
               {/* Single scroll region: Order Summary + Payment scroll together so credit-mode content (Outstanding card + Due Date) is always reachable on short laptop screens. Net Payable also shown on the F8 Save & Print button so it isn't lost when scrolled. */}
               <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
                 {/* Invoice Summary Section — moved from footer */}
-                <div className="p-3 border-b border-border/60 bg-gradient-to-b from-muted/25 to-transparent">
+                <div className="p-3 border-b border-border/60 bg-linear-to-b from-muted/25 to-transparent">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                       <Receipt className="h-3.5 w-3.5" />
@@ -6391,7 +6391,7 @@ export default function NewSalePage() {
                   {/* Net Payable — premium accent hero block. This is the number
                       the salesman reads out loud, so it gets a tinted gradient
                       card, a left accent bar, and the largest type on the panel. */}
-                  <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-gradient-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
+                  <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-linear-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
                     <span className="absolute inset-y-0 left-0 w-1 bg-primary/70" aria-hidden />
                     <div className="flex items-baseline justify-between pl-1.5">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
