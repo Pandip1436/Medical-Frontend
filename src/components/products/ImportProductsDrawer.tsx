@@ -86,6 +86,39 @@ interface ImportResult {
   warnings: ImportRowWarning[]
 }
 
+// Commit is chunked so the drawer can show live "X / total" progress instead
+// of an indefinite spinner. Each chunk is its own bounded transaction; sending
+// them sequentially means chunk N+1 sees chunk N's just-created rows, so
+// cross-chunk name dedup still works.
+const COMMIT_CHUNK_SIZE = 50
+
+function addNumberTree<T>(a: T, b: T): T {
+  if (typeof a === 'number') return (a + (typeof b === 'number' ? b : 0)) as unknown as T
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(a as Record<string, unknown>)) {
+    out[k] = addNumberTree(
+      (a as Record<string, unknown>)[k],
+      (b as Record<string, unknown> | undefined)?.[k],
+    )
+  }
+  return out as unknown as T
+}
+
+function mergeImportResults(results: ImportResult[]): ImportResult {
+  const [first, ...rest] = results
+  let summary = first.summary
+  const duplicates = [...first.duplicates]
+  const errors = [...first.errors]
+  const warnings = [...first.warnings]
+  for (const r of rest) {
+    summary = addNumberTree(summary, r.summary)
+    duplicates.push(...r.duplicates)
+    errors.push(...r.errors)
+    warnings.push(...r.warnings)
+  }
+  return { dryRun: first.dryRun, summary, duplicates, errors, warnings }
+}
+
 interface ImportProductsDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -132,6 +165,7 @@ export function ImportProductsDrawer({
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ImportResult | null>(null)
   const [commitResult, setCommitResult] = useState<ImportResult | null>(null)
+  const [commitProgress, setCommitProgress] = useState<{ done: number; total: number } | null>(null)
   const [duplicateHandling, setDuplicateHandling] =
     useState<DuplicateHandling>('UPDATE')
   const [isDragging, setIsDragging] = useState(false)
@@ -144,6 +178,7 @@ export function ImportProductsDrawer({
     setParseError(null)
     setPreviewResult(null)
     setCommitResult(null)
+    setCommitProgress(null)
     setDuplicateHandling('UPDATE')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
@@ -250,15 +285,36 @@ export function ImportProductsDrawer({
 
   const commitImport = useCallback(async () => {
     if (!parseResult) return
+    const payload = buildPayload(parseResult, duplicateHandling, false)
+    const { products, categories, ...rest } = payload
+    const total = products.length
+    setCommitProgress({ done: 0, total })
     setStage('committing')
     try {
-      const res = await api.post<ImportResult>(
-        '/products/import/commit',
-        buildPayload(parseResult, duplicateHandling, false),
-      )
-      setCommitResult(res.data)
+      let result: ImportResult
+      if (total <= COMMIT_CHUNK_SIZE) {
+        result = (await api.post<ImportResult>('/products/import/commit', payload)).data
+        setCommitProgress({ done: total, total })
+      } else {
+        // Large file → send in sequential chunks, updating the "X / total"
+        // counter after each. Categories ride along with the first chunk only;
+        // later chunks auto-create any still-missing ones from their products.
+        const results: ImportResult[] = []
+        for (let i = 0; i < total; i += COMMIT_CHUNK_SIZE) {
+          const chunk = products.slice(i, i + COMMIT_CHUNK_SIZE)
+          const res = await api.post<ImportResult>('/products/import/commit', {
+            ...rest,
+            categories: i === 0 ? categories : [],
+            products: chunk,
+          })
+          results.push(res.data)
+          setCommitProgress({ done: Math.min(i + chunk.length, total), total })
+        }
+        result = mergeImportResults(results)
+      }
+      setCommitResult(result)
       setStage('done')
-      const s = res.data.summary
+      const s = result.summary
       toast.success(
         `Imported ${s.products.created} new products, updated ${s.products.updated}, with ${s.categories.created} new categories.`,
       )
@@ -300,7 +356,10 @@ export function ImportProductsDrawer({
               {stage === 'upload' && 'Step 1 of 2 · Upload'}
               {stage === 'parsing' && 'Reading file…'}
               {stage === 'preview' && 'Step 2 of 2 · Review'}
-              {stage === 'committing' && 'Importing…'}
+              {stage === 'committing' &&
+                (commitProgress
+                  ? `Importing ${commitProgress.done}/${commitProgress.total}`
+                  : 'Importing…')}
               {stage === 'done' && 'Done'}
             </Badge>
           </div>
@@ -341,6 +400,28 @@ export function ImportProductsDrawer({
               <p className="text-sm text-muted-foreground">
                 Importing products into the catalogue…
               </p>
+              {commitProgress ? (
+                <div className="w-full max-w-xs space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-emerald-700 dark:text-emerald-300">
+                      Transferring {commitProgress.done.toLocaleString('en-IN')} / {commitProgress.total.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {commitProgress.total > 0
+                        ? Math.round((commitProgress.done / commitProgress.total) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                      style={{
+                        width: `${commitProgress.total > 0 ? (commitProgress.done / commitProgress.total) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               <p className="text-xs text-muted-foreground">
                 Don't close this drawer.
               </p>

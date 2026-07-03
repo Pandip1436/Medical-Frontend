@@ -116,6 +116,9 @@ interface ImportResult {
 // means chunk N+1 sees chunk N's just-created rows, so cross-chunk phone dedup
 // still works.
 const IMPORT_CHUNK_SIZE = 1000
+// Commit uses a smaller chunk so the drawer can show a granular "X / total"
+// transfer counter. Preview keeps the larger chunk (dry run — no progress UI).
+const COMMIT_CHUNK_SIZE = 50
 
 // Deep-add two ImportSummary trees (all leaves are numbers).
 function addNumberTree<T>(a: T, b: T): T {
@@ -149,15 +152,21 @@ function mergeImportResults(results: ImportResult[]): ImportResult {
 async function postImportChunked(
   endpoint: string,
   payload: { duplicateHandling: DuplicateHandling; dryRun: boolean; customers: unknown[] },
+  opts?: { chunkSize?: number; onProgress?: (done: number, total: number) => void },
 ): Promise<ImportResult> {
   const { customers, ...rest } = payload
-  if (customers.length <= IMPORT_CHUNK_SIZE) {
-    return (await api.post<ImportResult>(endpoint, payload)).data
+  const chunkSize = opts?.chunkSize ?? IMPORT_CHUNK_SIZE
+  const total = customers.length
+  if (total <= chunkSize) {
+    const data = (await api.post<ImportResult>(endpoint, payload)).data
+    opts?.onProgress?.(total, total)
+    return data
   }
   const results: ImportResult[] = []
-  for (let i = 0; i < customers.length; i += IMPORT_CHUNK_SIZE) {
-    const chunk = customers.slice(i, i + IMPORT_CHUNK_SIZE)
+  for (let i = 0; i < total; i += chunkSize) {
+    const chunk = customers.slice(i, i + chunkSize)
     results.push((await api.post<ImportResult>(endpoint, { ...rest, customers: chunk })).data)
+    opts?.onProgress?.(Math.min(i + chunk.length, total), total)
   }
   return mergeImportResults(results)
 }
@@ -203,6 +212,7 @@ export function ImportCustomersDrawer({
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ImportResult | null>(null)
   const [commitResult, setCommitResult] = useState<ImportResult | null>(null)
+  const [commitProgress, setCommitProgress] = useState<{ done: number; total: number } | null>(null)
   const [duplicateHandling, setDuplicateHandling] = useState<DuplicateHandling>('UPDATE')
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -214,6 +224,7 @@ export function ImportCustomersDrawer({
     setParseError(null)
     setPreviewResult(null)
     setCommitResult(null)
+    setCommitProgress(null)
     setDuplicateHandling('UPDATE')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
@@ -341,11 +352,17 @@ export function ImportCustomersDrawer({
 
   const commitImport = useCallback(async () => {
     if (!parseResult) return
+    const payload = buildPayload(parseResult, duplicateHandling, false)
+    setCommitProgress({ done: 0, total: payload.customers.length })
     setStage('committing')
     try {
       const data = await postImportChunked(
         '/customers/import/commit',
-        buildPayload(parseResult, duplicateHandling, false),
+        payload,
+        {
+          chunkSize: COMMIT_CHUNK_SIZE,
+          onProgress: (done, total) => setCommitProgress({ done, total }),
+        },
       )
       setCommitResult(data)
       setStage('done')
@@ -400,7 +417,10 @@ export function ImportCustomersDrawer({
               {stage === 'upload' && 'Step 1 of 2 · Upload'}
               {stage === 'parsing' && 'Reading file…'}
               {stage === 'preview' && 'Step 2 of 2 · Review'}
-              {stage === 'committing' && 'Importing…'}
+              {stage === 'committing' &&
+                (commitProgress
+                  ? `Importing ${commitProgress.done}/${commitProgress.total}`
+                  : 'Importing…')}
               {stage === 'done' && 'Done'}
             </Badge>
           </div>
@@ -441,6 +461,28 @@ export function ImportCustomersDrawer({
               <p className="text-sm text-muted-foreground">
                 Importing customers and history into the database…
               </p>
+              {commitProgress ? (
+                <div className="w-full max-w-xs space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-emerald-700 dark:text-emerald-300">
+                      Transferring {commitProgress.done.toLocaleString('en-IN')} / {commitProgress.total.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {commitProgress.total > 0
+                        ? Math.round((commitProgress.done / commitProgress.total) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                      style={{
+                        width: `${commitProgress.total > 0 ? (commitProgress.done / commitProgress.total) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               <p className="text-xs text-muted-foreground">
                 Don't close this drawer.
               </p>
