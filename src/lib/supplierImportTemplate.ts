@@ -122,6 +122,7 @@ export interface ParsedGrn {
   supplierInvoiceNo: string
   supplierInvoiceDate?: string
   supplierInvoiceAmount?: number
+  amountPaid?: number
   totalAmount?: number
   status?: GRNStatus
   isReplacement?: boolean
@@ -268,6 +269,7 @@ const GRN_COLUMNS = [
   'supplier_invoice_no',
   'supplier_invoice_date',
   'supplier_invoice_amount',
+  'amount_paid',
   'total_amount',
   'status',
   'is_replacement',
@@ -395,6 +397,7 @@ const SAMPLE_GRN_ROW: Record<string, string | number> = {
   supplier_invoice_no: 'MTD/INV/0451',
   supplier_invoice_date: '2026-04-09',
   supplier_invoice_amount: 25000,
+  amount_paid: 10000,
   total_amount: 25000,
   status: 'VERIFIED',
   is_replacement: 'FALSE',
@@ -864,6 +867,7 @@ export async function parseSupplierImportWorkbook(
       supplierInvoiceNo,
       supplierInvoiceDate: toISODate(raw.supplier_invoice_date),
       supplierInvoiceAmount: toOptionalNumber(raw.supplier_invoice_amount),
+      amountPaid: toOptionalNumber(raw.amount_paid),
       totalAmount: toOptionalNumber(raw.total_amount),
       status: normaliseEnum(raw.status, [
         'DRAFT',
@@ -1291,6 +1295,7 @@ interface ExportGrnInput {
   supplierInvoiceNo: string
   supplierInvoiceDate?: string | Date | null
   supplierInvoiceAmount?: number | string
+  amountPaid?: number | string
   totalAmount?: number | string
   status?: string
   isReplacement?: boolean
@@ -1438,22 +1443,28 @@ export function exportSuppliersToWorkbook(
   const grnNumberById = new Map<string, string>()
   payload.grns.forEach((g) => grnNumberById.set(g.id, g.grnNumber))
 
-  // Total purchases billed per supplier (Σ supplier-invoice amount across their
-  // non-replacement GRNs). Paid = Total − Outstanding (the still-owed balance),
-  // mirroring the Suppliers list's Total / Paid / Outstanding columns. Both are
-  // derived/read-only — the import parser ignores them on re-import.
+  // Per-supplier money, computed live from non-replacement GRNs — the exact
+  // same basis as the Suppliers list (withLiveOutstanding): Total = Σ invoice,
+  // Paid = Σ amount_paid, Outstanding = Σ max(0, invoice − paid). These three
+  // Suppliers-sheet columns are informational on re-import (the parser ignores
+  // them); the paid state now round-trips via the GRN sheet's amount_paid.
   const purchaseTotalBySupplier = new Map<string, number>()
+  const paidBySupplier = new Map<string, number>()
+  const outstandingBySupplier = new Map<string, number>()
   for (const g of payload.grns) {
     if (g.isReplacement) continue
-    purchaseTotalBySupplier.set(
-      g.supplierId,
-      (purchaseTotalBySupplier.get(g.supplierId) ?? 0) + Number(g.supplierInvoiceAmount ?? 0),
-    )
+    const inv = Number(g.supplierInvoiceAmount ?? 0)
+    const paid = Number(g.amountPaid ?? 0)
+    purchaseTotalBySupplier.set(g.supplierId, (purchaseTotalBySupplier.get(g.supplierId) ?? 0) + inv)
+    paidBySupplier.set(g.supplierId, (paidBySupplier.get(g.supplierId) ?? 0) + paid)
+    const due = inv - paid
+    if (due > 0.01) outstandingBySupplier.set(g.supplierId, (outstandingBySupplier.get(g.supplierId) ?? 0) + due)
   }
 
   const supplierRows = payload.suppliers.map((s) => {
     const totalPurchases = purchaseTotalBySupplier.get(s.id) ?? 0
-    const outstandingNum = Number(s.currentOutstanding) || 0
+    const paidAmount = paidBySupplier.get(s.id) ?? 0
+    const outstandingNum = outstandingBySupplier.get(s.id) ?? 0
     return {
       supplier_code: codeFor.get(s.id) ?? '',
       name: s.name,
@@ -1468,7 +1479,8 @@ export function exportSuppliersToWorkbook(
       is_active: s.isActive === false ? 'FALSE' : 'TRUE',
       opening_balance: num(s.currentOutstanding),
       total_purchases: totalPurchases,
-      paid_amount: Math.max(0, totalPurchases - outstandingNum),
+      paid_amount: paidAmount,
+      outstanding: outstandingNum,
     }
   })
 
@@ -1500,6 +1512,7 @@ export function exportSuppliersToWorkbook(
     supplier_invoice_no: g.supplierInvoiceNo,
     supplier_invoice_date: isoDate(g.supplierInvoiceDate),
     supplier_invoice_amount: num(g.supplierInvoiceAmount),
+    amount_paid: num(g.amountPaid),
     total_amount: num(g.totalAmount),
     status: g.status ?? '',
     is_replacement: g.isReplacement ? 'TRUE' : 'FALSE',
@@ -1632,10 +1645,12 @@ export function exportSuppliersToWorkbook(
     XLSX.utils.book_append_sheet(wb, ws, name)
   }
 
-  // Export-only: append the derived Total Purchases + Paid columns after the
-  // round-trip ones. The import template / parser uses plain SUPPLIER_COLUMNS,
-  // so these extra read-only columns are ignored when the file is re-imported.
-  addSheet('Suppliers',        supplierRows, [...SUPPLIER_COLUMNS, 'total_purchases', 'paid_amount'],  SHEET_COLORS.suppliers)
+  // Export-only: append the derived Total Purchases + Paid + Outstanding columns
+  // after the round-trip ones. The import template / parser uses plain
+  // SUPPLIER_COLUMNS, so these read-only summary columns are ignored on
+  // re-import — the actual paid/outstanding state round-trips via the GRN
+  // sheet's amount_paid column.
+  addSheet('Suppliers',        supplierRows, [...SUPPLIER_COLUMNS, 'total_purchases', 'paid_amount', 'outstanding'],  SHEET_COLORS.suppliers)
   addSheet('Purchase Orders',  poRows,       PO_COLUMNS,        SHEET_COLORS.purchaseOrders)
   addSheet('PO Items',         poItemRows,   PO_ITEM_COLUMNS,   SHEET_COLORS.poItems)
   addSheet('GRNs',             grnRows,      GRN_COLUMNS,       SHEET_COLORS.grns)
