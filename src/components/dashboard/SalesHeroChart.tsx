@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import dayjs from 'dayjs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import api from '@/lib/api'
 import { cn, formatCurrencyCompact } from '@/lib/utils'
+import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useDateRange } from './useDateRange'
 import type { DateRangePreset } from './types'
 
@@ -47,34 +48,42 @@ export function SalesHeroChart() {
   const [invoiceCount, setInvoiceCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setIsLoading(true)
-      try {
-        const res = await api.get('/reports/sales/range', {
-          params: { from: resolved.from, to: resolved.to, bucket },
-        })
-        if (cancelled) return
-        const chartData = (res.data?.chartData ?? []) as ChartPoint[]
-        setData(chartData)
-        setTotal(Number(res.data?.total ?? 0))
-        setInvoiceCount(Number(res.data?.invoiceCount ?? 0))
-      } catch {
-        if (!cancelled) {
-          setData([])
-          setTotal(0)
-          setInvoiceCount(0)
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
+  // Guards against an out-of-order response overwriting newer data — now
+  // that `load` can be triggered from two independent places (the date-range
+  // effect below, and useBranchRefresh's event listener), a slow request from
+  // a since-superseded call could otherwise land after a faster, newer one.
+  const requestIdRef = useRef(0)
+
+  const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current
+    setIsLoading(true)
+    try {
+      const res = await api.get('/reports/sales/range', {
+        params: { from: resolved.from, to: resolved.to, bucket },
+      })
+      if (requestId !== requestIdRef.current) return
+      const chartData = (res.data?.chartData ?? []) as ChartPoint[]
+      setData(chartData)
+      setTotal(Number(res.data?.total ?? 0))
+      setInvoiceCount(Number(res.data?.invoiceCount ?? 0))
+    } catch {
+      if (requestId !== requestIdRef.current) return
+      setData([])
+      setTotal(0)
+      setInvoiceCount(0)
+    } finally {
+      if (requestId === requestIdRef.current) setIsLoading(false)
     }
-    load()
-    return () => {
-      cancelled = true
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved.from, resolved.to, bucket])
+
+  useEffect(() => { void load() }, [load])
+
+  // The branch-scoped chart figures don't move when only the date range
+  // changes, but they also don't refetch on branch switch — the effect
+  // above is keyed on the date range alone. useBranchRefresh covers the
+  // other axis (see DashboardPage's own KPI tiles, wired the same way).
+  useBranchRefresh(load)
 
   const subtitle = (() => {
     if (range.preset === 'month') return `${resolved.label} · daily`

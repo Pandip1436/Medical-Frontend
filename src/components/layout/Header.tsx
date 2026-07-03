@@ -98,13 +98,13 @@ export function Header({ breadcrumbs }: HeaderProps) {
       className={cn(
         'sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:px-6',
         'relative border-b border-border/40 dark:border-border/60',
-        'bg-gradient-to-b from-background/90 to-background/65 backdrop-blur-xl backdrop-saturate-180',
+        'bg-linear-to-b from-background/90 to-background/65 backdrop-blur-xl backdrop-saturate-180',
         'supports-backdrop-filter:bg-background/55',
         'shadow-[0_1px_2px_-1px_rgb(0_0_0/0.06),0_4px_16px_-8px_rgb(0_0_0/0.08)]',
         // Brand-tinted hairline that fades in from the edges — adds depth
         // without a hard line under the bar.
         'after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px',
-        'after:bg-gradient-to-r after:from-transparent after:via-brand/40 after:to-transparent'
+        'after:bg-linear-to-r after:from-transparent after:via-brand/40 after:to-transparent'
       )}
     >
       {/* Left: Hamburger (mobile) + Breadcrumbs */}
@@ -158,7 +158,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-gradient-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow md:flex"
+                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-linear-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow md:flex"
                 >
                   <Building2 className="h-3.5 w-3.5 text-primary" />
                   <span className="max-w-30 truncate">{activeBranch.name}</span>

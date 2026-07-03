@@ -501,6 +501,19 @@ export default function SalesListPage() {
     }
   }, [filteredInvoices, selectInvoice])
 
+  // Changing Period (or any other filter) can silently push the currently
+  // open invoice out of the filtered list — the detail panel would then keep
+  // showing that invoice with no indication it no longer matches what the
+  // list/stat-cards are displaying (e.g. list says "0 invoices today" while
+  // the panel still shows one from three days ago). Re-point the selection
+  // at the new list once it's settled, same fallback enterSplitView uses.
+  useEffect(() => {
+    if (effectiveView !== 'split' || isLoading || !selectedInvoiceId) return
+    if (filteredInvoices.some((inv) => inv.id === selectedInvoiceId)) return
+    selectInvoice(filteredInvoices[0]?.id ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredInvoices, isLoading])
+
   // ── Stats ── (reflect period + search + payment + status + salesperson, but
   // NOT the card drill-down — so clicking a card never rewrites its own total)
 

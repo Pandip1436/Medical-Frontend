@@ -133,6 +133,13 @@ export const useAuthStore = create<AuthState>()(
               batches: [], categories: [], hasLoaded: false,
             })
           }),
+          // Branch selection is per-account (a shared browser's next login
+          // shouldn't inherit this user's active branch), and clearing it
+          // here avoids a brief mismatched-branch flash before the next
+          // login's own fetchBranches() call resolves.
+          import('@/stores/branchStore').then(({ useBranchStore }) => {
+            useBranchStore.setState({ activeBranchId: null, activeBranch: null, branches: [] })
+          }),
         ]).catch(() => { /* sibling clear is best-effort */ })
       },
 
