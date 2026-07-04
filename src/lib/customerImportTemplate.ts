@@ -98,6 +98,7 @@ export interface ParsedCreditNote {
   sgst?: number
   igst?: number
   totalAmount?: number
+  status?: string
   settlementMode?: SettlementMode
   items: ParsedCreditNoteItem[]
 }
@@ -399,6 +400,7 @@ const CREDIT_NOTE_COLUMNS = [
   'sgst',
   'igst',
   'total_amount',
+  'status',
   'settlement_mode',
   'notes',
 ] as const
@@ -570,6 +572,9 @@ const SAMPLE_CREDIT_NOTE_ROW: Record<string, string | number> = {
   sgst: 30,
   igst: 0,
   total_amount: 560,
+  // APPROVED (a settled historical return) · PENDING_REVIEW · REJECTED.
+  // Blank defaults to APPROVED (imported returns are past, already-processed).
+  status: 'APPROVED',
   settlement_mode: 'CREDIT',
   notes: '',
 }
@@ -593,6 +598,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Linking rows', '`customer_code` (e.g. C001) is YOUR own reference that ties a customer to its invoices / payments / etc. `invoice_ref`, `quotation_ref`, `credit_note_ref` link a parent row to its line-item sheet. These *_ref / *_code values only connect rows inside this file — they are not stored.'],
   ['', ''],
   ['Sheet: Customers  (mandatory)', 'REQUIRED: name, phone.  Recommended: customer_code (needed to attach any invoices/payments below), type, opening_balance (sets the current outstanding). `doctor_ref` applies only when type = DOCTOR.'],
+  ['   ↳ read-only columns', 'total_billed, total_paid, outstanding, pending_invoices are REFERENCE ONLY — auto-filled on export and IGNORED on import. Leave them blank; the real balance comes from opening_balance + the Invoices / Payments sheets.'],
   ['', ''],
   ['Sheet: Invoices', 'REQUIRED: customer_code.  Recommended: invoice_number (original bill no.), grand_total, date. `invoice_ref` links its line items. If invoice_number is blank a number is auto-generated (will NOT match the physical bill).'],
   ['Sheet: Invoice Items', 'Optional. REQUIRED per row: invoice_ref, product_name, quantity. Header-only invoices are accepted if line detail is gone.'],
@@ -617,6 +623,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['invoice.status', 'DRAFT · PAID · UNPAID · PARTIAL · RETURNED · CANCELLED'],
   ['invoice.payment_mode', 'CASH · CARD · UPI · CREDIT · SPLIT'],
   ['quotation.status', 'DRAFT · SENT · ACCEPTED · REJECTED · CONVERTED'],
+  ['credit_note.status', 'PENDING_REVIEW · APPROVED · REJECTED (blank → APPROVED). Only APPROVED credit notes appear in the ledger & absorb into the invoice.'],
   ['credit_note.settlement_mode', 'REFUND · CREDIT · REPLACEMENT'],
   ['activity.type', 'CALL · WHATSAPP · EMAIL · NOTE · REMINDER'],
   ['activity.status', 'PENDING · DONE · CANCELLED (REMINDER only)'],
@@ -651,7 +658,12 @@ export function downloadCustomerImportTemplate(): void {
   applyInstructionsFormatting(instructionsWs, SHEET_COLORS.instructions)
   XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions')
 
-  addSheet('Customers',       SAMPLE_CUSTOMER_ROW,       CUSTOMER_COLUMNS,       SHEET_COLORS.customers)
+  // Blank template mirrors the EXPORT layout (same columns) so a round-trip is
+  // predictable. The trailing total_billed / total_paid / outstanding /
+  // pending_invoices are read-only reference columns — computed on export and
+  // ignored on import (see the Instructions sheet). Leave them blank when
+  // filling the template by hand.
+  addSheet('Customers',       SAMPLE_CUSTOMER_ROW,       EXPORT_CUSTOMER_COLUMNS, SHEET_COLORS.customers)
   addSheet('Invoices',        SAMPLE_INVOICE_ROW,        INVOICE_COLUMNS,        SHEET_COLORS.invoices)
   addSheet('Invoice Items',   SAMPLE_INVOICE_ITEM_ROW,   INVOICE_ITEM_COLUMNS,   SHEET_COLORS.invoiceItems)
   addSheet('Payments',        SAMPLE_PAYMENT_ROW,        PAYMENT_COLUMNS,        SHEET_COLORS.payments)
@@ -1246,6 +1258,11 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       sgst: toOptionalNumber(raw.sgst),
       igst: toOptionalNumber(raw.igst),
       totalAmount: toOptionalNumber(raw.total_amount),
+      status: normaliseEnum(raw.status, [
+        'PENDING_REVIEW',
+        'APPROVED',
+        'REJECTED',
+      ] as const),
       settlementMode: normaliseEnum(raw.settlement_mode, [
         'REFUND',
         'CREDIT',
@@ -1571,6 +1588,7 @@ interface ExportCreditNoteInput {
   sgst?: number | string
   igst?: number | string
   totalAmount?: number | string
+  status?: string
   settlementMode?: string
 }
 
@@ -1827,7 +1845,7 @@ export function exportCustomersToWorkbook(
     sgst: num(cn.sgst),
     igst: num(cn.igst),
     total_amount: num(cn.totalAmount),
-    status: '',
+    status: cn.status ?? '',
     settlement_mode: cn.settlementMode ?? '',
     notes: cn.notes ?? '',
   }))

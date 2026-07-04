@@ -494,6 +494,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Linking rows', '`supplier_code` (e.g. S001) is YOUR own reference that ties a supplier to its POs / GRNs / debit notes / payments. `po_ref`, `grn_ref`, `debit_note_ref` link a parent row to its line-item sheet. These *_ref / *_code values only connect rows inside this file — they are not stored.'],
   ['', ''],
   ['Sheet: Suppliers  (mandatory)', 'REQUIRED: name, phone.  Recommended: supplier_code (needed to attach any POs/GRNs/payments below), gstin, payment_terms, opening_balance.'],
+  ['   ↳ read-only columns', 'total_purchases, paid_amount, outstanding are REFERENCE ONLY — auto-filled on export and IGNORED on import. Leave them blank; the real balance comes from opening_balance + the GRNs / Payments sheets.'],
   ['', ''],
   ['Sheet: Purchase Orders', 'Optional. REQUIRED: supplier_code.  Recommended: po_number (original PO no.), date, total_amount. `po_ref` links its line items; leave po_number blank to auto-generate.'],
   ['Sheet: PO Items', 'Optional. REQUIRED per row: po_ref, product_name.'],
@@ -546,7 +547,10 @@ export function downloadSupplierImportTemplate(): void {
   applyInstructionsFormatting(instructionsWs, SHEET_COLORS.instructions)
   XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions')
 
-  addSheet('Suppliers',        SAMPLE_SUPPLIER_ROW, SUPPLIER_COLUMNS, SHEET_COLORS.suppliers)
+  // Blank template mirrors the EXPORT layout. total_purchases / paid_amount /
+  // outstanding are read-only reference columns — computed on export, ignored on
+  // import (see Instructions). Leave them blank when filling by hand.
+  addSheet('Suppliers',        SAMPLE_SUPPLIER_ROW, [...SUPPLIER_COLUMNS, 'total_purchases', 'paid_amount', 'outstanding'], SHEET_COLORS.suppliers)
   addSheet('Purchase Orders',  SAMPLE_PO_ROW,       PO_COLUMNS,       SHEET_COLORS.purchaseOrders)
   addSheet('PO Items',         SAMPLE_PO_ITEM_ROW,  PO_ITEM_COLUMNS,  SHEET_COLORS.poItems)
   addSheet('GRNs',             SAMPLE_GRN_ROW,      GRN_COLUMNS,      SHEET_COLORS.grns)

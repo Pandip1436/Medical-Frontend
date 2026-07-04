@@ -1,12 +1,20 @@
 import { useEffect } from 'react'
-import { CheckCircle2, Loader2, XCircle, X } from 'lucide-react'
+import { CheckCircle2, Loader2, XCircle, X, ArrowRight } from 'lucide-react'
 import { useImportStore } from '@/stores/importStore'
 import { ImportProgressBar } from '@/components/shared/ImportProgressBar'
+import { navigate } from '@/lib/router'
 
 const LABEL: Record<string, string> = {
   products: 'Products',
   suppliers: 'Suppliers',
   customers: 'Customers',
+}
+
+// Where clicking the pill takes you — the list the imported rows land in.
+const ROUTE: Record<string, string> = {
+  products: '/inventory/products?view=table',
+  suppliers: '/purchase/suppliers?view=table',
+  customers: '/customers?view=table',
 }
 
 /**
@@ -34,10 +42,31 @@ export function ImportProgressPill() {
   if (!active && !result && !error) return null
 
   const label = (entity && LABEL[entity]) || 'Records'
+  const route = entity ? ROUTE[entity] : undefined
+  const go = () => { if (route) navigate(route) }
 
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex justify-end">
-      <div className="pointer-events-auto w-72 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg backdrop-blur-sm">
+      <div
+        role={route ? 'button' : undefined}
+        tabIndex={route ? 0 : undefined}
+        onClick={route ? go : undefined}
+        onKeyDown={
+          route
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  go()
+                }
+              }
+            : undefined
+        }
+        aria-label={route ? `View ${label.toLowerCase()}` : undefined}
+        className={
+          'pointer-events-auto w-72 rounded-xl border border-border/60 bg-background/95 p-3 shadow-lg backdrop-blur-sm ' +
+          (route ? 'cursor-pointer transition-colors hover:border-emerald-500/60 hover:bg-accent/40' : '')
+        }
+      >
         <div className="mb-1.5 flex items-center gap-2">
           {active ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
@@ -56,7 +85,10 @@ export function ImportProgressPill() {
           {!active && (
             <button
               type="button"
-              onClick={dismiss}
+              onClick={(e) => {
+                e.stopPropagation()
+                dismiss()
+              }}
               aria-label="Dismiss"
               className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
@@ -71,13 +103,14 @@ export function ImportProgressPill() {
           <p className="text-[11px] text-rose-600 dark:text-rose-400">{error}</p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
-            Done — {total.toLocaleString('en-IN')} row{total === 1 ? '' : 's'} processed. Safe to continue working.
+            Done — {total.toLocaleString('en-IN')} row{total === 1 ? '' : 's'} processed.
           </p>
         )}
 
-        {active && (
-          <p className="mt-1.5 text-[10px] text-muted-foreground">
-            You can keep working — this continues in the background.
+        {route && (
+          <p className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+            {active ? 'Keeps running in the background — tap to view' : `View ${label.toLowerCase()}`}
+            <ArrowRight className="h-3 w-3" />
           </p>
         )}
       </div>
