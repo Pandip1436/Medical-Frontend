@@ -178,6 +178,7 @@ export interface ParsedPayment {
   paymentMode?: string
   referenceNumber?: string
   notes?: string
+  invoiceNumber?: string
 }
 
 export interface ParsedRefund {
@@ -322,6 +323,7 @@ const INVOICE_ITEM_COLUMNS = [
 
 const PAYMENT_COLUMNS = [
   'customer_code',
+  'invoice_number',
   'date',
   'amount',
   'payment_mode',
@@ -445,7 +447,9 @@ const SAMPLE_INVOICE_ROW: Record<string, string | number> = {
   // already has. Leave blank only if you genuinely have no old number — we
   // will then auto-generate one (which won't match your physical records).
   invoice_number: 'HS/25-26/0421',
-  date: '2026-04-12',
+  // Include the time (HH:mm:ss) so transactions keep their exact order in the
+  // ledger. Date-only ("2026-04-12") also works — same-day rows just group.
+  date: '2026-04-12T10:30:00',
   billing_type: 'WHOLESALE',
   subtotal: 10000,
   product_discount: 0,
@@ -477,7 +481,11 @@ const SAMPLE_INVOICE_ITEM_ROW: Record<string, string | number> = {
 
 const SAMPLE_PAYMENT_ROW: Record<string, string | number> = {
   customer_code: 'C001',
-  date: '2026-04-20',
+  // The invoice this receipt paid — must match an invoice_number in the
+  // Invoices sheet for the same customer. Leave blank for a customer-level
+  // (unallocated) lump payment.
+  invoice_number: 'HS/25-26/0421',
+  date: '2026-04-20T15:45:00',
   amount: 5000,
   payment_mode: 'UPI',
   reference_number: 'UTR123456',
@@ -491,7 +499,7 @@ const SAMPLE_PAYMENT_ROW: Record<string, string | number> = {
 const SAMPLE_REFUND_ROW: Record<string, string | number> = {
   customer_code: 'C001',
   credit_note_no: 'CN/25-26/0044',
-  date: '2026-05-02',
+  date: '2026-05-02T11:15:00',
   amount: 500,
   payment_mode: 'CASH',
   // Original refund reference from your legacy system. Leave blank to auto-
@@ -525,7 +533,7 @@ const SAMPLE_QUOTATION_ROW: Record<string, string | number> = {
   // Original quotation number from your legacy system. Leave blank to auto-
   // generate; we recommend filling it in to match the customer's stored copy.
   quotation_number: 'QTN/25-26/0118',
-  date: '2026-04-05',
+  date: '2026-04-05T10:00:00',
   valid_until: '2026-05-05',
   subtotal: 8000,
   cgst: 480,
@@ -555,7 +563,7 @@ const SAMPLE_CREDIT_NOTE_ROW: Record<string, string | number> = {
   // REQUIRED: which invoice this return is against. Must match the
   // invoice_number you used in the Invoices sheet for the same customer.
   invoice_number: 'HS/25-26/0421',
-  date: '2026-04-20',
+  date: '2026-04-20T16:20:00',
   reason: 'Damaged stock returned',
   subtotal: 500,
   cgst: 30,
@@ -580,26 +588,28 @@ const SAMPLE_CREDIT_NOTE_ITEM_ROW: Record<string, string | number> = {
 const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['HOSPITAL SUPPLIERS — Customer Import Template', ''],
   ['', ''],
-  ['How to use', 'Fill the sheets below, then upload this file from the Import drawer.'],
+  ['How to use', 'Fill in the sheets below, then upload this file from the Import drawer. "Customers" is the only mandatory sheet — all the others are optional history. Blank sheets are ignored.'],
+  ['Required vs optional', 'Each sheet lists its REQUIRED fields — a row missing any of them is skipped with an error. Every other column is optional: leave it blank and a sensible default is used.'],
+  ['Linking rows', '`customer_code` (e.g. C001) is YOUR own reference that ties a customer to its invoices / payments / etc. `invoice_ref`, `quotation_ref`, `credit_note_ref` link a parent row to its line-item sheet. These *_ref / *_code values only connect rows inside this file — they are not stored.'],
   ['', ''],
-  ['Sheet: Customers', 'One row per customer. `customer_code` is YOUR own reference (e.g. C001) used to link this customer to its invoices, payments, activities and prescriptions in other sheets. It is not stored. `doctor_ref` is only used when `type` is DOCTOR — your own reference for which doctor this customer belongs to; leave blank otherwise.'],
+  ['Sheet: Customers  (mandatory)', 'REQUIRED: name, phone.  Recommended: customer_code (needed to attach any invoices/payments below), type, opening_balance (sets the current outstanding). `doctor_ref` applies only when type = DOCTOR.'],
   ['', ''],
-  ['Sheet: Invoices', 'One row per past invoice. `invoice_ref` is YOUR own reference used to link items in the Invoice Items sheet. `invoice_number` should hold the ORIGINAL invoice number from your previous system (Marg / Tally / book) — that\'s what the customer has on their bill copy. Leave it blank only if no old number exists; in that case we will auto-generate one (which will NOT match physical records).'],
-  ['Sheet: Invoice Items', 'Optional. Line items linked to an Invoices row by `invoice_ref`. Header-only invoices are accepted if line detail is no longer available.'],
+  ['Sheet: Invoices', 'REQUIRED: customer_code.  Recommended: invoice_number (original bill no.), grand_total, date. `invoice_ref` links its line items. If invoice_number is blank a number is auto-generated (will NOT match the physical bill).'],
+  ['Sheet: Invoice Items', 'Optional. REQUIRED per row: invoice_ref, product_name, quantity. Header-only invoices are accepted if line detail is gone.'],
   ['', ''],
-  ['Sheet: Payments', 'One row per past receipt. `receipt_number` works the same way as `invoice_number` — fill in the original receipt id from your old system to keep reconciliation working. Outstanding balance is set via Customers.opening_balance, not by walking payments.'],
+  ['Sheet: Payments', 'REQUIRED: customer_code, amount (greater than 0).  Recommended: invoice_number (the bill this receipt paid — keeps it attributed correctly), date, payment_mode, receipt_number.'],
   ['', ''],
-  ['Sheet: Refunds', 'One row per past cash refund paid back to the customer. REQUIRED: `credit_note_no` must match a credit note you imported in the Credit Notes sheet for the same customer (a refund always belongs to exactly one credit note).'],
+  ['Sheet: Refunds', 'REQUIRED: customer_code, credit_note_no (must match a Credit Notes row for the same customer), amount.'],
   ['', ''],
-  ['Sheet: Activities', 'One row per call / WhatsApp / email / note / reminder.'],
+  ['Sheet: Activities', 'Optional. REQUIRED per row: customer_code, type.'],
   ['', ''],
-  ['Sheet: Prescriptions', 'One row per prescription doc reference. File uploads are not supported via import — use the customer page after import.'],
+  ['Sheet: Prescriptions', 'Optional. REQUIRED per row: customer_code. File uploads are not supported here — attach docs from the customer page after import.'],
   ['', ''],
-  ['Sheet: Quotations', 'One row per past quotation. `quotation_ref` links items in the Quotation Items sheet. Fill in the legacy quotation_number to match your customer\'s stored copy.'],
-  ['Sheet: Quotation Items', 'Optional. Line items linked to a Quotations row by `quotation_ref`.'],
+  ['Sheet: Quotations', 'Optional. REQUIRED: customer_code. `quotation_ref` links its line items; fill quotation_number to match the stored copy.'],
+  ['Sheet: Quotation Items', 'Optional. REQUIRED per row: quotation_ref.'],
   ['', ''],
-  ['Sheet: Credit Notes', 'One row per sales return / credit note. REQUIRED: `invoice_number` must match an invoice you imported in the Invoices sheet for the same customer. `credit_note_ref` links items in the Credit Note Items sheet.'],
-  ['Sheet: Credit Note Items', 'Optional. Returned-item line details linked to a Credit Notes row by `credit_note_ref`.'],
+  ['Sheet: Credit Notes', 'REQUIRED: customer_code, invoice_number (must match an Invoices row for the same customer). `credit_note_ref` links its line items.'],
+  ['Sheet: Credit Note Items', 'Optional. REQUIRED per row: credit_note_ref.'],
   ['', ''],
   ['Allowed values', ''],
   ['customer.type', 'RETAIL · WHOLESALE · DOCTOR'],
@@ -965,6 +975,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       paymentMode: toOptionalStr(raw.payment_mode),
       referenceNumber: toOptionalStr(raw.reference_number),
       notes: toOptionalStr(raw.notes),
+      invoiceNumber: toOptionalStr(raw.invoice_number),
     })
   })
 
@@ -1481,6 +1492,7 @@ interface ExportPaymentInput {
   id: string
   receiptNumber: string
   customerId: string
+  invoiceId?: string | null
   createdAt: string | Date
   amount: number | string
   paymentMode?: string
@@ -1596,6 +1608,18 @@ function isoDate(v: string | Date | null | undefined): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Full-precision timestamp for fields the ledger sorts on (invoice date,
+// payment/refund/credit-note dates). Keeping the time-of-day means the exact
+// transaction order round-trips through export → import; date-only would land
+// every same-day row at midnight and lose the sequence. The parser
+// (toISODate) and backend (parseDate) already preserve time.
+function isoDateTime(v: string | Date | null | undefined): string {
+  if (!v) return ''
+  const d = v instanceof Date ? v : new Date(v)
+  if (isNaN(d.getTime())) return ''
+  return d.toISOString()
+}
+
 function num(v: unknown): number | '' {
   if (v === null || v === undefined || v === '') return ''
   const n = typeof v === 'number' ? v : Number(v)
@@ -1618,8 +1642,10 @@ export function exportCustomersToWorkbook(
   // Build a stable invoice_ref per invoice (INV-A, INV-B, ...) so the line
   // items sheet links back. Same for quotations and credit notes.
   const invRefFor = new Map<string, string>()
+  const invNumberById = new Map<string, string>()
   payload.invoices.forEach((inv, i) => {
     invRefFor.set(inv.invoiceNumber, refCode('INV', i))
+    invNumberById.set(inv.id, inv.invoiceNumber)
   })
   const qtnRefFor = new Map<string, string>()
   payload.quotations.forEach((q, i) => {
@@ -1688,7 +1714,7 @@ export function exportCustomersToWorkbook(
     customer_code: inv.customerId ? (codeFor.get(inv.customerId) ?? '') : '',
     invoice_ref: invRefFor.get(inv.invoiceNumber) ?? '',
     invoice_number: inv.invoiceNumber,
-    date: isoDate(inv.date),
+    date: isoDateTime(inv.date),
     billing_type: inv.billingType ?? '',
     subtotal: num(inv.subtotal),
     product_discount: num(inv.productDiscount),
@@ -1720,7 +1746,10 @@ export function exportCustomersToWorkbook(
 
   const paymentRows = payload.payments.map((p) => ({
     customer_code: codeFor.get(p.customerId) ?? '',
-    date: isoDate(p.createdAt),
+    // The invoice this receipt paid — keeps it attributed to its invoice on
+    // re-import (otherwise the ledger double-counts it against amountPaid).
+    invoice_number: p.invoiceId ? (invNumberById.get(p.invoiceId) ?? '') : '',
+    date: isoDateTime(p.createdAt),
     amount: num(p.amount),
     payment_mode: p.paymentMode ?? '',
     reference_number: p.referenceNumber ?? '',
@@ -1734,7 +1763,7 @@ export function exportCustomersToWorkbook(
   const refundRows = payload.refunds.map((r) => ({
     customer_code: r.customerId ? (codeFor.get(r.customerId) ?? '') : '',
     credit_note_no: creditNoteNoById.get(r.creditNoteId) ?? '',
-    date: isoDate(r.createdAt),
+    date: isoDateTime(r.createdAt),
     amount: num(r.amount),
     payment_mode: r.paymentMode ?? '',
     refund_number: r.refundNumber,
@@ -1791,7 +1820,7 @@ export function exportCustomersToWorkbook(
     credit_note_ref: cnRefFor.get(cn.creditNoteNo) ?? '',
     credit_note_no: cn.creditNoteNo,
     invoice_number: cn.invoiceNumber,
-    date: isoDate(cn.date),
+    date: isoDateTime(cn.date),
     reason: cn.reason ?? '',
     subtotal: num(cn.subtotal),
     cgst: num(cn.cgst),

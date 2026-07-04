@@ -45,6 +45,8 @@ import {
   downloadProductImportTemplate,
   parseProductImportWorkbook,
 } from '@/lib/productImportTemplate'
+import { ImportProgressBar } from '@/components/shared/ImportProgressBar'
+import { useImportStore, type ImportChunk } from '@/stores/importStore'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Backend result shape — mirrors backend/src/products/dto/import-products.dto.ts
@@ -165,7 +167,11 @@ export function ImportProductsDrawer({
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ImportResult | null>(null)
   const [commitResult, setCommitResult] = useState<ImportResult | null>(null)
-  const [commitProgress, setCommitProgress] = useState<{ done: number; total: number } | null>(null)
+  // Import runs in importStore so it survives this drawer closing / navigation.
+  const runImport = useImportStore((s) => s.run)
+  const importEntity = useImportStore((s) => s.entity)
+  const importDone = useImportStore((s) => s.done)
+  const importTotal = useImportStore((s) => s.total)
   const [duplicateHandling, setDuplicateHandling] =
     useState<DuplicateHandling>('UPDATE')
   const [isDragging, setIsDragging] = useState(false)
@@ -178,7 +184,6 @@ export function ImportProductsDrawer({
     setParseError(null)
     setPreviewResult(null)
     setCommitResult(null)
-    setCommitProgress(null)
     setDuplicateHandling('UPDATE')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
@@ -288,46 +293,47 @@ export function ImportProductsDrawer({
     const payload = buildPayload(parseResult, duplicateHandling, false)
     const { products, categories, ...rest } = payload
     const total = products.length
-    setCommitProgress({ done: 0, total })
+
+    // Build the chunks up-front. Categories ride with the first chunk only;
+    // later chunks auto-create any still-missing ones from their products.
+    const chunks: ImportChunk[] = []
+    if (total <= COMMIT_CHUNK_SIZE) {
+      chunks.push({ payload, count: total })
+    } else {
+      for (let i = 0; i < total; i += COMMIT_CHUNK_SIZE) {
+        const chunk = products.slice(i, i + COMMIT_CHUNK_SIZE)
+        chunks.push({
+          payload: { ...rest, categories: i === 0 ? categories : [], products: chunk },
+          count: chunk.length,
+        })
+      }
+    }
+
     setStage('committing')
     try {
-      let result: ImportResult
-      if (total <= COMMIT_CHUNK_SIZE) {
-        result = (await api.post<ImportResult>('/products/import/commit', payload)).data
-        setCommitProgress({ done: total, total })
-      } else {
-        // Large file → send in sequential chunks, updating the "X / total"
-        // counter after each. Categories ride along with the first chunk only;
-        // later chunks auto-create any still-missing ones from their products.
-        const results: ImportResult[] = []
-        for (let i = 0; i < total; i += COMMIT_CHUNK_SIZE) {
-          const chunk = products.slice(i, i + COMMIT_CHUNK_SIZE)
-          const res = await api.post<ImportResult>('/products/import/commit', {
-            ...rest,
-            categories: i === 0 ? categories : [],
-            products: chunk,
-          })
-          results.push(res.data)
-          setCommitProgress({ done: Math.min(i + chunk.length, total), total })
-        }
-        result = mergeImportResults(results)
-      }
+      // Runs in importStore — keeps going even if this drawer is closed.
+      const result = (await runImport({
+        endpoint: '/products/import/commit',
+        entity: 'products',
+        chunks,
+        total,
+        mergeResults: (rs) => mergeImportResults(rs as ImportResult[]),
+        onComplete: (merged) => {
+          const s = (merged as ImportResult).summary
+          toast.success(
+            `Imported ${s.products.created} new products, updated ${s.products.updated}, with ${s.categories.created} new categories.`,
+          )
+          onImported()
+        },
+        onError: (msg) => toast.error(msg),
+      })) as ImportResult
       setCommitResult(result)
       setStage('done')
-      const s = result.summary
-      toast.success(
-        `Imported ${s.products.created} new products, updated ${s.products.updated}, with ${s.categories.created} new categories.`,
-      )
-      onImported()
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ??
-        (err instanceof Error ? err.message : 'Import failed')
-      toast.error(String(msg))
+    } catch {
+      // Error toast already surfaced via onError; just return to the preview.
       setStage('preview')
     }
-  }, [buildPayload, duplicateHandling, onImported, parseResult])
+  }, [buildPayload, duplicateHandling, onImported, parseResult, runImport])
 
   const parsedCounts = useMemo(() => {
     if (!parseResult) return null
@@ -357,8 +363,8 @@ export function ImportProductsDrawer({
               {stage === 'parsing' && 'Reading file…'}
               {stage === 'preview' && 'Step 2 of 2 · Review'}
               {stage === 'committing' &&
-                (commitProgress
-                  ? `Importing ${commitProgress.done}/${commitProgress.total}`
+                (importEntity === 'products' && importTotal > 0
+                  ? `Importing ${importDone}/${importTotal}`
                   : 'Importing…')}
               {stage === 'done' && 'Done'}
             </Badge>
@@ -400,30 +406,11 @@ export function ImportProductsDrawer({
               <p className="text-sm text-muted-foreground">
                 Importing products into the catalogue…
               </p>
-              {commitProgress ? (
-                <div className="w-full max-w-xs space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-emerald-700 dark:text-emerald-300">
-                      Transferring {commitProgress.done.toLocaleString('en-IN')} / {commitProgress.total.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {commitProgress.total > 0
-                        ? Math.round((commitProgress.done / commitProgress.total) * 100)
-                        : 0}%
-                    </span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                      style={{
-                        width: `${commitProgress.total > 0 ? (commitProgress.done / commitProgress.total) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                </div>
+              {importEntity === 'products' && importTotal > 0 ? (
+                <ImportProgressBar done={importDone} total={importTotal} />
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Don't close this drawer.
+                You can close this — the import keeps running in the background.
               </p>
             </div>
           ) : null}

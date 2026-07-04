@@ -558,9 +558,19 @@ export default function ProductsPage() {
   // Round-trip-compatible Excel export. Pulls the full product + category
   // tree from /products/export so the workbook matches the import template
   // and can be edited + re-uploaded.
+  // Filters currently applied to the list — the export must honour them (e.g.
+  // the In Stock / Low Stock / Out of Stock tab) so it doesn't dump all products.
+  const exportFilterParams = () => ({
+    q: search || undefined,
+    categoryId: selectedCategoryId !== 'all' ? selectedCategoryId : undefined,
+    schedule: selectedSchedule !== 'all' ? selectedSchedule : undefined,
+    status: selectedStatus !== 'all' ? selectedStatus : undefined,
+    stockFilter: stockTab !== 'all' ? stockTab : undefined,
+  })
+
   const handleExportExcel = async () => {
     try {
-      const res = await api.get('/products/export')
+      const res = await api.get('/products/export', { params: exportFilterParams() })
       const data = res.data as ProductExportPayload
       const activeBranch = useBranchStore.getState().activeBranch
       const user = useAuthStore.getState().user
@@ -582,7 +592,7 @@ export default function ProductsPage() {
   // only the current page was exported, which is destructive for filtered
   // exports). Returns a flat array for simple non-round-trip use.
   const fetchAllProductsForExport = async () => {
-    const res = await api.get('/products/export')
+    const res = await api.get('/products/export', { params: exportFilterParams() })
     const data = res.data as ProductExportPayload
     return data.products
   }

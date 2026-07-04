@@ -226,14 +226,27 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
   const sup = d.supplier.data
   const kpis = d.ledger.data?.kpis ?? []
 
-  // Derive paid amount: Total Purchases − Outstanding
+  // KPI values arrive pre-formatted from the backend (e.g. "₹11,43,786"), so
+  // strip everything but digits/sign/decimal before parsing — a bare Number()
+  // on that string is NaN, which is what made "Paid" render as ₹0.
   const kpiNum = (label: string) => {
     const k = kpis.find((x) => x.label.toLowerCase() === label.toLowerCase())
-    return k ? Number(k.value) : null
+    if (!k) return null
+    const n = Number(String(k.value).replace(/[^0-9.-]/g, ''))
+    return Number.isFinite(n) ? n : null
   }
   const totalPurchasesNum = kpiNum('Total Purchases')
   const outstandingNum = Number(sup?.currentOutstanding ?? 0)
-  const derivedPaid = totalPurchasesNum !== null ? Math.max(0, totalPurchasesNum - outstandingNum) : null
+  // Prefer the backend's actual Total Paid (Σ supplier payments) — it reconciles
+  // (Purchases = Paid + Returns + Outstanding). Fall back to Purchases −
+  // Outstanding only if that KPI is missing.
+  const paidFromKpi = kpiNum('Total Paid')
+  const derivedPaid =
+    paidFromKpi !== null
+      ? paidFromKpi
+      : totalPurchasesNum !== null
+        ? Math.max(0, totalPurchasesNum - outstandingNum)
+        : null
 
   // Per-tab pagination state
   const [ledgerPage, setLedgerPage] = useState(1)

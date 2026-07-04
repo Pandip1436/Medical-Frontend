@@ -373,7 +373,7 @@ const SAMPLE_PO_ROW: Record<string, string | number> = {
   supplier_code: 'S001',
   po_ref: 'PO-A',
   po_number: 'HS/PO/25-26/0210',
-  date: '2026-04-02',
+  date: '2026-04-02T09:00:00',
   expected_delivery: '2026-04-10',
   total_amount: 25000,
   status: 'FULLY_RECEIVED',
@@ -393,7 +393,9 @@ const SAMPLE_GRN_ROW: Record<string, string | number> = {
   supplier_code: 'S001',
   grn_ref: 'GRN-A',
   grn_number: 'HS/GRN/25-26/0188',
-  date: '2026-04-10',
+  // Include the time (HH:mm:ss) so transactions keep their exact order in the
+  // ledger. Date-only ("2026-04-10") also works — same-day rows just group.
+  date: '2026-04-10T09:15:00',
   supplier_invoice_no: 'MTD/INV/0451',
   supplier_invoice_date: '2026-04-09',
   supplier_invoice_amount: 25000,
@@ -422,7 +424,7 @@ const SAMPLE_DN_ROW: Record<string, string | number> = {
   debit_note_ref: 'DN-A',
   debit_note_no: 'HS/DN/25-26/0024',
   grn_number: 'HS/GRN/25-26/0188',
-  date: '2026-04-15',
+  date: '2026-04-15T14:00:00',
   reason: 'Damaged stock on receipt',
   subtotal: 500,
   cgst: 30,
@@ -448,7 +450,7 @@ const SAMPLE_DN_ITEM_ROW: Record<string, string | number> = {
 const SAMPLE_PAYMENT_ROW: Record<string, string | number> = {
   supplier_code: 'S001',
   grn_number: 'HS/GRN/25-26/0188',
-  date: '2026-04-20',
+  date: '2026-04-20T16:30:00',
   amount: 12000,
   payment_mode: 'NEFT_UPI',
   reference_number: 'UTR998877',
@@ -487,23 +489,26 @@ const SAMPLE_BATCH_ROW: Record<string, string | number> = {
 const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['HOSPITAL SUPPLIERS — Supplier Import Template', ''],
   ['', ''],
-  ['How to use', 'Fill the sheets below, then upload this file from the Import drawer.'],
+  ['How to use', 'Fill in the sheets below, then upload this file from the Import drawer. "Suppliers" is the only mandatory sheet — the rest are optional history. Blank sheets are ignored.'],
+  ['Required vs optional', 'Each sheet lists its REQUIRED fields — a row missing any of them is skipped with an error. Every other column is optional: leave it blank and a sensible default is used.'],
+  ['Linking rows', '`supplier_code` (e.g. S001) is YOUR own reference that ties a supplier to its POs / GRNs / debit notes / payments. `po_ref`, `grn_ref`, `debit_note_ref` link a parent row to its line-item sheet. These *_ref / *_code values only connect rows inside this file — they are not stored.'],
   ['', ''],
-  ['Sheet: Suppliers', 'One row per supplier. `supplier_code` is YOUR own reference (e.g. S001) used to link this supplier to its POs / GRNs / debit notes / activities. It is not stored.'],
-  ['Sheet: Purchase Orders', 'One row per past PO. `po_ref` links items in the PO Items sheet. `po_number` should hold the ORIGINAL PO number from your previous system. Leave blank to auto-generate.'],
-  ['Sheet: PO Items', 'Optional line items linked to a Purchase Orders row by `po_ref`.'],
+  ['Sheet: Suppliers  (mandatory)', 'REQUIRED: name, phone.  Recommended: supplier_code (needed to attach any POs/GRNs/payments below), gstin, payment_terms, opening_balance.'],
   ['', ''],
-  ['Sheet: GRNs', 'One row per past Goods Received Note. REQUIRED: `supplier_invoice_no` (the supplier\'s bill number). `grn_ref` links items in the GRN Items sheet. Importing a GRN with items that match a product WILL create a real stock batch and add to that product\'s stock — do not also add the same stock via the Batches sheet, or it will be counted twice.'],
-  ['Sheet: GRN Items', 'Optional line items linked to a GRNs row by `grn_ref`.'],
+  ['Sheet: Purchase Orders', 'Optional. REQUIRED: supplier_code.  Recommended: po_number (original PO no.), date, total_amount. `po_ref` links its line items; leave po_number blank to auto-generate.'],
+  ['Sheet: PO Items', 'Optional. REQUIRED per row: po_ref, product_name.'],
   ['', ''],
-  ['Sheet: Debit Notes', 'One row per past debit note / purchase return. Optional `grn_number` to link this return to a specific GRN — if filled, the GRN must exist in your system or be imported in this same file. `debit_note_ref` links items.'],
-  ['Sheet: Debit Note Items', 'Optional line items linked to a Debit Notes row by `debit_note_ref`.'],
+  ['Sheet: GRNs', 'REQUIRED: supplier_code, supplier_invoice_no (the supplier\'s bill number).  Recommended: supplier_invoice_amount, amount_paid, date. `grn_ref` links its line items. A GRN with items matching a product creates a real stock batch — do NOT also add the same stock via the Batches sheet or it is counted twice.'],
+  ['Sheet: GRN Items', 'Optional. REQUIRED per row: grn_ref, product_name, received_qty.'],
   ['', ''],
-  ['Sheet: Payments', 'One row per past payment made to this supplier. Optional `grn_number` links it to a specific GRN (must exist already or be imported in this same file) — leave blank for a lump-sum payment not tied to one GRN.'],
+  ['Sheet: Debit Notes', 'Optional. REQUIRED: supplier_code, total_amount.  Optional grn_number links the return to a specific GRN (that GRN must exist already or be in this same file). `debit_note_ref` links its line items.'],
+  ['Sheet: Debit Note Items', 'Optional. REQUIRED per row: debit_note_ref.'],
   ['', ''],
-  ['Sheet: Activities', 'One row per call / WhatsApp / email / note / reminder with the supplier.'],
+  ['Sheet: Payments', 'REQUIRED: supplier_code, amount (greater than 0).  Recommended: date, payment_mode. Optional grn_number links it to a specific GRN — leave blank for a lump-sum payment.'],
   ['', ''],
-  ['Sheet: Batches', 'Use this ONLY for stock you are NOT already reporting via a GRN row above (GRNs create their own batch automatically). One row per additional historical stock-batch. REQUIRED: `batch_number`, and either `product_id` (preferred — the live Product row id) OR `product_name` (case-insensitive match in your branch). The product must already exist — create it first via Products → Add, or use the products import.'],
+  ['Sheet: Activities', 'Optional. REQUIRED per row: supplier_code, type.'],
+  ['', ''],
+  ['Sheet: Batches', 'Optional — use ONLY for stock NOT already reported via a GRN row above (GRNs create their own batch). REQUIRED: batch_number, plus product_id (preferred — the live Product id) OR product_name (matched in your branch). The product must already exist (add it first, or use the products import).'],
   ['', ''],
   ['Allowed values', ''],
   ['supplier.payment_terms', 'NET_30 · NET_45 · NET_60'],
@@ -1401,6 +1406,17 @@ function isoDate(v: string | Date | null | undefined): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Full-precision timestamp for fields the supplier ledger sorts on (GRN date,
+// debit-note date, payment date). Keeping the time-of-day means the exact
+// transaction order round-trips through export → import; date-only would land
+// every same-day row at midnight and lose the sequence.
+function isoDateTime(v: string | Date | null | undefined): string {
+  if (!v) return ''
+  const d = v instanceof Date ? v : new Date(v)
+  if (isNaN(d.getTime())) return ''
+  return d.toISOString()
+}
+
 function num(v: unknown): number | '' {
   if (v === null || v === undefined || v === '') return ''
   const n = typeof v === 'number' ? v : Number(v)
@@ -1508,7 +1524,7 @@ export function exportSuppliersToWorkbook(
     supplier_code: codeFor.get(g.supplierId) ?? '',
     grn_ref: grnRefFor.get(g.grnNumber) ?? '',
     grn_number: g.grnNumber,
-    date: isoDate(g.date),
+    date: isoDateTime(g.date),
     supplier_invoice_no: g.supplierInvoiceNo,
     supplier_invoice_date: isoDate(g.supplierInvoiceDate),
     supplier_invoice_amount: num(g.supplierInvoiceAmount),
@@ -1537,7 +1553,7 @@ export function exportSuppliersToWorkbook(
     debit_note_ref: dnRefFor.get(d.debitNoteNo) ?? '',
     debit_note_no: d.debitNoteNo,
     grn_number: d.grnId ? (grnNumberById.get(d.grnId) ?? '') : '',
-    date: isoDate(d.date),
+    date: isoDateTime(d.date),
     reason: d.reason ?? '',
     subtotal: num(d.subtotal),
     cgst: num(d.cgst),
@@ -1563,7 +1579,7 @@ export function exportSuppliersToWorkbook(
   const paymentRows = payload.payments.map((p) => ({
     supplier_code: codeFor.get(p.supplierId) ?? '',
     grn_number: p.grnId ? (grnNumberById.get(p.grnId) ?? '') : '',
-    date: isoDate(p.createdAt),
+    date: isoDateTime(p.createdAt),
     amount: num(p.amount),
     payment_mode: p.paymentMode ?? '',
     reference_number: p.referenceNumber ?? '',

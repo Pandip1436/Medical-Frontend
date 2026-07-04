@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { ImportProgressBar } from '@/components/shared/ImportProgressBar'
+import { useImportStore, type ImportChunk } from '@/stores/importStore'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -212,7 +214,11 @@ export function ImportCustomersDrawer({
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ImportResult | null>(null)
   const [commitResult, setCommitResult] = useState<ImportResult | null>(null)
-  const [commitProgress, setCommitProgress] = useState<{ done: number; total: number } | null>(null)
+  // Import runs in importStore so it survives this drawer closing / navigation.
+  const runImport = useImportStore((s) => s.run)
+  const importEntity = useImportStore((s) => s.entity)
+  const importDone = useImportStore((s) => s.done)
+  const importTotal = useImportStore((s) => s.total)
   const [duplicateHandling, setDuplicateHandling] = useState<DuplicateHandling>('UPDATE')
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -224,7 +230,6 @@ export function ImportCustomersDrawer({
     setParseError(null)
     setPreviewResult(null)
     setCommitResult(null)
-    setCommitProgress(null)
     setDuplicateHandling('UPDATE')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
@@ -353,32 +358,43 @@ export function ImportCustomersDrawer({
   const commitImport = useCallback(async () => {
     if (!parseResult) return
     const payload = buildPayload(parseResult, duplicateHandling, false)
-    setCommitProgress({ done: 0, total: payload.customers.length })
+    const { customers, ...rest } = payload
+    const total = customers.length
+
+    const chunks: ImportChunk[] = []
+    if (total <= COMMIT_CHUNK_SIZE) {
+      chunks.push({ payload, count: total })
+    } else {
+      for (let i = 0; i < total; i += COMMIT_CHUNK_SIZE) {
+        const chunk = customers.slice(i, i + COMMIT_CHUNK_SIZE)
+        chunks.push({ payload: { ...rest, customers: chunk }, count: chunk.length })
+      }
+    }
+
     setStage('committing')
     try {
-      const data = await postImportChunked(
-        '/customers/import/commit',
-        payload,
-        {
-          chunkSize: COMMIT_CHUNK_SIZE,
-          onProgress: (done, total) => setCommitProgress({ done, total }),
+      // Runs in importStore — keeps going even if this drawer is closed.
+      const data = (await runImport({
+        endpoint: '/customers/import/commit',
+        entity: 'customers',
+        chunks,
+        total,
+        mergeResults: (rs) => mergeImportResults(rs as ImportResult[]),
+        onComplete: (merged) => {
+          const s = (merged as ImportResult).summary
+          toast.success(
+            `Imported ${s.customers.created} new customers, updated ${s.customers.updated}, with ${s.invoices.created} invoices, ${s.payments.created} payments and ${s.refunds.created} refunds.`,
+          )
+          onImported()
         },
-      )
+        onError: (msg) => toast.error(msg),
+      })) as ImportResult
       setCommitResult(data)
       setStage('done')
-      const s = data.summary
-      toast.success(
-        `Imported ${s.customers.created} new customers, updated ${s.customers.updated}, with ${s.invoices.created} invoices, ${s.payments.created} payments and ${s.refunds.created} refunds.`,
-      )
-      onImported()
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (err instanceof Error ? err.message : 'Import failed')
-      toast.error(String(msg))
+    } catch {
       setStage('preview')
     }
-  }, [buildPayload, duplicateHandling, onImported, parseResult])
+  }, [buildPayload, duplicateHandling, onImported, parseResult, runImport])
 
   // ── Derived counts for preview banner ────────────────────────────────────
 
@@ -418,8 +434,8 @@ export function ImportCustomersDrawer({
               {stage === 'parsing' && 'Reading file…'}
               {stage === 'preview' && 'Step 2 of 2 · Review'}
               {stage === 'committing' &&
-                (commitProgress
-                  ? `Importing ${commitProgress.done}/${commitProgress.total}`
+                (importEntity === 'customers' && importTotal > 0
+                  ? `Importing ${importDone}/${importTotal}`
                   : 'Importing…')}
               {stage === 'done' && 'Done'}
             </Badge>
@@ -461,30 +477,11 @@ export function ImportCustomersDrawer({
               <p className="text-sm text-muted-foreground">
                 Importing customers and history into the database…
               </p>
-              {commitProgress ? (
-                <div className="w-full max-w-xs space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-emerald-700 dark:text-emerald-300">
-                      Transferring {commitProgress.done.toLocaleString('en-IN')} / {commitProgress.total.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {commitProgress.total > 0
-                        ? Math.round((commitProgress.done / commitProgress.total) * 100)
-                        : 0}%
-                    </span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                      style={{
-                        width: `${commitProgress.total > 0 ? (commitProgress.done / commitProgress.total) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                </div>
+              {importEntity === 'customers' && importTotal > 0 ? (
+                <ImportProgressBar done={importDone} total={importTotal} />
               ) : null}
               <p className="text-xs text-muted-foreground">
-                Don't close this drawer.
+                You can close this — the import keeps running in the background.
               </p>
             </div>
           ) : null}

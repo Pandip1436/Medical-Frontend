@@ -47,6 +47,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
 import { useRoute } from '@/lib/router'
+import { ImportProgressPill } from '@/components/shared/ImportProgressPill'
 
 export default function AppLayout({
   children,
@@ -208,6 +209,10 @@ export default function AppLayout({
           </AnimatePresence>
         </main>
       </motion.div>
+
+      {/* App-wide import indicator — the import runs in importStore, so it keeps
+          going (and stays visible here) even if the drawer is closed. */}
+      <ImportProgressPill />
     </div>
   )
 }

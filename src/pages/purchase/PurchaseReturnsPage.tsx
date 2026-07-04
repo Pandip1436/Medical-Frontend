@@ -22,6 +22,7 @@ import {
   Download,
   CheckCircle2,
   ShieldCheck,
+  Loader2,
   ShieldAlert,
   BadgeAlert,
   HelpCircle,
@@ -238,6 +239,9 @@ export default function PurchaseReturnsPage() {
   useBranchRefresh(fetchGRNsCallback)
 
   const [lastCreatedReturn, setLastCreatedReturn] = useState<NoteData | null>(null)
+  // Guards against a double-click firing two POST /purchase-returns (which would
+  // create duplicate debit notes).
+  const [submitting, setSubmitting] = useState(false)
   const [shortageApplied, setShortageApplied] = useState(false)
 
   // Step 2
@@ -488,7 +492,7 @@ export default function PurchaseReturnsPage() {
   }, [selectedReturnItems, selectedGRN])
 
   const handleConfirmReturn = async () => {
-    if (!selectedGRN) return
+    if (!selectedGRN || submitting) return
 
     const payloadItems = selectedReturnItems.map((ri) => {
       const grnItem = selectedGRN.items.find((g) => g.productId === ri.productId)
@@ -555,6 +559,7 @@ export default function PurchaseReturnsPage() {
       settlementMode,
     }
 
+    setSubmitting(true)
     try {
       const res = await api.post('/purchase-returns', payload)
       if (res.data?.approvalRequested) {
@@ -618,6 +623,8 @@ export default function PurchaseReturnsPage() {
       navigate('/purchase/debit-notes')
     } catch {
       // api.ts shows an error toast
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -1263,12 +1270,17 @@ export default function PurchaseReturnsPage() {
                         size="sm"
                         className={`flex-1 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
                         onClick={handleConfirmReturn}
+                        disabled={submitting}
                       >
-                        {needsApproval
-                          ? <ShieldCheck className="mr-1.5 h-4 w-4" />
-                          : <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                        {submitting
+                          ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                          : needsApproval
+                            ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+                            : <CheckCircle2 className="mr-1.5 h-4 w-4" />
                         }
-                        {needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
+                        {submitting
+                          ? 'Processing…'
+                          : needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
                       </Button>
                     </div>
                   </div>
