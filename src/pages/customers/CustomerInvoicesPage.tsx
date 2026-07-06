@@ -145,6 +145,16 @@ export default function CustomerInvoicesPage() {
   const [fromDate, setFromDate] = usePersistedState('filters:customers.invoices:fromDate', '')
   const [toDate, setToDate] = usePersistedState('filters:customers.invoices:toDate', '')
   const [currentPage, setCurrentPage] = useState(1)
+  // Filters panel — controlled so picking "Custom Range" can auto-open the
+  // panel that holds the custom From/To date pickers.
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+
+  // Selecting "Custom Range" opens the filters panel where the date pickers live.
+  const onPeriodChange = useCallback((val: string) => {
+    if (val === 'custom') setTableFiltersOpen(true)
+    else if (period === 'custom') setTableFiltersOpen(false)
+    setPeriod(val)
+  }, [period, setPeriod])
 
   // Optional drill-down from the Outstanding Receivables page (or any other page)
   // via ?customerId=…&customerName=…. Read once on mount; user can clear via the chip.
@@ -528,55 +538,64 @@ export default function CustomerInvoicesPage() {
           searchPlaceholder="Search invoice # or customer…"
           resultsCount={total}
           activeFilterCount={activeFilterCount}
+          open={tableFiltersOpen}
+          onOpenChange={setTableFiltersOpen}
           onClearFilters={clearFilters}
           leadingNode={
             <div className="w-40">
               <EnumSelect
-                label="Period"
                 value={period}
-                onValueChange={setPeriod}
-                onClear={() => setPeriod('all')}
+                onValueChange={onPeriodChange}
+                onClear={() => onPeriodChange('all')}
                 options={PERIOD_OPTIONS}
               />
             </div>
           }
         >
-          {/* Three equal-width filters in a single row at lg+; stack to 2-col at sm and 1-col on mobile */}
-          <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <EnumSelect
-              label="Status"
-              value={statusFilter}
-              onValueChange={setStatusFilter}
-              onClear={() => setStatusFilter('all')}
-              options={STATUS_OPTIONS}
-            />
-            <EnumSelect
-              label="Payment"
-              value={paymentFilter}
-              onValueChange={setPaymentFilter}
-              onClear={() => setPaymentFilter('all')}
-              options={PAYMENT_OPTIONS}
-            />
-            <EnumSelect
-              label="Salesperson"
-              value={salespersonFilter}
-              onValueChange={setSalespersonFilter}
-              onClear={() => setSalespersonFilter('all')}
-              options={salespersonOptions}
-            />
-          </div>
-          {period === 'custom' && (
-            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-                <DatePicker value={fromDate} onChange={setFromDate} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-                <DatePicker value={toDate} onChange={setToDate} />
-              </div>
+          {/* All filters on one flex-wrap row so Status/Payment/Salesperson +
+              the custom date pickers align on a single line (wrap only when the
+              window is too narrow to fit them). */}
+          <div className="col-span-full flex flex-wrap items-end gap-4">
+            <div className="min-w-40 flex-1">
+              <EnumSelect
+                label="Status"
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+                onClear={() => setStatusFilter('all')}
+                options={STATUS_OPTIONS}
+              />
             </div>
-          )}
+            <div className="min-w-40 flex-1">
+              <EnumSelect
+                label="Payment"
+                value={paymentFilter}
+                onValueChange={setPaymentFilter}
+                onClear={() => setPaymentFilter('all')}
+                options={PAYMENT_OPTIONS}
+              />
+            </div>
+            <div className="min-w-40 flex-1">
+              <EnumSelect
+                label="Salesperson"
+                value={salespersonFilter}
+                onValueChange={setSalespersonFilter}
+                onClear={() => setSalespersonFilter('all')}
+                options={salespersonOptions}
+              />
+            </div>
+            {period === 'custom' && (
+              <>
+                <div className="min-w-40 flex-1 space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                  <DatePicker value={fromDate} onChange={setFromDate} />
+                </div>
+                <div className="min-w-40 flex-1 space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                  <DatePicker value={toDate} onChange={setToDate} />
+                </div>
+              </>
+            )}
+          </div>
         </DataTableFilterBar>
       </motion.div>
 

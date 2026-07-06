@@ -159,10 +159,14 @@ export default function DeliveriesPage() {
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
       <PageHeader title="Delivery Tracking" description="Courier shipments dispatched from invoices." className="!flex-col !items-stretch sm:!flex-row sm:!items-end">
         <div className="flex w-full flex-wrap items-center gap-1.5 text-xs sm:w-auto sm:gap-2">
-          <Stat label="Total" value={totalCount} className="bg-muted text-foreground" />
-          <Stat label="Booked" value={booked} className="bg-blue-500/10 text-blue-600 dark:text-blue-400" />
-          <Stat label="In Transit" value={inTransit} className="bg-violet-500/10 text-violet-600 dark:text-violet-400" />
-          <Stat label="Delivered" value={delivered} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
+          <Stat label="Total" value={totalCount} className="bg-muted text-foreground"
+            onClick={() => setStatus('ALL')} active={status === 'ALL'} />
+          <Stat label="Booked" value={booked} className="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            onClick={() => setStatus(status === 'BOOKED' ? 'ALL' : 'BOOKED')} active={status === 'BOOKED'} />
+          <Stat label="In Transit" value={inTransit} className="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+            onClick={() => setStatus(status === 'IN_TRANSIT' ? 'ALL' : 'IN_TRANSIT')} active={status === 'IN_TRANSIT'} />
+          <Stat label="Delivered" value={delivered} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            onClick={() => setStatus(status === 'DELIVERED' ? 'ALL' : 'DELIVERED')} active={status === 'DELIVERED'} />
           <Button size="sm" onClick={handleCheckAll} disabled={checkingAll} className="ml-auto w-full gap-1.5 sm:ml-1 sm:w-auto">
             {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {checkingAll ? 'Checking…' : 'Check All Tracking'}
@@ -277,10 +281,41 @@ export default function DeliveriesPage() {
   )
 }
 
-function Stat({ label, value, className }: { label: string; value: number; className?: string }) {
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium', className)}>
+function Stat({
+  label,
+  value,
+  className,
+  onClick,
+  active,
+}: {
+  label: string
+  value: number
+  className?: string
+  onClick?: () => void
+  active?: boolean
+}) {
+  const base = cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium', className)
+  const content = (
+    <>
       {value} <span className="opacity-70">{label}</span>
-    </span>
+    </>
+  )
+  if (!onClick) return <span className={base}>{content}</span>
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={active ? `Clear ${label} filter` : `Filter by ${label}`}
+      className={cn(
+        base,
+        'cursor-pointer transition hover:brightness-95 dark:hover:brightness-110',
+        active
+          ? 'ring-2 ring-current ring-offset-1 ring-offset-background'
+          : 'opacity-80 hover:opacity-100',
+      )}
+    >
+      {content}
+    </button>
   )
 }

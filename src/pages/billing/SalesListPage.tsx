@@ -156,29 +156,35 @@ function StatusTabs({
   counts: Record<string, number>
 }) {
   return (
-    <div className="flex items-center gap-0.5 px-0.5">
-      {STATUS_TABS.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          className={cn(
-            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
-            tab === t.key
-              ? t.activeClass
-              : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {t.label}
-          <span
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+      {STATUS_TABS.map((t) => {
+        const active = tab === t.key
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
             className={cn(
-              'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
-              tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              active
+                // Active pill lifts onto a surface; the semantic colour (emerald/
+                // amber/rose) stays on the text. The border-* in activeClass is a
+                // no-op here (no border width) so we reuse it verbatim.
+                ? cn('bg-background shadow-sm', t.activeClass)
+                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
             )}
           >
-            {counts[t.key] ?? 0}
-          </span>
-        </button>
-      ))}
+            {t.label}
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
+                active ? t.countClass : 'bg-foreground/[0.06] text-muted-foreground',
+              )}
+            >
+              {counts[t.key] ?? 0}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -228,6 +234,20 @@ export default function SalesListPage() {
   const [statusTab, setStatusTab] = usePageFilter<'all' | 'PAID' | 'PARTIAL' | 'UNPAID'>('billing.sales', 'statusTab', 'all')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.sales', 'splitShowStats', true)
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+
+  // "Custom Range" opens the filters panel (it holds the date pickers); leaving
+  // custom (switching period or clicking the period ✕) auto-closes it again.
+  const onPeriodChange = useCallback((val: string) => {
+    if (val === 'custom') {
+      setTableFiltersOpen(true); setSplitShowFilters(true)
+    } else if (period === 'custom') {
+      setTableFiltersOpen(false); setSplitShowFilters(false)
+    }
+    setPeriod(val)
+    setCurrentPage(1)
+  }, [period, setPeriod])
 
   // Load server-side filter prefs on mount so choices follow the user across devices.
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
@@ -750,43 +770,60 @@ export default function SalesListPage() {
           )}
         </AnimatePresence>
 
-        {/* Toolbar row — below stats so the eye naturally flows: stats → actions → content */}
-        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
-          {/* Period stays outside the collapsible filter panel — it's the most
-              frequently changed filter, so it's always visible on the left. */}
-          <div className="mr-auto w-40 min-w-35">
+        {/* Toolbar row — below stats so the eye naturally flows: stats → actions → content.
+            Grouped into a premium "control rail": period + utility segment on the left,
+            a hairline divider, then the primary actions clustered on the right. */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {/* Period stays outside the collapsible filter panel (most-changed
+              filter, always visible) — grouped with the right-side actions. */}
+          <div className="w-40 min-w-35">
             <EnumSelect
-              label="Period"
               value={period}
-              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              onValueChange={onPeriodChange}
+              onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
+
           {splitExportMenu}
-          <Button
-            variant="outline"
-            size="sm"
-            title="Toggle filters"
-            onClick={() => setSplitShowFilters(!splitShowFilters)}
-            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
-          >
-            <Filter className="h-4 w-4" />
-            {activeFilterCount > 0 && (
-              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
-            onClick={() => setSplitShowStats(!splitShowStats)}
-            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
-          >
-            <BarChart3 className="h-4 w-4" />
-          </Button>
+
+          {/* Segmented utility toggles (Filter · Summary) — same language as the
+              view switcher: one bordered pill, active item lifts on a surface. */}
+          <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Toggle filters"
+              onClick={() => setSplitShowFilters(!splitShowFilters)}
+              className={cn(
+                'relative h-7 w-7 rounded-md transition-all',
+                splitShowFilters && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+              onClick={() => setSplitShowStats(!splitShowStats)}
+              className={cn(
+                'h-7 w-7 rounded-md transition-all',
+                splitShowStats && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {/* Hairline divider separating utilities from primary actions */}
+          <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
+
           {selectedInvoiceId && (
             <Button
               variant="outline"
@@ -819,7 +856,7 @@ export default function SalesListPage() {
               className="overflow-hidden"
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                <div className="flex flex-wrap items-end gap-3 *:flex-1 *:min-w-35">
                   <EnumSelect
                     label="Payment Mode"
                     value={selectedPaymentMode}
@@ -846,6 +883,19 @@ export default function SalesListPage() {
                       ]}
                     />
                   ) : <div />}
+                  {/* Custom date range — same row as the other filters */}
+                  {period === 'custom' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                        <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                        <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+                      </div>
+                    </>
+                  )}
                   <div className="flex-none! min-w-0! flex items-end gap-2">
                     <ColumnsToggle
                       columns={CARD_FIELDS}
@@ -981,13 +1031,11 @@ export default function SalesListPage() {
       </div>
 
       {/* ── Status Tabs ── */}
-      <div className="rounded-lg border border-border/40 bg-background">
-        <StatusTabs
-          tab={statusTab}
-          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
-          counts={tabCounts}
-        />
-      </div>
+      <StatusTabs
+        tab={statusTab}
+        onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+        counts={tabCounts}
+      />
 
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
@@ -996,14 +1044,15 @@ export default function SalesListPage() {
         searchPlaceholder="Search invoice# or customer..."
         resultsCount={filteredInvoices.length}
         activeFilterCount={activeFilterCount}
+        open={tableFiltersOpen}
+        onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
           <div className="w-40">
             <EnumSelect
-              label="Period"
               value={period}
-              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              onValueChange={onPeriodChange}
+              onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
@@ -1125,58 +1174,56 @@ export default function SalesListPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Payment Mode"
-          value={selectedPaymentMode}
-          onValueChange={(val) => { setSelectedPaymentMode(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedPaymentMode('all'); setCurrentPage(1) }}
-          options={PAYMENT_MODE_OPTIONS}
-        />
-
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-          options={STATUS_OPTIONS}
-        />
-
-        {salespersonsList.length > 0 && (
-          <EnumSelect
-            label="Salesperson"
-            value={selectedSalespersonId}
-            onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
-            onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
-            options={[
-              { value: 'all', label: 'All Salespersons' },
-              ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
-            ]}
-          />
-        )}
-
-        {/* Custom date range — only when period is 'custom' */}
-        {period === 'custom' && (
-          <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-border/40 pt-4 mt-1">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date From
-              </Label>
-              <DatePicker
-                value={dateFrom}
-                onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Date To
-              </Label>
-              <DatePicker
-                value={dateTo}
-                onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-              />
-            </div>
+        {/* All filters on one flex-wrap row so Payment/Status/Salesperson +
+            the custom date pickers align on a single line (wrap only when the
+            window is too narrow to fit them). */}
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Payment Mode"
+              value={selectedPaymentMode}
+              onValueChange={(val) => { setSelectedPaymentMode(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedPaymentMode('all'); setCurrentPage(1) }}
+              options={PAYMENT_MODE_OPTIONS}
+            />
           </div>
-        )}
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Status"
+              value={selectedStatus}
+              onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+              options={STATUS_OPTIONS}
+            />
+          </div>
+          {salespersonsList.length > 0 && (
+            <div className="min-w-40 flex-1">
+              <EnumSelect
+                label="Salesperson"
+                value={selectedSalespersonId}
+                onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
+                onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
+                options={[
+                  { value: 'all', label: 'All Salespersons' },
+                  ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
+                ]}
+              />
+            </div>
+          )}
+          {/* Custom date range — only when period is 'custom' */}
+          {period === 'custom' && (
+            <>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+              </div>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+              </div>
+            </>
+          )}
+        </div>
       </DataTableFilterBar>
 
       {/* ── Bulk actions bar ── */}

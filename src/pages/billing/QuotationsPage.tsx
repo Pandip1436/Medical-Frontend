@@ -144,27 +144,32 @@ function QuotationStatusTabs({ tab, onChange, counts }: {
   counts: Record<QuotationTabKey, number>
 }) {
   return (
-    <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1">
-      {QUOTATION_TABS.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
-            tab === t.key
-              ? `border-b-2 bg-muted/20 ${t.activeColor}`
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          {t.label}
-          <span className={cn(
-            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-            tab === t.key ? t.badgeColor : 'bg-muted text-muted-foreground'
-          )}>
-            {counts[t.key]}
-          </span>
-        </button>
-      ))}
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+      {QUOTATION_TABS.map((t) => {
+        const active = tab === t.key
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              active
+                ? cn('bg-background shadow-sm', t.activeColor)
+                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+            )}
+          >
+            {t.label}
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
+                active ? t.badgeColor : 'bg-foreground/[0.06] text-muted-foreground',
+              )}
+            >
+              {counts[t.key] ?? 0}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -242,12 +247,22 @@ export default function QuotationsPage() {
   // Stat-card drill-down — not persisted (intentional)
   const [cardFilter, setCardFilter] = useState<'all' | 'converted' | 'pending' | 'rejected'>('all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  // Table-view filters panel — controlled so picking "Custom Range" auto-opens it.
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Selecting "Custom Range" opens the panel(s) that hold the date pickers.
+  const onPeriodChange = useCallback((val: string) => {
+    if (val === 'custom') { setTableFiltersOpen(true); setSplitShowFilters(true) }
+    else if (period === 'custom') { setTableFiltersOpen(false); setSplitShowFilters(false) }
+    setPeriod(val)
+    setCurrentPage(1)
+  }, [period, setPeriod])
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -560,9 +575,9 @@ export default function QuotationsPage() {
         </AnimatePresence>
 
         {/* Toolbar */}
-        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
-          <div className="mr-auto w-40 min-w-35">
-            <EnumSelect label="Period" value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(1) }} onClear={() => setPeriod('all')} options={PERIOD_OPTIONS} />
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="w-40 min-w-35">
+            <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
           <Button
             variant="outline"
@@ -581,29 +596,43 @@ export default function QuotationsPage() {
             <Download className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Export</span>
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            title="Toggle filters"
-            onClick={() => setSplitShowFilters(!splitShowFilters)}
-            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
-          >
-            <Filter className="h-4 w-4" />
-            {activeFilterCount > 0 && (
-              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            title={splitShowStats ? 'Hide stats' : 'Show stats'}
-            onClick={() => setSplitShowStats(!splitShowStats)}
-            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
-          >
-            <BarChart3 className="h-4 w-4" />
-          </Button>
+          {/* Segmented utility toggles (Filter · Summary) — same language as the
+              view switcher: one bordered pill, active item lifts on a surface. */}
+          <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Toggle filters"
+              onClick={() => setSplitShowFilters(!splitShowFilters)}
+              className={cn(
+                'relative h-7 w-7 rounded-md transition-all',
+                splitShowFilters && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={splitShowStats ? 'Hide stats' : 'Show stats'}
+              onClick={() => setSplitShowStats(!splitShowStats)}
+              className={cn(
+                'h-7 w-7 rounded-md transition-all',
+                splitShowStats && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {/* Hairline divider separating utilities from primary actions */}
+          <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
+
           <Button size="sm" onClick={() => navigate('/billing/new?type=quotation')}>
             <Plus className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Create Quotation</span>
@@ -621,9 +650,21 @@ export default function QuotationsPage() {
               className="overflow-hidden"
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                <div className="flex flex-wrap items-end gap-3 *:flex-1 *:min-w-35">
                   <EnumSelect label="Status" value={selectedStatus} onValueChange={(v) => { setSelectedStatus(v); setCurrentPage(1) }} onClear={() => setSelectedStatus('all')} options={STATUS_OPTIONS} />
                   <CustomerSearchSelect value={selectedCustomer} selectedName={selectedCustomerName} onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }} />
+                  {period === 'custom' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                        <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                        <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+                      </div>
+                    </>
+                  )}
                   <div className="flex-none! min-w-0! flex items-end gap-2">
                     <ColumnsToggle
                       columns={CARD_FIELDS}
@@ -754,14 +795,15 @@ export default function QuotationsPage() {
         searchPlaceholder="Search quotation# or customer..."
         resultsCount={filteredQuotations.length}
         activeFilterCount={activeFilterCount}
+        open={tableFiltersOpen}
+        onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
           <div className="w-40">
             <EnumSelect
-              label="Period"
               value={period}
-              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              onValueChange={onPeriodChange}
+              onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
@@ -790,26 +832,32 @@ export default function QuotationsPage() {
           </div>
         }
       >
-        {/* Custom 4-col grid that overrides DataTableFilterBar's inner grid for equal-width filters */}
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <EnumSelect
-            label="Status"
-            value={selectedStatus}
-            onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
-            onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-            options={STATUS_OPTIONS}
-          />
+        {/* All filters on one flex-wrap row so Status/Customer + the custom
+            date pickers align on a single line (wrap only when the window is
+            too narrow to fit them). */}
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Status"
+              value={selectedStatus}
+              onValueChange={(val) => { setSelectedStatus(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+              options={STATUS_OPTIONS}
+            />
+          </div>
 
-          <CustomerSearchSelect
-            value={selectedCustomer}
-            selectedName={selectedCustomerName}
-            onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }}
-          />
+          <div className="min-w-40 flex-1">
+            <CustomerSearchSelect
+              value={selectedCustomer}
+              selectedName={selectedCustomerName}
+              onChange={(val, name) => { setSelectedCustomer(val); setSelectedCustomerName(name); setCurrentPage(1) }}
+            />
+          </div>
 
-          {/* Custom date range — only when period is 'custom', full-width row below */}
+          {/* Custom date range — only when period is 'custom' */}
           {period === 'custom' && (
-            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/40 pt-4 mt-1">
-              <div className="space-y-1.5">
+            <>
+              <div className="min-w-40 flex-1 space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Date From
                 </Label>
@@ -818,7 +866,7 @@ export default function QuotationsPage() {
                   onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-40 flex-1 space-y-1.5">
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Date To
                 </Label>
@@ -827,19 +875,17 @@ export default function QuotationsPage() {
                   onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
                 />
               </div>
-            </div>
+            </>
           )}
         </div>
       </DataTableFilterBar>
 
       {/* ── Status Tabs ── */}
-      <div className="rounded-lg border border-border/40 bg-background">
-        <QuotationStatusTabs
-          tab={statusTab}
-          onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
-          counts={tabCounts}
-        />
-      </div>
+      <QuotationStatusTabs
+        tab={statusTab}
+        onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+        counts={tabCounts}
+      />
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>

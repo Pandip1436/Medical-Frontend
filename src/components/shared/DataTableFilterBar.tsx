@@ -14,6 +14,11 @@ interface DataTableFilterBarProps {
   resultsCount?: number
   activeFilterCount?: number
   defaultFiltersOpen?: boolean
+  // Optional controlled open state — pass both to let a parent open/close the
+  // filters panel (e.g. auto-open it when "Custom Range" is picked). Omit to
+  // keep the built-in uncontrolled behaviour seeded by defaultFiltersOpen.
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   onClearFilters?: () => void
   children?: React.ReactNode // The filter inputs/dropdowns
   actionNode?: React.ReactNode // Custom actions aligned right
@@ -38,6 +43,8 @@ export function DataTableFilterBar({
   resultsCount,
   activeFilterCount = 0,
   defaultFiltersOpen = false,
+  open,
+  onOpenChange,
   onClearFilters,
   children,
   actionNode,
@@ -46,7 +53,13 @@ export function DataTableFilterBar({
   columnsNode,
   searchClassName,
 }: DataTableFilterBarProps) {
-  const [filtersOpen, setFiltersOpen] = useState(defaultFiltersOpen)
+  const [internalOpen, setInternalOpen] = useState(defaultFiltersOpen)
+  // Controlled when `open` is provided; otherwise self-managed.
+  const filtersOpen = open ?? internalOpen
+  const setFiltersOpen = (v: boolean) => {
+    onOpenChange?.(v)
+    if (open === undefined) setInternalOpen(v)
+  }
   // The filters panel (and its toggle) appear when there are filter inputs OR a
   // columns control to host.
   const hasPanel = Boolean(children || columnsNode)
@@ -67,7 +80,7 @@ export function DataTableFilterBar({
             icon={<Search className="h-4 w-4" />}
             suffix={
               resultsCount !== undefined ? (
-                <span className="tabular-nums whitespace-nowrap text-xs text-muted-foreground">
+                <span className="whitespace-nowrap rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
                   {resultsCount} found
                 </span>
               ) : undefined
@@ -114,6 +127,12 @@ export function DataTableFilterBar({
                 </Button>
               )}
             </div>
+          )}
+
+          {/* Hairline divider between filter controls and the action cluster
+              (view switcher / export / primary action) for grouped structure. */}
+          {actionNode && hasPanel && (
+            <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
           )}
 
           {actionNode}

@@ -713,7 +713,15 @@ export default function StockOverviewPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.15, delay: idx * 0.02 }}
                 >
-                  <Card hover className="cursor-pointer">
+                  <Card
+                    hover
+                    role="button"
+                    tabIndex={0}
+                    title={`View stock history for ${product.name}`}
+                    onClick={() => navigate(`/inventory/product-history?productId=${product.id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/inventory/product-history?productId=${product.id}`) } }}
+                    className="cursor-pointer"
+                  >
                     <CardContent className="p-5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">

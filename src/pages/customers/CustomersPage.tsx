@@ -292,27 +292,32 @@ function CustomerPaymentTabs({ tab, onChange, counts }: {
   counts: Record<string, number>
 }) {
   return (
-    <div className="flex items-center gap-0.5 px-0.5">
-      {PAY_TABS.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          className={cn(
-            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
-            tab === t.key
-              ? t.activeClass
-              : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {t.label}
-          <span className={cn(
-            'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
-            tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
-          )}>
-            {counts[t.key] ?? 0}
-          </span>
-        </button>
-      ))}
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+      {PAY_TABS.map((t) => {
+        const active = tab === t.key
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              active
+                ? cn('bg-background shadow-sm', t.activeClass)
+                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+            )}
+          >
+            {t.label}
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
+                active ? t.countClass : 'bg-foreground/[0.06] text-muted-foreground',
+              )}
+            >
+              {counts[t.key] ?? 0}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -405,6 +410,17 @@ export default function CustomersPage() {
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('customers.list', 'splitShowStats', true)
   const [payTab, setPayTab] = usePageFilter<PayTabKey>('customers.list', 'payTab', 'all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  // Table-view filters panel — controlled so picking "Custom Range" for the
+  // Added-date filter can auto-open the panel that holds the From/To pickers.
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+
+  // Selecting "Custom Range" opens the filters panel where the custom From/To
+  // date pickers live (table view), and the split-view filter panel too.
+  const onMonthFilterChange = useCallback((val: string) => {
+    if (val === 'custom') { setTableFiltersOpen(true); setSplitShowFilters(true) }
+    else if (monthFilter === 'custom') { setTableFiltersOpen(false); setSplitShowFilters(false) }
+    setMonthFilter(val)
+  }, [monthFilter, setMonthFilter])
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
@@ -933,12 +949,24 @@ export default function CustomersPage() {
               className="overflow-hidden"
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                <div className="flex flex-wrap items-end gap-3 *:flex-1 *:min-w-35">
                   <EnumSelect label="Type" value={customerTypeFilter} onValueChange={setCustomerTypeFilter} onClear={() => setCustomerTypeFilter('all')} options={CUSTOMER_TYPE_OPTIONS} />
                   <EnumSelect label="Outstanding" value={outstandingFilter} onValueChange={setOutstandingFilter} onClear={() => setOutstandingFilter('all')} options={OUTSTANDING_OPTIONS} />
                   <EnumSelect label="Status" value={statusFilter} onValueChange={setStatusFilter} onClear={() => setStatusFilter('all')} options={STATUS_OPTIONS} />
                   <EnumSelect label="Source" value={sourceFilter} onValueChange={setSourceFilter} onClear={() => setSourceFilter('all')} options={SOURCE_FILTER_OPTIONS} />
-                  <EnumSelect label="Period Added" value={monthFilter} onValueChange={setMonthFilter} onClear={() => setMonthFilter('all')} options={PERIOD_OPTIONS} />
+                  <EnumSelect label="Period Added" value={monthFilter} onValueChange={onMonthFilterChange} onClear={() => onMonthFilterChange('all')} options={PERIOD_OPTIONS} />
+                  {monthFilter === 'custom' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                        <DatePicker value={customFrom} max={customTo || undefined} onChange={(v) => setCustomFrom(v)} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                        <DatePicker value={customTo} min={customFrom || undefined} onChange={(v) => setCustomTo(v)} />
+                      </div>
+                    </>
+                  )}
                   <div className="flex-none! min-w-0! flex items-end gap-2">
                     <ColumnsToggle
                       columns={CARD_FIELDS}
@@ -1114,6 +1142,8 @@ export default function CustomersPage() {
         searchPlaceholder="Search by name, phone, or GSTIN..."
         resultsCount={total}
         activeFilterCount={activeFilterCount}
+        open={tableFiltersOpen}
+        onOpenChange={setTableFiltersOpen}
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
@@ -1173,8 +1203,8 @@ export default function CustomersPage() {
           <EnumSelect
             label="Added"
             value={monthFilter}
-            onValueChange={setMonthFilter}
-            onClear={() => { setMonthFilter('all'); setCustomFrom(''); setCustomTo('') }}
+            onValueChange={onMonthFilterChange}
+            onClear={() => { onMonthFilterChange('all'); setCustomFrom(''); setCustomTo('') }}
             options={PERIOD_OPTIONS}
           />
           {monthFilter === 'custom' && (
@@ -1203,7 +1233,7 @@ export default function CustomersPage() {
       </DataTableFilterBar>
 
       {/* ─── Payment status tabs (All / Paid / Partial / Unpaid) ─── */}
-      <motion.div variants={itemVariants} className="overflow-x-auto border-b border-border/60">
+      <motion.div variants={itemVariants} className="overflow-x-auto">
         <CustomerPaymentTabs
           tab={payTab}
           onChange={(t) => { setPayTab(t); setCurrentPage(1) }}

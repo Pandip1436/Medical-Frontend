@@ -96,27 +96,32 @@ function PaymentTabs({ tab, onChange, counts }: {
   counts: Record<string, number>
 }) {
   return (
-    <div className="flex items-center gap-0.5 px-0.5">
-      {PAY_TABS.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          className={cn(
-            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
-            tab === t.key
-              ? t.activeClass
-              : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {t.label}
-          <span className={cn(
-            'rounded px-1 py-0.5 text-[10px] font-bold tabular-nums',
-            tab === t.key ? t.countClass : 'bg-muted/60 text-muted-foreground',
-          )}>
-            {counts[t.key] ?? 0}
-          </span>
-        </button>
-      ))}
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+      {PAY_TABS.map((t) => {
+        const active = tab === t.key
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              active
+                ? cn('bg-background shadow-sm', t.activeClass)
+                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+            )}
+          >
+            {t.label}
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
+                active ? t.countClass : 'bg-foreground/[0.06] text-muted-foreground',
+              )}
+            >
+              {counts[t.key] ?? 0}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -174,6 +179,16 @@ export default function GRNListPage() {
   // Server does not filter by payTab — apply the same client-side filter
   // here that the table view uses (grnPayStatus-based).
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+
+  // Selecting "Custom Range" opens the filters panel that holds the date pickers.
+  const onPeriodChange = useCallback((val: string) => {
+    setPeriod(val)
+    setCurrentPage(1)
+    if (val === 'custom') { setTableFiltersOpen(true); setSplitShowFilters(true) }
+    else if (period === 'custom') { setTableFiltersOpen(false); setSplitShowFilters(false) }
+  }, [period, setPeriod])
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,40 +446,51 @@ export default function GRNListPage() {
         </AnimatePresence>
 
         {/* Toolbar row */}
-        <div className="flex shrink-0 flex-wrap items-end justify-end gap-1.5">
-          <div className="mr-auto w-40 min-w-35">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="w-40 min-w-35">
             <EnumSelect
-              label="Period"
               value={period}
-              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              onValueChange={onPeriodChange}
+              onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
           {splitExportMenu}
-          <Button
-            variant="outline"
-            size="sm"
-            title="Toggle filters"
-            onClick={() => setSplitShowFilters(!splitShowFilters)}
-            className={cn(splitShowFilters && 'border-primary/50 bg-primary/5')}
-          >
-            <Filter className="h-4 w-4" />
-            {activeFilterCount > 0 && (
-              <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
-            onClick={() => setSplitShowStats(!splitShowStats)}
-            className={cn(splitShowStats && 'border-primary/50 bg-primary/5')}
-          >
-            <BarChart3 className="h-4 w-4" />
-          </Button>
+          {/* Segmented utility toggles (Filter · Summary) — same language as the
+              view switcher: one bordered pill, active item lifts on a surface. */}
+          <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Toggle filters"
+              onClick={() => setSplitShowFilters(!splitShowFilters)}
+              className={cn(
+                'relative h-7 w-7 rounded-md transition-all',
+                splitShowFilters && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={splitShowStats ? 'Hide summary stats' : 'Show summary stats'}
+              onClick={() => setSplitShowStats(!splitShowStats)}
+              className={cn(
+                'h-7 w-7 rounded-md transition-all',
+                splitShowStats && 'bg-background text-foreground shadow-sm',
+              )}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          {/* Hairline divider separating utilities from primary actions */}
+          <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
           <Button size="sm" onClick={() => navigate('/purchase/grn')}>
             <PackageCheck className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">New PE</span>
@@ -485,7 +511,7 @@ export default function GRNListPage() {
               className="overflow-hidden"
             >
               <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                <div className="flex items-end gap-3 *:flex-1 *:min-w-35">
+                <div className="flex flex-wrap items-end gap-3 *:flex-1 *:min-w-35">
                   <SupplierSearchSelect
                     value={selectedSupplier}
                     selectedName={selectedSupplierName}
@@ -505,6 +531,18 @@ export default function GRNListPage() {
                     onClear={() => { setSelectedPayment('all'); setCurrentPage(1) }}
                     options={PAYMENT_OPTIONS}
                   />
+                  {period === 'custom' && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                        <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                        <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+                      </div>
+                    </>
+                  )}
                   <div className="flex-none! min-w-0! flex items-end gap-2">
                     <ColumnsToggle
                       columns={CARD_FIELDS}
@@ -590,6 +628,13 @@ export default function GRNListPage() {
         })}
       </div>
 
+      {/* Payment-status tabs — same premium pill control as the split view */}
+      <PaymentTabs
+        tab={payTab}
+        onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+        counts={tabCounts}
+      />
+
       {/* Search + actions */}
       <DataTableFilterBar
         searchQuery={search}
@@ -597,14 +642,15 @@ export default function GRNListPage() {
         searchPlaceholder="Search PE #, supplier or invoice..."
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
+        open={tableFiltersOpen}
+        onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
           <div className="w-40">
             <EnumSelect
-              label="Period"
               value={period}
-              onValueChange={(val) => { setPeriod(val); setCurrentPage(1) }}
-              onClear={() => { setPeriod('all'); setCurrentPage(1) }}
+              onValueChange={onPeriodChange}
+              onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
@@ -624,37 +670,46 @@ export default function GRNListPage() {
           </div>
         }
       >
-        {period === 'custom' && (
-          <>
-            <div className="space-y-1.5">
-              <Label className="text-xs">From</Label>
-              <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">To</Label>
-              <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
-            </div>
-          </>
-        )}
-        <SupplierSearchSelect
-          value={selectedSupplier}
-          selectedName={selectedSupplierName}
-          onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }}
-        />
-        <EnumSelect
-          label="Source"
-          value={selectedSource}
-          onValueChange={(val) => { setSelectedSource(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedSource('all'); setCurrentPage(1) }}
-          options={SOURCE_OPTIONS}
-        />
-        <EnumSelect
-          label="Payment"
-          value={selectedPayment}
-          onValueChange={(val) => { setSelectedPayment(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedPayment('all'); setCurrentPage(1) }}
-          options={PAYMENT_OPTIONS}
-        />
+        {/* All filters + custom date pickers on one flex-wrap row */}
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <SupplierSearchSelect
+              value={selectedSupplier}
+              selectedName={selectedSupplierName}
+              onChange={(val, name) => { setSelectedSupplier(val); setSelectedSupplierName(name); setCurrentPage(1) }}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Source"
+              value={selectedSource}
+              onValueChange={(val) => { setSelectedSource(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedSource('all'); setCurrentPage(1) }}
+              options={SOURCE_OPTIONS}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Payment"
+              value={selectedPayment}
+              onValueChange={(val) => { setSelectedPayment(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedPayment('all'); setCurrentPage(1) }}
+              options={PAYMENT_OPTIONS}
+            />
+          </div>
+          {period === 'custom' && (
+            <>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+              </div>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+              </div>
+            </>
+          )}
+        </div>
       </DataTableFilterBar>
 
       {/* Table */}

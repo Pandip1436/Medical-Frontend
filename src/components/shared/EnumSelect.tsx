@@ -13,7 +13,7 @@ export interface EnumOption {
 }
 
 export interface EnumSelectProps {
-  label: string
+  label?: string
   options: readonly EnumOption[] | EnumOption[]
   value: string
   onValueChange: (val: string) => void
@@ -38,9 +38,11 @@ export function EnumSelect({
 
   return (
     <div className={`space-y-1.5 ${className || ''}`}>
-      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {label}
-      </Label>
+      {label && (
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </Label>
+      )}
       <Select value={value} onValueChange={onValueChange}>
         <SelectTrigger hasValue={hasValue} onClear={onClear}>
           <SelectValue placeholder={placeholder} />

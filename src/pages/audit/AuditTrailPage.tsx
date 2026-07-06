@@ -561,7 +561,6 @@ export default function AuditTrailPage() {
         leadingNode={
           <div className="w-40">
             <EnumSelect
-              label="Period"
               value={periodFilter}
               onValueChange={setPeriodFilter}
               onClear={() => setPeriodFilter('today')}
