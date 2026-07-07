@@ -310,10 +310,20 @@ export default function CustomerInvoicesPage() {
     if (!detailInvoice) return
     setSendingWhatsApp(true)
     try {
-      await api.post(`/billing/${detailInvoice.id}/send-whatsapp`)
-      toast.success('Queued — WhatsApp message will be sent shortly')
+      // Backend waits for the real send to finish (~1-2s) and reports the
+      // true outcome — previously the toast always said "queued...shortly"
+      // regardless of what happened, which read as "nothing happened" and
+      // invited repeat clicks that sent duplicate messages to the customer.
+      const { data } = await api.post(`/billing/${detailInvoice.id}/send-whatsapp`)
+      if (data?.status === 'SENT') {
+        toast.success('WhatsApp message sent')
+      } else if (data?.status === 'SKIPPED') {
+        toast.warning('Not sent — customer has no phone, has opted out of WhatsApp, or auto-send is disabled')
+      } else {
+        toast.error(data?.errorMessage ? `WhatsApp send failed: ${data.errorMessage}` : 'WhatsApp send failed')
+      }
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to queue WhatsApp send'
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to send WhatsApp message'
       toast.error(msg)
     } finally {
       setSendingWhatsApp(false)
