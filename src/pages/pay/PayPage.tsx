@@ -22,7 +22,7 @@ interface PublicPayView {
   invoiceId: string
   invoiceNumber: string
   invoiceDate: string
-  customerFirstName: string
+  customerName: string
   pharmacyName: string
   branchPhone: string | null
   amount: number
@@ -143,7 +143,7 @@ export default function PayPage({ invoiceId }: Props) {
           </div>
           <h2 className="text-2xl font-semibold">Payment Received</h2>
           <p className="text-muted-foreground">
-            Thank you, {data.customerFirstName}! Your invoice is fully paid.
+            Thank you, {data.customerName}! Your invoice is fully paid.
           </p>
           <div className="mt-2 w-full rounded-lg border bg-card p-4 text-left">
             <Row label="Invoice" value={data.invoiceNumber} />
@@ -192,7 +192,7 @@ export default function PayPage({ invoiceId }: Props) {
       <div className="flex flex-col items-center gap-5">
         <div className="w-full rounded-lg border bg-card p-4">
           <Row label="Invoice" value={data.invoiceNumber} />
-          <Row label="Customer" value={data.customerFirstName} />
+          <Row label="Customer" value={data.customerName} />
           <Row
             label="Date"
             value={new Date(data.invoiceDate).toLocaleDateString('en-IN', {
