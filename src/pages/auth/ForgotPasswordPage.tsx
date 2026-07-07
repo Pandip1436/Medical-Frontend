@@ -257,7 +257,7 @@ export default function ForgotPasswordPage({
                 'flex h-9 w-9 items-center justify-center rounded-full text-[12px] font-semibold transition-all duration-300',
                 step > s && 'bg-[#0fb5a8] text-white shadow-[0_4px_12px_-4px_rgba(15,181,168,0.5)]',
                 step === s && 'bg-[#0a1628] text-white shadow-[0_4px_12px_-4px_rgba(10,22,40,0.6)]',
-                step < s && 'bg-[#eef2f7] text-[#94a3b8]',
+                step < s && 'bg-[#eef2f7] text-slate-500',
               )}
               aria-label={`Step ${s}${step === s ? ' (current)' : ''}`}
               aria-current={step === s ? 'step' : undefined}
@@ -271,7 +271,7 @@ export default function ForgotPasswordPage({
             <span
               className={cn(
                 'ms-font-mono text-[9px] uppercase tracking-[0.16em] transition-colors',
-                step >= s ? 'text-[#0a1628]' : 'text-[#94a3b8]',
+                step >= s ? 'text-[#0a1628]' : 'text-slate-500',
               )}
             >
               {stepLabels[i]}
@@ -464,7 +464,7 @@ export default function ForgotPasswordPage({
 
             {/* Eyebrow */}
             <p
-              className="ms-reveal ms-font-mono mt-7 text-[10.5px] tracking-[0.22em] uppercase text-[#0fb5a8]"
+              className="ms-reveal ms-font-mono mt-7 text-[10.5px] tracking-[0.22em] uppercase text-teal-600"
               style={{ animationDelay: '80ms' }}
             >
               {eyebrowText}
@@ -476,7 +476,7 @@ export default function ForgotPasswordPage({
               style={{ animationDelay: '160ms' }}
             >
               {headlineText.replace(headlineItalicWord, '')}
-              <em className="italic text-[#0fb5a8]">{headlineItalicWord}</em>
+              <em className="italic text-teal-600">{headlineItalicWord}</em>
             </h1>
 
             {/* Step indicator (hidden on success) */}
@@ -516,7 +516,7 @@ export default function ForgotPasswordPage({
                     >
                       <div className="ms-field">
                         <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-4 transition-colors">
-                          <Mail className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
+                          <Mail className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 transition-colors pointer-events-none" />
                           <Input
                             id="emailOrPhone"
                             type="text"
@@ -533,7 +533,7 @@ export default function ForgotPasswordPage({
                           />
                           <Label
                             htmlFor="emailOrPhone"
-                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body font-normal"
+                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-slate-500 transition-all duration-200 pointer-events-none ms-font-body font-normal"
                           >
                             Email or phone
                           </Label>
@@ -680,7 +680,7 @@ export default function ForgotPasswordPage({
                       {/* New password */}
                       <div className="ms-field">
                         <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-12 transition-colors">
-                          <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
+                          <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 transition-colors pointer-events-none" />
                           <Input
                             id="newPassword"
                             type={showNewPassword ? 'text' : 'password'}
@@ -697,14 +697,14 @@ export default function ForgotPasswordPage({
                           />
                           <Label
                             htmlFor="newPassword"
-                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body font-normal"
+                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-slate-500 transition-all duration-200 pointer-events-none ms-font-body font-normal"
                           >
                             New password
                           </Label>
                           <button
                             type="button"
                             onClick={() => setShowNewPassword(!showNewPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#0a1628] transition-colors cursor-pointer"
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-[#0a1628] transition-colors cursor-pointer"
                             aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
                             tabIndex={-1}
                           >
@@ -721,7 +721,7 @@ export default function ForgotPasswordPage({
                       {/* Confirm password */}
                       <div className="ms-field">
                         <div className="ms-field-wrap relative flex h-[52px] items-center rounded-xl border border-[#e2e8f0] bg-white pl-11 pr-12 transition-colors">
-                          <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94a3b8] transition-colors pointer-events-none" />
+                          <Lock className="ms-field-icon absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 transition-colors pointer-events-none" />
                           <Input
                             id="confirmPassword"
                             type={showConfirmPassword ? 'text' : 'password'}
@@ -738,14 +738,14 @@ export default function ForgotPasswordPage({
                           />
                           <Label
                             htmlFor="confirmPassword"
-                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body font-normal"
+                            className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-slate-500 transition-all duration-200 pointer-events-none ms-font-body font-normal"
                           >
                             Confirm password
                           </Label>
                           <button
                             type="button"
                             onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#0a1628] transition-colors cursor-pointer"
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-[#0a1628] transition-colors cursor-pointer"
                             aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                             tabIndex={-1}
                           >
@@ -799,7 +799,7 @@ export default function ForgotPasswordPage({
                       </div>
                       <div>
                         <p className="text-[13px] font-medium text-[#047857]">Password reset complete</p>
-                        <p className="text-[11.5px] text-[#0fb5a8]">All sessions have been refreshed for security.</p>
+                        <p className="text-[11.5px] text-teal-600">All sessions have been refreshed for security.</p>
                       </div>
                     </div>
 
@@ -835,7 +835,7 @@ export default function ForgotPasswordPage({
               className="ms-reveal mt-7 flex items-center justify-between gap-2"
               style={{ animationDelay: '480ms' }}
             >
-              <p className="ms-font-mono text-[10px] tracking-[0.16em] uppercase text-[#94a3b8]">
+              <p className="ms-font-mono text-[10px] tracking-[0.16em] uppercase text-slate-500">
                 Secure recovery flow
               </p>
               <div className="flex items-center gap-1.5">

@@ -404,7 +404,7 @@ export default function LoginPage({
               className="ms-reveal ms-font-display mt-9 text-[32px] leading-[1.05] font-light text-[#0a1628] tracking-[-0.02em]"
               style={{ animationDelay: '160ms' }}
             >
-              Welcome <em className="italic text-[#0fb5a8]">back.</em>
+              Welcome <em className="italic text-teal-600">back.</em>
               <br />
               Ship what hospitals need.
             </h1>
@@ -459,7 +459,7 @@ export default function LoginPage({
                   />
                   <label
                     htmlFor="email"
-                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body"
+                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-slate-500 transition-all duration-200 pointer-events-none ms-font-body"
                   >
                     Email address
                   </label>
@@ -487,7 +487,7 @@ export default function LoginPage({
                   />
                   <label
                     htmlFor="password"
-                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-[#94a3b8] transition-all duration-200 pointer-events-none ms-font-body"
+                    className="absolute left-11 top-1/2 -translate-y-1/2 text-[13.5px] text-slate-500 transition-all duration-200 pointer-events-none ms-font-body"
                   >
                     Password
                   </label>
