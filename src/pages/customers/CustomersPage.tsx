@@ -1616,9 +1616,15 @@ export default function CustomersPage() {
                         <SelectValue placeholder="Select salesperson" />
                       </SelectTrigger>
                       <SelectContent>
-                        {salespersons.map((sp) => (
-                          <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
-                        ))}
+                        {salespersons.length === 0 ? (
+                          <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                            No salespersons found
+                          </div>
+                        ) : (
+                          salespersons.map((sp) => (
+                            <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   )} />

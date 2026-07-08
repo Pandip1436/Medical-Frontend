@@ -167,7 +167,7 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     gstin: z.string().optional(),
     dlNumber: z.string().optional(),
     registrationNumber: z.string().optional(),
-    referredBy: mode === 'invoice' ? z.string().min(1, 'Please select a salesperson') : z.string().optional(),
+    referredBy: z.string().optional(),
     source: z.string().optional(),
     notes: z.string().optional(),
     // Customer-level consent for transactional WhatsApp messages. Defaults
@@ -2233,7 +2233,9 @@ export default function NewSalePage() {
   // user never loses work to an accidental reload, navigation, or net drop.
   // Cleared on successful save & print, on Hold (since the bill is safely
   // parked in HOLD_KEY), and when the cart becomes empty.
-  const AUTO_DRAFT_KEY = 'pbims_newsale_autodraft'
+  // Branch-scoped: each branch keeps its own in-progress draft, so switching
+  // branches never restores another branch's cart onto this one.
+  const AUTO_DRAFT_KEY = `pbims_newsale_autodraft:${activeBranchId ?? 'none'}`
   interface AutoDraftSnapshot {
     items: BillingItem[]
     selectedCustomer: Customer | null
@@ -4908,7 +4910,7 @@ export default function NewSalePage() {
                       <p className="text-[10px] text-muted-foreground truncate">
                         {invoiceType === 'quotation'
                           ? 'Quotation only — only Name and Phone are required. Won’t be saved to customer master.'
-                          : 'Name, Phone, Type, Address and Referred By are required. Email is optional.'}
+                          : 'Name, Phone, Type and Address are required. Email and Referred By are optional.'}
                       </p>
                     </div>
                   </div>
@@ -4992,16 +4994,22 @@ export default function NewSalePage() {
                     {/* Row 4: Referred By + Address */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By *</Label>
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Referred By <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
                         <Controller control={customerForm.control} name="referredBy" render={({ field }) => (
                           <Select value={field.value || ''} onValueChange={field.onChange}>
                             <SelectTrigger className={cn(customerForm.formState.errors.referredBy && 'border-rose-500')}>
                               <SelectValue placeholder="Select salesperson" />
                             </SelectTrigger>
                             <SelectContent>
-                              {salespersons.map((sp) => (
-                                <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
-                              ))}
+                              {salespersons.length === 0 ? (
+                                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                                  No salespersons found
+                                </div>
+                              ) : (
+                                salespersons.map((sp) => (
+                                  <SelectItem key={sp.id} value={sp.name}>{sp.name}</SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                         )} />
