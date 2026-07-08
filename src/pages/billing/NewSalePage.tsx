@@ -891,12 +891,24 @@ function BillingRow({
               ref={batchRef}
               className={cn(
                 'h-8 w-full bg-muted/30 border border-border/30 hover:border-primary/30 px-2 text-xs font-bold rounded-lg transition-all focus:ring-1 focus:ring-primary/30',
-                !item.batchId && 'text-muted-foreground/50 italic font-normal'
+                !item.batchId && 'text-muted-foreground/50 italic font-normal',
+                // Out of stock — product selected but no sellable batch. Flag it
+                // clearly instead of a generic "Select Batch" prompt.
+                item.productId && productBatches.length === 0 && !item.batchId &&
+                  'not-italic font-semibold text-rose-500 border-rose-300/60'
               )}>
-              <SelectValue placeholder="Select Batch" />
+              <SelectValue
+                placeholder={
+                  item.productId && productBatches.length === 0 ? 'No batch available' : 'Select Batch'
+                }
+              />
             </SelectTrigger>
             <SelectContent className="bg-popover/95 backdrop-blur-xl min-w-55">
-              {productBatches.map((b, idx) => {
+              {productBatches.length === 0 ? (
+                <div className="px-3 py-3 text-center text-xs text-muted-foreground">
+                  No batch available
+                </div>
+              ) : productBatches.map((b, idx) => {
                 // A batch already on another row of this product is locked out
                 // here so the same stock can't be billed twice.
                 const usedElsewhere = !!batchesUsedByOthers?.has(b.id)
@@ -2495,8 +2507,47 @@ export default function NewSalePage() {
       } catch { /* ignore */ }
       sessionStorage.removeItem('quotation_prefill')
     } else if (sessionStorage.getItem('repurchase_items')) {
-      toast.info(`Items pre-loaded from previous invoice`)
+      // Items are already loaded by the initial-items initializer. Here we
+      // additionally auto-select the source customer (so all their details
+      // populate, not just the lines) and FEFO-resolve each line's batch —
+      // the previous invoice's batch is usually depleted/expired by now.
       sessionStorage.removeItem('repurchase_items')
+      const custRaw = sessionStorage.getItem('repurchase_customer')
+      sessionStorage.removeItem('repurchase_customer')
+      // Mount-time items === the just-loaded repurchase lines (set by the
+      // initial-items initializer that reads 'repurchase_items').
+      const repurchaseItems = items
+      void (async () => {
+        try {
+          const cust = custRaw ? JSON.parse(custRaw) : null
+          if (cust?.id) {
+            const r = await api.get(`/customers/${cust.id}`)
+            if (r.data) { setSelectedCustomer(r.data); setCustomerSearch(r.data.name ?? '') }
+          }
+        } catch { /* customer fetch failed — user can pick manually */ }
+        try {
+          const resolved = await Promise.all(
+            repurchaseItems.map(async (it) => {
+              if (!it.productId) return it
+              try {
+                const res = await api.get(`/products/${it.productId}`)
+                syncProductBatchesIntoStore(res.data)
+                const fefo = useMasterDataStore.getState().batches
+                  .filter((b) => b.productId === it.productId && b.quantity > 0 && !isExpired(b.expiryDate))
+                  .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
+                if (fefo) {
+                  const u = { ...it, batchId: fefo.id, batchNumber: fefo.batchNumber, expiryDate: fefo.expiryDate, mrp: Number(fefo.mrp) || it.mrp }
+                  u.amount = calculateItemAmount(u)
+                  return u
+                }
+                return { ...it, batchId: '', batchNumber: '', expiryDate: '' }
+              } catch { return it }
+            })
+          )
+          setItems(resolved)
+        } catch { /* keep the copied items as-is */ }
+      })()
+      toast.info(`Items pre-loaded from previous invoice`)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -6015,26 +6066,53 @@ export default function NewSalePage() {
                             type="button"
                             size="sm"
                             className="gap-1.5 h-8 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-500/10 shrink-0"
-                            onClick={() => {
+                            onClick={async () => {
                               if (!selectedHistoryInvoice?.items?.length) return
-                              const repurchaseItems = selectedHistoryInvoice.items.map((it) => {
-                                const base: BillingItem = {
-                                  ...createEmptyItem(),
-                                  productId: it.productId,
-                                  productName: it.productName,
-                                  batchId: it.batchId,
-                                  batchNumber: it.batchNumber,
-                                  expiryDate: it.expiryDate,
-                                  quantity: it.quantity,
-                                  mrp: Number(it.mrp),
-                                  rate: Number(it.rate),
-                                  discountPercent: Number(it.discountPercent),
-                                  gstPercent: Number(it.gstPercent),
-                                  amount: 0,
-                                }
-                                base.amount = calculateItemAmount(base)
-                                return base
-                              })
+                              const repurchaseItems = await Promise.all(
+                                selectedHistoryInvoice.items.map(async (it) => {
+                                  const base: BillingItem = {
+                                    ...createEmptyItem(),
+                                    productId: it.productId,
+                                    productName: it.productName,
+                                    batchId: it.batchId,
+                                    batchNumber: it.batchNumber,
+                                    expiryDate: it.expiryDate,
+                                    quantity: it.quantity,
+                                    mrp: Number(it.mrp),
+                                    rate: Number(it.rate),
+                                    discountPercent: Number(it.discountPercent),
+                                    gstPercent: Number(it.gstPercent),
+                                    amount: 0,
+                                  }
+                                  // Auto-select the FEFO batch (earliest-expiry with stock)
+                                  // instead of reusing the previous invoice's batch, which is
+                                  // usually depleted/expired by now — that left the row on
+                                  // "Select Batch". Mirrors handleProductSelect's FEFO pick.
+                                  if (it.productId) {
+                                    try {
+                                      const res = await api.get(`/products/${it.productId}`)
+                                      syncProductBatchesIntoStore(res.data)
+                                      const fefo = useMasterDataStore.getState().batches
+                                        .filter((b) => b.productId === it.productId && b.quantity > 0 && !isExpired(b.expiryDate))
+                                        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
+                                      if (fefo) {
+                                        base.batchId = fefo.id
+                                        base.batchNumber = fefo.batchNumber
+                                        base.expiryDate = fefo.expiryDate
+                                        base.mrp = Number(fefo.mrp) || base.mrp
+                                      } else {
+                                        // No sellable stock — clear the stale batch so the
+                                        // row clearly prompts for a manual pick.
+                                        base.batchId = ''
+                                        base.batchNumber = ''
+                                        base.expiryDate = ''
+                                      }
+                                    } catch { /* product fetch failed — keep the copied values */ }
+                                  }
+                                  base.amount = calculateItemAmount(base)
+                                  return base
+                                })
+                              )
                               setItems(repurchaseItems)
                               setSelectedHistoryInvoice(null)
                               setTableView('products')

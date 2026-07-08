@@ -195,6 +195,13 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         }))
       )
     )
+    // Carry the source customer so New Sale can auto-select them (and pull all
+    // their details) instead of opening on a blank "Select Customer".
+    if (invoice.customerId) {
+      sessionStorage.setItem('repurchase_customer', JSON.stringify({ id: invoice.customerId }))
+    } else {
+      sessionStorage.removeItem('repurchase_customer')
+    }
     toast.success('Items loaded — redirecting to new sale…')
     onClose()
     setTimeout(() => navigate('/billing/new'), 200)

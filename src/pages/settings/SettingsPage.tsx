@@ -190,7 +190,7 @@ export default function SettingsPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden">
         {/* ─── LEFT: Sidebar Navigation ──────────────────────── */}
-        <div className="hidden lg:flex w-55 shrink-0 flex-col border-r border-border/40 bg-muted/5 dark:bg-muted/2">
+        <div className="hidden lg:flex w-64 shrink-0 flex-col border-r border-border/40 bg-muted/5 dark:bg-muted/2">
           <ScrollArea className="min-h-0 flex-1">
             <nav className="p-3 space-y-0.5">
               {visibleSections.map((section) => {
@@ -218,11 +218,16 @@ export default function SettingsPage() {
                       <Icon className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0 text-left">
-                      <p className="truncate leading-tight">{section.label}</p>
-                      <p className={cn(
-                        'truncate text-[9px] leading-tight transition-colors',
-                        isActive ? 'text-primary/70' : 'text-muted-foreground/60'
-                      )}>
+                      {/* Label must never clip — it's the nav item's name. Wrap
+                          if the width is ever tight rather than truncating. */}
+                      <p className="leading-tight">{section.label}</p>
+                      <p
+                        title={section.description}
+                        className={cn(
+                          'truncate text-[9px] leading-tight transition-colors',
+                          isActive ? 'text-primary/70' : 'text-muted-foreground/60'
+                        )}
+                      >
                         {section.description}
                       </p>
                     </div>
