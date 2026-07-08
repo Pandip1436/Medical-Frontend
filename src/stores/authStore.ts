@@ -63,7 +63,7 @@ export const useAuthStore = create<AuthState>()(
       expandedSection: null,
       mobileSidebarOpen: false,
       language: 'en' as Language,
-      uiScale: 'auto' as UiScale,
+      uiScale: 1 as UiScale, // default: 100% (fixed). 'auto' is opt-in.
       hasCompletedOnboarding: false,
 
       // Auth actions
@@ -208,6 +208,16 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'pbims-auth-storage',
+      // v1: display scale now defaults to 100% instead of 'auto'. Migrate any
+      // stored 'auto' (the previous default) to a fixed 1 so existing installs
+      // pick up the new default; users who still want auto can re-select it.
+      version: 1,
+      migrate: (persisted: any, version: number) => {
+        if (version < 1 && persisted && persisted.uiScale === 'auto') {
+          persisted.uiScale = 1
+        }
+        return persisted
+      },
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
