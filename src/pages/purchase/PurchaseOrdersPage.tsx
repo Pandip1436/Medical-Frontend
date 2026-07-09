@@ -1321,7 +1321,7 @@ export default function PurchaseOrdersPage() {
           </Button>
         }
         hideFilterToggle
-        columnsNode={<ColumnsToggle inline columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
+        columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
             {/* Desktop: Create + PE (mobile versions are in leadingActionNode) */}

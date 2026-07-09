@@ -194,9 +194,14 @@ export function DataTableFilterBar({
                   </div>
                 )}
 
-                {/* Inline columns section (rendered by caller via ColumnsToggle inline) */}
                 {columnsNode && (
-                  <div className={cn(children && 'mt-4 border-t border-border/40 pt-3')}>
+                  <div className={cn(
+                    'flex flex-wrap items-center justify-between gap-3',
+                    children && 'mt-4 border-t border-border/40 pt-3',
+                  )}>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Visible Columns
+                    </span>
                     {columnsNode}
                   </div>
                 )}
