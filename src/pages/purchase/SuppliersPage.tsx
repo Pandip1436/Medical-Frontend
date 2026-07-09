@@ -16,6 +16,7 @@ import {
   Upload,
   Filter,
   BarChart3,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -64,6 +65,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { ImportSuppliersDrawer } from '@/components/suppliers/ImportSuppliersDrawer'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { useIsMobileOrTablet } from '@/hooks/useMediaQuery'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
@@ -223,6 +225,8 @@ export default function SuppliersPage() {
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.suppliers', 'splitShowStats', true)
   const [payTab, setPayTab] = usePageFilter<SupplierPayTabKey>('purchase.suppliers', 'payTab', 'all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
+  const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+  const [showStats, setShowStats] = useState(true)
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
@@ -644,101 +648,55 @@ export default function SuppliersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary Cards (clickable cards drive the existing server filters) ── */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
-        {([
-          {
-            label: 'Total Suppliers',
-            value: (moneySummary?.totalCount ?? stats.totalCount).toString(),
-            subtitle: 'in directory',
-            icon: Users,
-            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-            borderAccent: 'border-l-blue-500',
-            // "Total" clears the status + outstanding narrowing back to all.
-            clickable: true,
-            active: selectedStatus === 'all' && !outstandingMin,
-            activeRing: 'ring-2 ring-blue-500/50',
-            apply: () => { setSelectedStatus('all'); setOutstandingMin(''); setCurrentPage(1) },
-            title: 'Show all suppliers',
-          },
-          {
-            label: 'Active',
-            value: (moneySummary?.activeCount ?? stats.activeCount).toString(),
-            subtitle: `${moneySummary?.inactiveCount ?? stats.inactiveCount} inactive`,
-            icon: CheckCircle2,
-            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-            borderAccent: 'border-l-emerald-500',
-            // Drives the Status filter → server param isActive=true.
-            clickable: true,
-            active: selectedStatus === 'ACTIVE',
-            activeRing: 'ring-2 ring-emerald-500/50',
-            apply: () => { setSelectedStatus(selectedStatus === 'ACTIVE' ? 'all' : 'ACTIVE'); setCurrentPage(1) },
-            title: 'Filter to active suppliers',
-          },
-          {
-            // Directory-wide purchases billed by suppliers (from the summary
-            // endpoint). Informational — no matching server filter.
-            label: 'Total Purchases',
-            value: moneySummary ? formatCurrency(moneySummary.totalPurchases) : '—',
-            subtitle: 'billed across all suppliers',
-            icon: IndianRupee,
-            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-            borderAccent: 'border-l-amber-500',
-            clickable: false,
-            active: false,
-            activeRing: '',
-            apply: () => {},
-            title: undefined,
-          },
-          {
-            label: 'Pending Payments',
-            value: moneySummary ? formatCurrency(moneySummary.pendingPayments) : '—',
-            subtitle: 'total owed to suppliers',
-            icon: AlertCircle,
-            iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400',
-            borderAccent: 'border-l-red-500',
-            // No directory-wide count available, but the list supports an
-            // outstanding range — drill to suppliers with any balance via
-            // the existing outstandingMin server param.
-            clickable: true,
-            active: !!outstandingMin,
-            activeRing: 'ring-2 ring-red-500/50',
-            apply: () => { setOutstandingMin(outstandingMin ? '' : '1'); setCurrentPage(1) },
-            title: 'Filter to suppliers with outstanding balance',
-          },
-        ]).map((stat) => (
-          <Card
-            key={stat.label}
-            hover
-            {...(stat.clickable
-              ? {
-                  role: 'button' as const,
-                  tabIndex: 0,
-                  title: stat.title,
-                  onClick: stat.apply,
-                  onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); stat.apply() } },
-                }
-              : {})}
-            className={cn(
-              'border-l-[3px]',
-              stat.borderAccent,
-              stat.clickable && 'cursor-pointer transition-shadow',
-              stat.active && stat.activeRing,
-            )}
-          >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
-                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* ── Summary Cards ── */}
+      {showStats && (() => {
+        const SUPP_STATS = [
+          { label: 'Total Suppliers', value: (moneySummary?.totalCount ?? stats.totalCount).toString(),       subtitle: 'in directory',              icon: Users,        iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',    borderAccent: 'border-l-blue-500',    clickable: true,  active: selectedStatus === 'all' && !outstandingMin, activeRing: 'ring-1 ring-blue-500/40',    apply: () => { setSelectedStatus('all'); setOutstandingMin(''); setCurrentPage(1) },                         title: 'Show all suppliers' },
+          { label: 'Active',          value: (moneySummary?.activeCount ?? stats.activeCount).toString(),     subtitle: `${moneySummary?.inactiveCount ?? stats.inactiveCount} inactive`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', clickable: true,  active: selectedStatus === 'ACTIVE',                 activeRing: 'ring-1 ring-emerald-500/40', apply: () => { setSelectedStatus(selectedStatus === 'ACTIVE' ? 'all' : 'ACTIVE'); setCurrentPage(1) },     title: 'Filter to active suppliers' },
+          { label: 'Total Purchases', value: moneySummary ? formatCurrency(moneySummary.totalPurchases) : '—', subtitle: 'billed across all',       icon: IndianRupee,  iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',  borderAccent: 'border-l-amber-500',   clickable: false, active: false,                                       activeRing: '',                           apply: () => {},                                                                                              title: undefined },
+          { label: 'Pending Payments',value: moneySummary ? formatCurrency(moneySummary.pendingPayments) : '—', subtitle: 'owed to suppliers',      icon: AlertCircle,  iconBg: 'bg-red-500/10 text-red-600 dark:text-red-400',        borderAccent: 'border-l-red-500',     clickable: true,  active: !!outstandingMin,                            activeRing: 'ring-1 ring-red-500/40',     apply: () => { setOutstandingMin(outstandingMin ? '' : '1'); setCurrentPage(1) },                            title: 'Filter to suppliers with outstanding balance' },
+        ]
+        return (
+          <>
+            {/* Mobile/tablet compact strip */}
+            <div className="flex gap-2 overflow-x-auto pb-0.5 lg:hidden">
+              {SUPP_STATS.map(s => (
+                <button key={s.label} onClick={s.clickable ? s.apply : undefined}
+                  disabled={!s.clickable}
+                  className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-l-2 bg-card px-3 py-2 text-left shadow-sm transition-all', s.borderAccent, s.clickable && 'active:scale-[0.98] cursor-pointer', s.active && s.activeRing)}>
+                  <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', s.iconBg)}>
+                    <s.icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap leading-none mb-0.5">{s.label}</p>
+                    <p className="text-sm font-bold font-mono tabular-nums leading-tight">{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground/70 whitespace-nowrap leading-none mt-0.5">{s.subtitle}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            {/* Desktop full grid */}
+            <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+              {SUPP_STATS.map(stat => (
+                <Card key={stat.label} hover
+                  {...(stat.clickable ? { role: 'button' as const, tabIndex: 0, title: stat.title, onClick: stat.apply, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); stat.apply() } } } : {})}
+                  className={cn('border-l-[3px]', stat.borderAccent, stat.clickable && 'cursor-pointer transition-shadow', stat.active && stat.activeRing)}>
+                  <CardContent className="flex items-center gap-4 p-4">
+                    <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                      <stat.icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                      <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                      <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
+        )
+      })()}
 
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
@@ -748,7 +706,43 @@ export default function SuppliersPage() {
         resultsCount={totalSuppliers}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
+        open={tableFiltersOpen}
+        onOpenChange={setTableFiltersOpen}
         columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
+        leadingActionNode={
+          <Button size="sm" className="h-8 px-2.5 text-xs" onClick={openAddDialog}>
+            <Plus className="h-3.5 w-3.5" />
+            Supplier
+          </Button>
+        }
+        searchEndNode={
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('relative h-8 w-8 rounded-full', tableFiltersOpen && 'bg-accent')}
+              onClick={() => setTableFiltersOpen(v => !v)}
+              aria-label="Toggle filters"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-8 w-8 rounded-full', !showStats && 'text-muted-foreground')}
+              onClick={() => setShowStats(v => !v)}
+              aria-label={showStats ? 'Hide stats' : 'Show stats'}
+            >
+              <BarChart3 className="h-4 w-4" />
+            </Button>
+          </div>
+        }
+        hideFilterToggle
         actionNode={
           <div className="flex items-center gap-1.5">
             <Button
@@ -769,25 +763,24 @@ export default function SuppliersPage() {
               <Upload className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button
-              size="sm"
-              onClick={openAddDialog}
-            >
+            <Button size="sm" className="hidden sm:flex" onClick={openAddDialog}>
               <Plus className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Add Supplier</span>
-              <span className="sm:hidden">Add</span>
+              Add Supplier
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => navigate('/purchase/orders')}
-            >
-              <ClipboardList className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Purchase Orders</span>
-              <span className="sm:hidden">POs</span>
-            </Button>
-            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/suppliers') }} />
+            <div className="hidden lg:block">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+                onClick={() => navigate('/purchase/orders')}
+              >
+                <ClipboardList className="mr-1.5 h-4 w-4" />
+                Purchase Orders
+              </Button>
+            </div>
+            <div className="hidden lg:block">
+              <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/suppliers') }} />
+            </div>
           </div>
         }
       >

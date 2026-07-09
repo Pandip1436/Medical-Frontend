@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bell,
@@ -10,6 +10,9 @@ import {
   Menu,
   Building2,
   ChevronDown,
+  RefreshCw,
+  Search,
+  X,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import { navigate as routerNavigate, href as hashHref } from '@/lib/router'
@@ -49,6 +52,7 @@ const roleRingColors: Record<string, string> = {
 }
 
 export function Header({ breadcrumbs }: HeaderProps) {
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const { user, theme, setTheme, resolvedTheme, logout, toggleMobileSidebar } =
     useAuthStore()
   const { unreadCount, fetchNotifications, startPolling } = useNotificationStore()
@@ -147,9 +151,6 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-1.5 md:gap-2">
-        {/* Global Master Search — inline input with a results dropdown.
-            Hidden on mobile (the pill won't fit the header bar). */}
-        <HeaderSearch />
 
         {/* Branch selector — a switcher when the user may reach >1 branch
             (Super Admins and multi-branch staff), a locked badge otherwise. */}
@@ -194,9 +195,35 @@ export function Header({ breadcrumbs }: HeaderProps) {
           )
         )}
 
+        {/* Global search — inline pill on md+; icon button on mobile that
+            opens the full-screen overlay below. */}
+        <HeaderSearch />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-full hover:bg-accent md:hidden"
+          onClick={() => setMobileSearchOpen(true)}
+          aria-label="Search"
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+
         {/* Control cluster — bell / theme / language grouped into a single
             glass pill for a more premium, cohesive toolbar. */}
         <div className="flex items-center gap-0.5 rounded-full border border-border/50 bg-muted/40 p-0.5 shadow-sm backdrop-blur-sm">
+          {/* Refresh — installed/standalone windows have no browser chrome,
+              so there's no address-bar reload button to fall back on. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full hover:bg-accent"
+            onClick={() => window.location.reload()}
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+
           {/* Install App — only renders when the browser can install (Chromium)
               or on iOS (manual Add to Home Screen instructions). */}
           <InstallAppButton />
@@ -332,6 +359,32 @@ export function Header({ breadcrumbs }: HeaderProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Mobile full-screen search overlay */}
+      <AnimatePresence>
+        {mobileSearchOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-60 bg-background/97 backdrop-blur-md md:hidden"
+          >
+            <div className="flex h-14 items-center gap-2 border-b border-border/40 px-4">
+              <HeaderSearch mobileMode />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => setMobileSearchOpen(false)}
+                aria-label="Close search"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   )
 }

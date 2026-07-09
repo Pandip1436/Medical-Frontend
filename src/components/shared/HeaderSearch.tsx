@@ -34,9 +34,21 @@ const masterSearchSectionIcons: Record<MasterSearchType, React.ElementType> = {
 // focus straight into the input (no modal), typing pops a results dropdown
 // anchored directly beneath. Ctrl+K (or Cmd+K) is a focus shortcut from
 // anywhere in the app.
-export function HeaderSearch() {
+//
+// mobileMode: when true the wrapper is visible and full-width (used inside
+// the mobile search overlay in Header). When false (default) the component
+// hides itself on < md so the desktop-only header pill isn't wasted on phones.
+export function HeaderSearch({ mobileMode = false }: { mobileMode?: boolean }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+
+  // Auto-focus the input when rendered in the mobile overlay.
+  useEffect(() => {
+    if (mobileMode) {
+      setTimeout(() => { inputRef.current?.focus(); setOpen(true) }, 50)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileMode])
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const { results: masterResults, loading: masterLoading, totalCount: masterCount, loadMore } = useMasterSearch(query)
@@ -86,12 +98,13 @@ export function HeaderSearch() {
   const showNoResults = hasQuery && !isQueryTooShort && !masterLoading && masterCount === 0
 
   return (
-    <div ref={containerRef} className="relative hidden md:block">
+    <div ref={containerRef} className={mobileMode ? 'relative flex-1' : 'relative hidden md:block'}>
       <Command
         shouldFilter={false}
         loop
         className={cn(
-          'flex items-center gap-2.5 rounded-full border h-10 w-72 lg:w-80 px-4',
+          'flex items-center gap-2.5 rounded-full border h-10 px-4',
+          mobileMode ? 'w-full' : 'w-72 lg:w-80',
           'border-border bg-background shadow-sm',
           'transition-all hover:border-primary/40 hover:shadow',
           open && 'border-primary/50 ring-2 ring-primary/15 shadow-md',

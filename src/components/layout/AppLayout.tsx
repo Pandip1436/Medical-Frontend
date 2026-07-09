@@ -183,9 +183,14 @@ export default function AppLayout({
         {/* Page Content */}
         <main
           className={
-            isFullViewport || isCompactPage
+            isFullViewport
               ? 'flex-1 min-h-0 overflow-hidden'
-              : 'flex-1 overflow-x-hidden overflow-y-auto'
+              : isCompactPage
+                // Reserve room on mobile so the fixed bottom tab bar
+                // (Sidebar.tsx, <768px only) doesn't cover the split view's
+                // content — matches the pb-24 used on the scrollable path.
+                ? 'flex-1 min-h-0 overflow-hidden pb-24 md:pb-0'
+                : 'flex-1 overflow-x-hidden overflow-y-auto'
           }
         >
           <AnimatePresence mode="wait">

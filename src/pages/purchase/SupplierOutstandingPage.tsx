@@ -634,6 +634,7 @@ export default function SupplierOutstandingPage() {
                     )}
                   </div>
                   <div className="overflow-hidden rounded-xl border border-border/40">
+                    <div className="overflow-x-auto">
                     <Table>
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
@@ -691,6 +692,7 @@ export default function SupplierOutstandingPage() {
                         })}
                       </TableBody>
                     </Table>
+                    </div>
                   </div>
                 </div>
 

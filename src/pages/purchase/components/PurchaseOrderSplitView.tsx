@@ -167,6 +167,7 @@ export function PurchaseOrderSplitView({
         </>
       }
       onExitSplitView={onExitSplitView}
+      onBackToList={() => onSelectPo(null)}
       selectedId={selectedPoId}
       detailLoading={detail.loading}
       detailError={detail.error}

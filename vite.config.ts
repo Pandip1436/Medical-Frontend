@@ -19,7 +19,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: null, // registered manually in src/main.tsx so we can drive the update toast
-      devOptions: { enabled: true },
+      devOptions: { enabled: true, suppressWarnings: true },
       manifest: {
         name: 'PBIMS - Hospital Suppliers',
         short_name: 'PBIMS',

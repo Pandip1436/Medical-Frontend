@@ -148,6 +148,7 @@ export function DebitNoteSplitView({
         </>
       }
       onExitSplitView={onExitSplitView}
+      onBackToList={() => onSelectDebitNote(null)}
       selectedId={selectedDebitNoteId}
       detailLoading={detail.loading}
       detailError={detail.error}

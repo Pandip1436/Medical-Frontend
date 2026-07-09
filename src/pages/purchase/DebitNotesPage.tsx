@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { useIsMobileOrTablet } from '@/hooks/useMediaQuery'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -191,6 +192,7 @@ export default function DebitNotesPage() {
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+  const [showStats, setShowStats] = useState(true)
   const [statusTab, setStatusTab] = usePageFilter<StatusTabKey>('purchase.debitNotes', 'statusTab', 'all')
 
   // Selecting "Custom Range" opens the filters panel that holds the date pickers.
@@ -572,76 +574,63 @@ export default function DebitNotesPage() {
       <div className="flex-1 overflow-hidden bg-muted/20">
         {/* ── List View ── */}
         <div className="flex flex-col h-full">
-            {/* Summary cards — click Short-Billing / Settled to drill the list */}
-            <div className="grid grid-cols-2 gap-3 border-b border-border/40 bg-background px-4 py-4 sm:px-6 lg:grid-cols-4">
-              {([
-                {
-                  label: 'Total Notes',
-                  value: stats.totalCount.toString(),
-                  subtitle: 'this period',
-                  icon: Receipt,
-                  iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-                  borderAccent: 'border-l-blue-500',
-                  filterKey: 'all',
-                  activeRing: 'ring-2 ring-blue-500/50',
-                },
-                {
-                  label: 'Total Debit',
-                  value: formatCurrency(stats.totalAmount),
-                  subtitle: 'issued to suppliers',
-                  icon: IndianRupee,
-                  iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-                  borderAccent: 'border-l-rose-500',
-                  filterKey: 'all',
-                  activeRing: 'ring-2 ring-rose-500/50',
-                },
-                {
-                  label: 'Short-Billing',
-                  value: formatCurrency(stats.shortBillingTotal),
-                  subtitle: `${stats.shortBillingCount} note${stats.shortBillingCount !== 1 ? 's' : ''}`,
-                  icon: AlertTriangle,
-                  iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                  borderAccent: 'border-l-amber-500',
-                  filterKey: 'short-billing',
-                  activeRing: 'ring-2 ring-amber-500/50',
-                },
-                {
-                  label: 'Settled',
-                  value: formatCurrency(stats.settledTotal),
-                  subtitle: `${stats.settledCount} settled`,
-                  icon: CheckCircle2,
-                  iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-                  borderAccent: 'border-l-emerald-500',
-                  filterKey: 'settled',
-                  activeRing: 'ring-2 ring-emerald-500/50',
-                },
-              ] as const).map((s) => {
-                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
-                return (
-                <Card
-                  key={s.label}
-                  hover
-                  role="button"
-                  tabIndex={0}
-                  title={s.filterKey === 'all' ? 'Show all debit notes in this period' : `Filter list to ${s.label.toLowerCase()}`}
-                  onClick={() => { setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short-billing' | 'settled')); setCurrentPage(1) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short-billing' | 'settled')); setCurrentPage(1) } }}
-                  className={cn('border-l-[3px] cursor-pointer transition-shadow', s.borderAccent, active && s.activeRing)}
-                >
-                  <CardContent className="flex items-center gap-3 p-3">
-                    <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.iconBg)}>
-                      <s.icon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                      <p className="text-base font-bold font-mono leading-tight">{s.value}</p>
-                      <p className="text-[10px] text-muted-foreground">{s.subtitle}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                )
-              })}
-            </div>
+            {/* Summary cards */}
+            {showStats && (() => {
+              const DN_STATS = [
+                { label: 'Total Notes',   value: stats.totalCount.toString(),       subtitle: 'this period',           icon: Receipt,      iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',    borderAccent: 'border-l-blue-500',    filterKey: 'all'          as const, activeRing: 'ring-1 ring-blue-500/40' },
+                { label: 'Total Debit',   value: formatCurrency(stats.totalAmount), subtitle: 'issued to suppliers',   icon: IndianRupee,  iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',    borderAccent: 'border-l-rose-500',    filterKey: 'all'          as const, activeRing: 'ring-1 ring-rose-500/40' },
+                { label: 'Short-Billing', value: formatCurrency(stats.shortBillingTotal), subtitle: `${stats.shortBillingCount} notes`, icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500', filterKey: 'short-billing' as const, activeRing: 'ring-1 ring-amber-500/40' },
+                { label: 'Settled',       value: formatCurrency(stats.settledTotal), subtitle: `${stats.settledCount} settled`,  icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'settled' as const, activeRing: 'ring-1 ring-emerald-500/40' },
+              ]
+              const handleCardFilter = (key: typeof cardFilter) => { setCardFilter(cardFilter === key && key !== 'all' ? 'all' : key); setCurrentPage(1) }
+              return (
+                <div className="border-b border-border/40 bg-background px-4 py-3 sm:px-6">
+                  {/* Mobile/tablet compact strip */}
+                  <div className="flex gap-2 overflow-x-auto pb-0.5 lg:hidden">
+                    {DN_STATS.map(s => {
+                      const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                      return (
+                        <button key={s.label} onClick={() => handleCardFilter(s.filterKey)}
+                          className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-l-2 bg-card px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]', s.borderAccent, active && s.activeRing)}>
+                          <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', s.iconBg)}>
+                            <s.icon className="h-3.5 w-3.5" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap leading-none mb-0.5">{s.label}</p>
+                            <p className="text-sm font-bold font-mono tabular-nums leading-tight">{s.value}</p>
+                            <p className="text-[10px] text-muted-foreground/70 whitespace-nowrap leading-none mt-0.5">{s.subtitle}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Desktop full grid */}
+                  <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+                    {DN_STATS.map(s => {
+                      const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                      return (
+                        <Card key={s.label} hover role="button" tabIndex={0}
+                          title={s.filterKey === 'all' ? 'Show all debit notes in this period' : `Filter to ${s.label.toLowerCase()}`}
+                          onClick={() => handleCardFilter(s.filterKey)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardFilter(s.filterKey) } }}
+                          className={cn('border-l-[3px] cursor-pointer transition-shadow', s.borderAccent, active && s.activeRing)}>
+                          <CardContent className="flex items-center gap-3 p-3">
+                            <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.iconBg)}>
+                              <s.icon className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                              <p className="text-base font-bold font-mono leading-tight">{s.value}</p>
+                              <p className="text-[10px] text-muted-foreground">{s.subtitle}</p>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Search bar + filters + actions */}
             <div className="border-b border-border/40 bg-background/60 px-4 py-3 sm:px-6 backdrop-blur-sm">
@@ -656,29 +645,49 @@ export default function DebitNotesPage() {
                 onClearFilters={clearFilters}
                 leadingNode={
                   <div className="w-full sm:w-40">
-                    <EnumSelect
-                      value={period}
-                      onValueChange={onPeriodChange}
-                      // Clear = remove the date restriction → All Time (was resetting
-                      // to the same 'today' value, so the X did nothing).
-                      onClear={() => onPeriodChange('all')}
-                      options={PERIOD_OPTIONS}
-                    />
+                    <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
                   </div>
                 }
+                leadingActionNode={
+                  <Button size="sm" className="h-8 gap-1 px-2.5" onClick={() => navigate('/purchase/returns')}>
+                    <Plus className="h-3.5 w-3.5" /><span className="text-xs">New Return</span>
+                  </Button>
+                }
+                searchEndNode={
+                  <div className="flex items-center gap-0.5">
+                    <Button variant={tableFiltersOpen ? 'default' : 'outline'} size="sm"
+                      className="relative h-8 w-8 p-0" onClick={() => setTableFiltersOpen(o => !o)} aria-label="Filters">
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      {activeFilterCount > 0 && (
+                        <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </Button>
+                    <Button variant={showStats ? 'secondary' : 'ghost'} size="sm"
+                      className="h-8 w-8 p-0" onClick={() => setShowStats(s => !s)}
+                      aria-label={showStats ? 'Hide stats' : 'Show stats'} title={showStats ? 'Hide stats' : 'Show stats'}>
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                }
+                hideFilterToggle
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
                   <div className="flex items-center gap-1.5">
-                  <Button
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => navigate('/purchase/returns')}
-                  >
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    <span className="hidden sm:inline">New Return</span>
-                    <span className="sm:hidden">New</span>
-                  </Button>
-                  <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/debit-notes') }} />
+                    <Button variant="outline" size="sm"
+                      onClick={() => exportToCsv(tabFilteredReturns.map(r => ({ 'Note#': r.debitNoteNo, Date: formatDate(r.date), Supplier: r.supplierName, Total: r.totalAmount, Status: r.status })), 'debit-notes')}>
+                      <Download className="mr-1.5 h-4 w-4" />
+                      <span className="hidden sm:inline">Export</span>
+                    </Button>
+                    <div className="hidden sm:block">
+                      <Button size="sm" onClick={() => navigate('/purchase/returns')}>
+                        <Plus className="mr-1.5 h-4 w-4" />New Return
+                      </Button>
+                    </div>
+                    <div className="hidden lg:block">
+                      <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/debit-notes') }} />
+                    </div>
                   </div>
                 }
               >
