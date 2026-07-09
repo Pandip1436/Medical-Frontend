@@ -15,6 +15,7 @@ import {
   IndianRupee,
   AlertTriangle,
   Filter,
+  SlidersHorizontal,
   BarChart3,
   Download,
   X,
