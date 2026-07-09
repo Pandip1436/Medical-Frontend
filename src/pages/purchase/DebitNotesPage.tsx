@@ -671,15 +671,17 @@ export default function DebitNotesPage() {
                     </Button>
                   </div>
                 }
+                leadingTrailingNode={
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                    onClick={() => exportToCsv(tabFilteredReturns.map(r => ({ 'Note#': r.debitNoteNo, Date: formatDate(r.date), Supplier: r.supplierName, Total: r.totalAmount, Status: r.status })), 'debit-notes')}
+                    aria-label="Export CSV" title="Export CSV">
+                    <Download className="h-4 w-4" />
+                  </Button>
+                }
                 hideFilterToggle
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
                   <div className="flex items-center gap-1.5">
-                    <Button variant="outline" size="sm"
-                      onClick={() => exportToCsv(tabFilteredReturns.map(r => ({ 'Note#': r.debitNoteNo, Date: formatDate(r.date), Supplier: r.supplierName, Total: r.totalAmount, Status: r.status })), 'debit-notes')}>
-                      <Download className="mr-1.5 h-4 w-4" />
-                      <span className="hidden sm:inline">Export</span>
-                    </Button>
                     <div className="hidden sm:block">
                       <Button size="sm" onClick={() => navigate('/purchase/returns')}>
                         <Plus className="mr-1.5 h-4 w-4" />New Return

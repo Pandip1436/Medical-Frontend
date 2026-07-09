@@ -698,15 +698,17 @@ export default function GRNListPage() {
             </Button>
           </div>
         }
+        leadingTrailingNode={
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+            onClick={() => exportToCsv(filtered.map(g => ({ 'PE#': g.grnNumber, Date: formatDate(g.date), Supplier: g.supplierName, 'Invoice#': g.supplierInvoiceNo, Total: g.totalAmount, Status: g.paymentStatus ?? 'UNPAID' })), 'purchase-entries')}
+            aria-label="Export CSV" title="Export CSV">
+            <Download className="h-4 w-4" />
+          </Button>
+        }
         hideFilterToggle
         columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm"
-              onClick={() => exportToCsv(filtered.map(g => ({ 'PE#': g.grnNumber, Date: formatDate(g.date), Supplier: g.supplierName, 'Invoice#': g.supplierInvoiceNo, Total: g.totalAmount, Status: g.paymentStatus ?? 'UNPAID' })), 'purchase-entries')}>
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
             <div className="hidden sm:block">
               <Button size="sm" onClick={() => navigate('/purchase/grn')}>
                 <PackageCheck className="mr-1.5 h-4 w-4" />New PE

@@ -742,18 +742,15 @@ export default function SuppliersPage() {
             </Button>
           </div>
         }
+        leadingTrailingNode={
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+            onClick={handleExport} aria-label="Export CSV" title="Export CSV">
+            <Download className="h-4 w-4" />
+          </Button>
+        }
         hideFilterToggle
         actionNode={
           <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={handleExport}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
             <Button
               variant="outline"
               size="sm"

@@ -34,6 +34,10 @@ interface DataTableFilterBarProps {
   // bottom action row — use this when searchEndNode already contains a
   // custom filter toggle so the button doesn't appear twice.
   hideFilterToggle?: boolean
+  // Renders at the FAR RIGHT of Row 1 (period selector row), always visible
+  // on every breakpoint. Use for compact actions like an export icon button
+  // that should live beside the period selector on mobile.
+  leadingTrailingNode?: React.ReactNode
   columnsNode?: React.ReactNode
   searchClassName?: string
 }
@@ -52,6 +56,7 @@ export function DataTableFilterBar({
   actionNode,
   leadingNode,
   leadingActionNode,
+  leadingTrailingNode,
   midNode,
   searchEndNode,
   hideFilterToggle = false,
@@ -66,24 +71,10 @@ export function DataTableFilterBar({
   }
   const hasPanel = Boolean(children || columnsNode)
 
-  const clearBtn = onClearFilters && activeFilterCount > 0 ? (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="text-muted-foreground hover:text-foreground"
-      onClick={onClearFilters}
-    >
-      <X className="h-3.5 w-3.5 sm:mr-1" />
-      <span className="hidden sm:inline">Clear</span>
-    </Button>
-  ) : null
-
   return (
     <div className="space-y-3">
-      {/* ── Row 1: Period selector (leadingNode) + mobile primary actions ── */}
-      {/* On mobile this is its own full-width row. On sm+ it collapses into
-          the single flex line (natural-width leading, flex-1 search, auto trailing). */}
-      {(leadingNode || leadingActionNode) && (
+      {/* ── Row 1: Period selector + mobile primary actions + trailing export ── */}
+      {(leadingNode || leadingActionNode || leadingTrailingNode) && (
         <div className={cn(
           'flex w-full items-center gap-1.5',
           'order-1 sm:w-auto sm:shrink-0',
@@ -97,6 +88,12 @@ export function DataTableFilterBar({
           {leadingActionNode && (
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
               {leadingActionNode}
+            </div>
+          )}
+          {/* Always-visible trailing node (e.g. export icon button) */}
+          {leadingTrailingNode && (
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {leadingTrailingNode}
             </div>
           )}
         </div>
@@ -129,7 +126,7 @@ export function DataTableFilterBar({
         )}
       </div>
 
-      {/* ── Row 3: Clear + midNode + default filter toggle + actionNode ── */}
+      {/* ── Row 3: midNode + default filter toggle + actionNode ── */}
       <div className="order-3 flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:shrink-0 sm:justify-end">
         {midNode}
 
@@ -151,12 +148,8 @@ export function DataTableFilterBar({
                 </Badge>
               )}
             </Button>
-            {clearBtn}
           </div>
         )}
-
-        {/* When filter toggle is suppressed, still show the clear button */}
-        {hasPanel && hideFilterToggle && clearBtn}
 
         {actionNode && hasPanel && !hideFilterToggle && (
           <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
@@ -191,6 +184,23 @@ export function DataTableFilterBar({
                       Visible Columns
                     </span>
                     {columnsNode}
+                  </div>
+                )}
+                {/* Clear filters — lives inside the panel so the toolbar stays clean */}
+                {onClearFilters && activeFilterCount > 0 && (
+                  <div className={cn(
+                    'flex justify-end',
+                    (children || columnsNode) && 'mt-3 border-t border-border/40 pt-3',
+                  )}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-muted-foreground hover:text-foreground"
+                      onClick={onClearFilters}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Clear all filters
+                    </Button>
                   </div>
                 )}
               </CardContent>

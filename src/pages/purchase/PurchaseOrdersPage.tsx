@@ -1313,15 +1313,17 @@ export default function PurchaseOrdersPage() {
             </Button>
           </div>
         }
+        leadingTrailingNode={
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+            onClick={() => exportToCsv(filteredPOs.map(p => ({ 'PO#': p.poNumber, Date: formatDate(p.date), Supplier: p.supplierName, Items: p.items.length, Total: p.totalAmount, Status: p.status })), 'purchase-orders')}
+            aria-label="Export CSV" title="Export CSV">
+            <Download className="h-4 w-4" />
+          </Button>
+        }
         hideFilterToggle
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm"
-              onClick={() => exportToCsv(filteredPOs.map(p => ({ 'PO#': p.poNumber, Date: formatDate(p.date), Supplier: p.supplierName, Items: p.items.length, Total: p.totalAmount, Status: p.status })), 'purchase-orders')}>
-              <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
             {/* Desktop: Create + PE (mobile versions are in leadingActionNode) */}
             <div className="hidden sm:flex items-center gap-1.5">
               <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
