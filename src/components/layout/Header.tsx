@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { HeaderSearch } from '@/components/shared/HeaderSearch'
+import { InstallAppButton } from '@/components/shared/InstallAppButton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -196,6 +197,10 @@ export function Header({ breadcrumbs }: HeaderProps) {
         {/* Control cluster — bell / theme / language grouped into a single
             glass pill for a more premium, cohesive toolbar. */}
         <div className="flex items-center gap-0.5 rounded-full border border-border/50 bg-muted/40 p-0.5 shadow-sm backdrop-blur-sm">
+          {/* Install App — only renders when the browser can install (Chromium)
+              or on iOS (manual Add to Home Screen instructions). */}
+          <InstallAppButton />
+
           {/* Notification Bell — navigates straight to notifications page.
               Hidden for roles without notifications access (e.g. DELIVERY). */}
           {canSeeNotifications && (

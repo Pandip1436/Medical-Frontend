@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  reset = () => this.setState({ hasError: false, error: null })
+  reset = () => window.location.reload()
 
   render() {
     if (!this.state.hasError) return this.props.children
