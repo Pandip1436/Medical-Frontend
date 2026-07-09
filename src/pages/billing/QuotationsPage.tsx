@@ -61,6 +61,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
@@ -219,7 +220,7 @@ export default function QuotationsPage() {
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
   // Split is default; ?view=table → table view
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedQuotationId = urlParams.get('quotationId')
 
   const selectQuotation = useCallback((id: string | null) => {

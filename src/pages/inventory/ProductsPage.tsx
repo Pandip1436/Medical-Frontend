@@ -45,6 +45,7 @@ import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, exportToPdf, printReport, csvText } from '@/lib/exportUtils'
 import { importFromExcel } from '@/lib/excelUtils'
@@ -216,7 +217,7 @@ export default function ProductsPage() {
   const { search: routeSearch } = useRoute()
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
   // Split is the default. Pass ?view=table to switch to table mode.
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedProductId = urlParams.get('productId')
 
   const selectProduct = useCallback((id: string) => {

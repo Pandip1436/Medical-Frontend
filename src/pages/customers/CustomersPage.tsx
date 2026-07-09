@@ -78,6 +78,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn, formatCurrency } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import type { Customer } from '@/types'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
@@ -353,7 +354,7 @@ export default function CustomersPage() {
   const { search: routeSearch } = useRoute()
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedCustomerId = urlParams.get('customerId')
 
   const selectCustomer = useCallback((id: string | null) => {

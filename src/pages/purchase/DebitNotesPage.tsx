@@ -38,6 +38,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
 import { toast } from 'sonner'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -222,7 +223,7 @@ export default function DebitNotesPage() {
   }, [urlParams])
 
   // Split is default; ?view=table → table view
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedDebitNoteId = urlParams.get('debitNoteId')
 
   const selectDebitNote = useCallback((id: string | null) => {

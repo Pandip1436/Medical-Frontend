@@ -52,6 +52,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn, formatCurrency } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
 import { exportToCsv, printReport } from '@/lib/exportUtils'
 import {
@@ -182,7 +183,7 @@ export default function SuppliersPage() {
   const { search: routeSearch } = useRoute()
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedSupplierId = urlParams.get('supplierId')
 
   const selectSupplier = useCallback((id: string | null) => {

@@ -46,6 +46,7 @@ import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { exportToCsv, csvText } from '@/lib/exportUtils'
@@ -365,7 +366,7 @@ export default function CreditNotesPage() {
   }, [urlParams])
 
   // Split is default; ?view=table → table view
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedCreditNoteId = urlParams.get('creditNoteId')
 
   const selectCreditNote = useCallback((id: string | null) => {

@@ -70,6 +70,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
@@ -359,7 +360,7 @@ export default function SalesListPage() {
   const urlParams = useMemo(() => new URLSearchParams(search), [search])
 
   // Split view is the default. Pass ?view=table to switch to table mode.
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedInvoiceId = urlParams.get('invoiceId')
 
   // Navigate to set / clear the split-view URL params.

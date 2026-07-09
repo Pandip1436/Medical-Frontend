@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/table'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
@@ -212,7 +213,7 @@ export default function GRNListPage() {
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
   // Split is the default. Pass ?view=table to switch to table mode.
-  const effectiveView = urlParams.get('view') === 'table' ? 'table' : 'split'
+  const effectiveView = resolveListView(urlParams.get('view'))
   const selectedGrnId = urlParams.get('grnId')
 
 
