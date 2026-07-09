@@ -1199,7 +1199,7 @@ function BillingRow({
               invoiceType === "invoice" && !item.productId
             }
             className={cn(
-              "h-8 flex-1 min-w-0 border-0 bg-transparent",
+              "h-8 flex-1 w-20 border-0 bg-transparent",
               "text-center text-sm font-bold tabular-nums",
               "focus:outline-none focus:ring-0",
               "disabled:opacity-40",
@@ -3183,8 +3183,26 @@ export default function NewSalePage() {
       setShowCustomerDropdown(true)
       return
     }
-    setItems((prev) => [...prev, createEmptyItem()])
+    // Don't stack blank rows — if the last row is already an empty one waiting
+    // for a product, keep it (the auto-grow effect below always leaves one).
+    setItems((prev) => {
+      const last = prev[prev.length - 1]
+      return last && !last.productId ? prev : [...prev, createEmptyItem()]
+    })
   }, [selectedCustomer])
+
+  // Auto-grow the cart: always keep one blank row waiting at the bottom so the
+  // operator can add the next product immediately — including right after a
+  // repurchase load — without clicking "Add Item". Fires once the current last
+  // row gets a product; it stops on its own because the row it just appended is
+  // empty. Empty rows are ignored by totals/count and stripped on save.
+  useEffect(() => {
+    if (!selectedCustomer) return
+    const last = items[items.length - 1]
+    if (last?.productId) {
+      setItems((prev) => (prev[prev.length - 1]?.productId ? [...prev, createEmptyItem()] : prev))
+    }
+  }, [items, selectedCustomer])
 
   // ── Calculations ──────────────────────────────────────
   const totals = useMemo(() => {
@@ -4039,6 +4057,10 @@ export default function NewSalePage() {
   const invoiceTypeRef = useRef(invoiceType)
   useEffect(() => { invoiceTypeRef.current = invoiceType }, [invoiceType])
   const customerForm = useForm<CustomerFormValues>({
+    // Validate once a field is blurred, then live on every change — so phone /
+    // email errors surface as the user types instead of only on Save.
+    mode: 'onTouched',
+    reValidateMode: 'onChange',
     resolver: (values, ctx, options) => {
       const schema = buildCustomerSchema(invoiceTypeRef.current) as typeof customerSchema
       return zodResolver(schema)(values, ctx, options)
