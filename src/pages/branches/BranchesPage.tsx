@@ -763,14 +763,14 @@ export default function BranchesPage() {
             className="w-full sm:max-w-140 p-0 gap-0 flex flex-col"
           >
             <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
-              <div className="flex items-start justify-between gap-4 pr-8">
+              <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="min-w-0">
                   <SheetTitle>{editing ? 'Edit Branch' : 'Add New Branch'}</SheetTitle>
                   <p className="text-sm text-muted-foreground mt-1">
                     {editing ? 'Update branch information' : 'Create a new pharmacy location'}
                   </p>
                 </div>
-                <div className="flex items-center gap-4 shrink-0">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 shrink-0">
                   <Controller
                     control={control}
                     name="isActive"

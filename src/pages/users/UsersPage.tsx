@@ -545,14 +545,14 @@ export default function UsersPage() {
 
       {/* Selection hint — Export uses the ticked rows, or all rows if none. */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs text-muted-foreground">
           <Badge variant="default" size="sm" dot>
             {selectedIds.size} selected
           </Badge>
-          <span>Export will include the selected user{selectedIds.size === 1 ? '' : 's'}.</span>
+          <span className="min-w-0">Export will include the selected user{selectedIds.size === 1 ? '' : 's'}.</span>
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
             onClick={() => setSelectedIds(new Set())}
           >
             <X className="h-3.5 w-3.5" /> Clear

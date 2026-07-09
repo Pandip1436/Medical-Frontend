@@ -813,7 +813,7 @@ function AuditDetailSheet({ row, onClose }: { row: AuditLogRow | null; onClose: 
       >
         {row && (
           <>
-            <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
+            <SheetHeader className="px-4 sm:px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
               <div className="flex items-start gap-3 pr-8">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 dark:bg-rose-500/15">
                   <Shield className="h-5 w-5 text-rose-600 dark:text-rose-400" />
@@ -838,7 +838,7 @@ function AuditDetailSheet({ row, onClose }: { row: AuditLogRow | null; onClose: 
               {/* Changes — readable field tables. Opaque DB ids (entity id, IP,
                   foreign keys) are deliberately not shown; only human-meaningful
                   fields and values appear. */}
-              <div className="px-6 py-5 space-y-3">
+              <div className="px-4 sm:px-6 py-5 space-y-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">What changed</p>
                 {row.action.toUpperCase() === 'UPDATE' ? (
                   diff.length === 0 ? (
@@ -1172,7 +1172,8 @@ function FieldDiffTable({
 }) {
   return (
     <div className="rounded-lg border border-border/60 overflow-hidden">
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[34rem] text-xs">
         <thead className="bg-muted/40">
           <tr className="text-[10px] uppercase tracking-wider text-muted-foreground">
             <th className="px-3 py-2 text-left font-semibold w-1/3">Field</th>
@@ -1198,6 +1199,7 @@ function FieldDiffTable({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

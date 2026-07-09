@@ -69,13 +69,17 @@ export function DataTableFilterBar({
       {/* When a leading filter (with its own top label) is present, bottom-align
           the row so its select lines up with the search box + buttons instead of
           sitting lower than them. Without it, keep the plain centered layout. */}
-      <div className={cn('flex gap-2', leadingNode ? 'items-end' : 'items-center')}>
+      {/* Wraps on mobile: order puts the leading filter + action cluster on the
+          first line and the search on its own full-width line below, so the
+          search isn't squeezed to a sliver on phones. On sm+ it's a single row. */}
+      <div className={cn('flex flex-wrap gap-2', leadingNode ? 'items-end' : 'items-center')}>
         {/* Always-visible leading filter (e.g. Period) — sits outside the
             collapsible panel so it's reachable without opening Filters. */}
-        {leadingNode && <div className="shrink-0">{leadingNode}</div>}
+        {leadingNode && <div className="order-1 shrink-0">{leadingNode}</div>}
 
-        {/* Search — fills remaining row width by default, or override via searchClassName */}
-        <div className={cn('min-w-0', searchClassName ?? 'flex-1')}>
+        {/* Search — own full-width line on mobile; fills the remaining row width
+            (or searchClassName) from sm up. */}
+        <div className={cn('order-3 w-full min-w-0 sm:order-2 sm:w-auto', searchClassName ?? 'sm:flex-1')}>
           <Input
             icon={<Search className="h-4 w-4" />}
             suffix={
@@ -92,8 +96,9 @@ export function DataTableFilterBar({
         </div>
 
         {/* Right cluster: midNode + filter toggle + clear + actionNode. ml-auto keeps it
-            pinned to the right edge when the search is constrained via searchClassName. */}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+            pinned to the right edge. order-2 on mobile places it beside the leading
+            filter on the first line (search drops below); order-3 restores it last on sm+. */}
+        <div className="order-2 ml-auto flex shrink-0 items-center gap-2 sm:order-3">
           {midNode}
 
           {/* Filter toggle + clear — always visible, never wraps off-screen */}

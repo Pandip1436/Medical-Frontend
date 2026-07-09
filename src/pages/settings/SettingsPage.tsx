@@ -239,12 +239,39 @@ export default function SettingsPage() {
         </div>
 
         {/* ─── RIGHT: Content Area ───────────────────────────── */}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Mobile / tablet section switcher — the left sidebar is hidden below
+              lg, so this horizontal scrollable pill bar is the only way to move
+              between sections on phones and tablets. */}
+          <div className="lg:hidden shrink-0 border-b border-border/40 bg-muted/10 dark:bg-muted/5">
+            <div className="flex gap-1.5 overflow-x-auto px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {visibleSections.map((section) => {
+                const Icon = section.icon
+                const isActive = activeSection === section.id
+                return (
+                  <button
+                    key={section.id}
+                    onClick={() => setActiveSection(section.id)}
+                    className={cn(
+                      'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all',
+                      isActive
+                        ? 'bg-primary/10 text-primary shadow-sm dark:bg-primary/15'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="whitespace-nowrap">{section.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Section sub-header */}
-          <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
-            <div className="flex items-center gap-2.5">
+          <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/40 bg-muted/10 px-4 py-2 sm:px-6 dark:bg-muted/5">
+            <div className="flex min-w-0 items-center gap-2.5">
               <div className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-lg',
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
                 activeSection === 'business' ? 'bg-primary/10 text-primary' :
                 activeSection === 'numbering' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
                 activeSection === 'backup' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
@@ -253,19 +280,19 @@ export default function SettingsPage() {
               )}>
                 <ActiveIcon className="h-3.5 w-3.5" />
               </div>
-              <div>
-                <p className="text-sm font-semibold">{activeConfig?.label}</p>
-                <p className="text-[10px] text-muted-foreground">{activeConfig?.description}</p>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{activeConfig?.label}</p>
+                <p className="truncate text-[10px] text-muted-foreground">{activeConfig?.description}</p>
               </div>
             </div>
 
             {/* Top-right save button placeholder */}
-            <div id="settings-save-button-portal" />
+            <div id="settings-save-button-portal" className="shrink-0" />
           </div>
 
           {/* Scrollable content */}
           <ScrollArea className="min-h-0 flex-1">
-            <div className="p-6">
+            <div className="p-3 sm:p-6">
               <motion.div
                 key={activeSection}
                 initial={{ opacity: 0, y: 8 }}
@@ -526,10 +553,10 @@ function BackupDataSection() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 dark:bg-blue-500/15">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 dark:bg-blue-500/15">
               <Download className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
             </div>
-            <div>
+            <div className="min-w-0">
               <CardTitle>Manual Backup</CardTitle>
               <CardDescription>
                 Snapshot all business data as a compressed JSONL file. Stored in Cloudflare R2 and
@@ -555,10 +582,10 @@ function BackupDataSection() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15">
               <Clock className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <div>
+            <div className="min-w-0">
               <CardTitle>Auto-Backup Schedule</CardTitle>
               <CardDescription>Runs automatically on the backend</CardDescription>
             </div>
@@ -588,17 +615,72 @@ function BackupDataSection() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted/60 dark:bg-muted/30">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted/60 dark:bg-muted/30">
               <Database className="h-4.5 w-4.5 text-muted-foreground" />
             </div>
-            <div>
+            <div className="min-w-0">
               <CardTitle>Backup History</CardTitle>
               <CardDescription>Newest first — click a row to download</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 overflow-x-auto">
+          {/* Mobile card list (below md) — the 6-column table is unusable on a
+              phone; each backup collapses to a compact card here. */}
+          <div className="md:hidden divide-y divide-border/40 rounded-xl border border-border/60 overflow-hidden">
+            {loading ? (
+              <div className="h-20 flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
+            ) : history.length === 0 ? (
+              <div className="h-20 flex items-center justify-center px-4 text-center text-sm text-muted-foreground italic">
+                No backups yet — tap "Backup Now" to create the first one.
+              </div>
+            ) : history.map((b) => {
+              const isCompleted = b.status === 'COMPLETED'
+              const isFailed = b.status === 'FAILED'
+              const isRunning = b.status === 'IN_PROGRESS'
+              return (
+                <div key={b.id} className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{formatDateTime(b.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {isCompleted ? `${formatBytes(b.sizeBytes)} · ${b.rowCount.toLocaleString()} rows` : '—'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {isCompleted && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer hover:text-primary" onClick={() => handleDownload(b.id)} title="Download">
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {!isRunning && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(b.id)} disabled={deletingId === b.id} title="Delete">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={b.trigger === 'SCHEDULED' ? 'info' : 'purple'} size="sm">
+                      {b.trigger === 'SCHEDULED' ? 'Scheduled' : 'Manual'}
+                    </Badge>
+                    {isRunning ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" /> In progress
+                      </span>
+                    ) : (
+                      <Badge variant={isCompleted ? 'success' : 'destructive'} size="sm" dot title={isFailed ? b.errorMessage ?? undefined : undefined}>
+                        {isCompleted ? 'Completed' : 'Failed'}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Desktop table (md+) — scrolls horizontally if ever needed. */}
+          <div className="hidden md:block rounded-xl border border-border/60 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 dark:bg-muted/15">
@@ -804,7 +886,7 @@ function GeneralSettingsSection() {
             <div className="mt-3 space-y-2">
               {/* Display Scale — applies live, per-device (authStore) */}
               <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
-                <div className="space-y-0.5 pr-4">
+                <div className="min-w-0 space-y-0.5 pr-4">
                   <p className="text-sm font-medium text-foreground">Display Scale</p>
                   <p className="text-xs text-muted-foreground">
                     Auto adjusts to your screen so the app isn't oversized at high Windows
@@ -831,7 +913,7 @@ function GeneralSettingsSection() {
 
               {/* Date Format */}
               <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
-                <div className="space-y-0.5">
+                <div className="min-w-0 space-y-0.5 pr-4">
                   <p className="text-sm font-medium text-foreground">Date Format</p>
                   <p className="text-xs text-muted-foreground">How dates are displayed across the app</p>
                 </div>
@@ -884,7 +966,7 @@ function GeneralSettingsSection() {
                   type="number"
                   value={sessionTimeout}
                   onChange={(e) => setSessionTimeout(e.target.value)}
-                  className="w-20 text-center"
+                  className="w-38"
                   min={5}
                   max={480}
                   suffix="min"
