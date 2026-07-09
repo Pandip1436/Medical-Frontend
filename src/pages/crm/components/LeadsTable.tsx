@@ -116,7 +116,46 @@ export function LeadsTable({
     // vertically, while the page's top bar / search / filters / pagination
     // stay pinned above and below.
     <div className="flex h-full min-w-0 max-w-full flex-col rounded-lg border border-border/40 bg-background [&>div]:rounded-none! [&>div]:border-0! [&>div]:flex-1! [&>div]:min-h-0! [&>div]:overscroll-x-none">
-      <Table>
+      {/* responsive: card list on phones */}
+      <div className="divide-y divide-border/40 overflow-y-auto md:hidden">
+        {loading && data.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            Loading leads…
+          </div>
+        ) : data.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            No leads found
+          </div>
+        ) : (
+          data.map((lead) => (
+            <LeadCard
+              key={lead.id}
+              lead={lead}
+              show={show}
+              selected={selectedIds.includes(lead.id)}
+              onToggleSelected={() => {
+                onSelectionChange(
+                  selectedIds.includes(lead.id)
+                    ? selectedIds.filter((x) => x !== lead.id)
+                    : [...selectedIds, lead.id],
+                )
+              }}
+              onClick={() => onRowClick(lead)}
+              onChanged={onChanged}
+              onDelete={() => setDeleteLeadTarget(lead)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Desktop table (md+). The h-full / rounded-none! / border-0! /
+          overscroll-x-none selectors that the outer wrapper previously
+          applied directly to the shadcn scroll div now live here, because
+          the extra nesting means the outer `[&>div]` only reaches this
+          wrapper. The wrapper itself still receives flex-1!/min-h-0! from
+          the outer wrapper, so the table body keeps scrolling internally. */}
+      <div className="hidden min-h-0 flex-1 md:block [&>div]:h-full [&>div]:rounded-none! [&>div]:border-0! [&>div]:overscroll-x-none">
+        <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 hover:bg-muted/30">
             <TableHead className="w-10">
@@ -177,7 +216,8 @@ export function LeadsTable({
             ))
           )}
         </TableBody>
-      </Table>
+        </Table>
+      </div>
 
       <ConfirmDialog
         open={!!deleteLeadTarget}
@@ -187,6 +227,202 @@ export function LeadsTable({
         confirmLabel="Delete"
         onConfirm={confirmDeleteLead}
       />
+    </div>
+  )
+}
+
+// ── Quick-action icons ────────────────────────────────────────
+// Shared by both the desktop row and the mobile card so the two views
+// can never drift. Caller is responsible for stopping row-click
+// propagation on the wrapping element.
+function QuickActions({
+  lead,
+  onClick,
+  onDelete,
+}: {
+  lead: Lead
+  onClick: () => void
+  onDelete: () => void
+}) {
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete()
+  }
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        asChild
+        title="WhatsApp"
+        className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
+      >
+        <a
+          href={`https://wa.me/${lead.contact.phoneCountryCode?.replace('+', '') ?? ''}${lead.contact.phone}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <MessageCircle className="h-3.5 w-3.5" />
+        </a>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        asChild
+        title="Call"
+        className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
+      >
+        <a href={`tel:${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`}>
+          <Phone className="h-3.5 w-3.5" />
+        </a>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        asChild
+        title="Email"
+        className="h-7 w-7 text-violet-600 hover:bg-violet-500/10"
+        disabled={!lead.contact.email}
+      >
+        <a href={lead.contact.email ? `mailto:${lead.contact.email}` : undefined}>
+          <Mail className="h-3.5 w-3.5" />
+        </a>
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="h-7 w-7"
+            title="More"
+            aria-label="More"
+          >
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem
+            onSelect={onClick}
+            className="cursor-pointer gap-2 text-xs"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+            <span>Open detail</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) =>
+              handleDelete(e as unknown as React.MouseEvent)
+            }
+            className="cursor-pointer gap-2 text-xs text-rose-600 focus:text-rose-700"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+// ── Mobile card (below md) ────────────────────────────────────
+// Mirrors LeadRow's prop shape and reuses the SAME helpers/components
+// so the phone view stays in lockstep with the desktop table.
+function LeadCard({
+  lead,
+  show,
+  selected,
+  onToggleSelected,
+  onClick,
+  onChanged,
+  onDelete,
+}: {
+  lead: Lead
+  show: (id: string) => boolean
+  selected: boolean
+  onToggleSelected: () => void
+  onClick: () => void
+  onChanged?: () => void
+  onDelete: () => void
+}) {
+  const fullName =
+    `${lead.contact.firstName ?? ''} ${lead.contact.lastName ?? ''}`.trim() ||
+    'IndiaMART Buyer'
+  const phone = lead.contact.phone
+    ? `${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`
+    : '—'
+
+  return (
+    <div
+      className="flex items-start gap-3 px-3 py-3 cursor-pointer active:bg-muted/40"
+      onClick={onClick}
+    >
+      {/* Left: selection checkbox */}
+      <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggleSelected}
+          aria-label={`Select ${lead.leadNumber}`}
+        />
+      </div>
+
+      {/* Middle: identity + inline editors */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">{fullName}</span>
+          <Badge
+            variant="secondary"
+            size="sm"
+            className="font-mono text-[10px] text-muted-foreground"
+          >
+            {lead.leadNumber}
+          </Badge>
+        </div>
+        <div className="text-xs text-muted-foreground">{phone}</div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {show('stage') && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <InlineStagePill lead={lead} onChanged={onChanged} />
+            </span>
+          )}
+          {show('source') && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <InlineSourcePill lead={lead} onChanged={onChanged} />
+            </span>
+          )}
+          {show('salesPerson') && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <InlineSalesPersonPill lead={lead} onChanged={onChanged} />
+            </span>
+          )}
+          {show('value') && Number(lead.value) > 0 && (
+            <span className="font-mono text-xs tabular-nums">
+              {formatCurrency(Number(lead.value))}
+            </span>
+          )}
+          {show('score') && (
+            <span className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'inline-block h-1.5 w-1.5 rounded-full',
+                  lead.score >= 70
+                    ? 'bg-emerald-500'
+                    : lead.score >= 40
+                      ? 'bg-amber-500'
+                      : 'bg-rose-500',
+                )}
+              />
+              <span className="text-xs font-bold tabular-nums">{lead.score}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Right: quick actions */}
+      <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+        <QuickActions lead={lead} onClick={onClick} onDelete={onDelete} />
+      </div>
     </div>
   )
 }
@@ -214,11 +450,6 @@ function LeadRow({
   const phone = lead.contact.phone
     ? `${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`
     : '—'
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    onDelete()
-  }
 
   return (
     <TableRow
@@ -254,78 +485,7 @@ function LeadRow({
 
       {/* Quick-action icons */}
       <TableCell onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            asChild
-            title="WhatsApp"
-            className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
-          >
-            <a
-              href={`https://wa.me/${lead.contact.phoneCountryCode?.replace('+', '') ?? ''}${lead.contact.phone}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            asChild
-            title="Call"
-            className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10"
-          >
-            <a href={`tel:${lead.contact.phoneCountryCode ?? ''}${lead.contact.phone}`}>
-              <Phone className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            asChild
-            title="Email"
-            className="h-7 w-7 text-violet-600 hover:bg-violet-500/10"
-            disabled={!lead.contact.email}
-          >
-            <a href={lead.contact.email ? `mailto:${lead.contact.email}` : undefined}>
-              <Mail className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="h-7 w-7"
-                title="More"
-                aria-label="More"
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem
-                onSelect={onClick}
-                className="cursor-pointer gap-2 text-xs"
-              >
-                <Edit2 className="h-3.5 w-3.5" />
-                <span>Open detail</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(e) =>
-                  handleDelete(e as unknown as React.MouseEvent)
-                }
-                className="cursor-pointer gap-2 text-xs text-rose-600 focus:text-rose-700"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Delete</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <QuickActions lead={lead} onClick={onClick} onDelete={onDelete} />
       </TableCell>
 
       {show('contact') && (

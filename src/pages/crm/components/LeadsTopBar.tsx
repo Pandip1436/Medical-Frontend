@@ -57,7 +57,9 @@ export function LeadsTopBar({
           when active. overflow-hidden + min-w-0 so trackpad/mouse-wheel
           horizontal swipes can never scroll the strip (which the user was
           seeing as "the page shakes when I move the mouse horizontally"). */}
-      <div className="flex min-w-0 flex-1 items-end overflow-hidden">
+      {/* responsive: touch-scrollable on phones so all tabs are reachable;
+          overflow-hidden at md+ keeps the desktop anti-wheel-shake behavior */}
+      <div className="flex min-w-0 flex-1 items-end overflow-x-auto md:overflow-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <nav className="flex items-end gap-0">
           {TABS.map((t) => {
             const active = t.value === tab
@@ -101,7 +103,7 @@ export function LeadsTopBar({
           onClick={() => navigate('/crm/leads/analytics')}
         >
           <BarChart3 className="h-4 w-4" />
-          <span>Analytics</span>
+          <span className="hidden sm:inline">Analytics</span>
         </Button>
 
         {/* Grouped 3-way view toggle */}
@@ -128,7 +130,7 @@ export function LeadsTopBar({
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />
-                <span>{opt.label}</span>
+                <span className="hidden sm:inline">{opt.label}</span>
               </button>
             )
           })}

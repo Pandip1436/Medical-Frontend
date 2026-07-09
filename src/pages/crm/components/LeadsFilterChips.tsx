@@ -64,7 +64,7 @@ export function LeadsFilterChips({
   // Equal-width grid: 6 slots split evenly across the panel width.
   // Falls back to 2 cols on narrow screens, 3 on tablet, 6 on desktop.
   return (
-    <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
       {/* Source filter chip */}
       <SourceChip selected={source} onChange={onSourceChange} />
 

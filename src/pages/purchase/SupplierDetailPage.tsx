@@ -675,18 +675,9 @@ export default function SupplierDetailPage() {
               ) : ledgerRows.length === 0 ? (
                 <EmptyState icon={FileText} title="No transactions" subtitle="No ledger entries for this period." />
               ) : (
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                    <TableRow>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* responsive: cards on phones */}
+                  <div className="divide-y divide-border/40 md:hidden">
                     {ledgerPaged.map((r, i) => {
                       const debit = Number(r.debit ?? 0)
                       const credit = Number(r.credit ?? 0)
@@ -698,22 +689,75 @@ export default function SupplierDetailPage() {
                             ? `/purchase/debit-notes/detail?id=${r.sourceId}`
                             : null
                       return (
-                        <TableRow
+                        <div
                           key={i}
-                          className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
+                          className={cn('px-3 py-3 transition-colors hover:bg-muted/20', target && 'cursor-pointer')}
                           onClick={target ? () => navigate(target) : undefined}
                         >
-                          <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 font-mono text-sm">{r.ref ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-sm">{r.description ?? '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'supplier')}</TableCell>
-                        </TableRow>
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-mono text-sm font-semibold">{r.ref ?? '—'}</span>
+                            <span className="font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'supplier')}</span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                            <span>{r.date ? formatDate(r.date) : '—'}</span>
+                            {r.description && <span>· {r.description}</span>}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span className="text-[11px]">
+                              <span className="text-muted-foreground/70">{LEDGER_COL_BILLED}: </span>
+                              <span className="font-mono">{debit > 0 ? formatCurrency(debit) : '—'}</span>
+                            </span>
+                            <span className="text-[11px]">
+                              <span className="text-muted-foreground/70">{LEDGER_COL_PAID}: </span>
+                              <span className="font-mono">{credit > 0 ? formatCurrency(credit) : '—'}</span>
+                            </span>
+                          </div>
+                        </div>
                       )
                     })}
-                  </TableBody>
-                </Table>
+                  </div>
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference</TableHead>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_BILLED}</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">{LEDGER_COL_PAID}</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Balance</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ledgerPaged.map((r, i) => {
+                          const debit = Number(r.debit ?? 0)
+                          const credit = Number(r.credit ?? 0)
+                          const balance = Number(r.balance ?? 0)
+                          const target =
+                            r.sourceType === 'GRN' && r.sourceId
+                              ? `/purchase/grn/detail?id=${r.sourceId}`
+                              : r.sourceType === 'PURCHASE_RETURN' && r.sourceId
+                                ? `/purchase/debit-notes/detail?id=${r.sourceId}`
+                                : null
+                          return (
+                            <TableRow
+                              key={i}
+                              className={target ? 'cursor-pointer hover:bg-muted/20' : 'hover:bg-muted/20'}
+                              onClick={target ? () => navigate(target) : undefined}
+                            >
+                              <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{r.date ? formatDate(r.date) : '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 font-mono text-sm">{r.ref ?? '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-sm">{r.description ?? '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{debit > 0 ? formatCurrency(debit) : '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{credit > 0 ? formatCurrency(credit) : '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'supplier')}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </div>
 
@@ -773,6 +817,23 @@ export default function SupplierDetailPage() {
                     <TableCell className="px-3 py-2.5"><StatusPill status={po.status} /></TableCell>
                   </TableRow>
                 )}
+                renderCard={(po: any) => (
+                  <div
+                    key={po.id}
+                    className="flex flex-col gap-1.5 px-3 py-3 cursor-pointer transition-colors hover:bg-muted/20"
+                    onClick={() => navigate(`/purchase/orders?poId=${po.id}`)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-sm font-semibold">{po.poNumber}</span>
+                      <span className="font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(Number(po.totalAmount ?? 0))}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>{po.date ? formatDate(po.date) : '—'}</span>
+                      <span>{po.items?.length ?? 0} items</span>
+                    </div>
+                    <StatusPill status={po.status} />
+                  </div>
+                )}
                 columns={['Date', 'PO #', 'Expected', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
               />
             </div>
@@ -812,6 +873,24 @@ export default function SupplierDetailPage() {
                     <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(g.totalAmount ?? 0))}</TableCell>
                     <TableCell className="px-3 py-2.5"><StatusPill status={g.status} /></TableCell>
                   </TableRow>
+                )}
+                renderCard={(g: any) => (
+                  <div
+                    key={g.id}
+                    className="flex flex-col gap-1.5 px-3 py-3 cursor-pointer transition-colors hover:bg-muted/20"
+                    onClick={() => navigate(`/purchase/grn/detail?id=${g.id}`)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-sm font-semibold">{g.grnNumber}</span>
+                      <span className="font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(Number(g.totalAmount ?? 0))}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>{g.date ? formatDate(g.date) : '—'}</span>
+                      <span>{g.supplierInvoiceNo || '—'}</span>
+                      <span>{g.items?.length ?? 0} items</span>
+                    </div>
+                    <StatusPill status={g.status} />
+                  </div>
                 )}
                 columns={['Date', 'GRN #', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
               />
@@ -853,6 +932,24 @@ export default function SupplierDetailPage() {
                     <TableCell className="px-3 py-2.5"><StatusPill status={r.status} /></TableCell>
                   </TableRow>
                 )}
+                renderCard={(r: any) => (
+                  <div
+                    key={r.id}
+                    className="flex flex-col gap-1.5 px-3 py-3 cursor-pointer transition-colors hover:bg-muted/20"
+                    onClick={() => navigate(`/purchase/debit-notes/detail?id=${r.id}`)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-sm font-semibold">{r.debitNoteNo}</span>
+                      <span className="font-mono text-sm font-semibold whitespace-nowrap text-rose-600 dark:text-rose-400">{formatCurrency(Number(r.totalAmount ?? 0))}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>{r.date ? formatDate(r.date) : '—'}</span>
+                      <span>{r.reason || '—'}</span>
+                      <Badge variant="secondary" size="sm">{r.settlementMode || '—'}</Badge>
+                    </div>
+                    <StatusPill status={r.status} />
+                  </div>
+                )}
                 columns={['Date', 'DN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
               />
             </div>
@@ -878,43 +975,89 @@ export default function SupplierDetailPage() {
               ) : sortedBatches.length === 0 ? (
                 <EmptyState icon={Layers} title="No batches" subtitle="No batches received from this supplier yet." />
               ) : (
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                    <TableRow>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Batch #</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mfg</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
-                      <TableHead className="h-9 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stock Value</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <>
+                  {/* responsive: cards on phones */}
+                  <div className="divide-y divide-border/40 md:hidden">
                     {batchPaged.map((b) => {
                       const days = b.expiryDate ? Math.floor((new Date(b.expiryDate).getTime() - Date.now()) / 86400000) : null
                       const expiryColor = days === null ? 'text-muted-foreground/60' : days < 0 ? 'text-rose-600 dark:text-rose-400' : days <= 90 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
                       const stockValue = b.quantity * Number(b.purchaseRate ?? 0)
                       return (
-                        <TableRow key={b.id} className="hover:bg-muted/20">
-                          <TableCell className="px-3 py-2 text-sm">{b.productName || b.product?.name || '—'}</TableCell>
-                          <TableCell className="px-3 py-2.5 font-mono text-sm">{b.batchNumber}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{b.mfgDate ? formatDate(b.mfgDate) : '—'}</TableCell>
-                          <TableCell className={cn('px-3 py-2.5 text-sm font-semibold whitespace-nowrap', expiryColor)}>
-                            {b.expiryDate ? formatDate(b.expiryDate) : '—'}
-                            {days !== null && days < 0 && ' (expired)'}
-                            {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
-                          </TableCell>
-                          <TableCell className="px-3 py-2 text-center font-mono text-xs">{b.quantity}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{formatCurrency(Number(b.purchaseRate ?? 0))}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm text-muted-foreground">{formatCurrency(Number(b.mrp ?? 0))}</TableCell>
-                          <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>
-                        </TableRow>
+                        <div key={b.id} className="px-3 py-3 transition-colors hover:bg-muted/20">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-sm font-medium">{b.productName || b.product?.name || '—'}</span>
+                            <span className="font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(stockValue)}</span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5">
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Batch</div>
+                              <div className="font-mono text-[11px]">{b.batchNumber}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Expiry</div>
+                              <div className={cn('text-[11px] font-semibold', expiryColor)}>
+                                {b.expiryDate ? formatDate(b.expiryDate) : '—'}
+                                {days !== null && days < 0 && ' (expired)'}
+                                {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</div>
+                              <div className="font-mono text-[11px]">{b.quantity}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</div>
+                              <div className="text-[11px]">{formatCurrency(Number(b.purchaseRate ?? 0))}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">MRP</div>
+                              <div className="text-[11px]">{formatCurrency(Number(b.mrp ?? 0))}</div>
+                            </div>
+                          </div>
+                        </div>
                       )
                     })}
-                  </TableBody>
-                </Table>
+                  </div>
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                        <TableRow>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Batch #</TableHead>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mfg</TableHead>
+                          <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
+                          <TableHead className="h-9 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
+                          <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stock Value</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {batchPaged.map((b) => {
+                          const days = b.expiryDate ? Math.floor((new Date(b.expiryDate).getTime() - Date.now()) / 86400000) : null
+                          const expiryColor = days === null ? 'text-muted-foreground/60' : days < 0 ? 'text-rose-600 dark:text-rose-400' : days <= 90 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                          const stockValue = b.quantity * Number(b.purchaseRate ?? 0)
+                          return (
+                            <TableRow key={b.id} className="hover:bg-muted/20">
+                              <TableCell className="px-3 py-2 text-sm">{b.productName || b.product?.name || '—'}</TableCell>
+                              <TableCell className="px-3 py-2.5 font-mono text-sm">{b.batchNumber}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{b.mfgDate ? formatDate(b.mfgDate) : '—'}</TableCell>
+                              <TableCell className={cn('px-3 py-2.5 text-sm font-semibold whitespace-nowrap', expiryColor)}>
+                                {b.expiryDate ? formatDate(b.expiryDate) : '—'}
+                                {days !== null && days < 0 && ' (expired)'}
+                                {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
+                              </TableCell>
+                              <TableCell className="px-3 py-2 text-center font-mono text-xs">{b.quantity}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{formatCurrency(Number(b.purchaseRate ?? 0))}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm text-muted-foreground">{formatCurrency(Number(b.mrp ?? 0))}</TableCell>
+                              <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </div>
             {sortedBatches.length > PAGE_SIZE && (
@@ -1110,6 +1253,7 @@ function TabListContent({
   emptySubtitle,
   rows,
   renderRow,
+  renderCard,
   columns,
 }: {
   state: LazyState<any[]> & { ensureLoaded: () => Promise<void>; refetch?: () => void }
@@ -1118,6 +1262,7 @@ function TabListContent({
   emptySubtitle?: string
   rows: any[]
   renderRow: (row: any) => React.ReactNode
+  renderCard?: (row: any) => React.ReactNode
   columns: Array<string | { label: string; center?: boolean; right?: boolean }>
 }) {
   if (state.error && !state.data) {
@@ -1127,7 +1272,7 @@ function TabListContent({
   if (!state.data || state.data.length === 0) {
     return <EmptyState icon={emptyIcon} title={emptyTitle} subtitle={emptySubtitle} />
   }
-  return (
+  const table = (
     <Table>
       <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
         <TableRow>
@@ -1145,6 +1290,15 @@ function TabListContent({
       </TableHeader>
       <TableBody>{rows.map(renderRow)}</TableBody>
     </Table>
+  )
+  // Fall back to the plain table when no card renderer is supplied.
+  if (!renderCard) return table
+  return (
+    <>
+      {/* responsive: cards on phones */}
+      <div className="divide-y divide-border/40 md:hidden">{rows.map(renderCard)}</div>
+      <div className="hidden md:block">{table}</div>
+    </>
   )
 }
 

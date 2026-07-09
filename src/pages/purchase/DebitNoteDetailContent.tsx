@@ -96,10 +96,11 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
 
   return (
     <div className="space-y-5">
-      {/* Supplier / PE Reference / Return Reason / Settlement — single row strip */}
-      <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+      {/* Supplier / PE Reference / Return Reason / Settlement — 2-col grid on
+          phones (labels wrap instead of colliding), single flex row at sm+ */}
+      <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
+        <div className="flex min-w-0 flex-col justify-center px-3 py-3 sm:flex-1 sm:basis-0 sm:px-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
           {d.supplierId ? (
             <button
               type="button"
@@ -119,16 +120,16 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
             <p className="text-[11px] text-muted-foreground truncate" title={d.supplierAddress}>{d.supplierAddress}</p>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">PE Reference</p>
+        <div className="flex min-w-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:flex-1 sm:basis-0 sm:px-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PE Reference</p>
           <p className="mt-0.5 font-mono text-xs font-medium truncate" title={d.referenceValue}>{d.referenceValue}</p>
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Return Reason</p>
+        <div className="flex min-w-0 flex-col justify-center border-t border-border/40 px-3 py-3 sm:flex-1 sm:basis-0 sm:border-t-0 sm:border-l sm:px-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Return Reason</p>
           <p className="mt-0.5 text-sm font-medium wrap-break-word" title={d.reason}>{d.reason}</p>
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
+        <div className="flex min-w-0 flex-col justify-center border-l border-t border-border/40 px-3 py-3 sm:flex-1 sm:basis-0 sm:border-t-0 sm:px-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Settlement</p>
           <p className={cn(
             'mt-0.5 text-sm font-medium truncate',
             isSettled ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
@@ -138,8 +139,50 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
         </div>
       </div>
 
+      {/* Items — cards on phones, table at md+ */}
+      <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/40 md:hidden">
+        {(d.items || []).map((it, idx) => {
+          const rate = Number(it.purchaseRate || it.rate || 0)
+          const gst = Number(it.gstPercent || 0)
+          const amount = Number(it.amount) || it.returnedQty * rate
+          return (
+            <div key={idx} className="px-3 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium leading-snug">
+                  <span className="font-mono text-[11px] text-muted-foreground">{idx + 1}.</span>
+                  {it.productName}
+                </p>
+                <span className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(amount)}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Batch</p>
+                  <p className="font-mono text-[11px]">{it.batchNumber || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Expiry</p>
+                  <p className="text-[11px]">{it.expiryDate ? formatDate(it.expiryDate) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</p>
+                  <p className="font-mono text-[11px] font-semibold">{it.returnedQty}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</p>
+                  <p className="font-mono text-[11px]">{formatCurrency(rate)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">GST</p>
+                  <p className="font-mono text-[11px]">{gst}%</p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
       {/* Items table */}
-      <div className="overflow-x-auto rounded-xl border border-border/40">
+      <div className="hidden overflow-x-auto rounded-xl border border-border/40 md:block">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
             <TableRow className="border-b border-border/40 hover:bg-transparent">

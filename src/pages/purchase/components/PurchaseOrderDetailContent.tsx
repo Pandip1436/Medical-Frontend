@@ -46,10 +46,11 @@ export function PurchaseOrderDetailContent({ purchaseOrder: po, onRefresh }: Pur
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        {/* Meta strip: Supplier / Expected Delivery / Status */}
-        <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+        {/* Meta strip: Supplier / Expected Delivery / Status — 3-col grid on
+            phones (labels wrap instead of colliding), single flex row at sm+ */}
+        <div className="grid grid-cols-3 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex">
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-3 py-3 sm:px-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
             <p
               className="mt-0.5 cursor-pointer truncate text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
               title={po.supplierName}
@@ -58,14 +59,14 @@ export function PurchaseOrderDetailContent({ purchaseOrder: po, onRefresh }: Pur
               {po.supplierName}
             </p>
           </div>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Expected Delivery</p>
-            <p className="mt-0.5 text-sm font-medium whitespace-nowrap">
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</p>
+            <p className="mt-0.5 text-sm font-medium">
               {po.expectedDelivery ? formatDate(po.expectedDelivery) : '—'}
             </p>
           </div>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Status</p>
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
             <div className="mt-0.5">
               <Badge variant={cfg.variant} size="sm" dot>{cfg.label}</Badge>
             </div>
@@ -85,8 +86,53 @@ export function PurchaseOrderDetailContent({ purchaseOrder: po, onRefresh }: Pur
           </div>
         )}
 
+        {/* Items — cards on phones, table at md+ */}
+        <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/40 md:hidden">
+          {po.items.map((item, idx) => {
+            const received = item.receivedQty >= item.requiredQty
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              : item.receivedQty > 0
+                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                : 'bg-muted/60 text-muted-foreground'
+            return (
+              <div key={item.id} className="px-3 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="flex items-baseline gap-1.5 text-sm font-medium leading-snug">
+                      <span className="font-mono text-[11px] text-muted-foreground">{idx + 1}.</span>
+                      {item.productName}
+                    </p>
+                    {item.remarks && (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{item.remarks}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(item.requiredQty * item.expectedRate)}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Ordered</p>
+                    <span className="mt-0.5 inline-flex items-center justify-center rounded-lg bg-blue-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                      {item.requiredQty}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Received</p>
+                    <span className={cn('mt-0.5 inline-flex items-center justify-center rounded-lg px-2 py-0.5 font-mono text-xs font-semibold', received)}>
+                      {item.receivedQty}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</p>
+                    <p className="mt-0.5 font-mono text-xs font-semibold">{formatCurrency(item.expectedRate)}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
         {/* Items table */}
-        <div className="overflow-hidden rounded-xl border border-border/40">
+        <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
               <TableRow className="border-b border-border/40 hover:bg-transparent">
@@ -154,7 +200,7 @@ export function PurchaseOrderDetailContent({ purchaseOrder: po, onRefresh }: Pur
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Grand Total</p>
           <p className="font-mono text-base font-bold text-primary">{formatCurrency(po.totalAmount)}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3 [&>button]:flex-1 sm:[&>button]:flex-none">
           <Button variant="outline" className="gap-2" onClick={() => downloadPoPdf(poDoc)}>
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Download PDF</span>

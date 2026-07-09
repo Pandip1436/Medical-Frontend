@@ -634,7 +634,8 @@ export function GRNDetailContent({
       </div>
 
       {/* Info row — Supplier / PE Date / Invoice # / Invoice Date / Invoice Amount */}
-      <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
+      {/* responsive: 2-col grid on phones (labels wrap instead of colliding), flex row at sm+ */}
+      <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
         {[
           { label: 'Supplier', value: grn.supplierName, icon: <Truck className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'PE Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
@@ -642,8 +643,14 @@ export function GRNDetailContent({
           { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
           { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
         ].map((c, i) => (
-          <div key={c.label} className={cn('flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3', i > 0 && 'border-l border-border/40')}>
-            <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+          <div key={c.label} className={cn(
+            'flex min-w-0 flex-col justify-center px-3 py-3 border-border/40 sm:px-4 sm:flex-1 sm:basis-0',
+            i > 0 && 'sm:border-l',
+            i % 2 !== 0 && 'border-l sm:border-l-0',
+            i >= 2 && 'border-t sm:border-t-0',
+            i === 4 && 'col-span-2 sm:col-span-1',
+          )}>
+            <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {c.icon}
               {c.label}
             </p>
@@ -659,13 +666,14 @@ export function GRNDetailContent({
           Replacement PE — stock-back, no payable to the supplier.
         </div>
       ) : (
+        // responsive: 2-col grid on phones (Balance Due spans full width), flex row at sm+
         <div className={cn(
-          'flex items-stretch overflow-x-auto rounded-xl border',
+          'grid grid-cols-2 items-stretch rounded-xl border sm:flex sm:overflow-x-auto',
           balanceDue > 0.01
             ? 'border-amber-300/40 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800/40'
             : 'border-emerald-300/40 bg-emerald-50/60 dark:bg-emerald-950/20 dark:border-emerald-800/40',
         )}>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3 col-span-2 sm:col-span-1">
             <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 whitespace-nowrap">Balance Due</p>
             <p className={cn(
               'text-2xl font-bold font-mono mt-0.5',
@@ -677,16 +685,16 @@ export function GRNDetailContent({
               {balanceDue > 0.01 ? 'still owed to supplier' : 'fully settled'}
             </p>
           </div>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Invoice Amount</p>
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3 border-t border-border/30 sm:border-t-0 sm:border-l">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Amount</p>
             <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.supplierInvoiceAmount || 0)}</p>
           </div>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Paid</p>
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3 border-t border-l border-border/30 sm:border-t-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Paid</p>
             <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700 dark:text-emerald-400">{formatCurrency(paidAmount)}</p>
           </div>
-          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/30 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">PE Total</p>
+          <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3 border-t border-border/30 sm:border-t-0 sm:border-l">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PE Total</p>
             <p className="mt-0.5 font-mono text-sm font-semibold">{formatCurrency(grn.totalAmount || 0)}</p>
           </div>
         </div>
@@ -757,8 +765,87 @@ export function GRNDetailContent({
         </div>
       )}
 
+      {/* responsive: mobile card list — same grn.items, shown below md */}
+      <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/40 md:hidden">
+        {grn.items.map((item, i) => {
+          const short        = Math.max(0, item.orderedQty - item.receivedQty)
+          const damaged      = item.damageQty ?? 0
+          const days         = item.expiryDate ? daysUntilExpiry(item.expiryDate) : null
+          const expired      = days !== null && days < 0
+          const expiringSoon = days !== null && days >= 0 && days <= 90
+          const lineValue    = (item.receivedQty + (item.freeQty ?? 0)) * item.purchaseRate
+          return (
+            <div key={i} className={cn(
+              'px-3 py-3',
+              damaged > 0 && 'bg-rose-50/40 dark:bg-rose-950/10',
+              short > 0 && !damaged && 'bg-amber-50/40 dark:bg-amber-950/10',
+            )}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="font-mono text-[11px] text-muted-foreground">{i + 1}.</span>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/inventory/product-history?productId=${item.productId}`)}
+                      className="text-left text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {item.productName}
+                    </button>
+                  </div>
+                  <span className="mt-1 inline-block rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px]">{item.batchNumber}</span>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-sm font-semibold">{formatCurrency(lineValue)}</p>
+                  {item.expiryDate ? (
+                    <span className={cn(
+                      'mt-1 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold whitespace-nowrap',
+                      expired ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
+                      : expiringSoon ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+                    )}>
+                      {expired ? <XCircle className="h-3.5 w-3.5" /> : expiringSoon ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      {new Date(item.expiryDate).toLocaleDateString('en-IN')}
+                    </span>
+                  ) : <span className="mt-1 block text-sm text-muted-foreground/40">—</span>}
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Ordered</p>
+                  <p className="font-mono text-sm text-muted-foreground">{item.orderedQty > 0 ? item.orderedQty : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Received</p>
+                  <p className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-300">+{item.receivedQty}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Free</p>
+                  <p className="font-mono text-sm">
+                    {(item.freeQty ?? 0) > 0 ? <span className="font-semibold text-blue-600 dark:text-blue-400">+{item.freeQty}</span> : <span className="text-muted-foreground/40">—</span>}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">{damaged > 0 ? 'Damaged' : 'Short'}</p>
+                  <p className="font-mono text-sm">
+                    {damaged > 0
+                      ? <span className="font-bold text-rose-600 dark:text-rose-400">{damaged}</span>
+                      : short > 0
+                        ? <span className="font-bold text-amber-600 dark:text-amber-400">−{short}</span>
+                        : <span className="text-emerald-600 dark:text-emerald-400">Full</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2 flex justify-between text-[11px]">
+                <span className="text-muted-foreground">Rate <span className="font-mono text-foreground">{formatCurrency(item.purchaseRate)}</span></span>
+                <span className="text-muted-foreground">MRP <span className="font-mono text-foreground">{formatCurrency(item.mrp)}</span></span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
       {/* Items table */}
-      <div className="overflow-hidden rounded-xl border border-border/40">
+      <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-muted/40">
@@ -936,7 +1023,124 @@ export function GRNDetailContent({
                 Couldn&apos;t load the sales history. <button type="button" className="font-medium text-primary hover:underline" onClick={toggleBill}>Retry</button>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border/40">
+              <>
+              {/* responsive: mobile card list — same bill items, expandable transactions */}
+              <div className="divide-y divide-border/40 overflow-hidden rounded-lg border border-border/40 md:hidden">
+                {bill!.items.map((it) => {
+                  const key = `${it.productId}-${it.batchNumber}`
+                  const txns = [
+                    ...it.sales.map((s) => ({
+                      key: `s-${s.invoiceId}`, kind: 'sale' as const,
+                      doc: s.invoiceNumber, date: s.date, customer: s.customerName,
+                      customerId: s.customerId, qty: s.quantity, invoiceId: s.invoiceId,
+                    })),
+                    ...it.returns.map((r) => ({
+                      key: `r-${r.creditNoteId}`, kind: 'return' as const,
+                      doc: r.creditNoteNo, date: r.date, customer: r.customerName,
+                      customerId: r.customerId, qty: r.returnedQty, invoiceId: r.invoiceId,
+                    })),
+                  ]
+                  const hasTxns = txns.length > 0
+                  const isOpen = expandedKey === key
+                  return (
+                    <div key={key} className={cn(isOpen && 'bg-muted/30')}>
+                      <button
+                        type="button"
+                        onClick={() => hasTxns && toggleRow(key)}
+                        className={cn('flex w-full items-start justify-between gap-2 px-3 py-3 text-left', hasTxns && 'cursor-pointer')}
+                      >
+                        <div className="min-w-0">
+                          <span className="inline-flex items-center gap-1.5">
+                            {hasTxns
+                              ? <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
+                              : <span className="inline-block w-4 shrink-0" />}
+                            {/* Product name → product history. stopPropagation so it
+                                doesn't also toggle the card's sub-list. */}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/inventory/product-history?productId=${it.productId}`) }}
+                              className="text-left text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {it.productName}
+                            </button>
+                          </span>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-[1.375rem] text-[11px] text-muted-foreground">
+                            <span className="font-mono text-foreground/80">{it.batchNumber}</span>
+                            <span className="whitespace-nowrap">Exp {formatDate(it.expiryDate)}</span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-base font-bold tabular-nums text-blue-700 dark:text-blue-400">{it.currentStock}</p>
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">In Stock</p>
+                        </div>
+                      </button>
+                      <div className="grid grid-cols-3 gap-2 px-3 pb-3 text-center">
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Received</p>
+                          <p className="font-mono text-sm tabular-nums">{it.receivedQty}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Sold</p>
+                          <p className={cn('font-mono text-sm font-semibold tabular-nums', it.unitsSold > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground/50')}>{it.unitsSold}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Returned</p>
+                          <p className={cn('font-mono text-sm font-semibold tabular-nums', it.unitsReturned > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground/50')}>{it.unitsReturned}</p>
+                        </div>
+                      </div>
+                      {isOpen && hasTxns && (
+                        <div className="border-t border-border/40 bg-muted/40 px-3 py-2.5">
+                          <p className="pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {txns.length} transaction{txns.length === 1 ? '' : 's'}
+                          </p>
+                          <div className="max-h-80 space-y-1.5 overflow-y-auto">
+                            {txns.map((t) => (
+                              <div
+                                key={t.key}
+                                onClick={() => navigate(`/billing/sales?view=split&invoiceId=${t.invoiceId}`)}
+                                className="cursor-pointer rounded-md border border-border/60 border-l-2 border-l-primary/50 bg-background px-2.5 py-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                                    {t.kind === 'sale'
+                                      ? <ShoppingCart className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                      : <Undo2 className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" />}
+                                    <span className="truncate font-mono text-xs font-semibold">{t.doc}</span>
+                                  </span>
+                                  <span className={cn(
+                                    'shrink-0 font-mono text-sm font-semibold tabular-nums',
+                                    t.kind === 'sale' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400',
+                                  )}>
+                                    {t.kind === 'sale' ? t.qty : `−${t.qty}`}
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                                  {/* Customer → customer detail. stopPropagation so it doesn't
+                                      open the invoice (the card's default click). */}
+                                  {t.customerId ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); navigate(`/customers/detail?customerId=${t.customerId}`) }}
+                                      className="truncate text-left font-medium text-blue-600 hover:underline dark:text-blue-400"
+                                    >
+                                      {t.customer}
+                                    </button>
+                                  ) : (
+                                    <span className="truncate">{t.customer}</span>
+                                  )}
+                                  <span className="shrink-0 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-border/40 md:block">
                 <Table>
                   <TableHeader className="bg-muted/40">
                     <TableRow className="hover:bg-transparent">
@@ -1080,6 +1284,7 @@ export function GRNDetailContent({
                   </TableBody>
                 </Table>
               </div>
+              </>
             )}
           </div>
         )}

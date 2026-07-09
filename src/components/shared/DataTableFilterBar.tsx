@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { SlidersHorizontal, X } from 'lucide-react'
+import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,30 +14,25 @@ interface DataTableFilterBarProps {
   resultsCount?: number
   activeFilterCount?: number
   defaultFiltersOpen?: boolean
+  // Optional controlled open state — pass both to let a parent open/close the
+  // filters panel (e.g. auto-open it when "Custom Range" is picked). Omit to
+  // keep the built-in uncontrolled behaviour seeded by defaultFiltersOpen.
   open?: boolean
   onOpenChange?: (open: boolean) => void
   onClearFilters?: () => void
-  children?: React.ReactNode
-  actionNode?: React.ReactNode
+  children?: React.ReactNode // The filter inputs/dropdowns
+  actionNode?: React.ReactNode // Custom actions aligned right
+  // Always-visible filter rendered at the LEFT of the search row (outside the
+  // collapsible panel) — used for the most-changed filter, e.g. Period.
   leadingNode?: React.ReactNode
-  // Renders to the RIGHT of leadingNode in the same flex row on mobile.
-  // Use this for primary actions (e.g. Create + PE buttons) so they sit
-  // alongside the period selector instead of a third separate row.
-  leadingActionNode?: React.ReactNode
-  midNode?: React.ReactNode
-  // Renders to the RIGHT of the search input in the same row.
-  // Ideal for icon-only controls (filter toggle, stats toggle) so they
-  // sit inline with the search bar on both mobile and desktop.
-  searchEndNode?: React.ReactNode
-  // When true the built-in filter toggle button is NOT rendered in the
-  // bottom action row — use this when searchEndNode already contains a
-  // custom filter toggle so the button doesn't appear twice.
-  hideFilterToggle?: boolean
-  // Renders at the FAR RIGHT of Row 1 (period selector row), always visible
-  // on every breakpoint. Use for compact actions like an export icon button
-  // that should live beside the period selector on mobile.
-  leadingTrailingNode?: React.ReactNode
+  midNode?: React.ReactNode   // Extra control between search and filters button
+  // Rendered inside the expandable filters panel (below the filter inputs) —
+  // e.g. the "Customize Columns" toggle, so it lives with the filters rather
+  // than cluttering the top action row.
   columnsNode?: React.ReactNode
+  // Override the search container's width class. Default behaviour fills the
+  // remaining row width (flex-1). Pass e.g. "w-full sm:w-80" to constrain it
+  // when there are many action buttons on the right.
   searchClassName?: string
 }
 
@@ -55,62 +49,46 @@ export function DataTableFilterBar({
   children,
   actionNode,
   leadingNode,
-  leadingActionNode,
-  leadingTrailingNode,
   midNode,
-  searchEndNode,
-  hideFilterToggle = false,
   columnsNode,
   searchClassName,
 }: DataTableFilterBarProps) {
   const [internalOpen, setInternalOpen] = useState(defaultFiltersOpen)
+  // Controlled when `open` is provided; otherwise self-managed.
   const filtersOpen = open ?? internalOpen
   const setFiltersOpen = (v: boolean) => {
     onOpenChange?.(v)
     if (open === undefined) setInternalOpen(v)
   }
+  // The filters panel (and its toggle) appear when there are filter inputs OR a
+  // columns control to host.
   const hasPanel = Boolean(children || columnsNode)
 
   return (
     <div className="space-y-3">
-      {/* ── Row 1: Period selector + mobile primary actions + trailing export ── */}
-      {(leadingNode || leadingActionNode || leadingTrailingNode) && (
-        <div className={cn(
-          'flex w-full items-center gap-1.5',
-          'order-1 sm:w-auto sm:shrink-0',
-          leadingNode ? 'items-end' : 'items-center',
-        )}>
-          {leadingNode && (
-            <div className="min-w-0 flex-1 sm:flex-none sm:w-40">{leadingNode}</div>
-          )}
-          {/* Mobile-only: primary actions beside the period. On sm+ these are
-              hidden here — they appear in actionNode instead. */}
-          {leadingActionNode && (
-            <div className="flex shrink-0 items-center gap-1 sm:hidden">
-              {leadingActionNode}
-            </div>
-          )}
-          {/* Always-visible trailing node (e.g. export icon button) */}
-          {leadingTrailingNode && (
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              {leadingTrailingNode}
-            </div>
-          )}
-        </div>
-      )}
+      {/* When a leading filter (with its own top label) is present, bottom-align
+          the row so its select lines up with the search box + buttons instead of
+          sitting lower than them. Without it, keep the plain centered layout. */}
+      {/* Wraps on mobile into three stacked full-width rows: (1) leading filter,
+          (2) search, (3) right-aligned action buttons. On sm+ it collapses to a
+          single row: leading filter, search (flex-1), then the action cluster. */}
+      <div className={cn('flex flex-wrap gap-2', leadingNode ? 'items-end' : 'items-center')}>
+        {/* Always-visible leading filter (e.g. Period) — sits outside the
+            collapsible panel so it's reachable without opening Filters. Full width
+            on mobile so it reads as an intentional row (matching the search bar
+            below) rather than a small select floating at the top-left; natural
+            width from sm up. */}
+        {leadingNode && <div className="order-1 w-full min-w-0 sm:w-auto sm:shrink-0">{leadingNode}</div>}
 
-      {/* ── Row 2: Search input + inline icon controls ── */}
-      <div className={cn(
-        'flex items-center gap-1.5',
-        'order-2 w-full min-w-0 sm:w-auto',
-        searchClassName ?? 'sm:flex-1',
-      )}>
-        <div className="min-w-0 flex-1">
+        {/* Search — own full-width line on mobile (row 2, below the leading
+            filter and above the actions); fills the remaining row width (or
+            searchClassName) from sm up. */}
+        <div className={cn('order-2 w-full min-w-0 sm:w-auto', searchClassName ?? 'sm:flex-1')}>
           <Input
             icon={<Search className="h-4 w-4" />}
             suffix={
               resultsCount !== undefined ? (
-                <span className="whitespace-nowrap rounded-md bg-foreground/6 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                <span className="whitespace-nowrap rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
                   {resultsCount} found
                 </span>
               ) : undefined
@@ -120,45 +98,59 @@ export function DataTableFilterBar({
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
-        {/* Icon controls inline with search (filter toggle, stats toggle, etc.) */}
-        {searchEndNode && (
-          <div className="flex shrink-0 items-center gap-0.5">{searchEndNode}</div>
-        )}
-      </div>
 
-      {/* ── Row 3: midNode + default filter toggle + actionNode ── */}
-      <div className="order-3 flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:shrink-0 sm:justify-end">
-        {midNode}
+        {/* Right cluster: midNode + filter toggle + clear + actionNode. order-3 keeps it
+            last everywhere. On mobile it's its OWN full-width row (row 3) with the
+            controls spread across it (Filters group at the left edge, actions at the
+            right) so the buttons read as an aligned app-style toolbar instead of a
+            lopsided right-hugging cluster. From sm up it trails the search on one row,
+            right-aligned. flex-wrap keeps buttons stacking rather than overflowing. */}
+        <div className="order-3 flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:shrink-0 sm:justify-end">
+          {midNode}
 
-        {/* Default filter toggle — suppressed when searchEndNode owns it */}
-        {hasPanel && !hideFilterToggle && (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              variant={filtersOpen ? 'default' : 'outline'}
-              size="sm"
-              className="gap-1.5 whitespace-nowrap"
-              onClick={() => setFiltersOpen(!filtersOpen)}
-              aria-label="Toggle filters"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 && (
-                <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-                  {activeFilterCount}
-                </Badge>
+          {/* Filter toggle + clear — always visible, never wraps off-screen */}
+          {hasPanel && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                variant={filtersOpen ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5 whitespace-nowrap"
+                onClick={() => setFiltersOpen(!filtersOpen)}
+                aria-label="Toggle filters"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount > 0 && (
+                  <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </Button>
+
+              {onClearFilters && activeFilterCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={onClearFilters}
+                >
+                  <X className="h-3.5 w-3.5 sm:mr-1" />
+                  <span className="hidden sm:inline">Clear</span>
+                </Button>
               )}
-            </Button>
-          </div>
-        )}
+            </div>
+          )}
 
-        {actionNode && hasPanel && !hideFilterToggle && (
-          <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
-        )}
+          {/* Hairline divider between filter controls and the action cluster
+              (view switcher / export / primary action) for grouped structure. */}
+          {actionNode && hasPanel && (
+            <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
+          )}
 
-        {actionNode}
+          {actionNode}
+        </div>
       </div>
 
-      {/* ── Expandable filter panel ── */}
       <AnimatePresence>
         {filtersOpen && hasPanel && (
           <motion.div
@@ -170,30 +162,12 @@ export function DataTableFilterBar({
           >
             <Card className="bg-muted/20 dark:bg-muted/10">
               <CardContent className="p-4">
-                {/* Panel header: label + clear button */}
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Filters
-                  </span>
-                  {onClearFilters && activeFilterCount > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-                      onClick={onClearFilters}
-                    >
-                      <X className="h-3 w-3" />
-                      Clear all
-                    </Button>
-                  )}
-                </div>
-
                 {children && (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     {children}
                   </div>
                 )}
-
+                {/* Customize-columns control lives at the foot of the filters panel. */}
                 {columnsNode && (
                   <div className={cn(
                     'flex flex-wrap items-center justify-between gap-3',

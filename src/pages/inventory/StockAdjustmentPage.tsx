@@ -569,11 +569,12 @@ export default function StockAdjustmentPage() {
               'shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r',
               selectedRow && 'hidden lg:block',
             )}>
-              <div className="px-3 py-3">
-                <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {/* responsive: horizontal scrolling tab strip on phones, vertical folder list at lg+ */}
+              <div className="px-2 py-2 lg:px-3 lg:py-3">
+                <p className="hidden px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 lg:block">
                   Folders
                 </p>
-                <nav className="space-y-0.5">
+                <nav className="flex gap-1 overflow-x-auto pb-0.5 [&>button]:shrink-0 lg:flex-col lg:gap-0 lg:space-y-0.5 lg:overflow-visible lg:pb-0">
                   {FOLDERS.map((cat) => {
                     const Icon = cat.icon
                     const count = folderCounts[cat.key]
@@ -584,7 +585,7 @@ export default function StockAdjustmentPage() {
                         type="button"
                         onClick={() => setFolder(cat.key)}
                         className={cn(
-                          'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                          'group relative flex w-auto items-center gap-2.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm transition-colors lg:w-full',
                           isActive
                             ? 'bg-accent font-medium text-foreground'
                             : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
@@ -593,7 +594,7 @@ export default function StockAdjustmentPage() {
                         {isActive && (
                           <motion.span
                             layoutId="adjustment-sidebar-active"
-                            className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                            className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-primary lg:inset-x-auto lg:inset-y-1 lg:left-0 lg:h-auto lg:w-0.5"
                             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                           />
                         )}

@@ -22,7 +22,6 @@ import {
   Package,
   Filter,
   BarChart3,
-  SlidersHorizontal,
 } from 'lucide-react'
 import { useForm, useFieldArray, useWatch, Controller, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
@@ -75,7 +74,7 @@ import type { PurchaseOrder, Product } from '@/types'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { usePageFilter } from '@/hooks/usePageFilter'
-import { useIsMobileOrTablet } from '@/hooks/useMediaQuery'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { PurchaseOrderSplitView } from './components/PurchaseOrderSplitView'
@@ -197,9 +196,10 @@ interface POItemRowProps {
   errors: FieldErrors<CreatePOForm>
   products: Product[]
   isRemovable: boolean
+  layout?: 'row' | 'card'
 }
 
-function POItemRow({ index, register, onSelectProduct, control, remove, errors, products, isRemovable }: POItemRowProps) {
+function POItemRow({ index, register, onSelectProduct, control, remove, errors, products, isRemovable, layout = 'row' }: POItemRowProps) {
   // Local row state for search UI
   const [productSearch, setProductSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
@@ -274,154 +274,205 @@ function POItemRow({ index, register, onSelectProduct, control, remove, errors, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDropdown])
 
+  // Shared field elements — defined ONCE, reused across the table-row and
+  // mobile-card layouts (rendering both at once would double-register the same
+  // react-hook-form field names and corrupt values).
+  const productField = watchedItem?.productId ? (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-sm font-medium">{watchedItem.productName}</span>
+      <button
+        type="button"
+        className="w-fit text-[10px] text-primary hover:underline font-semibold"
+        onClick={() => {
+          onSelectProduct(index, null) // Clear selection
+        }}
+      >
+        Change Product
+      </button>
+    </div>
+  ) : (
+    <div className="relative">
+      <Input
+        ref={inputRef}
+        icon={<Search className="h-3.5 w-3.5" />}
+        placeholder="Search product..."
+        value={productSearch}
+        onChange={(e) => {
+          setProductSearch(e.target.value)
+          setShowDropdown(true)
+          setSelectedIndex(0)
+          updateDropdownPos()
+        }}
+        onFocus={() => {
+          updateDropdownPos()
+          setShowDropdown(true)
+        }}
+        onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
+        onKeyDown={handleKeyDown}
+        className="h-8"
+        error={!!errors.items?.[index]?.productId}
+      />
+      {showDropdown && filteredProducts.length > 0 && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: dropdownPos.top + 4,
+            left: dropdownPos.left,
+            width: dropdownPos.width,
+            zIndex: 10000,
+            // The PO form is a modal Radix Sheet, which sets
+            // `pointer-events: none` on <body>. This dropdown is portaled
+            // to <body> (outside the Sheet), so without re-enabling pointer
+            // events here it renders but swallows every click — the product
+            // couldn't be selected.
+            pointerEvents: 'auto',
+          }}
+          className="max-h-[40vh] overflow-y-auto overscroll-contain rounded-xl border border-border/60 bg-popover p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+          onMouseDown={(e) => e.stopPropagation()}
+          // The drawer is a modal Radix Sheet whose scroll-lock
+          // (react-remove-scroll) blocks wheel scrolling on anything
+          // portaled to <body>. Apply the scroll ourselves and stop the
+          // event before it reaches the lock, so the list scrolls.
+          onWheel={(e) => {
+            e.currentTarget.scrollTop += e.deltaY
+            e.stopPropagation()
+          }}
+        >
+          <div className="sticky top-0 z-10 px-2 py-1.5 border-b border-border/40 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 mb-1 rounded-t-lg">
+            Select Product
+          </div>
+          {filteredProducts.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              className={cn(
+                "w-full rounded-lg px-2 py-2 text-left text-sm transition-all border border-transparent",
+                i === selectedIndex ? "bg-primary/10 border-primary/20 text-primary shadow-sm" : "hover:bg-accent"
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault() // Prevent blur
+                onSelectProduct(index, p)
+                setProductSearch('')
+                setShowDropdown(false)
+              }}
+              onMouseEnter={() => setSelectedIndex(i)}
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold line-clamp-1">{p.name}</span>
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground line-clamp-1">
+                  <span className="opacity-70">{p.manufacturer}</span>
+                  <span className="opacity-20">|</span>
+                  <span className="opacity-70">{p.genericName}</span>
+                  <span className="opacity-20">|</span>
+                  <span className="font-mono">{formatCurrency(p.purchaseRate || 0)}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+
+  const lastRateDisplay = (
+    <span className="font-mono text-sm text-muted-foreground">
+      {formatCurrency(Number(watchedItem?.lastPurchaseRate) || 0)}
+    </span>
+  )
+
+  const actionButtons = (
+    <div className="flex items-center gap-1">
+      {watchedItem?.productId && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onSelectProduct(index, null)}
+          title="Clear product"
+        >
+          <X className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => remove(index)}
+        disabled={!isRemovable}
+      >
+        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+      </Button>
+    </div>
+  )
+
+  // responsive: cards on phones
+  if (layout === 'card') {
+    return (
+      <div className="rounded-xl border border-border/40 bg-card p-3 space-y-3">
+        {/* product search / selected */}
+        <div className="relative">{productField}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Req. Qty</label>
+            <Input
+              type="number"
+              className="h-8 w-full font-mono"
+              error={!!errors.items?.[index]?.requiredQty}
+              {...register(`items.${index}.requiredQty`, { valueAsNumber: true })}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Rate</label>
+            <Input
+              type="number"
+              className="h-8 w-full font-mono"
+              error={!!errors.items?.[index]?.expectedRate}
+              {...register(`items.${index}.expectedRate`, { valueAsNumber: true })}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-muted-foreground">Last rate: <span className="font-mono text-foreground">{formatCurrency(Number(watchedItem?.lastPurchaseRate) || 0)}</span></span>
+          {actionButtons}
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Remarks</label>
+          <Input className="h-8 w-full" placeholder="Optional" {...register(`items.${index}.remarks`)} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <TableRow className="border-border/40">
       <TableCell className="relative">
-        {watchedItem?.productId ? (
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium">{watchedItem.productName}</span>
-            <button
-              type="button"
-              className="w-fit text-[10px] text-primary hover:underline font-semibold"
-              onClick={() => {
-                onSelectProduct(index, null) // Clear selection
-              }}
-            >
-              Change Product
-            </button>
-          </div>
-        ) : (
-          <div className="relative">
-            <Input
-              ref={inputRef}
-              icon={<Search className="h-3.5 w-3.5" />}
-              placeholder="Search product..."
-              value={productSearch}
-              onChange={(e) => {
-                setProductSearch(e.target.value)
-                setShowDropdown(true)
-                setSelectedIndex(0)
-                updateDropdownPos()
-              }}
-              onFocus={() => {
-                updateDropdownPos()
-                setShowDropdown(true)
-              }}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 300)}
-              onKeyDown={handleKeyDown}
-              className="h-8"
-              error={!!errors.items?.[index]?.productId}
-            />
-            {showDropdown && filteredProducts.length > 0 && createPortal(
-              <div
-                style={{
-                  position: 'fixed',
-                  top: dropdownPos.top + 4,
-                  left: dropdownPos.left,
-                  width: dropdownPos.width,
-                  zIndex: 10000,
-                  // The PO form is a modal Radix Sheet, which sets
-                  // `pointer-events: none` on <body>. This dropdown is portaled
-                  // to <body> (outside the Sheet), so without re-enabling pointer
-                  // events here it renders but swallows every click — the product
-                  // couldn't be selected.
-                  pointerEvents: 'auto',
-                }}
-                className="max-h-[40vh] overflow-y-auto overscroll-contain rounded-xl border border-border/60 bg-popover p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100"
-                onMouseDown={(e) => e.stopPropagation()}
-                // The drawer is a modal Radix Sheet whose scroll-lock
-                // (react-remove-scroll) blocks wheel scrolling on anything
-                // portaled to <body>. Apply the scroll ourselves and stop the
-                // event before it reaches the lock, so the list scrolls.
-                onWheel={(e) => {
-                  e.currentTarget.scrollTop += e.deltaY
-                  e.stopPropagation()
-                }}
-              >
-                <div className="sticky top-0 z-10 px-2 py-1.5 border-b border-border/40 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30 mb-1 rounded-t-lg">
-                  Select Product
-                </div>
-                {filteredProducts.map((p, i) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={cn(
-                      "w-full rounded-lg px-2 py-2 text-left text-sm transition-all border border-transparent",
-                      i === selectedIndex ? "bg-primary/10 border-primary/20 text-primary shadow-sm" : "hover:bg-accent"
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault() // Prevent blur
-                      onSelectProduct(index, p)
-                      setProductSearch('')
-                      setShowDropdown(false)
-                    }}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-bold line-clamp-1">{p.name}</span>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground line-clamp-1">
-                        <span className="opacity-70">{p.manufacturer}</span>
-                        <span className="opacity-20">|</span>
-                        <span className="opacity-70">{p.genericName}</span>
-                        <span className="opacity-20">|</span>
-                        <span className="font-mono">{formatCurrency(p.purchaseRate || 0)}</span>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>,
-              document.body
-            )}
-          </div>
-        )}
+        {productField}
       </TableCell>
       <TableCell>
-        <Input 
-          type="number" 
-          className="h-8 w-20 font-mono" 
-          error={!!errors.items?.[index]?.requiredQty} 
-          {...register(`items.${index}.requiredQty`, { valueAsNumber: true })} 
+        <Input
+          type="number"
+          className="h-8 w-20 font-mono"
+          error={!!errors.items?.[index]?.requiredQty}
+          {...register(`items.${index}.requiredQty`, { valueAsNumber: true })}
         />
       </TableCell>
       <TableCell>
-        <span className="font-mono text-sm text-muted-foreground">
-          {formatCurrency(Number(watchedItem?.lastPurchaseRate) || 0)}
-        </span>
+        {lastRateDisplay}
       </TableCell>
       <TableCell>
-        <Input 
-          type="number" 
-          className="h-8 w-24 font-mono" 
-          error={!!errors.items?.[index]?.expectedRate} 
-          {...register(`items.${index}.expectedRate`, { valueAsNumber: true })} 
+        <Input
+          type="number"
+          className="h-8 w-24 font-mono"
+          error={!!errors.items?.[index]?.expectedRate}
+          {...register(`items.${index}.expectedRate`, { valueAsNumber: true })}
         />
       </TableCell>
       <TableCell>
         <Input className="h-8" placeholder="Optional" {...register(`items.${index}.remarks`)} />
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-1">
-          {watchedItem?.productId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onSelectProduct(index, null)}
-              title="Clear product"
-            >
-              <X className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => remove(index)}
-            disabled={!isRemovable}
-          >
-            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-          </Button>
-        </div>
+        {actionButtons}
       </TableCell>
     </TableRow>
   )
@@ -452,6 +503,7 @@ const CARD_FIELDS: ColumnDef[] = [
 export default function PurchaseOrdersPage() {
   const cols = useColumnVisibility('purchase.orders', PO_COLUMNS)
   const cardCols = useColumnVisibility('purchase.orders.card', CARD_FIELDS)
+  const isMobile = useIsMobile()
   const { suppliers, products, fetchMasterData } = useMasterDataStore()
   const { search } = useRoute()
   const urlParams = useMemo(() => new URLSearchParams(search), [search])
@@ -513,8 +565,6 @@ export default function PurchaseOrdersPage() {
   // Controls the table-view DataTableFilterBar collapsible panel so it can be
   // auto-opened when "Custom Range" is picked (the From/To pickers live inside).
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
-  // Stats visibility toggle (table view)
-  const [showStats, setShowStats] = useState(true)
 
   // Picking "Custom Range" auto-opens the table filters panel (From/To pickers
   // live inside); leaving 'custom' auto-closes it again. Both the table and
@@ -1142,35 +1192,55 @@ export default function PurchaseOrdersPage() {
                     </Button>
                   </div>
                   <div className="p-6 pb-8 space-y-3">
-                    <div className="rounded-xl border border-border/60 overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="min-w-50">Product</TableHead>
-                            <TableHead className="w-25">Req. Qty</TableHead>
-                            <TableHead className="w-27.5">Last Rate</TableHead>
-                            <TableHead className="w-30">Expected Rate</TableHead>
-                            <TableHead className="min-w-30">Remarks</TableHead>
-                            <TableHead className="w-15" />
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {fields.map((field, index) => (
-                            <POItemRow
-                              key={field.id}
-                              index={index}
-                              register={register}
-                              onSelectProduct={handleSelectProduct}
-                              control={control}
-                              remove={remove}
-                              errors={errors}
-                              products={products}
-                              isRemovable={fields.length > 1}
-                            />
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                    {/* responsive: cards on phones */}
+                    {isMobile ? (
+                      <div className="space-y-3">
+                        {fields.map((field, index) => (
+                          <POItemRow
+                            key={field.id}
+                            index={index}
+                            layout="card"
+                            register={register}
+                            onSelectProduct={handleSelectProduct}
+                            control={control}
+                            remove={remove}
+                            errors={errors}
+                            products={products}
+                            isRemovable={fields.length > 1}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border/60 overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="min-w-50">Product</TableHead>
+                              <TableHead className="w-25">Req. Qty</TableHead>
+                              <TableHead className="w-27.5">Last Rate</TableHead>
+                              <TableHead className="w-30">Expected Rate</TableHead>
+                              <TableHead className="min-w-30">Remarks</TableHead>
+                              <TableHead className="w-15" />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {fields.map((field, index) => (
+                              <POItemRow
+                                key={field.id}
+                                index={index}
+                                register={register}
+                                onSelectProduct={handleSelectProduct}
+                                control={control}
+                                remove={remove}
+                                errors={errors}
+                                products={products}
+                                isRemovable={fields.length > 1}
+                              />
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
                     {errors.items && (
                       <p className="text-xs text-destructive">
                         {typeof errors.items.message === 'string' ? errors.items.message : 'Please add valid items'}
@@ -1205,63 +1275,76 @@ export default function PurchaseOrdersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary Cards ── */}
-      {showStats && (() => {
-        const PO_STATS = [
-          { label: 'Total Orders',    value: formatCurrency(stats.totalAmount),  subtitle: `${stats.totalCount} orders`,      icon: IndianRupee,  iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',    borderAccent: 'border-l-blue-500',    filterKey: 'all'     as const, activeRing: 'ring-1 ring-blue-500/40' },
-          { label: 'Received',        value: formatCurrency(stats.receivedTotal), subtitle: `${stats.receivedCount} completed`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'received' as const, activeRing: 'ring-1 ring-emerald-500/40' },
-          { label: 'Pending',         value: formatCurrency(stats.pendingTotal),  subtitle: `${stats.pendingCount} awaiting`,  icon: Clock,        iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',  borderAccent: 'border-l-amber-500',   filterKey: 'pending'  as const, activeRing: 'ring-1 ring-amber-500/40' },
-          { label: 'Partial Delivery',value: formatCurrency(stats.partialTotal),  subtitle: `${stats.partialCount} in progress`,icon: Package,     iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500',  filterKey: 'partial'  as const, activeRing: 'ring-1 ring-purple-500/40' },
-        ]
-        const handleCardFilter = (key: typeof cardFilter) => { setCardFilter(cardFilter === key && key !== 'all' ? 'all' : key); setCurrentPage(1) }
-        return (
-          <>
-            {/* Mobile/tablet compact strip */}
-            <div className="flex gap-2 overflow-x-auto pb-0.5 lg:hidden">
-              {PO_STATS.map(s => {
-                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
-                return (
-                  <button key={s.label} onClick={() => handleCardFilter(s.filterKey)}
-                    className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-l-2 bg-card px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]', s.borderAccent, active && s.activeRing)}>
-                    <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', s.iconBg)}>
-                      <s.icon className="h-3.5 w-3.5" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap leading-none mb-0.5">{s.label}</p>
-                      <p className="text-sm font-bold font-mono tabular-nums leading-tight">{s.value}</p>
-                      <p className="text-[10px] text-muted-foreground/70 whitespace-nowrap leading-none mt-0.5">{s.subtitle}</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            {/* Desktop full grid */}
-            <div className="hidden lg:grid lg:grid-cols-4 gap-3">
-              {PO_STATS.map(stat => {
-                const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
-                return (
-                  <Card key={stat.label} hover role="button" tabIndex={0}
-                    title={stat.filterKey === 'all' ? 'Show all orders in this period' : `Filter to ${stat.label.toLowerCase()}`}
-                    onClick={() => handleCardFilter(stat.filterKey)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardFilter(stat.filterKey) } }}
-                    className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}>
-                    <CardContent className="flex items-center gap-4 p-4">
-                      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                        <stat.icon className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-                        <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
-                        <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </div>
-          </>
-        )
-      })()}
+      {/* ── Summary Cards — click Received / Pending / Partial to drill the list ── */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        {([
+          {
+            label: 'Total Orders',
+            value: formatCurrency(stats.totalAmount),
+            subtitle: `${stats.totalCount} orders`,
+            icon: IndianRupee,
+            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+            borderAccent: 'border-l-blue-500',
+            filterKey: 'all',
+            activeRing: 'ring-2 ring-blue-500/50',
+          },
+          {
+            label: 'Received',
+            value: formatCurrency(stats.receivedTotal),
+            subtitle: `${stats.receivedCount} completed`,
+            icon: CheckCircle2,
+            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+            borderAccent: 'border-l-emerald-500',
+            filterKey: 'received',
+            activeRing: 'ring-2 ring-emerald-500/50',
+          },
+          {
+            label: 'Pending',
+            value: formatCurrency(stats.pendingTotal),
+            subtitle: `${stats.pendingCount} awaiting`,
+            icon: Clock,
+            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            borderAccent: 'border-l-amber-500',
+            filterKey: 'pending',
+            activeRing: 'ring-2 ring-amber-500/50',
+          },
+          {
+            label: 'Partial Delivery',
+            value: formatCurrency(stats.partialTotal),
+            subtitle: `${stats.partialCount} in progress`,
+            icon: Package,
+            iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+            borderAccent: 'border-l-purple-500',
+            filterKey: 'partial',
+            activeRing: 'ring-2 ring-purple-500/50',
+          },
+        ] as const).map((stat) => {
+          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+          return (
+          <Card
+            key={stat.label}
+            hover
+            role="button"
+            tabIndex={0}
+            title={stat.filterKey === 'all' ? 'Show all orders in this period' : `Filter list to ${stat.label.toLowerCase()}`}
+            onClick={() => { setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) } }}
+            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
+          >
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                <stat.icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+              </div>
+            </CardContent>
+          </Card>
+          )
+        })}
+      </div>
 
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
@@ -1277,67 +1360,39 @@ export default function PurchaseOrdersPage() {
           <div className="w-full sm:w-40">
             <EnumSelect
               value={period}
+              // Picking "Custom Range" auto-opens the filters panel so the
+              // From/To date pickers (rendered inside it) are immediately visible;
+              // leaving 'custom' auto-closes it again.
               onValueChange={onPeriodChange}
+              // Clearing the period means "no date restriction" → All Time. (Was
+              // resetting to 'today', i.e. the same value, so the X did nothing.)
               onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
         }
-        leadingActionNode={
-          /* Mobile-only: primary actions beside the period selector */
-          <div className="flex items-center gap-1">
-            <Button size="sm" className="h-8 gap-1 px-2.5" onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /><span className="text-xs">Order</span>
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1 px-2.5 border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40"
-              onClick={() => navigate('/purchase/grn')}>
-              <PackageCheck className="h-3.5 w-3.5" /><span className="text-xs">Entry</span>
-            </Button>
-          </div>
-        }
-        searchEndNode={
-          <div className="flex items-center gap-0.5">
-            <Button variant={tableFiltersOpen ? 'default' : 'outline'} size="sm"
-              className="relative h-8 w-8 p-0" onClick={() => setTableFiltersOpen(o => !o)} aria-label="Filters">
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              {activeFilterCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-            <Button variant={showStats ? 'secondary' : 'ghost'} size="sm"
-              className="h-8 w-8 p-0" onClick={() => setShowStats(s => !s)}
-              aria-label={showStats ? 'Hide stats' : 'Show stats'} title={showStats ? 'Hide stats' : 'Show stats'}>
-              <BarChart3 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        }
-        leadingTrailingNode={
-          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
-            onClick={() => exportToCsv(filteredPOs.map(p => ({ 'PO#': p.poNumber, Date: formatDate(p.date), Supplier: p.supplierName, Items: p.items.length, Total: p.totalAmount, Status: p.status })), 'purchase-orders')}
-            aria-label="Export CSV" title="Export CSV">
-            <Download className="h-4 w-4" />
-          </Button>
-        }
-        hideFilterToggle
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-            {/* Desktop: Create + PE (mobile versions are in leadingActionNode) */}
-            <div className="hidden sm:flex items-center gap-1.5">
-              <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
-                <Plus className="mr-1.5 h-4 w-4" />Create PO
-              </Button>
-              <Button variant="outline" size="sm"
-                className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-                onClick={() => navigate('/purchase/grn')}>
-                <PackageCheck className="mr-1.5 h-4 w-4" />New PE
-              </Button>
-            </div>
-            <div className="hidden lg:block">
-              <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
-            </div>
+            <Button
+              size="sm"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Create PO</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => navigate('/purchase/grn')}
+            >
+              <PackageCheck className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">New PE</span>
+              <span className="sm:hidden">PE</span>
+            </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
           </div>
         }
       >
@@ -1778,35 +1833,55 @@ export default function PurchaseOrdersPage() {
                   </Button>
                 </div>
                 <div className="p-6 pb-8 space-y-3">
-                  <div className="rounded-xl border border-border/60 overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-50">Product</TableHead>
-                          <TableHead className="w-25">Req. Qty</TableHead>
-                          <TableHead className="w-27.5">Last Rate</TableHead>
-                          <TableHead className="w-30">Expected Rate</TableHead>
-                          <TableHead className="min-w-30">Remarks</TableHead>
-                          <TableHead className="w-15" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {fields.map((field, index) => (
-                          <POItemRow
-                            key={field.id}
-                            index={index}
-                            register={register}
-                            onSelectProduct={handleSelectProduct}
-                            control={control}
-                            remove={remove}
-                            errors={errors}
-                            products={products}
-                            isRemovable={fields.length > 1}
-                          />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  {/* responsive: cards on phones */}
+                  {isMobile ? (
+                    <div className="space-y-3">
+                      {fields.map((field, index) => (
+                        <POItemRow
+                          key={field.id}
+                          index={index}
+                          layout="card"
+                          register={register}
+                          onSelectProduct={handleSelectProduct}
+                          control={control}
+                          remove={remove}
+                          errors={errors}
+                          products={products}
+                          isRemovable={fields.length > 1}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-border/60 overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="min-w-50">Product</TableHead>
+                            <TableHead className="w-25">Req. Qty</TableHead>
+                            <TableHead className="w-27.5">Last Rate</TableHead>
+                            <TableHead className="w-30">Expected Rate</TableHead>
+                            <TableHead className="min-w-30">Remarks</TableHead>
+                            <TableHead className="w-15" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {fields.map((field, index) => (
+                            <POItemRow
+                              key={field.id}
+                              index={index}
+                              register={register}
+                              onSelectProduct={handleSelectProduct}
+                              control={control}
+                              remove={remove}
+                              errors={errors}
+                              products={products}
+                              isRemovable={fields.length > 1}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
 
                   {errors.items && (
                     <p className="text-xs text-destructive">
@@ -1882,18 +1957,19 @@ export default function PurchaseOrdersPage() {
 
                 {/* ── Scrollable Body ── */}
                 <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                  {/* Supplier / Expected Delivery / Status — single row, equal width */}
-                  <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
+                  {/* Supplier / Expected Delivery / Status — 3-col grid on phones
+                      (labels wrap instead of colliding), single flex row at sm+ */}
+                  <div className="grid grid-cols-3 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex">
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-3 py-3 sm:px-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
                       <p className="mt-0.5 text-sm font-medium truncate" title={detailPO.supplierName}>{detailPO.supplierName}</p>
                     </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Expected Delivery</p>
-                      <p className="mt-0.5 text-sm font-medium whitespace-nowrap">{detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—'}</p>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expected Delivery</p>
+                      <p className="mt-0.5 text-sm font-medium">{detailPO.expectedDelivery ? formatDate(detailPO.expectedDelivery) : '—'}</p>
                     </div>
-                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Status</p>
+                    <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
                       <div className="mt-0.5">{renderStatusBadge(detailPO.status)}</div>
                     </div>
                   </div>
@@ -1909,8 +1985,53 @@ export default function PurchaseOrdersPage() {
                     </div>
                   )}
 
+                  {/* Items — cards on phones, table at md+ */}
+                  <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/40 md:hidden">
+                    {detailPO.items.map((item, idx) => {
+                      const received = item.receivedQty >= item.requiredQty
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                        : item.receivedQty > 0
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : 'bg-muted/60 text-muted-foreground'
+                      return (
+                        <div key={item.id} className="px-3 py-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="flex items-baseline gap-1.5 text-sm font-medium leading-snug">
+                                <span className="font-mono text-[11px] text-muted-foreground">{idx + 1}.</span>
+                                {item.productName}
+                              </p>
+                              {item.remarks && (
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">{item.remarks}</p>
+                              )}
+                            </div>
+                            <span className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(item.requiredQty * item.expectedRate)}</span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                            <div>
+                              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Ordered</p>
+                              <span className="mt-0.5 inline-flex items-center justify-center rounded-lg bg-blue-500/10 px-2 py-0.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                                {item.requiredQty}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Received</p>
+                              <span className={cn('mt-0.5 inline-flex items-center justify-center rounded-lg px-2 py-0.5 font-mono text-xs font-semibold', received)}>
+                                {item.receivedQty}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</p>
+                              <p className="mt-0.5 font-mono text-xs font-semibold">{formatCurrency(item.expectedRate)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
                   {/* Items — proper table with sticky header */}
-                  <div className="overflow-hidden rounded-xl border border-border/40">
+                  <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
