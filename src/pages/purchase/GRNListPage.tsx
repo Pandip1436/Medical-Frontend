@@ -706,7 +706,7 @@ export default function GRNListPage() {
           </Button>
         }
         hideFilterToggle
-        columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
+        columnsNode={<ColumnsToggle inline columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
             <div className="hidden sm:block">

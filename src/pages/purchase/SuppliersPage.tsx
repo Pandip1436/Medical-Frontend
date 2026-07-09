@@ -708,7 +708,7 @@ export default function SuppliersPage() {
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         open={tableFiltersOpen}
         onOpenChange={setTableFiltersOpen}
-        columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
+        columnsNode={<ColumnsToggle inline columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         leadingActionNode={
           <Button size="sm" className="h-8 px-2.5 text-xs" onClick={openAddDialog}>
             <Plus className="h-3.5 w-3.5" />

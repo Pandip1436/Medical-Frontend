@@ -679,7 +679,7 @@ export default function DebitNotesPage() {
                   </Button>
                 }
                 hideFilterToggle
-                columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
+                columnsNode={<ColumnsToggle inline columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
                   <div className="flex items-center gap-1.5">
                     <div className="hidden sm:block">

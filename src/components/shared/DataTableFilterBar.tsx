@@ -170,37 +170,34 @@ export function DataTableFilterBar({
           >
             <Card className="bg-muted/20 dark:bg-muted/10">
               <CardContent className="p-4">
+                {/* Panel header: label + clear button */}
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Filters
+                  </span>
+                  {onClearFilters && activeFilterCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={onClearFilters}
+                    >
+                      <X className="h-3 w-3" />
+                      Clear all
+                    </Button>
+                  )}
+                </div>
+
                 {children && (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     {children}
                   </div>
                 )}
+
+                {/* Inline columns section (rendered by caller via ColumnsToggle inline) */}
                 {columnsNode && (
-                  <div className={cn(
-                    'flex flex-wrap items-center justify-between gap-3',
-                    children && 'mt-4 border-t border-border/40 pt-3',
-                  )}>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Visible Columns
-                    </span>
+                  <div className={cn(children && 'mt-4 border-t border-border/40 pt-3')}>
                     {columnsNode}
-                  </div>
-                )}
-                {/* Clear filters — lives inside the panel so the toolbar stays clean */}
-                {onClearFilters && activeFilterCount > 0 && (
-                  <div className={cn(
-                    'flex justify-end',
-                    (children || columnsNode) && 'mt-3 border-t border-border/40 pt-3',
-                  )}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1.5 text-muted-foreground hover:text-foreground"
-                      onClick={onClearFilters}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Clear all filters
-                    </Button>
                   </div>
                 )}
               </CardContent>
