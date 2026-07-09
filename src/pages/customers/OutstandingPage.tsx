@@ -464,7 +464,7 @@ export default function OutstandingPage() {
       className="space-y-5"
     >
       {/* ── Summary cards (click to drill the table by aging band) ── */}
-      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {kpiCards.map((kpi) => {
           const active = kpi.filterKey !== 'all' && cardFilter === kpi.filterKey
           return (
@@ -478,14 +478,14 @@ export default function OutstandingPage() {
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : kpi.filterKey); setCurrentPage(1) } }}
             className={cn('border-l-[3px] cursor-pointer transition-shadow', kpi.accent, active && kpi.activeRing)}
           >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>
-                <kpi.icon className="h-5 w-5" />
+            <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', kpi.iconBg)}>
+                <kpi.icon className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
-                <p className="text-lg font-bold font-mono leading-tight truncate" title={kpi.value}>{kpi.value}</p>
-                <p className="text-[11px] text-muted-foreground">{kpi.subtitle}</p>
+                <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
+                <p className="text-base sm:text-lg font-bold font-mono leading-tight truncate" title={kpi.value}>{kpi.value}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{kpi.subtitle}</p>
               </div>
             </CardContent>
           </Card>

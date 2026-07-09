@@ -654,7 +654,7 @@ export default function DebitNotesPage() {
                 onOpenChange={setTableFiltersOpen}
                 onClearFilters={clearFilters}
                 leadingNode={
-                  <div className="w-40">
+                  <div className="w-full sm:w-40">
                     <EnumSelect
                       value={period}
                       onValueChange={onPeriodChange}

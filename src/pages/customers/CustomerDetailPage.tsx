@@ -384,8 +384,8 @@ export default function CustomerDetailPage() {
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ── Sticky Header ── */}
-      <div className="shrink-0 border-b border-border/40 bg-background px-5 py-3">
-        <div className="flex items-start justify-between gap-3">
+      <div className="shrink-0 border-b border-border/40 bg-background px-3 sm:px-5 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <Button
               variant="ghost"
@@ -411,7 +411,7 @@ export default function CustomerDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button
               size="sm"
               variant="outline"
@@ -503,7 +503,7 @@ export default function CustomerDetailPage() {
           className="flex flex-1 flex-col overflow-hidden min-w-0"
         >
           {/* Tab row — tabs on the left, period dropdown + activity-only Type filter on the right. */}
-          <div className="shrink-0 border-b border-border/40 bg-background flex items-center gap-2 px-5">
+          <div className="shrink-0 border-b border-border/40 bg-background flex items-center gap-2 px-3 sm:px-5">
             <div className="flex-1 min-w-0 overflow-x-auto">
               <TabsList className="h-auto justify-start gap-0 rounded-none bg-transparent p-0">
                 {[
@@ -633,16 +633,16 @@ export default function CustomerDetailPage() {
           {/* Date-picker strip — only renders when the user explicitly picks
               "Custom Range" from the period dropdown. */}
           {currentPeriod && currentPeriod.period.preset === 'custom' && (
-            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/5 px-5 py-2">
+            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">From</Label>
-              <div className="w-40">
+              <div className="w-full sm:w-40">
                 <DatePicker
                   value={currentPeriod.period.from}
                   onChange={(v) => currentPeriod.setPeriod({ ...currentPeriod.period, from: v })}
                 />
               </div>
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">To</Label>
-              <div className="w-40">
+              <div className="w-full sm:w-40">
                 <DatePicker
                   value={currentPeriod.period.to}
                   onChange={(v) => currentPeriod.setPeriod({ ...currentPeriod.period, to: v })}
@@ -774,7 +774,46 @@ export default function CustomerDetailPage() {
                 ) : ledgerRows.length === 0 ? (
                   <EmptyState icon={FileText} title="No transactions" subtitle="No ledger entries for this period." />
                 ) : (
-                  <Table>
+                  <>
+                    {/* Mobile: ledger cards */}
+                    <div className="space-y-2 p-3 md:hidden">
+                      {ledgerRows.map((r, i) => {
+                        const debit = Number(r.debit ?? 0)
+                        const credit = Number(r.credit ?? 0)
+                        const balance = Number(r.balance ?? 0)
+                        const target =
+                          r.sourceType === 'INVOICE' && r.sourceId
+                            ? `/customers/invoices/detail?id=${r.sourceId}`
+                            : r.sourceType === 'CREDIT_NOTE' && r.sourceId
+                              ? `/billing/credit-notes/detail?id=${r.sourceId}`
+                              : null
+                        return (
+                          <div
+                            key={i}
+                            onClick={target ? () => navigate(target) : undefined}
+                            className={cn('rounded-xl border border-border/40 p-3', target && 'cursor-pointer hover:bg-muted/20')}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{r.date ? formatDate(r.date) : '—'}</p>
+                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{r.description ?? '—'}</p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'customer')}</p>
+                                {r.ref && <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{r.ref}</p>}
+                              </div>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                              <div><span className="font-semibold uppercase tracking-wider text-[9px] text-muted-foreground/70">{LEDGER_COL_BILLED}</span> <span className="font-mono">{debit > 0 ? formatCurrency(debit) : '—'}</span></div>
+                              <div><span className="font-semibold uppercase tracking-wider text-[9px] text-muted-foreground/70">{LEDGER_COL_PAID}</span> <span className="font-mono">{credit > 0 ? formatCurrency(credit) : '—'}</span></div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Desktop: ledger table */}
+                    <Table className="hidden md:table">
                     <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                       <TableRow>
                         <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</TableHead>
@@ -813,6 +852,7 @@ export default function CustomerDetailPage() {
                       })}
                     </TableBody>
                   </Table>
+                  </>
                 )}
               </div>
               {d.ledger.total > PAGE_SIZE && (
@@ -888,6 +928,35 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2.5 text-center"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
                     </TableRow>
                   )}
+                  renderCard={(inv: any) => {
+                    const balance = Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)
+                    const overdue = inv.dueDate && new Date(inv.dueDate) < new Date() && (inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+                    return (
+                      <div
+                        key={inv.id}
+                        onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                        className="cursor-pointer rounded-xl border border-border/40 p-3 hover:bg-muted/20"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-sm font-semibold">{inv.invoiceNumber}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{inv.date ? formatDate(inv.date) : '—'}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal ?? 0))}</p>
+                            <div className="mt-0.5"><StatusPill status={inv.status ?? inv.paymentStatus} /></div>
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          <div><CardLabel>Paid</CardLabel> <span className="font-mono">{formatCurrency(Number(inv.amountPaid ?? 0))}</span></div>
+                          <div><CardLabel>Balance</CardLabel> <span className={cn('font-mono', balance > 0 ? 'font-semibold text-rose-600 dark:text-rose-400' : '')}>{formatCurrency(balance)}</span></div>
+                          <div><CardLabel>Items</CardLabel> <span className="font-mono">{inv.items?.length ?? 0}</span></div>
+                          <div><CardLabel>Due</CardLabel> <span className={cn('font-mono', overdue && 'font-semibold text-rose-600 dark:text-rose-400')}>{inv.dueDate ? formatDate(inv.dueDate) : '—'}</span></div>
+                          <div className="col-span-2 flex items-center gap-1.5"><CardLabel>Payment</CardLabel> <PaymentModeBadge mode={inv.paymentMode} /></div>
+                        </div>
+                      </div>
+                    )
+                  }}
                   columns={['Date', 'Invoice #', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, { label: 'Balance', right: true }, { label: 'Due Date', center: true }, { label: 'Payment', center: true }, { label: 'Status', center: true }]}
                 />
               </div>
@@ -928,6 +997,28 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2.5"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></TableCell>
                     </TableRow>
                   )}
+                  renderCard={(note: any) => (
+                    <div
+                      key={note.id}
+                      onClick={() => navigate(`/billing/credit-notes/detail?id=${note.id}`)}
+                      className="cursor-pointer rounded-xl border border-border/40 p-3 hover:bg-muted/20"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-semibold">{note.creditNoteNo}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{note.date ? formatDate(note.date) : '—'}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(note.totalAmount ?? 0))}</p>
+                          <div className="mt-0.5"><StatusPill status={note.status ?? (note.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></div>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <div className="col-span-2"><CardLabel>Reason</CardLabel> <span>{note.reason || '—'}</span></div>
+                        <div className="col-span-2 flex items-center gap-1.5"><CardLabel>Settlement</CardLabel> <Badge variant="secondary" size="sm">{note.settlementMode || '—'}</Badge></div>
+                      </div>
+                    </div>
+                  )}
                   columns={['Date', 'CN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
                 />
               </div>
@@ -962,6 +1053,23 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2.5 font-mono text-sm">{p.reference || '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</TableCell>
                     </TableRow>
+                  )}
+                  renderCard={(p: any) => (
+                    <div key={p.id} className="rounded-xl border border-border/40 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-semibold">{p.receiptNumber ?? p.id?.slice(0, 8)}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{(p.createdAt ?? p.date) ? formatDate(p.createdAt ?? p.date) : '—'}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-1.5"><CardLabel>Mode</CardLabel> <Badge variant="secondary" size="sm">{p.mode || p.paymentMode || '—'}</Badge></div>
+                        <div><CardLabel>Ref</CardLabel> <span className="font-mono">{p.reference || '—'}</span></div>
+                      </div>
+                    </div>
                   )}
                   columns={['Date', 'Receipt #', 'Mode', 'Reference', { label: 'Amount', right: true }]}
                 />
@@ -1002,6 +1110,28 @@ export default function CustomerDetailPage() {
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</TableCell>
                       <TableCell className="px-3 py-2.5"><StatusPill status={q.status} /></TableCell>
                     </TableRow>
+                  )}
+                  renderCard={(q: any) => (
+                    <div
+                      key={q.id}
+                      onClick={() => navigate(`/billing/quotations?quotationId=${q.id}`)}
+                      className="cursor-pointer rounded-xl border border-border/40 p-3 hover:bg-muted/20"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-semibold">{q.quotationNumber}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{q.date ? formatDate(q.date) : '—'}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</p>
+                          <div className="mt-0.5"><StatusPill status={q.status} /></div>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <div><CardLabel>Valid Until</CardLabel> <span className="font-mono">{q.validUntil ? formatDate(q.validUntil) : '—'}</span></div>
+                        <div><CardLabel>Items</CardLabel> <span className="font-mono">{q.items?.length ?? 0}</span></div>
+                      </div>
+                    </div>
                   )}
                   columns={['Date', 'Quote #', 'Valid Until', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
                 />
@@ -1253,6 +1383,7 @@ function TabListContent({
   emptySubtitle,
   rows,
   renderRow,
+  renderCard,
   columns,
 }: {
   state: { data: any[] | null; loading: boolean; error: string | null; refetch?: () => void }
@@ -1261,6 +1392,7 @@ function TabListContent({
   emptySubtitle?: string
   rows: any[]
   renderRow: (row: any) => React.ReactNode
+  renderCard: (row: any) => React.ReactNode
   columns: Array<string | { label: string; center?: boolean; right?: boolean }>
 }) {
   if (state.error && !state.data) {
@@ -1271,24 +1403,35 @@ function TabListContent({
     return <EmptyState icon={emptyIcon} title={emptyTitle} subtitle={emptySubtitle} />
   }
   return (
-    <Table>
-      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-        <TableRow>
-          {columns.map((c, i) => {
-            const isObj = typeof c === 'object'
-            const label = isObj ? c.label : c
-            const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
-            return (
-              <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
-                {label}
-              </TableHead>
-            )
-          })}
-        </TableRow>
-      </TableHeader>
-      <TableBody>{rows.map(renderRow)}</TableBody>
-    </Table>
+    <>
+      {/* Mobile: card list */}
+      <div className="space-y-2 p-3 md:hidden">{rows.map(renderCard)}</div>
+
+      {/* Desktop: table */}
+      <Table className="hidden md:table">
+        <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+          <TableRow>
+            {columns.map((c, i) => {
+              const isObj = typeof c === 'object'
+              const label = isObj ? c.label : c
+              const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
+              return (
+                <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
+                  {label}
+                </TableHead>
+              )
+            })}
+          </TableRow>
+        </TableHeader>
+        <TableBody>{rows.map(renderRow)}</TableBody>
+      </Table>
+    </>
   )
+}
+
+// Small label used inside mobile card field grids.
+function CardLabel({ children }: { children: React.ReactNode }) {
+  return <span className="font-semibold uppercase tracking-wider text-[9px] text-muted-foreground/70">{children}</span>
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1662,7 +1805,52 @@ function RxTabContent({
             subtitle="Click Upload Prescription to add a prescription image or PDF for this customer."
           />
         ) : (
-          <Table>
+          <>
+            {/* Mobile: prescription cards */}
+            <div className="space-y-2 p-3 md:hidden">
+              {rows.map((rx) => {
+                const url = rx.imageUrl ? `${API_SERVER_URL}${rx.imageUrl}` : null
+                return (
+                  <div key={rx.id} className="rounded-xl border border-border/40 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</p>
+                        <div className="mt-0.5">
+                          {rx.doctorName ? (
+                            <Badge
+                              variant={rx.doctorName === 'Prescription' ? 'info' : rx.doctorName === 'Document' ? 'secondary' : 'warning'}
+                              size="sm"
+                            >
+                              {rx.doctorName}
+                            </Badge>
+                          ) : <span className="text-[11px] text-muted-foreground">—</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {url && (
+                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => openEdit(rx)} aria-label="Edit">
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(rx.id)} aria-label="Delete">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <div><CardLabel>Valid Until</CardLabel> <span className="font-mono">{rx.validUntil ? formatDate(rx.validUntil) : '—'}</span></div>
+                    </div>
+                    {rx.notes && <p className="mt-1.5 text-[11px] text-muted-foreground">{rx.notes}</p>}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Desktop: prescription table */}
+            <Table className="hidden md:table">
             <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
               <TableRow>
                 <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded</TableHead>
@@ -1710,6 +1898,7 @@ function RxTabContent({
               })}
             </TableBody>
           </Table>
+          </>
         )}
       </div>
 

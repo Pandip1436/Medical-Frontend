@@ -53,14 +53,20 @@ export function SplitViewShell({
   const listScrollRef = useRef<HTMLDivElement>(null)
   const [showListTop, setShowListTop] = useState(false)
 
+  // On phones the two panels can't sit side by side, so we show one at a time:
+  // the list, or the selected item's detail. The view OPENS on the list; tapping
+  // a card switches to the detail; the in-detail "Back" button returns to the
+  // list. md+ ignores this and shows both panels side by side.
+  const [mobileShowDetail, setMobileShowDetail] = useState(false)
+
   const handleListScroll = () => {
     setShowListTop((listScrollRef.current?.scrollTop ?? 0) > 120)
   }
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-lg border border-border/60 bg-background md:grid-cols-[minmax(280px,30%)_1fr]">
-      {/* ── Left rail ── */}
-      <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/40">
+      {/* ── Left rail ── (list). On phones it's hidden while viewing a detail. */}
+      <aside className={cn('min-h-0 min-w-0 flex-col border-r border-border/40', mobileShowDetail ? 'hidden md:flex' : 'flex')}>
         {/* Header strip: back arrow + search */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5">
           <Button
@@ -101,6 +107,8 @@ export function SplitViewShell({
           <div
             ref={listScrollRef}
             onScroll={handleListScroll}
+            // Tapping a card (which bubbles here) switches to the detail on phones.
+            onClick={() => setMobileShowDetail(true)}
             className="h-full overflow-y-auto"
           >
             {loading && resultCount === 0 ? (
@@ -135,8 +143,23 @@ export function SplitViewShell({
         </div>
       </aside>
 
-      {/* ── Right panel ── */}
-      <section className="flex min-h-0 min-w-0 flex-col">
+      {/* ── Right panel ── (detail). On phones it's shown only while a detail is
+          open, with a Back button to return to the list. */}
+      <section className={cn('min-h-0 min-w-0 flex-col', mobileShowDetail ? 'flex' : 'hidden md:flex')}>
+        {/* Mobile-only back-to-list bar — always available so you can never get
+            stuck on the detail panel. */}
+        <div className="flex shrink-0 items-center border-b border-border/40 px-2 py-1.5 md:hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={() => setMobileShowDetail(false)}
+            aria-label="Back to list"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to list
+          </Button>
+        </div>
         {detailLoading ? (
           <div className="flex h-full items-center justify-center">
             <div className="flex flex-col items-center gap-2">

@@ -576,7 +576,7 @@ export default function QuotationsPage() {
 
         {/* Toolbar */}
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <div className="w-40 min-w-35">
+          <div className="w-full min-w-0 sm:w-40 sm:min-w-35">
             <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
           <Button
@@ -716,7 +716,7 @@ export default function QuotationsPage() {
       className="space-y-5"
     >
       {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total Quotations',
@@ -799,7 +799,7 @@ export default function QuotationsPage() {
         onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <EnumSelect
               value={period}
               onValueChange={onPeriodChange}

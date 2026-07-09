@@ -227,7 +227,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
     <div className="space-y-4">
       {/* Customer header — identity + detail chips on the left, quick actions
           (Edit / Repurchase) on the right. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-muted/20 p-4">
+      <div className="flex flex-col gap-3 rounded-xl border border-border/40 bg-muted/20 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
             {invoice.customerName?.trim()?.[0]?.toUpperCase() ?? '?'}
@@ -279,7 +279,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {isCourierApplicable && (
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
               <Truck className="h-3.5 w-3.5 text-muted-foreground" />
@@ -307,7 +307,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+              className="flex-1 gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40 sm:flex-none"
               onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -318,7 +318,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="flex-1 gap-1.5 sm:flex-none"
               onClick={() =>
                 document
                   .getElementById('invoice-payment-history')
@@ -332,7 +332,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40"
+            className="flex-1 gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40 sm:flex-none"
             onClick={handleRepurchase}
           >
             <ShoppingCart className="h-3.5 w-3.5" />
@@ -341,8 +341,51 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         </div>
       </div>
 
-      {/* Items table */}
-      <div className="overflow-hidden rounded-xl border border-border/40">
+      {/* Items — mobile card list (below md) */}
+      <div className="space-y-2 md:hidden">
+        {invoice.items.map((item, idx) => (
+          <div key={item.id ?? idx} className="rounded-xl border border-border/40 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{item.productName}</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                  {item.batchNumber} · Exp {new Date(item.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}
+                </p>
+              </div>
+              <p className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(item.amount)}</p>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[11px]">
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</span>
+                <span className="font-mono">{item.quantity}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</span>
+                <span className="font-mono">{formatCurrency(item.rate)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">MRP</span>
+                <span className="font-mono">{Number(item.mrp).toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Disc</span>
+                <span className="font-mono">{Number(item.discountPercent).toFixed(1)}%</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">GST</span>
+                <span className="font-mono">{Number(item.gstPercent).toFixed(1)}%</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Taxable</span>
+                <span className="font-mono">{formatCurrency(Number(item.amount) / (1 + Number(item.gstPercent) / 100))}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Items table — md+ only */}
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-border/40">
         <Table>
           <TableHeader>
             <TableRow>
@@ -397,8 +440,8 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           before scanning the line-by-line breakdown. Amber-tinted, large
           currency, full-width. */}
       {outstanding > 0.01 && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-          <div className="flex flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 dark:border-amber-900/40 dark:bg-amber-950/20 sm:px-5">
+          <div className="flex min-w-0 flex-col">
             <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400">
               Balance Due
             </span>
@@ -426,9 +469,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                   Collect Payment — Outstanding: {formatCurrency(outstanding)}
                 </p>
                 <div className="space-y-2">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Select value={collectMode} onValueChange={setCollectMode}>
-                      <SelectTrigger className="w-32 h-9 text-sm">
+                      <SelectTrigger className="w-full sm:w-32 h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -534,7 +577,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           <>
             <Button
               variant="outline"
-              className="h-10 gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40"
+              className="h-10 flex-1 gap-2 bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900/40 sm:flex-none"
               onClick={handleSendWhatsApp}
               disabled={sendingWhatsApp}
               title="Re-send the invoice PDF + payment QR to the customer's WhatsApp via Meta Cloud API"
@@ -544,7 +587,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             </Button>
             <Button
               variant="outline"
-              className="h-10 gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40"
+              className="h-10 flex-1 gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40 sm:flex-none"
               onClick={handleRegenerateQr}
               disabled={regeneratingQr}
               title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
@@ -555,15 +598,15 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             <span className="mx-1 hidden h-6 w-px bg-border/60 sm:block" aria-hidden />
           </>
         )}
-        <Button variant="outline" className="h-10 gap-2" onClick={() => setPreviewOpen(true)}>
+        <Button variant="outline" className="h-10 flex-1 gap-2 sm:flex-none" onClick={() => setPreviewOpen(true)}>
           <Eye className="h-4 w-4" />
           Preview
         </Button>
-        <Button variant="outline" className="h-10 gap-2" onClick={() => downloadInvoicePdf(invoice)}>
+        <Button variant="outline" className="h-10 flex-1 gap-2 sm:flex-none" onClick={() => downloadInvoicePdf(invoice)}>
           <Download className="h-4 w-4" />
           Download
         </Button>
-        <Button className="h-10 gap-2" onClick={() => printInvoicePdf(invoice)}>
+        <Button className="h-10 flex-1 gap-2 sm:flex-none" onClick={() => printInvoicePdf(invoice)}>
           <Printer className="h-4 w-4" />
           Print
         </Button>
@@ -673,6 +716,57 @@ function PaymentHistory({ invoice }: { invoice: Invoice }) {
       ) : payments.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-muted-foreground">No payments recorded yet.</div>
       ) : (
+        <>
+        {/* Payments — mobile card list (below md) */}
+        <div className="space-y-2 p-3 md:hidden">
+          {payments.map((p, idx) => {
+            const isInitial = p.source === 'INITIAL'
+            return (
+              <div key={p.id ?? `initial-m-${idx}`} className="rounded-xl border border-border/40 bg-background p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium">{formatDate(p.createdAt)}</p>
+                  <p className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(p.amount)}</p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" size="sm" className={cn('font-medium', MODE_BADGE[p.paymentMode])}>
+                    {p.paymentMode}
+                  </Badge>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {isInitial ? 'At counter' : (p.receiptNumber ?? '—')}
+                  </span>
+                  {!isInitial && p.referenceNumber && p.referenceNumber !== '—' && (
+                    <span className="font-mono text-xs text-muted-foreground">Ref {p.referenceNumber}</span>
+                  )}
+                  {!isInitial && (
+                    <div className="ml-auto flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-xs"
+                        onClick={() => printReceipt(p, receiptInvoice)}
+                        title="Print receipt voucher"
+                      >
+                        <Printer className="h-3.5 w-3.5" /> Print
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => downloadReceiptPdf(p, receiptInvoice)}
+                        title="Download receipt voucher"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Payment table — md+ only */}
+        <div className="hidden md:block overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -739,6 +833,8 @@ function PaymentHistory({ invoice }: { invoice: Invoice }) {
             })}
           </TableBody>
         </Table>
+        </div>
+        </>
       )}
 
       {payments.length > 0 && (

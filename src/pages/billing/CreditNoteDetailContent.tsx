@@ -422,7 +422,26 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
       )}
 
       {/* Items — proper table with sticky header */}
-      <div className="overflow-hidden rounded-xl border border-border/40">
+      {/* Items — cards on mobile, table on md+ */}
+      <div className="space-y-2 md:hidden">
+        {(creditNote.items ?? []).map((item, idx) => (
+          <div key={item.id ?? idx} className="rounded-xl border border-border/40 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{item.productName}</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{item.batchNumber}</p>
+              </div>
+              <p className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(item.amount)}</p>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[11px]">
+              <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</span><span className="font-mono">{item.returnedQty}</span></div>
+              <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</span><span className="font-mono">{formatCurrency(item.rate)}</span></div>
+              <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">GST</span><span className="font-mono">{item.gstPercent}%</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
             <TableRow className="border-b border-border/40 hover:bg-transparent">
@@ -473,7 +492,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
       {/* ── Actions — sticky bar at the bottom of the viewport ── */}
       <div className="sticky bottom-0 z-10 -mx-5 -mb-5 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         {canReview ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
             {/* Reject stays enabled even with an empty note — handleReject toasts
                 a friendly "describe what you found" prompt instead of dead-clicking. */}
             <Button variant="destructive" className="gap-2" onClick={handleReject} disabled={reviewSubmitting}>
@@ -490,7 +509,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             </Button>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
             {awaitingReplacement && (
               <Button
                 className="gap-2 bg-cyan-600 text-white hover:bg-cyan-700 dark:bg-cyan-600 dark:hover:bg-cyan-500"

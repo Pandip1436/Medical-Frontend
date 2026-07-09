@@ -450,7 +450,7 @@ export default function CustomerInvoicesPage() {
           Paid → PAID; Outstanding → UNPAID (the server `status` param accepts
           a single value, so PARTIAL invoices aren't included in that view —
           the card count still totals UNPAID + PARTIAL). */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total',
@@ -527,14 +527,14 @@ export default function CustomerInvoicesPage() {
       {/* ── Filters ── */}
       <motion.div variants={itemVariants} className="space-y-2">
         {customerFocusId && (
-          <div className="flex items-center gap-2">
-            <Badge variant="info" size="sm" className="gap-1.5 pl-2.5 pr-1.5">
-              <User className="h-3 w-3" />
-              <span>Filtered to: {customerFocusName || 'this customer'}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <Badge variant="info" size="sm" className="max-w-full gap-1.5 pl-2.5 pr-1.5">
+              <User className="h-3 w-3 shrink-0" />
+              <span className="truncate">Filtered to: {customerFocusName || 'this customer'}</span>
               <button
                 type="button"
                 onClick={clearCustomerFocus}
-                className="ml-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-foreground/10 transition-colors"
+                className="ml-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full hover:bg-foreground/10 transition-colors"
                 aria-label="Clear customer filter"
               >
                 <span className="text-[12px] leading-none">×</span>
@@ -552,7 +552,7 @@ export default function CustomerInvoicesPage() {
           onOpenChange={setTableFiltersOpen}
           onClearFilters={clearFilters}
           leadingNode={
-            <div className="w-40">
+            <div className="w-full sm:w-40">
               <EnumSelect
                 value={period}
                 onValueChange={onPeriodChange}
@@ -795,7 +795,7 @@ export default function CustomerInvoicesPage() {
                         {formatDate(detailInvoice.date)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <Badge variant="info" size="sm" className="gap-1">
                         <Package className="h-3 w-3" />
                         {detailInvoice.items.length} {detailInvoice.items.length === 1 ? 'item' : 'items'}
@@ -828,8 +828,26 @@ export default function CustomerInvoicesPage() {
                     ))}
                   </div>
 
-                  {/* Items table */}
-                  <div className="overflow-hidden rounded-xl border border-border/40">
+                  {/* Items — cards on mobile, table on md+ */}
+                  <div className="space-y-2 md:hidden">
+                    {detailInvoice.items.map((item, idx) => (
+                      <div key={idx} className="rounded-xl border border-border/40 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{item.productName}</p>
+                            <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{item.batchNumber}</p>
+                          </div>
+                          <p className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(Number(item.amount))}</p>
+                        </div>
+                        <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[11px]">
+                          <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</span><span className="font-mono">{item.quantity}</span></div>
+                          <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</span><span className="font-mono">{formatCurrency(Number(item.rate))}</span></div>
+                          <div><span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">GST</span><span className="font-mono">{item.gstPercent}%</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">
@@ -864,9 +882,9 @@ export default function CustomerInvoicesPage() {
                       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                         Collect Payment — Outstanding: {formatCurrency(balanceDue)}
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row">
                         <Select value={collectMode} onValueChange={setCollectMode}>
-                          <SelectTrigger className="w-32 h-9 text-sm">
+                          <SelectTrigger className="h-9 w-full text-sm sm:w-32">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -879,7 +897,7 @@ export default function CustomerInvoicesPage() {
                           type="number"
                           placeholder="Amount"
                           className={cn(
-                            'h-9 text-sm',
+                            'h-9 min-w-0 flex-1 text-sm',
                             collectExceeds && 'border-rose-400 focus-visible:ring-rose-400',
                           )}
                           value={collectAmount}
@@ -966,8 +984,8 @@ export default function CustomerInvoicesPage() {
                     ))}
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="px-5 py-3 flex gap-2">
+                  {/* Action buttons — full-width tappable on phones, natural inline on sm+ */}
+                  <div className="flex flex-wrap gap-2 px-4 py-3 sm:px-5 [&>button]:flex-1 sm:[&>button]:flex-none">
                     {(detailInvoice.status === 'UNPAID' || detailInvoice.status === 'PARTIAL') && (
                       <Button
                         variant="outline"

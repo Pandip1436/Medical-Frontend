@@ -91,14 +91,14 @@ export default function InvoiceDetailPage() {
           </CardContent>
         ) : (
           <>
-            <CardHeader className="border-b border-border/40">
+            <CardHeader className="border-b border-border/40 px-4 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
                     <Receipt className="h-5 w-5" />
                   </div>
-                  <div>
-                    <p className="font-mono text-base font-semibold">{invoice.invoiceNumber}</p>
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-base font-semibold">{invoice.invoiceNumber}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {formatDate(invoice.date)}
                       {invoice.isReplacement && invoice.replacementForCreditNote && (
@@ -121,7 +121,7 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="px-3 pt-4 sm:px-6">
               <InvoiceDetailContent
                 invoice={invoice}
                 onClose={goBack}

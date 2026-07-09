@@ -1201,7 +1201,7 @@ export default function PurchaseOrdersPage() {
       className="space-y-5"
     >
       {/* ── Summary Cards — click Received / Pending / Partial to drill the list ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total Orders',
@@ -1282,7 +1282,7 @@ export default function PurchaseOrdersPage() {
         onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <EnumSelect
               value={period}
               // Picking "Custom Range" auto-opens the filters panel so the

@@ -644,7 +644,7 @@ export default function SuppliersPage() {
       className="space-y-5"
     >
       {/* ── Summary Cards (clickable cards drive the existing server filters) ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total Suppliers',

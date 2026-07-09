@@ -646,7 +646,7 @@ export default function GRNListPage() {
         onOpenChange={setTableFiltersOpen}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <EnumSelect
               value={period}
               onValueChange={onPeriodChange}

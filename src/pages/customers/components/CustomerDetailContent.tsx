@@ -319,7 +319,7 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Small action bar */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-2 flex items-center gap-2">
+      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-3 sm:px-4 py-2 flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Customer Detail</span>
         <div className="flex-1" />
         {/* Period dropdown — show for tabs that have a period */}
@@ -445,16 +445,16 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
 
           {/* Custom date-picker strip */}
           {currentPeriod && currentPeriod.period.preset === 'custom' && (
-            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/5 px-5 py-2">
+            <div className="shrink-0 flex flex-wrap items-center gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">From</Label>
-              <div className="w-40">
+              <div className="w-full sm:w-40">
                 <DatePicker
                   value={currentPeriod.period.from}
                   onChange={(v) => currentPeriod.setPeriod({ ...currentPeriod.period, from: v })}
                 />
               </div>
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">To</Label>
-              <div className="w-40">
+              <div className="w-full sm:w-40">
                 <DatePicker
                   value={currentPeriod.period.to}
                   onChange={(v) => currentPeriod.setPeriod({ ...currentPeriod.period, to: v })}
@@ -590,6 +590,46 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                 ) : ledgerRows.length === 0 ? (
                   <EmptyState icon={FileText} title="No transactions" subtitle="No ledger entries for this period." />
                 ) : (
+                  <>
+                  {/* Mobile: card list */}
+                  <div className="space-y-2 p-3 md:hidden">
+                    {ledgerRows.map((r, i) => {
+                      const debit = Number(r.debit ?? 0)
+                      const credit = Number(r.credit ?? 0)
+                      const balance = Number(r.balance ?? 0)
+                      const target =
+                        r.sourceType === 'INVOICE' && r.sourceId
+                          ? `/customers/invoices/detail?id=${r.sourceId}`
+                          : r.sourceType === 'CREDIT_NOTE' && r.sourceId
+                            ? `/billing/credit-notes/detail?id=${r.sourceId}`
+                            : null
+                      return (
+                        <div
+                          key={i}
+                          className={cn('rounded-xl border border-border/40 p-3', target && 'cursor-pointer active:bg-muted/30')}
+                          onClick={target ? () => navigate(target) : undefined}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate font-mono text-sm font-medium">{r.ref ?? '—'}</p>
+                              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                                {r.date ? formatDate(r.date) : '—'}{r.description ? ` · ${r.description}` : ''}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="font-mono text-sm font-semibold">{formatLedgerBalance(balance, 'customer')}</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            <CardStat label={LEDGER_COL_BILLED} value={debit > 0 ? formatCurrency(debit) : '—'} />
+                            <CardStat label={LEDGER_COL_PAID} value={credit > 0 ? formatCurrency(credit) : '—'} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* Desktop: table (md+) */}
+                  <div className="hidden md:block">
                   <Table>
                     <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                       <TableRow>
@@ -629,6 +669,8 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                       })}
                     </TableBody>
                   </Table>
+                  </div>
+                  </>
                 )}
               </div>
               {d.ledger.total > PAGE_SIZE && (
@@ -721,6 +763,35 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                       <TableCell className="px-3 py-2.5 text-center"><StatusPill status={inv.status ?? inv.paymentStatus} /></TableCell>
                     </TableRow>
                   )}
+                  renderCard={(inv: any) => {
+                    const balance = Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)
+                    const overdue = inv.dueDate && new Date(inv.dueDate) < new Date() && (inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+                    return (
+                      <div
+                        key={inv.id}
+                        className="rounded-xl border border-border/40 p-3 cursor-pointer active:bg-muted/30"
+                        onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-sm font-medium">{inv.invoiceNumber}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{inv.date ? formatDate(inv.date) : '—'}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal ?? 0))}</p>
+                            <div className="mt-1"><StatusPill status={inv.status ?? inv.paymentStatus} /></div>
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          <CardStat label="Paid" value={formatCurrency(Number(inv.amountPaid ?? 0))} />
+                          <CardStat label="Balance" value={<span className={cn(balance > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : '')}>{formatCurrency(balance)}</span>} />
+                          <CardStat label="Items" value={inv.items?.length ?? 0} />
+                          <CardStat label="Payment" value={inv.paymentMode ? <PaymentModeBadge mode={inv.paymentMode} /> : '—'} mono={false} />
+                          <CardStat label="Due" value={inv.dueDate ? <span className={cn(overdue && 'text-rose-600 dark:text-rose-400 font-semibold')}>{formatDate(inv.dueDate)}</span> : '—'} />
+                        </div>
+                      </div>
+                    )
+                  }}
                   columns={['Date', 'Invoice #', { label: 'Items', center: true }, { label: 'Total', right: true }, { label: 'Paid', right: true }, { label: 'Balance', right: true }, { label: 'Due Date', center: true }, { label: 'Payment', center: true }, { label: 'Status', center: true }]}
                 />
                 )}
@@ -779,6 +850,32 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                       <TableCell className="px-3 py-2.5"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></TableCell>
                     </TableRow>
                   )}
+                  renderCard={(cn: any) => (
+                    <div
+                      key={cn.id}
+                      className="rounded-xl border border-border/40 p-3 cursor-pointer active:bg-muted/30"
+                      onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-medium">{cn.creditNoteNo}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                            {cn.date ? formatDate(cn.date) : '—'}{cn.reason ? ` · ${cn.reason}` : ''}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">{formatCurrency(Number(cn.totalAmount ?? 0))}</p>
+                          <div className="mt-1"><StatusPill status={cn.status ?? (cn.settledAt ? 'SETTLED' : 'PENDING_REVIEW')} /></div>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Settlement</span>{' '}
+                          <Badge variant="secondary" size="sm">{cn.settlementMode || '—'}</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   columns={['Date', 'CN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
                 />
                 )}
@@ -831,6 +928,26 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                       <TableCell className="px-3 py-2.5 font-mono text-sm">{p.reference || '—'}</TableCell>
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</TableCell>
                     </TableRow>
+                  )}
+                  renderCard={(p: any) => (
+                    <div key={p.id} className="rounded-xl border border-border/40 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-medium">{p.receiptNumber ?? p.id?.slice(0, 8)}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{(p.createdAt ?? p.date) ? formatDate(p.createdAt ?? p.date) : '—'}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(Number(p.amount ?? 0))}</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Mode</span>{' '}
+                          <Badge variant="secondary" size="sm">{p.mode || p.paymentMode || '—'}</Badge>
+                        </div>
+                        <CardStat label="Reference" value={p.reference || '—'} />
+                      </div>
+                    </div>
                   )}
                   columns={['Date', 'Receipt #', 'Mode', 'Reference', { label: 'Amount', right: true }]}
                 />
@@ -889,6 +1006,28 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                       <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</TableCell>
                       <TableCell className="px-3 py-2.5"><StatusPill status={q.status} /></TableCell>
                     </TableRow>
+                  )}
+                  renderCard={(q: any) => (
+                    <div
+                      key={q.id}
+                      className="rounded-xl border border-border/40 p-3 cursor-pointer active:bg-muted/30"
+                      onClick={() => navigate(`/billing/quotations?quotationId=${q.id}`)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-medium">{q.quotationNumber}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{q.date ? formatDate(q.date) : '—'}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono text-sm font-semibold">{formatCurrency(Number(q.total ?? q.grandTotal ?? 0))}</p>
+                          <div className="mt-1"><StatusPill status={q.status} /></div>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <CardStat label="Valid Until" value={q.validUntil ? formatDate(q.validUntil) : '—'} />
+                        <CardStat label="Items" value={q.items?.length ?? 0} />
+                      </div>
+                    </div>
                   )}
                   columns={['Date', 'Quote #', 'Valid Until', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
                 />
@@ -1097,6 +1236,16 @@ function TableSkeleton({ rows = 6 }: { rows?: number }) {
   )
 }
 
+// Small label/value cell used inside the mobile card grids.
+function CardStat({ label, value, mono = true }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">{label}</span>{' '}
+      <span className={cn('truncate', mono && 'font-mono')}>{value}</span>
+    </div>
+  )
+}
+
 function TabListContent({
   state,
   emptyIcon,
@@ -1104,6 +1253,7 @@ function TabListContent({
   emptySubtitle,
   rows,
   renderRow,
+  renderCard,
   columns,
 }: {
   state: { data: any[] | null; loading: boolean; error: string | null; refetch?: () => void }
@@ -1112,6 +1262,7 @@ function TabListContent({
   emptySubtitle?: string
   rows: any[]
   renderRow: (row: any) => React.ReactNode
+  renderCard: (row: any) => React.ReactNode
   columns: Array<string | { label: string; center?: boolean; right?: boolean }>
 }) {
   if (state.error && !state.data) {
@@ -1122,23 +1273,30 @@ function TabListContent({
     return <EmptyState icon={emptyIcon} title={emptyTitle} subtitle={emptySubtitle} />
   }
   return (
-    <Table>
-      <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-        <TableRow>
-          {columns.map((c, i) => {
-            const isObj = typeof c === 'object'
-            const label = isObj ? c.label : c
-            const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
-            return (
-              <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
-                {label}
-              </TableHead>
-            )
-          })}
-        </TableRow>
-      </TableHeader>
-      <TableBody>{rows.map(renderRow)}</TableBody>
-    </Table>
+    <>
+      {/* Mobile: card list */}
+      <div className="space-y-2 p-3 md:hidden">{rows.map(renderCard)}</div>
+      {/* Desktop: table (md+) */}
+      <div className="hidden md:block">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+            <TableRow>
+              {columns.map((c, i) => {
+                const isObj = typeof c === 'object'
+                const label = isObj ? c.label : c
+                const align = isObj && c.center ? 'text-center' : isObj && c.right ? 'text-right' : ''
+                return (
+                  <TableHead key={i} className={cn('h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground', align)}>
+                    {label}
+                  </TableHead>
+                )
+              })}
+            </TableRow>
+          </TableHeader>
+          <TableBody>{rows.map(renderRow)}</TableBody>
+        </Table>
+      </div>
+    </>
   )
 }
 
@@ -1517,6 +1675,40 @@ function RxTabContent({
                 Upload Document
               </Button>
             </div>
+            {/* Mobile: card list */}
+            <div className="space-y-2 p-3 md:hidden">
+              {rows.map((rx) => {
+                const url = rx.imageUrl ? `${API_SERVER_URL}${rx.imageUrl}` : null
+                return (
+                  <div key={rx.id} className="rounded-xl border border-border/40 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {rx.doctorName ? <Badge variant="secondary" size="sm">{rx.doctorName}</Badge> : '—'}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {url && (
+                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => openEdit(rx)} aria-label="Edit">
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(rx.id)} aria-label="Delete">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {rx.notes && <p className="mt-2 text-[11px] text-muted-foreground whitespace-pre-wrap wrap-break-word">{rx.notes}</p>}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Desktop: table (md+) */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
                 <TableRow>
@@ -1558,6 +1750,7 @@ function RxTabContent({
                 })}
               </TableBody>
             </Table>
+            </div>
           </>
         )}
       </div>

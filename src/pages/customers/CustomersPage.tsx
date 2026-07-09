@@ -1034,7 +1034,7 @@ export default function CustomersPage() {
       className="space-y-6"
     >
       {/* ─── Summary Cards (clickable drill-down → drives the Outstanding filter) ─── */}
-      <motion.div variants={itemVariants} className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         {([
           {
             label: 'Total Customers',
@@ -1118,16 +1118,16 @@ export default function CustomersPage() {
             onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } } : undefined}
             className={cn('border-l-[3px] transition-shadow', interactive && 'cursor-pointer', stat.borderAccent, active && stat.activeRing)}
           >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+            <CardContent className="flex items-center gap-2 p-3 sm:gap-4 sm:p-4">
+              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', stat.iconBg)}>
                 <stat.icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {stat.label}
                 </p>
-                <p className="text-lg font-bold font-mono leading-tight truncate" title={stat.value}>{stat.value}</p>
-                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+                <p className="text-base font-bold font-mono leading-tight truncate sm:text-lg" title={stat.value}>{stat.value}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{stat.subtitle}</p>
               </div>
             </CardContent>
           </Card>

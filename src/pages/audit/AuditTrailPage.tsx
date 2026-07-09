@@ -559,7 +559,7 @@ export default function AuditTrailPage() {
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
         leadingNode={
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <EnumSelect
               value={periodFilter}
               onValueChange={setPeriodFilter}
