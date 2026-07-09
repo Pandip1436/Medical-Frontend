@@ -772,7 +772,10 @@ export default function OutstandingPage() {
                     <div
                       key={cell.label}
                       className={cn(
-                        'flex flex-1 min-w-20 flex-col justify-center whitespace-nowrap px-3 py-2.5',
+                        // Mobile: size to content so all 5 buckets fit without the
+                        // last ones scrolling off (labels were getting cut).
+                        // sm+: equal-width buckets filling the strip.
+                        'flex flex-col justify-center whitespace-nowrap px-3 py-2.5 sm:min-w-20 sm:flex-1',
                         i > 0 && 'border-l border-border/40',
                       )}
                     >
@@ -800,7 +803,58 @@ export default function OutstandingPage() {
                       </p>
                     )}
                   </div>
-                  <div className="overflow-hidden rounded-xl border border-border/40">
+                  {/* Cards on mobile — tap a card to pick the invoice to collect against */}
+                  <div className="space-y-2 md:hidden">
+                    {drawerInvoicesLoading ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground animate-pulse">Loading invoices…</div>
+                    ) : drawerInvoices.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground">No open invoices.</div>
+                    ) : drawerInvoices.map((inv) => {
+                      const isInvSelected = selectedInvoiceId === inv.id
+                      return (
+                        <div
+                          key={inv.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => selectInvoice(inv.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectInvoice(inv.id) } }}
+                          className={cn(
+                            'cursor-pointer rounded-xl border p-3 transition-colors',
+                            isInvSelected ? 'border-primary bg-primary/5' : 'border-border/40 hover:bg-muted/20',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="radio"
+                                name="payment-invoice-mobile"
+                                className="h-3.5 w-3.5 shrink-0 accent-primary"
+                                checked={isInvSelected}
+                                onChange={() => selectInvoice(inv.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select invoice ${inv.invoiceNumber}`}
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate font-mono text-xs font-semibold">{inv.invoiceNumber}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {formatDate(inv.date)} · <span className={cn(inv.daysOverdue > 60 && 'font-semibold text-rose-600 dark:text-rose-400')}>{inv.daysOverdue}d</span>
+                                </p>
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">{formatCurrency(inv.balance)}</p>
+                              <Badge variant={inv.status === 'PARTIAL' ? 'warning' : 'secondary'} size="sm">{inv.status}</Badge>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-x-3 text-[11px] text-muted-foreground">
+                            <div><span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Total</span> <span className="font-mono">{formatCurrency(inv.grandTotal)}</span></div>
+                            <div><span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Paid</span> <span className="font-mono">{formatCurrency(inv.amountPaid)}</span></div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
                     <Table>
                       <TableHeader className="bg-muted/40">
                         <TableRow className="border-b border-border/40 hover:bg-transparent">

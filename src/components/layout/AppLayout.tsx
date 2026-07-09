@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuthStore } from '@/stores/authStore'
 import { navigate } from '@/lib/router'
+import { resolveListView } from '@/lib/listView'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 
@@ -116,7 +117,10 @@ export default function AppLayout({
   const urlSearchParams = new URLSearchParams(routeSearch)
   // Legacy pages signal split via ?view=split. New pages use split-as-default
   // (no param = split; ?view=table = table). Both need the compact layout.
-  const tableViewActive = urlSearchParams.get('view') === 'table'
+  // Uses the same resolver as the pages so mobile (where split defaults to the
+  // scrollable list) gets the normal scrollable main — not the split view's
+  // overflow-hidden compact shell, which would clip the list with no scroll.
+  const tableViewActive = resolveListView(urlSearchParams.get('view')) === 'table'
   // Pages where split view is the DEFAULT (compact unless ?view=table).
   const SPLIT_DEFAULT_PAGES = [
     '/billing/sales',

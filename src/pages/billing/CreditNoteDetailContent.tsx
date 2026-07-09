@@ -238,9 +238,11 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
 
   return (
     <div className="space-y-5">
-      {/* Customer / Against Invoice / Reason / Settlement — single row, equal width */}
-      <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
+      {/* Customer / Against Invoice / Reason / Settlement — 2×2 grid on mobile
+          (so cells are wide enough to not break words), one equal-width row on sm+.
+          The gap-px + bg-border trick draws clean 1px grid lines on mobile. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border/40 bg-border/40 sm:flex sm:items-stretch sm:gap-0 sm:bg-muted/20">
+        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Customer</p>
           <CustomerNameLine
             name={creditNote.customerName}
@@ -250,15 +252,15 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             onNameClick={creditNote.customerId ? () => navigate(`/customers/detail?customerId=${creditNote.customerId}`) : undefined}
           />
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3 sm:border-l sm:border-border/40">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Against Invoice</p>
           <p className="mt-0.5 font-mono text-xs font-medium truncate" title={creditNote.invoiceNumber}>{creditNote.invoiceNumber}</p>
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3 sm:border-l sm:border-border/40">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Reason</p>
           <p className="mt-0.5 text-sm font-medium wrap-break-word" title={creditNote.reason}>{creditNote.reason}</p>
         </div>
-        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
+        <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3 sm:border-l sm:border-border/40">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Settlement</p>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
