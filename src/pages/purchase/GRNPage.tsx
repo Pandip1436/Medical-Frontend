@@ -1022,7 +1022,7 @@ export default function GRNPage() {
           </div>
 
           {/* Metric cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+          <div className="grid grid-cols-3 gap-2 mb-4">
             <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
               <p className="font-mono text-lg font-bold">{totalItems}</p>
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
@@ -2112,7 +2112,7 @@ export default function GRNPage() {
                 </div>
 
                 {/* Metric cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-3 gap-2 mb-4">
                   <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
                     <p className="font-mono text-lg font-bold">{totalItems}</p>
                     <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
