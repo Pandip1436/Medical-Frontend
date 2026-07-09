@@ -433,14 +433,14 @@ export default function RemindersPage() {
               {' · '}{totalCount} total
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center rounded-md border border-border/60 bg-background p-0.5">
+              <div className="flex max-w-full items-center overflow-x-auto rounded-md border border-border/60 bg-background p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {STATUS_FILTERS.map(s => (
                   <button
                     key={s.key}
                     type="button"
                     onClick={() => setStatusFilter(s.key)}
                     className={cn(
-                      'whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors',
+                      'shrink-0 whitespace-nowrap rounded px-2 py-1 text-[11px] font-medium transition-colors',
                       statusFilter === s.key
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground',
@@ -1306,8 +1306,8 @@ function ReminderDetailPanel({
       </div>
 
       {/* Footer — Edit + Save contact log on the left, Delete on the right */}
-      <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/10 px-4 py-2.5">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 border-t border-border/60 bg-muted/10 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="ghost"

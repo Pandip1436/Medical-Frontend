@@ -417,7 +417,7 @@ export default function ProductHistoryPage() {
           </div>
         </div>
         {history && (
-          <div className="flex items-center gap-2 self-start">
+          <div className="flex flex-wrap items-center gap-2 self-start w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button
               variant="outline"
               size="sm"
@@ -641,7 +641,97 @@ export default function ProductHistoryPage() {
               {/* ── Sales tab ───────────────────────────────── */}
               {activeTab === 'sales' && (
                 <>
-                  <div className="overflow-auto max-h-130">
+                  {/* responsive: phone card list — desktop table hidden below md */}
+                  <div className="divide-y divide-border/40 md:hidden">
+                    {pagedSales.map((row: any, i) => {
+                      const isReturn = row.isReturn
+                      return (
+                        <div
+                          key={`sale-card-${i}`}
+                          onClick={() => openDoc(row.docType, row.docId)}
+                          className="cursor-pointer active:bg-muted/50 px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
+                                {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-bold"><RotateCcw className="h-2.5 w-2.5" />RETURN</span>}
+                                {row.ref}
+                              </div>
+                              <div>
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left text-xs"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : <span className="text-xs">{row.party}</span>}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className={cn('text-xs font-mono font-semibold', isReturn ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300')}>
+                                {isReturn ? `+${row.qty}` : `−${row.qty}`}
+                              </div>
+                              <div className="font-mono text-xs font-semibold">{formatCurrency(row.amount)}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5">
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Date</div>
+                              <div className="text-xs text-muted-foreground">{row.date.toLocaleDateString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Batch</div>
+                              <div className="text-xs font-mono">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setSalesPage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</div>
+                              <div className="text-xs font-mono">{formatCurrency(row.rate)}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">GST</div>
+                              <div className="text-xs font-mono text-muted-foreground">{row.gst}%</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Disc</div>
+                              <div className="text-xs font-mono text-muted-foreground">{isReturn ? '—' : `${row.discount}%`}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Status</div>
+                              <div>
+                                {isReturn
+                                  ? <span className="text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{row.status}</span>
+                                  : <span className={cn('text-[10px] font-semibold uppercase rounded-full px-2 py-0.5', row.status === 'PAID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-muted text-muted-foreground')}>{row.status}</span>
+                                }
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="overflow-auto max-h-130 hidden md:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
@@ -740,7 +830,101 @@ export default function ProductHistoryPage() {
               {/* ── Purchases tab ────────────────────────────── */}
               {activeTab === 'purchases' && (
                 <>
-                  <div className="overflow-auto max-h-130">
+                  {/* responsive: phone card list — desktop table hidden below md */}
+                  <div className="divide-y divide-border/40 md:hidden">
+                    {pagedPurchases.map((row: any, i) => {
+                      const isReturn = row.isReturn
+                      return (
+                        <div
+                          key={`purchase-card-${i}`}
+                          onClick={() => openDoc(row.docType, row.docId)}
+                          className="cursor-pointer active:bg-muted/50 px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
+                                {isReturn && <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[9px] font-bold"><PackageX className="h-2.5 w-2.5" />RETURN</span>}
+                                {row.ref}
+                              </div>
+                              <div>
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left text-xs"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : <span className="text-xs">{row.party}</span>}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className={cn('text-xs font-mono font-semibold', isReturn ? 'text-violet-600 dark:text-violet-300' : 'text-emerald-600 dark:text-emerald-300')}>
+                                {isReturn ? `−${row.qty}` : `+${row.qty}`}
+                              </div>
+                              <div className="font-mono text-xs font-semibold">{formatCurrency(row.amount)}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5">
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Date</div>
+                              <div className="text-xs text-muted-foreground">{row.date.toLocaleDateString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Batch</div>
+                              <div className="text-xs font-mono">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setPurchasesPage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Rate</div>
+                              <div className="text-xs font-mono">{formatCurrency(row.purchaseRate)}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">MRP</div>
+                              <div className="text-xs font-mono">{row.mrp > 0 ? formatCurrency(row.mrp) : '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Free Qty</div>
+                              <div className="text-xs font-mono text-muted-foreground">{isReturn ? '—' : (row.freeQty > 0 ? `+${row.freeQty}` : '—')}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Status</div>
+                              <div>
+                                <span className={cn(
+                                  'text-[10px] font-semibold uppercase rounded-full px-2 py-0.5',
+                                  isReturn
+                                    ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
+                                    : row.status === 'RECEIVED'
+                                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                      : 'bg-muted text-muted-foreground'
+                                )}>{row.status}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="overflow-auto max-h-130 hidden md:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
@@ -845,10 +1029,108 @@ export default function ProductHistoryPage() {
               {/* ── Timeline tab ─────────────────────────────── */}
               {activeTab === 'timeline' && (
                 <>
-                  <p className="px-4 pt-3 pb-1 text-[11px] text-muted-foreground">
+                  <p className="hidden md:block px-4 pt-3 pb-1 text-[11px] text-muted-foreground">
                     Tip: click any row to open its invoice, GRN or note for verification.
                   </p>
-                  <div className="overflow-auto max-h-130">
+                  {/* responsive: phone card list — desktop table hidden below md */}
+                  <div className="divide-y divide-border/40 md:hidden">
+                    {pagedTimeline.map((row, i) => {
+                      const TYPE_STYLE = {
+                        SALE:            { badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−' },
+                        PURCHASE:        { badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+' },
+                        SALES_RETURN:    { badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+' },
+                        PURCHASE_RETURN: { badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−' },
+                      }
+                      const style = TYPE_STYLE[row.type]
+                      const Icon = style.icon
+                      return (
+                        <div
+                          key={`tl-card-${i}`}
+                          onClick={() => openDoc(row.docType, row.docId)}
+                          className="cursor-pointer active:bg-muted/50 px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase whitespace-nowrap', TYPE_THEME[row.type].badge)}>
+                                <Icon className="h-3 w-3" />
+                                {style.label}
+                              </span>
+                              <div className="mt-1">
+                                {row.partyId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
+                                    className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left text-xs"
+                                    title={`View ${row.partyKind} details`}
+                                  >
+                                    {row.party}
+                                  </button>
+                                ) : <span className="text-xs">{row.party}</span>}
+                                {row.partyPhone && (
+                                  <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className={cn(
+                                'text-[15px] font-mono font-semibold',
+                                style.qtySign === '+'
+                                  ? 'text-emerald-600 dark:text-emerald-300'
+                                  : 'text-rose-600 dark:text-rose-300',
+                              )}>
+                                {style.qtySign}{row.qty}
+                              </div>
+                              <div className="font-mono text-xs font-semibold">{formatCurrency(row.amount)}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5">
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Date</div>
+                              <div className="text-xs text-muted-foreground">{row.date.toLocaleDateString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Batch</div>
+                              <div className="text-xs font-mono">
+                                {row.batch ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setBatchFilter(row.batch); setTimelinePage(1) }}
+                                    className={cn(
+                                      'underline-offset-2 hover:underline cursor-pointer transition-colors',
+                                      batchFilter === row.batch
+                                        ? 'text-primary font-semibold'
+                                        : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                    title={`Filter to batch ${row.batch}`}
+                                  >
+                                    {row.batch}
+                                  </button>
+                                ) : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Document #</div>
+                              <div className="text-xs font-mono font-medium">{row.ref}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Stock</div>
+                              <div>
+                                <span className={cn(
+                                  'inline-block rounded-md px-2 py-0.5 text-xs font-mono font-semibold',
+                                  row.runningStock <= 0
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                    : 'bg-muted text-foreground',
+                                )}>
+                                  {row.runningStock}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="overflow-auto max-h-130 hidden md:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>

@@ -436,7 +436,8 @@ export default function StockOverviewPage() {
       className="space-y-5"
     >
       {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         {kpiCards.map((kpi) => {
           const Icon = kpi.icon
           const active = kpi.filterKey !== null && statusFilter === kpi.filterKey
@@ -451,9 +452,9 @@ export default function StockOverviewPage() {
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyCardFilter(kpi.filterKey) } }}
               className={cn('border-l-[3px] cursor-pointer transition-shadow', kpi.borderAccent, active && kpi.activeRing)}
             >
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kpi.iconBg)}>
-                  <Icon className="h-5 w-5" />
+              <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+                <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', kpi.iconBg)}>
+                  <Icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

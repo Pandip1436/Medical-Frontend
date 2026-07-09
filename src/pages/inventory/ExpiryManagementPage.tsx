@@ -343,7 +343,8 @@ export default function ExpiryManagementPage() {
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-5">
       {/* ── KPI cards ── */}
-      <motion.div variants={itemVariants} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
         <KpiCard
           title="Expired"
           value={`${kpi.expiredCount}`}
@@ -583,13 +584,13 @@ function KpiCard({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       className={cn('cursor-pointer border-l-[3px] transition-shadow', tone.border, active && tone.ring)}
     >
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', tone.icon)}>
-          <Icon className="h-5 w-5" />
+      <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11', tone.icon)}>
+          <Icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-          <p className="font-mono text-2xl font-bold leading-tight">{value}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:text-[11px]">{title}</p>
+          <p className="font-mono text-xl font-bold leading-tight sm:text-2xl">{value}</p>
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
       </CardContent>
@@ -722,7 +723,19 @@ function SupplierLink({ id, name, phone }: { id: string; name: string; phone: st
 // ─── Batch table ──────────────────────────────────────────────
 function BatchTable({ rows, onSelect }: { rows: EnrichedBatch[]; onSelect: (b: EnrichedBatch) => void }) {
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* responsive: cards on phones so the wide table isn't horizontally scrolled */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 md:hidden"
+      >
+        {rows.map((b) => (
+          <BatchCard key={b.batchId} batch={b} onSelect={() => onSelect(b)} />
+        ))}
+      </motion.div>
+      <div className="hidden overflow-x-auto md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -762,14 +775,27 @@ function BatchTable({ rows, onSelect }: { rows: EnrichedBatch[]; onSelect: (b: E
           })}
         </TableBody>
       </Table>
-    </div>
+      </div>
+    </>
   )
 }
 
 // ─── Disposal table (write-off history) ──────────────────────
 function DisposalTable({ rows, onSelect }: { rows: DisposalEntry[]; onSelect: (e: DisposalEntry) => void }) {
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* responsive: cards on phones so the wide table isn't horizontally scrolled */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 md:hidden"
+      >
+        {rows.map((e) => (
+          <DisposalCard key={e.id} entry={e} onSelect={() => onSelect(e)} />
+        ))}
+      </motion.div>
+      <div className="hidden overflow-x-auto md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -815,7 +841,8 @@ function DisposalTable({ rows, onSelect }: { rows: DisposalEntry[]; onSelect: (e
           })}
         </TableBody>
       </Table>
-    </div>
+      </div>
+    </>
   )
 }
 

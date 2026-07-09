@@ -370,11 +370,11 @@ const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
     { key: 'status',    label: 'Status', align: 'left',  width: 'w-32', hideOnMobile: true },
   ],
   APPROVAL: [
-    { key: 'customer', label: 'Customer', width: 'w-40 sm:w-56' },
+    { key: 'customer', label: 'Customer', width: 'w-32 sm:w-56' },
     { key: 'detail',   label: 'Request' },
   ],
   REMINDER: [
-    { key: 'customer', label: 'Customer', width: 'w-40 sm:w-56' },
+    { key: 'customer', label: 'Customer', width: 'w-32 sm:w-56' },
     { key: 'detail',   label: 'Follow-up' },
   ],
 }
@@ -857,7 +857,7 @@ export default function NotificationsPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {/* Global read filter — only meaningful in the date-grouped
                   "All" view, which is driven by the in-memory store list.
                   Folder views are server-paginated and have their own

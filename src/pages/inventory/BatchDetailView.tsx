@@ -325,12 +325,14 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
 
       {/* ── Sticky Footer (actions) ── */}
       <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* responsive: stack full-width on phones (Product history on its own row,
+            Write Off + Create Return split 50/50 below); original inline row at sm+ */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {product && (
             <Button
               size="sm"
               variant="ghost"
-              className="gap-1.5"
+              className="w-full justify-center gap-1.5 sm:w-auto sm:justify-start"
               onClick={() => {
                 // Detail is its own route now, so browser Back from product
                 // history returns straight here — no reopen bookkeeping needed.
@@ -340,7 +342,7 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
               <History className="h-3.5 w-3.5" /> Product history
             </Button>
           )}
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfirmKind('writeoff')}>
               <Trash2 className="h-3.5 w-3.5" /> Write Off
             </Button>
