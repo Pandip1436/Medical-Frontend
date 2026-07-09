@@ -867,6 +867,281 @@ export default function GRNPage() {
     setPayMode('NEFT_UPI')
   }
 
+  // Shared between the desktop right-hand context panel (always visible at
+  // lg+) and a mobile/tablet-only copy rendered inline in the item list
+  // below lg — without this, Invoice Number/Date/Amount (required) and the
+  // Payment method have no entry point at all below 1024px.
+  function renderInvoicePaymentSummary() {
+    return (
+      <>
+        {/* ── Supplier Invoice ── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-500/10">
+              <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Supplier Invoice
+            </p>
+          </div>
+          {isSupplementary && !replacementReturnId && (
+            <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 mb-2 leading-relaxed">
+              Use the <strong>new invoice</strong> the supplier sent for this delivery — not the original PO invoice.
+            </p>
+          )}
+          {replacementReturnId && (
+            <p className="text-[10px] text-emerald-600/80 dark:text-emerald-300/70 mb-2 leading-relaxed">
+              <strong>Optional</strong> for replacements. Enter delivery challan number if available, leave amount as <strong>₹0</strong> (no money owed).
+            </p>
+          )}
+          <div className="space-y-2.5">
+            <div className="space-y-1">
+              <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Invoice Number{!replacementReturnId && <span className="text-rose-500"> *</span>}
+              </Label>
+              <Input
+                className="h-8 font-mono text-xs"
+                placeholder="e.g. INV-2025-001"
+                value={invoiceNo}
+                onChange={(e) => setInvoiceNo(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}
+                </Label>
+                <DatePicker
+                  className="h-8 text-xs"
+                  value={invoiceDate}
+                  onChange={setInvoiceDate}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}
+                </Label>
+                <Input
+                  type="number"
+                  className="h-8 font-mono text-xs"
+                  placeholder="0.00"
+                  value={invoiceAmount || ''}
+                  onChange={(e) => setInvoiceAmount(Number(e.target.value))}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Payment at receipt ── (create-only, not for replacements) */}
+        {!editMode && !replacementReturnId && (
+          <>
+            <Separator className="bg-border/50" />
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
+                  <Wallet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Payment
+                </p>
+              </div>
+              <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5 mb-2.5">
+                {([['CREDIT', 'Credit'], ['PARTIAL', 'Partial'], ['PAID', 'Paid in full']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPayChoice(val)}
+                    className={cn(
+                      'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all',
+                      payChoice === val
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {payChoice === 'CREDIT' ? (
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Full invoice amount will be added to the supplier's outstanding.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Amount Paid{payChoice === 'PARTIAL' && <span className="text-rose-500"> *</span>}
+                      </Label>
+                      <Input
+                        type="number"
+                        className="h-8 font-mono text-xs"
+                        placeholder="0.00"
+                        value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
+                        disabled={payChoice === 'PAID'}
+                        max={invoiceAmount || undefined}
+                        onChange={(e) => setPaidAmount(Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Mode</Label>
+                      <Select value={payMode} onValueChange={(v) => setPayMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CASH">Cash</SelectItem>
+                          <SelectItem value="CHEQUE">Cheque</SelectItem>
+                          <SelectItem value="NEFT_UPI">NEFT / UPI</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-muted-foreground">Balance to outstanding</span>
+                    <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                      {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <Separator className="bg-border/50" />
+
+        {/* ── Live Summary ── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
+              <Layers className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Live Summary
+            </p>
+          </div>
+
+          {/* Metric cards */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
+              <p className="font-mono text-lg font-bold">{totalItems}</p>
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
+            </div>
+            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
+              <p className="font-mono text-lg font-bold">{totalQty}</p>
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
+            </div>
+            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
+              <p className={cn('font-mono text-lg font-bold', shortSupplyCount > 0 && 'text-amber-600 dark:text-amber-400')}>
+                {shortSupplyCount}
+              </p>
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Short</p>
+            </div>
+          </div>
+
+          {/* GST breakdown */}
+          <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
+            <div className="flex justify-between text-[11px]">
+              <span className="text-muted-foreground">Taxable Amount</span>
+              <span className="font-mono font-medium">{formatCurrency(gstBreakdown.taxable)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-muted-foreground">CGST{gstHalfLabel}</span>
+              <span className="font-mono font-medium">{formatCurrency(gstBreakdown.cgst)}</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-muted-foreground">SGST{gstHalfLabel}</span>
+              <span className="font-mono font-medium">{formatCurrency(gstBreakdown.sgst)}</span>
+            </div>
+            <Separator className="bg-border/40" />
+            <div className="flex justify-between">
+              <span className="text-sm font-semibold">Total Value</span>
+              <span className="font-mono text-sm font-bold text-primary">{formatCurrency(gstBreakdown.total)}</span>
+            </div>
+          </div>
+        </div>
+
+        <Separator className="bg-border/50" />
+
+        {/* ── Invoice Comparison ── */}
+        {invoiceAmount > 0 && (
+          <>
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={cn(
+                  'flex h-6 w-6 items-center justify-center rounded-md',
+                  Math.abs(invoiceAmount - gstBreakdown.total) < 1
+                    ? 'bg-emerald-500/10'
+                    : 'bg-amber-500/10'
+                )}>
+                  {Math.abs(invoiceAmount - gstBreakdown.total) < 1 ? (
+                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  )}
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Invoice Verification
+                </p>
+              </div>
+
+              <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Supplier Invoice</span>
+                  <span className="font-mono font-medium">{formatCurrency(invoiceAmount)}</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">System Calculated</span>
+                  <span className="font-mono font-medium">{formatCurrency(gstBreakdown.total)}</span>
+                </div>
+                <Separator className="bg-border/40" />
+                <div className={cn(
+                  'flex justify-between text-xs font-semibold',
+                  Math.abs(invoiceAmount - gstBreakdown.total) < 1
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                )}>
+                  <span>Difference</span>
+                  <span className="font-mono">
+                    {Math.abs(invoiceAmount - gstBreakdown.total) < 1
+                      ? 'Match'
+                      : `${formatCurrency(Math.abs(invoiceAmount - gstBreakdown.total))} ${
+                          invoiceAmount > gstBreakdown.total ? '(Over)' : '(Under)'
+                        }`
+                    }
+                  </span>
+                </div>
+              </div>
+            </div>
+            <Separator className="bg-border/50" />
+          </>
+        )}
+
+        {/* ── Quick Actions ── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-purple-500/10">
+              <Printer className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              After Confirmation
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handlePrintGrn}>
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              Print PE
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handleDownloadGrn}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Download
+            </Button>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   return (
     <div className="relative -m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ══════════════════════════════════════════════════════════ */}
@@ -1050,7 +1325,8 @@ export default function GRNPage() {
                       Items to Receive ({receivedItems.length})
                     </p>
                   </div>
-                  <Table>
+                  <div className="overflow-x-auto">
+                  <Table className="min-w-175">
                     <TableHeader className="bg-muted/30">
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="h-9 w-10 px-3 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
@@ -1113,6 +1389,13 @@ export default function GRNPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+                </div>
+
+                {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
+                    the desktop right-hand context panel is hidden below lg. */}
+                <div className="lg:hidden mt-5 space-y-5 border-t border-border/40 pt-5">
+                  {renderInvoicePaymentSummary()}
                 </div>
               </div>
             </ScrollArea>
@@ -1530,7 +1813,7 @@ export default function GRNPage() {
                     {/* Row 2: Editable fields — two-row grid for breathing room */}
                     <div className="px-4 pb-4 space-y-3">
                       {/* Quantities row */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
@@ -1641,6 +1924,12 @@ export default function GRNPage() {
                   </motion.div>
                 ))}
               </AnimatePresence>
+
+              {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
+                  the desktop right-hand context panel is hidden below lg. */}
+              <div className="lg:hidden mt-5 space-y-5 border-t border-border/40 pt-5">
+                {renderInvoicePaymentSummary()}
+              </div>
             </div>
           </ScrollArea>
         </>
@@ -1823,7 +2112,7 @@ export default function GRNPage() {
                 </div>
 
                 {/* Metric cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-3 gap-2 mb-4">
                   <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
                     <p className="font-mono text-lg font-bold">{totalItems}</p>
                     <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>

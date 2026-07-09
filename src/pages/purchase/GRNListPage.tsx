@@ -42,6 +42,7 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { useIsMobileOrTablet } from '@/hooks/useMediaQuery'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import api from '@/lib/api'
 import type { GRN } from '@/types'
@@ -182,6 +183,7 @@ export default function GRNListPage() {
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+  const [showStats, setShowStats] = useState(true)
 
   // Selecting "Custom Range" opens the filters panel that holds the date pickers.
   const onPeriodChange = useCallback((val: string) => {
@@ -596,38 +598,60 @@ export default function GRNListPage() {
       className="space-y-5"
     >
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {([
-          { label: 'Total Entries', value: statsBaseGrns.length, icon: ClipboardList, color: 'text-primary',                              bg: 'bg-primary/10',         border: 'border-l-primary',      filterKey: 'all',     activeRing: 'ring-2 ring-primary/40' },
-          { label: 'Units Received',value: stats.totalReceived, icon: TrendingUp,    color: 'text-emerald-600 dark:text-emerald-400',    bg: 'bg-emerald-500/10',     border: 'border-l-emerald-500',  filterKey: 'all',     activeRing: 'ring-2 ring-emerald-500/50' },
-          { label: 'Short Items',   value: stats.totalShort,    icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400',         bg: 'bg-amber-500/10',       border: 'border-l-amber-500',    filterKey: 'short',   activeRing: 'ring-2 ring-amber-500/50' },
-          { label: 'Damaged Units', value: stats.totalDamaged,  icon: ShieldAlert,   color: 'text-rose-600 dark:text-rose-400',           bg: 'bg-rose-500/10',        border: 'border-l-rose-500',     filterKey: 'damaged', activeRing: 'ring-2 ring-rose-500/50' },
-        ] as const).map(s => {
-          const active = s.filterKey !== 'all' && cardFilter === s.filterKey
-          return (
-          <Card
-            key={s.label}
-            hover
-            role="button"
-            tabIndex={0}
-            title={s.filterKey === 'all' ? 'Show all purchases in this period' : `Filter to ${s.label.toLowerCase()}`}
-            onClick={() => { setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short' | 'damaged')); setCurrentPage(1) }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (s.filterKey as 'all' | 'short' | 'damaged')); setCurrentPage(1) } }}
-            className={cn('border-l-[3px] cursor-pointer transition-shadow', s.border, active && s.activeRing)}
-          >
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.bg)}>
-                <s.icon className={cn('h-4 w-4', s.color)} />
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                <p className={cn('text-xl font-bold font-mono leading-tight', s.color)}>{s.value}</p>
-              </div>
-            </CardContent>
-          </Card>
-          )
-        })}
-      </div>
+      {showStats && (() => {
+        const GRN_STATS = [
+          { label: 'Total Entries',  value: statsBaseGrns.length,  icon: ClipboardList, color: 'text-primary',                           bg: 'bg-primary/10',      border: 'border-l-primary',     filterKey: 'all'     as const, activeRing: 'ring-1 ring-primary/40' },
+          { label: 'Units Received', value: stats.totalReceived,   icon: TrendingUp,    color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10',  border: 'border-l-emerald-500', filterKey: 'all'     as const, activeRing: 'ring-1 ring-emerald-500/40' },
+          { label: 'Short Items',    value: stats.totalShort,      icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-500/10',    border: 'border-l-amber-500',   filterKey: 'short'   as const, activeRing: 'ring-1 ring-amber-500/40' },
+          { label: 'Damaged Units',  value: stats.totalDamaged,    icon: ShieldAlert,   color: 'text-rose-600 dark:text-rose-400',       bg: 'bg-rose-500/10',     border: 'border-l-rose-500',    filterKey: 'damaged' as const, activeRing: 'ring-1 ring-rose-500/40' },
+        ]
+        const handleCardFilter = (key: typeof cardFilter) => { setCardFilter(cardFilter === key && key !== 'all' ? 'all' : key); setCurrentPage(1) }
+        return (
+          <>
+            {/* Mobile/tablet compact strip */}
+            <div className="flex gap-2 overflow-x-auto pb-0.5 lg:hidden">
+              {GRN_STATS.map(s => {
+                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                return (
+                  <button key={s.label} onClick={() => handleCardFilter(s.filterKey)}
+                    className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-l-2 bg-card px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]', s.border, active && s.activeRing)}>
+                    <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', s.bg)}>
+                      <s.icon className={cn('h-3.5 w-3.5', s.color)} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap leading-none mb-0.5">{s.label}</p>
+                      <p className={cn('text-sm font-bold font-mono tabular-nums leading-tight', s.color)}>{s.value}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            {/* Desktop full grid */}
+            <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+              {GRN_STATS.map(s => {
+                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                return (
+                  <Card key={s.label} hover role="button" tabIndex={0}
+                    title={s.filterKey === 'all' ? 'Show all purchases in this period' : `Filter to ${s.label.toLowerCase()}`}
+                    onClick={() => handleCardFilter(s.filterKey)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardFilter(s.filterKey) } }}
+                    className={cn('border-l-[3px] cursor-pointer transition-shadow', s.border, active && s.activeRing)}>
+                    <CardContent className="flex items-center gap-3 p-4">
+                      <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl', s.bg)}>
+                        <s.icon className={cn('h-4 w-4', s.color)} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className={cn('text-xl font-bold font-mono leading-tight', s.color)}>{s.value}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          </>
+        )
+      })()}
 
       {/* Payment-status tabs — same premium pill control as the split view */}
       <PaymentTabs
@@ -648,26 +672,51 @@ export default function GRNListPage() {
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
         leadingNode={
           <div className="w-full sm:w-40">
-            <EnumSelect
-              value={period}
-              onValueChange={onPeriodChange}
-              onClear={() => onPeriodChange('all')}
-              options={PERIOD_OPTIONS}
-            />
+            <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
         }
+        leadingActionNode={
+          <Button size="sm" className="h-8 gap-1 px-2.5" onClick={() => navigate('/purchase/grn')}>
+            <PackageCheck className="h-3.5 w-3.5" /><span className="text-xs">New Entry</span>
+          </Button>
+        }
+        searchEndNode={
+          <div className="flex items-center gap-0.5">
+            <Button variant={tableFiltersOpen ? 'default' : 'outline'} size="sm"
+              className="relative h-8 w-8 p-0" onClick={() => setTableFiltersOpen(o => !o)} aria-label="Filters">
+              <Filter className="h-3.5 w-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button variant={showStats ? 'secondary' : 'ghost'} size="sm"
+              className="h-8 w-8 p-0" onClick={() => setShowStats(s => !s)}
+              aria-label={showStats ? 'Hide stats' : 'Show stats'} title={showStats ? 'Hide stats' : 'Show stats'}>
+              <BarChart3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        }
+        leadingTrailingNode={
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+            onClick={() => exportToCsv(filtered.map(g => ({ 'PE#': g.grnNumber, Date: formatDate(g.date), Supplier: g.supplierName, 'Invoice#': g.supplierInvoiceNo, Total: g.totalAmount, Status: g.paymentStatus ?? 'UNPAID' })), 'purchase-entries')}
+            aria-label="Export CSV" title="Export CSV">
+            <Download className="h-4 w-4" />
+          </Button>
+        }
+        hideFilterToggle
         columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/grn-list') }} />
-            <Button
-              size="sm"
-              onClick={() => navigate('/purchase/grn')}
-            >
-              <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New PE</span>
-              <span className="sm:hidden">New</span>
-            </Button>
+            <div className="hidden sm:block">
+              <Button size="sm" onClick={() => navigate('/purchase/grn')}>
+                <PackageCheck className="mr-1.5 h-4 w-4" />New PE
+              </Button>
+            </div>
+            <div className="hidden lg:block">
+              <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/grn-list') }} />
+            </div>
           </div>
         }
       >
@@ -731,8 +780,70 @@ export default function GRNListPage() {
           </CardContent>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <Table>
+            {/* Mobile card list */}
+            <div className="md:hidden">
+              <div className="divide-y divide-border/40">
+                {paged.map((grn) => {
+                  const totalRcv = grn.items.reduce((s, i) => s + i.receivedQty + (i.freeQty ?? 0), 0)
+                  const dmg = grnHasDamage(grn)
+                  const short = grnHasShort(grn)
+                  const bal = grnBalance(grn)
+                  const payStatus = grnPayStatus(grn)
+                  return (
+                    <div
+                      key={grn.id}
+                      className="flex items-start justify-between gap-2 px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => navigate(`/purchase/grn/detail?id=${grn.id}`)}
+                    >
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="font-mono text-xs font-bold text-primary">{grn.grnNumber}</p>
+                        <p
+                          role="link"
+                          tabIndex={0}
+                          title="View supplier details"
+                          className="truncate text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${grn.supplierId}`) }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${grn.supplierId}`) } }}
+                        >{grn.supplierName}</p>
+                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                          {grn.isReplacement ? (
+                            <Badge
+                              variant="outline"
+                              size="sm"
+                              className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400"
+                            >
+                              Replacement
+                            </Badge>
+                          ) : (
+                            <StatusBadge status={payStatus} />
+                          )}
+                          {dmg && (
+                            <Badge variant="destructive" size="sm">Damaged</Badge>
+                          )}
+                          {short && (
+                            <Badge variant="warning" size="sm">Short</Badge>
+                          )}
+                          <span className="text-xs text-muted-foreground">{formatDate(grn.date)}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">+{totalRcv} recv · {grn.items.length} item{grn.items.length !== 1 ? 's' : ''}</span>
+                        {!grn.isReplacement && bal > 0.01 && (
+                          <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400">{formatCurrency(bal)} due</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <Table className="min-w-225">
                 <TableHeader>
                   <TableRow className="bg-muted/30">
                     {cols.isVisible('date') && <TableHead className="pl-5">Date</TableHead>}

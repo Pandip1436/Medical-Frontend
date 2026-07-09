@@ -122,6 +122,7 @@ export function SupplierSplitView({
         </>
       }
       onExitSplitView={onExitSplitView}
+      onBackToList={() => onSelectSupplier(null)}
       selectedId={selectedSupplierId}
       detailLoading={false}
       detailError={null}

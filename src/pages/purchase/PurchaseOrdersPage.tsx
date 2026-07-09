@@ -22,6 +22,7 @@ import {
   Package,
   Filter,
   BarChart3,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { useForm, useFieldArray, useWatch, Controller, type Control, type UseFormRegister, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
@@ -74,6 +75,7 @@ import type { PurchaseOrder, Product } from '@/types'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { useIsMobileOrTablet } from '@/hooks/useMediaQuery'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { PurchaseOrderSplitView } from './components/PurchaseOrderSplitView'
@@ -511,6 +513,8 @@ export default function PurchaseOrdersPage() {
   // Controls the table-view DataTableFilterBar collapsible panel so it can be
   // auto-opened when "Custom Range" is picked (the From/To pickers live inside).
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
+  // Stats visibility toggle (table view)
+  const [showStats, setShowStats] = useState(true)
 
   // Picking "Custom Range" auto-opens the table filters panel (From/To pickers
   // live inside); leaving 'custom' auto-closes it again. Both the table and
@@ -1201,76 +1205,63 @@ export default function PurchaseOrdersPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Summary Cards — click Received / Pending / Partial to drill the list ── */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
-        {([
-          {
-            label: 'Total Orders',
-            value: formatCurrency(stats.totalAmount),
-            subtitle: `${stats.totalCount} orders`,
-            icon: IndianRupee,
-            iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-            borderAccent: 'border-l-blue-500',
-            filterKey: 'all',
-            activeRing: 'ring-2 ring-blue-500/50',
-          },
-          {
-            label: 'Received',
-            value: formatCurrency(stats.receivedTotal),
-            subtitle: `${stats.receivedCount} completed`,
-            icon: CheckCircle2,
-            iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-            borderAccent: 'border-l-emerald-500',
-            filterKey: 'received',
-            activeRing: 'ring-2 ring-emerald-500/50',
-          },
-          {
-            label: 'Pending',
-            value: formatCurrency(stats.pendingTotal),
-            subtitle: `${stats.pendingCount} awaiting`,
-            icon: Clock,
-            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-            borderAccent: 'border-l-amber-500',
-            filterKey: 'pending',
-            activeRing: 'ring-2 ring-amber-500/50',
-          },
-          {
-            label: 'Partial Delivery',
-            value: formatCurrency(stats.partialTotal),
-            subtitle: `${stats.partialCount} in progress`,
-            icon: Package,
-            iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-            borderAccent: 'border-l-purple-500',
-            filterKey: 'partial',
-            activeRing: 'ring-2 ring-purple-500/50',
-          },
-        ] as const).map((stat) => {
-          const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
-          return (
-          <Card
-            key={stat.label}
-            hover
-            role="button"
-            tabIndex={0}
-            title={stat.filterKey === 'all' ? 'Show all orders in this period' : `Filter list to ${stat.label.toLowerCase()}`}
-            onClick={() => { setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : (stat.filterKey as 'all' | 'received' | 'pending' | 'partial')); setCurrentPage(1) } }}
-            className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
-          >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
-                <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
-              </div>
-            </CardContent>
-          </Card>
-          )
-        })}
-      </div>
+      {/* ── Summary Cards ── */}
+      {showStats && (() => {
+        const PO_STATS = [
+          { label: 'Total Orders',    value: formatCurrency(stats.totalAmount),  subtitle: `${stats.totalCount} orders`,      icon: IndianRupee,  iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',    borderAccent: 'border-l-blue-500',    filterKey: 'all'     as const, activeRing: 'ring-1 ring-blue-500/40' },
+          { label: 'Received',        value: formatCurrency(stats.receivedTotal), subtitle: `${stats.receivedCount} completed`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'received' as const, activeRing: 'ring-1 ring-emerald-500/40' },
+          { label: 'Pending',         value: formatCurrency(stats.pendingTotal),  subtitle: `${stats.pendingCount} awaiting`,  icon: Clock,        iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',  borderAccent: 'border-l-amber-500',   filterKey: 'pending'  as const, activeRing: 'ring-1 ring-amber-500/40' },
+          { label: 'Partial Delivery',value: formatCurrency(stats.partialTotal),  subtitle: `${stats.partialCount} in progress`,icon: Package,     iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500',  filterKey: 'partial'  as const, activeRing: 'ring-1 ring-purple-500/40' },
+        ]
+        const handleCardFilter = (key: typeof cardFilter) => { setCardFilter(cardFilter === key && key !== 'all' ? 'all' : key); setCurrentPage(1) }
+        return (
+          <>
+            {/* Mobile/tablet compact strip */}
+            <div className="flex gap-2 overflow-x-auto pb-0.5 lg:hidden">
+              {PO_STATS.map(s => {
+                const active = s.filterKey !== 'all' && cardFilter === s.filterKey
+                return (
+                  <button key={s.label} onClick={() => handleCardFilter(s.filterKey)}
+                    className={cn('flex shrink-0 items-center gap-2 rounded-xl border border-l-2 bg-card px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]', s.borderAccent, active && s.activeRing)}>
+                    <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', s.iconBg)}>
+                      <s.icon className="h-3.5 w-3.5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap leading-none mb-0.5">{s.label}</p>
+                      <p className="text-sm font-bold font-mono tabular-nums leading-tight">{s.value}</p>
+                      <p className="text-[10px] text-muted-foreground/70 whitespace-nowrap leading-none mt-0.5">{s.subtitle}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            {/* Desktop full grid */}
+            <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+              {PO_STATS.map(stat => {
+                const active = stat.filterKey !== 'all' && cardFilter === stat.filterKey
+                return (
+                  <Card key={stat.label} hover role="button" tabIndex={0}
+                    title={stat.filterKey === 'all' ? 'Show all orders in this period' : `Filter to ${stat.label.toLowerCase()}`}
+                    onClick={() => handleCardFilter(stat.filterKey)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardFilter(stat.filterKey) } }}
+                    className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}>
+                    <CardContent className="flex items-center gap-4 p-4">
+                      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
+                        <stat.icon className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                        <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                        <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          </>
+        )
+      })()}
 
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
@@ -1286,39 +1277,67 @@ export default function PurchaseOrdersPage() {
           <div className="w-full sm:w-40">
             <EnumSelect
               value={period}
-              // Picking "Custom Range" auto-opens the filters panel so the
-              // From/To date pickers (rendered inside it) are immediately visible;
-              // leaving 'custom' auto-closes it again.
               onValueChange={onPeriodChange}
-              // Clearing the period means "no date restriction" → All Time. (Was
-              // resetting to 'today', i.e. the same value, so the X did nothing.)
               onClear={() => onPeriodChange('all')}
               options={PERIOD_OPTIONS}
             />
           </div>
         }
+        leadingActionNode={
+          /* Mobile-only: primary actions beside the period selector */
+          <div className="flex items-center gap-1">
+            <Button size="sm" className="h-8 gap-1 px-2.5" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /><span className="text-xs">Order</span>
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1 px-2.5 border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40"
+              onClick={() => navigate('/purchase/grn')}>
+              <PackageCheck className="h-3.5 w-3.5" /><span className="text-xs">Entry</span>
+            </Button>
+          </div>
+        }
+        searchEndNode={
+          <div className="flex items-center gap-0.5">
+            <Button variant={tableFiltersOpen ? 'default' : 'outline'} size="sm"
+              className="relative h-8 w-8 p-0" onClick={() => setTableFiltersOpen(o => !o)} aria-label="Filters">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+            <Button variant={showStats ? 'secondary' : 'ghost'} size="sm"
+              className="h-8 w-8 p-0" onClick={() => setShowStats(s => !s)}
+              aria-label={showStats ? 'Hide stats' : 'Show stats'} title={showStats ? 'Hide stats' : 'Show stats'}>
+              <BarChart3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        }
+        leadingTrailingNode={
+          <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+            onClick={() => exportToCsv(filteredPOs.map(p => ({ 'PO#': p.poNumber, Date: formatDate(p.date), Supplier: p.supplierName, Items: p.items.length, Total: p.totalAmount, Status: p.status })), 'purchase-orders')}
+            aria-label="Export CSV" title="Export CSV">
+            <Download className="h-4 w-4" />
+          </Button>
+        }
+        hideFilterToggle
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Create PO</span>
-              <span className="sm:hidden">Create</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => navigate('/purchase/grn')}
-            >
-              <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New PE</span>
-              <span className="sm:hidden">PE</span>
-            </Button>
-            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
+            {/* Desktop: Create + PE (mobile versions are in leadingActionNode) */}
+            <div className="hidden sm:flex items-center gap-1.5">
+              <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />Create PO
+              </Button>
+              <Button variant="outline" size="sm"
+                className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+                onClick={() => navigate('/purchase/grn')}>
+                <PackageCheck className="mr-1.5 h-4 w-4" />New PE
+              </Button>
+            </div>
+            <div className="hidden lg:block">
+              <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
+            </div>
           </div>
         }
       >

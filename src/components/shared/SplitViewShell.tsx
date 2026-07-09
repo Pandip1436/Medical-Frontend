@@ -15,6 +15,12 @@ interface SplitViewShellProps {
   /** Rendered inside the scrollable card list area */
   cards: ReactNode
   onExitSplitView: () => void
+  /**
+   * Mobile-only (<768px): clear the current selection and return to the list
+   * pane without exiting split view. Falls back to onExitSplitView when
+   * omitted, so existing callers keep compiling unchanged.
+   */
+  onBackToList?: () => void
   /** Optional tabs rendered between the search strip and the result count */
   tabsNode?: ReactNode
 
@@ -42,6 +48,7 @@ export function SplitViewShell({
   loading,
   cards,
   onExitSplitView,
+  onBackToList,
   tabsNode,
   selectedId,
   detailLoading,

@@ -166,6 +166,7 @@ export function GRNSplitView({
         </>
       }
       onExitSplitView={onExitSplitView}
+      onBackToList={() => onSelectGrn(null)}
       selectedId={selectedGrnId}
       detailLoading={detail.loading}
       detailError={detail.error}

@@ -24,7 +24,7 @@ export function ViewModeToggle({ view, onViewChange, className }: ViewModeToggle
         title="Table view"
         aria-label="Table view"
         className={cn(
-          'h-7 w-7 rounded-sm transition-all',
+          'h-9 w-9 rounded-sm transition-all md:h-7 md:w-7',
           view === 'table' && 'bg-background shadow-sm text-foreground',
         )}
         onClick={() => onViewChange('table')}
@@ -37,7 +37,7 @@ export function ViewModeToggle({ view, onViewChange, className }: ViewModeToggle
         title="Split view"
         aria-label="Split view"
         className={cn(
-          'h-7 w-7 rounded-sm transition-all',
+          'h-9 w-9 rounded-sm transition-all md:h-7 md:w-7',
           view === 'split' && 'bg-background shadow-sm text-foreground',
         )}
         onClick={() => onViewChange('split')}

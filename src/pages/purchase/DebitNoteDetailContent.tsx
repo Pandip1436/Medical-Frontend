@@ -194,7 +194,7 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
       </div>
 
       {/* ── Actions — sticky bar at the bottom of the viewport ── */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-col gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
         {!isSettled && isReplacement && (
           <Button
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"

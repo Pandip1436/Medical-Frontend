@@ -694,6 +694,16 @@
   .main-content {
     padding-bottom: 5rem;
   }
+
+  /* Below 768px the app shows a fixed bottom tab bar (~4rem + safe-area)
+     instead of the desktop side sidebar. Full-height "compact shell" pages
+     (GRNPage, PurchaseReturnsPage, SupplierDetailPage, ...) size themselves
+     with .h-content-viewport and pin their action footer at the bottom of
+     that box — without this, the footer renders underneath the tab bar and
+     is not clickable. */
+  .h-content-viewport {
+    height: calc(100dvh - 3.5rem - 4rem - env(safe-area-inset-bottom));
+  }
 }
 
 /* Ultra-wide content cap */

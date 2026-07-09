@@ -628,6 +628,128 @@ export default function PurchaseReturnsPage() {
     }
   }
 
+  // Shared between the desktop right-hand Settlement panel (always visible at
+  // lg+) and a mobile/tablet-only copy rendered inline in step 3 — without
+  // this, the Settlement Method and the only Confirm/Print/Download buttons
+  // have no entry point at all below 1024px.
+  function renderSettlementPanel() {
+    return (
+      <>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Settlement Method</p>
+          <RadioGroup value={effectiveSettlementOption} onValueChange={setSettlementOption} className="space-y-2">
+            {[
+              { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from next payment to supplier', icon: RotateCcw },
+              { value: 'replacement', title: 'Request Replacement', desc: 'Get replacement goods from supplier', icon: Package },
+              { value: 'refund', title: 'Request Refund', desc: 'Get monetary refund from supplier', icon: IndianRupee },
+            ].map((opt) => {
+              const isAdjust = opt.value === 'adjust'
+              const adjustDisabled = isAdjust && supplierOutstanding <= 0
+              return (
+                <div
+                  key={opt.value}
+                  className={cn(
+                    'flex items-start gap-3 rounded-xl border p-3 transition-all',
+                    adjustDisabled
+                      ? 'border-border/30 bg-muted/20 opacity-60 cursor-not-allowed'
+                      : effectiveSettlementOption === opt.value
+                        ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6 cursor-pointer'
+                        : 'border-border/40 hover:bg-muted/30 cursor-pointer'
+                  )}
+                  onClick={() => { if (!adjustDisabled) setSettlementOption(opt.value) }}
+                >
+                  <RadioGroupItem value={opt.value} id={`pr-${opt.value}`} className="mt-0.5" disabled={adjustDisabled} />
+                  <Label htmlFor={`pr-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{opt.title}</p>
+                      {isAdjust && supplierOutstanding > 0 && (
+                        <Badge variant="warning" size="sm">₹{supplierOutstanding.toLocaleString('en-IN')} payable</Badge>
+                      )}
+                      {isAdjust && supplierOutstanding <= 0 && (
+                        <Badge variant="secondary" size="sm">No outstanding</Badge>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
+                  </Label>
+                </div>
+              )
+            })}
+          </RadioGroup>
+        </div>
+
+        <Separator />
+
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Return Summary</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">PE Reference</span>
+              <span className="font-mono text-xs font-medium">{selectedGRN?.grnNumber}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Items Returned</span>
+              <span className="font-semibold">{selectedReturnItems.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Total Units</span>
+              <span className="font-semibold">{selectedReturnItems.reduce((sum, ri) => sum + ri.returnQty, 0)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Taxable</span>
+              <span className="font-mono">{formatCurrency(debitSummary.subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">CGST</span>
+              <span className="font-mono">{formatCurrency(debitSummary.cgst)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">SGST</span>
+              <span className="font-mono">{formatCurrency(debitSummary.sgst)}</span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="font-semibold">Total Debit</span>
+              <span className="font-mono text-lg font-bold text-primary">{formatCurrency(debitSummary.total)}</span>
+            </div>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  function renderSettlementActions() {
+    return (
+      <>
+        <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
+          onClick={() => lastCreatedReturn && printDebitNotePdf(lastCreatedReturn)}>
+          <Printer className="mr-1.5 h-3.5 w-3.5" />
+          Print
+        </Button>
+        <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
+          onClick={() => lastCreatedReturn && downloadDebitNotePdf(lastCreatedReturn)}>
+          <Download className="mr-1.5 h-3.5 w-3.5" />
+          Download
+        </Button>
+        <Button
+          size="sm"
+          className={`flex-1 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
+          onClick={handleConfirmReturn}
+          disabled={submitting}
+        >
+          {submitting
+            ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            : needsApproval
+              ? <ShieldCheck className="mr-1.5 h-4 w-4" />
+              : <CheckCircle2 className="mr-1.5 h-4 w-4" />
+          }
+          {submitting
+            ? 'Processing…'
+            : needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
+        </Button>
+      </>
+    )
+  }
+
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
 
@@ -873,9 +995,12 @@ export default function PurchaseReturnsPage() {
                     )}
                   </div>
 
-                  {/* Mobile continue button */}
+                  {/* Mobile continue button — offset above the phone bottom
+                      tab bar (Sidebar.tsx, <768px only; z-40, ~4rem tall)
+                      so it isn't covered and unclickable on phones. Tablets
+                      (768–1023px) have no bottom tab bar, so bottom-0 there. */}
                   {selectedGRN && (
-                    <div className="fixed bottom-0 left-0 right-0 border-t border-border/40 bg-background p-4 lg:hidden">
+                    <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-30 border-t border-border/40 bg-background p-4 md:bottom-0 lg:hidden">
                       <Button className="w-full" onClick={() => goToStep(2)}>
                         Continue with {selectedGRN.grnNumber}
                         <ChevronRight className="ml-1 h-4 w-4" />
@@ -919,6 +1044,8 @@ export default function PurchaseReturnsPage() {
                   </div>
 
                   <div className="flex-1 overflow-hidden border-t border-border/40">
+                    {/* Desktop: dense table (unchanged) */}
+                    <div className="hidden h-full lg:block">
                     <Table>
                       <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
                         <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
@@ -1053,6 +1180,106 @@ export default function PurchaseReturnsPage() {
                         })}
                       </TableBody>
                     </Table>
+                    </div>
+
+                    {/* Mobile/tablet: stacked per-item cards — the desktop
+                        table's dense columns and 24px steppers aren't usable
+                        touch targets below lg. */}
+                    <div className="h-full overflow-y-auto divide-y divide-border/40 lg:hidden">
+                      {returnItems.map((ri) => {
+                        const totalRefund = ri.rate * ri.returnQty
+                        return (
+                          <div key={ri.productId} className={cn('p-4 space-y-3', ri.selected && 'bg-primary/3')}>
+                            <div className="flex items-start gap-3">
+                              <Checkbox
+                                checked={ri.selected}
+                                onCheckedChange={() => toggleReturnItem(ri.productId)}
+                                className="mt-0.5"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-bold leading-tight">{ri.productName}</p>
+                                  {ri.damagedQty > 0 && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 px-2 py-0.5 text-[10px] font-bold">
+                                      ⚠ {ri.damagedQty} damaged
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                                  Rate: {formatCurrency(ri.rate)} · Purchased: {ri.maxQty}
+                                </p>
+                              </div>
+                              <span className={cn(
+                                'shrink-0 text-sm font-black font-mono tracking-tight',
+                                totalRefund > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/20'
+                              )}>
+                                {totalRefund > 0 ? formatCurrency(totalRefund) : '₹0.00'}
+                              </span>
+                            </div>
+
+                            {ri.selected && (
+                              <div className="space-y-2.5 pl-8">
+                                <div className="flex items-center gap-2">
+                                  <Label className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</Label>
+                                  <div className="flex items-center gap-1.5">
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-9 w-9 rounded-md"
+                                      onClick={() => updateReturnQty(ri.productId, ri.returnQty - 1)}
+                                      disabled={ri.returnQty <= 1}
+                                    >
+                                      <Minus className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <input
+                                      type="number"
+                                      value={ri.returnQty}
+                                      onChange={(e) => updateReturnQty(ri.productId, parseInt(e.target.value) || 0)}
+                                      className="h-9 w-12 rounded border-0 bg-muted/40 text-center font-mono text-sm font-black focus:outline-none focus:ring-1 focus:ring-primary/20"
+                                    />
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-9 w-9 rounded-md"
+                                      onClick={() => updateReturnQty(ri.productId, ri.returnQty + 1)}
+                                      disabled={ri.returnQty >= ri.maxQty}
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Select value={ri.reason} onValueChange={(val) => updateReturnReason(ri.productId, val as ReturnReason)}>
+                                  <SelectTrigger className="h-9 text-xs">
+                                    <SelectValue placeholder="Reason..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {RETURN_REASONS.map((reason) => {
+                                      const Icon = reasonIcons[reason]
+                                      return (
+                                        <SelectItem key={reason} value={reason}>
+                                          <div className="flex items-center gap-2">
+                                            <Icon className="h-3.5 w-3.5 opacity-60" />
+                                            {reason}
+                                          </div>
+                                        </SelectItem>
+                                      )
+                                    })}
+                                  </SelectContent>
+                                </Select>
+                                {ri.reason === 'Other' && (
+                                  <input
+                                    placeholder="Specify reason..."
+                                    value={ri.customReason}
+                                    onChange={(e) => updateCustomReason(ri.productId, e.target.value)}
+                                    className="h-9 w-full rounded border-0 bg-muted/40 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 bg-background px-4 py-3 sm:px-6">
@@ -1145,6 +1372,19 @@ export default function PurchaseReturnsPage() {
                           )
                         })}
                       </div>
+
+                      {/* Mobile/tablet (<lg): Settlement Method, Return
+                          Summary & the only Confirm/Print/Download actions —
+                          the desktop right-hand panel is hidden below lg. */}
+                      <div className="lg:hidden mt-2 space-y-5 border-t border-border/40 px-5 py-5">
+                        {renderSettlementPanel()}
+                        {/* Stacked, not the desktop 3-across row — "Confirm
+                            Return & Create Debit Note" has no room to sit
+                            beside Print/Download at phone widths. */}
+                        <div className="flex flex-col gap-2 pt-1">
+                          {renderSettlementActions()}
+                        </div>
+                      </div>
                     </ScrollArea>
 
                     <div className="shrink-0 border-t border-border/40 bg-muted/10 px-5 py-4 dark:bg-muted/5">
@@ -1169,119 +1409,16 @@ export default function PurchaseReturnsPage() {
                     </div>
                   </div>
 
-                  {/* Right: Settlement & Actions */}
+                  {/* Right: Settlement & Actions (unchanged at lg+) */}
                   <div className="hidden lg:flex lg:w-[40%] flex-col overflow-hidden">
                     <ScrollArea className="min-h-0 flex-1">
                       <div className="p-5 space-y-5">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Settlement Method</p>
-                          <RadioGroup value={effectiveSettlementOption} onValueChange={setSettlementOption} className="space-y-2">
-                            {[
-                              { value: 'adjust', title: 'Adjust Against Outstanding', desc: 'Deduct from next payment to supplier', icon: RotateCcw },
-                              { value: 'replacement', title: 'Request Replacement', desc: 'Get replacement goods from supplier', icon: Package },
-                              { value: 'refund', title: 'Request Refund', desc: 'Get monetary refund from supplier', icon: IndianRupee },
-                            ].map((opt) => {
-                              const isAdjust = opt.value === 'adjust'
-                              const adjustDisabled = isAdjust && supplierOutstanding <= 0
-                              return (
-                                <div
-                                  key={opt.value}
-                                  className={cn(
-                                    'flex items-start gap-3 rounded-xl border p-3 transition-all',
-                                    adjustDisabled
-                                      ? 'border-border/30 bg-muted/20 opacity-60 cursor-not-allowed'
-                                      : effectiveSettlementOption === opt.value
-                                        ? 'border-primary/30 bg-primary/3 ring-1 ring-primary/10 dark:bg-primary/6 cursor-pointer'
-                                        : 'border-border/40 hover:bg-muted/30 cursor-pointer'
-                                  )}
-                                  onClick={() => { if (!adjustDisabled) setSettlementOption(opt.value) }}
-                                >
-                                  <RadioGroupItem value={opt.value} id={`pr-${opt.value}`} className="mt-0.5" disabled={adjustDisabled} />
-                                  <Label htmlFor={`pr-${opt.value}`} className="cursor-pointer space-y-0.5 flex-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-sm font-medium">{opt.title}</p>
-                                      {isAdjust && supplierOutstanding > 0 && (
-                                        <Badge variant="warning" size="sm">₹{supplierOutstanding.toLocaleString('en-IN')} payable</Badge>
-                                      )}
-                                      {isAdjust && supplierOutstanding <= 0 && (
-                                        <Badge variant="secondary" size="sm">No outstanding</Badge>
-                                      )}
-                                    </div>
-                                    <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
-                                  </Label>
-                                </div>
-                              )
-                            })}
-                          </RadioGroup>
-                        </div>
-
-                        <Separator />
-
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">Return Summary</p>
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">PE Reference</span>
-                              <span className="font-mono text-xs font-medium">{selectedGRN.grnNumber}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Items Returned</span>
-                              <span className="font-semibold">{selectedReturnItems.length}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Total Units</span>
-                              <span className="font-semibold">{selectedReturnItems.reduce((sum, ri) => sum + ri.returnQty, 0)}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Taxable</span>
-                              <span className="font-mono">{formatCurrency(debitSummary.subtotal)}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">CGST</span>
-                              <span className="font-mono">{formatCurrency(debitSummary.cgst)}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">SGST</span>
-                              <span className="font-mono">{formatCurrency(debitSummary.sgst)}</span>
-                            </div>
-                            <Separator />
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold">Total Debit</span>
-                              <span className="font-mono text-lg font-bold text-primary">{formatCurrency(debitSummary.total)}</span>
-                            </div>
-                          </div>
-                        </div>
-
+                        {renderSettlementPanel()}
                       </div>
                     </ScrollArea>
 
                     <div className="shrink-0 border-t border-border/40 bg-background p-4 flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
-                        onClick={() => lastCreatedReturn && printDebitNotePdf(lastCreatedReturn)}>
-                        <Printer className="mr-1.5 h-3.5 w-3.5" />
-                        Print
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1" disabled={!lastCreatedReturn}
-                        onClick={() => lastCreatedReturn && downloadDebitNotePdf(lastCreatedReturn)}>
-                        <Download className="mr-1.5 h-3.5 w-3.5" />
-                        Download
-                      </Button>
-                      <Button
-                        size="sm"
-                        className={`flex-1 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}`}
-                        onClick={handleConfirmReturn}
-                        disabled={submitting}
-                      >
-                        {submitting
-                          ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                          : needsApproval
-                            ? <ShieldCheck className="mr-1.5 h-4 w-4" />
-                            : <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                        }
-                        {submitting
-                          ? 'Processing…'
-                          : needsApproval ? 'Request Approval' : 'Confirm Return & Create Debit Note'}
-                      </Button>
+                      {renderSettlementActions()}
                     </div>
                   </div>
                 </motion.div>

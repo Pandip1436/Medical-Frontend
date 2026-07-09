@@ -21,6 +21,8 @@ interface ColumnsToggleProps {
   isRight?: (id: string) => boolean
   /** Toggle a field's left/right position. */
   onTogglePosition?: (id: string) => void
+  /** When true renders column chips inline (no popover) — use inside filter panels. */
+  inline?: boolean
 }
 
 /**
@@ -28,8 +30,54 @@ interface ColumnsToggleProps {
  * optional L/R position toggle for positionable fields.
  * Pairs with `useColumnVisibility(tableKey, columns)`.
  */
-export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, onTogglePosition }: ColumnsToggleProps) {
+export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, onTogglePosition, inline = false }: ColumnsToggleProps) {
   const hasPositionable = columns.some((c) => c.positionable)
+
+  if (inline) {
+    return (
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Visible Columns
+          </span>
+          {onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title="Restore default columns"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {columns.map((col) => {
+            const isOn = visible.includes(col.id)
+            const isLocked = !!col.required
+            return (
+              <button
+                key={col.id}
+                type="button"
+                disabled={isLocked}
+                onClick={() => !isLocked && onToggle(col.id)}
+                className={cn(
+                  'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+                  isOn
+                    ? 'border-primary/40 bg-primary/10 text-primary dark:bg-primary/20'
+                    : 'border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+                  isLocked && 'cursor-not-allowed opacity-60',
+                )}
+              >
+                {col.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <Popover>
@@ -73,7 +121,6 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
                     isLocked ? 'cursor-default opacity-80' : 'hover:bg-accent',
                   )}
                 >
-                  {/* Visibility checkbox */}
                   <label className="flex flex-1 cursor-pointer items-center gap-2">
                     <Checkbox
                       checked={isOn}
@@ -83,7 +130,6 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
                     <span className={cn(isOn && 'font-medium text-foreground')}>{col.label}</span>
                   </label>
 
-                  {/* Position toggle (L/R) for positionable fields */}
                   {col.positionable && isRight && onTogglePosition ? (
                     <div className="flex shrink-0 items-center overflow-hidden rounded border border-border/60">
                       <button
@@ -91,9 +137,7 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
                         onClick={() => right && onTogglePosition(col.id)}
                         className={cn(
                           'px-1.5 py-0.5 text-[10px] font-medium transition-colors',
-                          !right
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted',
+                          !right ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
                         )}
                         title="Left side"
                       >
@@ -104,9 +148,7 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
                         onClick={() => !right && onTogglePosition(col.id)}
                         className={cn(
                           'border-l border-border/60 px-1.5 py-0.5 text-[10px] font-medium transition-colors',
-                          right
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted',
+                          right ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
                         )}
                         title="Right side"
                       >
