@@ -539,6 +539,17 @@ export default function GRNPage() {
   function updateItem(index: number, field: keyof GRNFormItem, value: string | number) {
     setGrnItems((prev) => {
       const updated = [...prev]
+      // Qty/rate/GST% can never be negative — clamp centrally here so every
+      // caller (the item-card inputs) is protected without repeating the
+      // guard, instead of only catching it with a toast at final submit.
+      if (
+        typeof value === 'number' &&
+        (field === 'receivedQty' || field === 'freeQty' || field === 'purchaseRate' || field === 'mrp')
+      ) {
+        value = Math.max(0, value)
+      } else if (field === 'gstPercent' && typeof value === 'number') {
+        value = Math.min(100, Math.max(0, value))
+      }
       ;(updated[index] as unknown as Record<string, unknown>)[field] = value
       if (field === 'receivedQty') {
         const compareQty = updated[index]._remaining ?? updated[index].orderedQty
@@ -1818,6 +1829,7 @@ export default function GRNPage() {
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
                             type="number"
+                            min={0}
                             className="h-9 font-mono text-xs font-black border-primary/10 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.receivedQty || ''}
@@ -1828,6 +1840,7 @@ export default function GRNPage() {
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Free Qty</Label>
                           <Input
                             type="number"
+                            min={0}
                             className="h-9 font-mono text-xs border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.freeQty || ''}
@@ -1840,6 +1853,7 @@ export default function GRNPage() {
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
                             <Input
                               type="number"
+                              min={0}
                               className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
                               placeholder="0.00"
                               value={item.purchaseRate || ''}
@@ -1853,6 +1867,7 @@ export default function GRNPage() {
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
                             <Input
                               type="number"
+                              min={0}
                               className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
                               placeholder="0.00"
                               value={item.mrp || ''}

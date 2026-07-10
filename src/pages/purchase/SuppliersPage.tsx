@@ -823,6 +823,7 @@ export default function SuppliersPage() {
             <div className="flex items-center gap-2">
               <Input
                 type="number"
+                min={0}
                 placeholder="Min"
                 value={outstandingMin}
                 onChange={(e) => { setOutstandingMin(e.target.value); setCurrentPage(1) }}
@@ -831,6 +832,7 @@ export default function SuppliersPage() {
               <span className="text-muted-foreground text-xs">-</span>
               <Input
                 type="number"
+                min={0}
                 placeholder="Max"
                 value={outstandingMax}
                 onChange={(e) => { setOutstandingMax(e.target.value); setCurrentPage(1) }}

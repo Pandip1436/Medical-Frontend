@@ -206,6 +206,7 @@ function GRNPaymentDialog({
                   placeholder="0.00"
                   className="h-9 pl-6 font-mono text-sm font-semibold"
                   value={amount}
+                  min={0}
                   max={balance}
                   onChange={(e) => setAmount(e.target.value)}
                 />

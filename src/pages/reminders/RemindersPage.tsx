@@ -345,6 +345,11 @@ export default function RemindersPage() {
       toast.error('Customer, day and title are required')
       return
     }
+    const dayOfMonthNum = parseInt(form.dayOfMonth)
+    if (!Number.isInteger(dayOfMonthNum) || dayOfMonthNum < 1 || dayOfMonthNum > 31) {
+      toast.error('Day must be between 1 and 31')
+      return
+    }
     setSaving(true)
     try {
       if (editingId) {

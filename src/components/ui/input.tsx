@@ -22,7 +22,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           {icon && <span className="shrink-0 text-muted-foreground [&_svg]:h-4 [&_svg]:w-4">{icon}</span>}
           <input
             type={type}
-            className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground"
+            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground"
             ref={ref}
             {...props}
           />

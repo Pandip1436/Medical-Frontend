@@ -970,12 +970,15 @@ export default function OutstandingPage() {
                           const num = parseFloat(raw)
                           if (Number.isFinite(num) && num > selectedInvoiceBalance) {
                             setCollectAmount(selectedInvoiceBalance.toFixed(2))
+                          } else if (Number.isFinite(num) && num < 0) {
+                            setCollectAmount('0')
                           } else {
                             setCollectAmount(raw)
                           }
                         }
                         setAmountAutoFilled(false)
                       }}
+                      min={0}
                       max={selectedInvoiceBalance}
                       disabled={!selectedInvoiceId}
                     />

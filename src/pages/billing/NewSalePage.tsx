@@ -1763,6 +1763,7 @@ function MobileBillingCard({
               <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
               <input
                 type="number"
+                min={0}
                 value={item.quantity}
                 onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
                 className="w-full h-9 text-center bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
@@ -1777,6 +1778,7 @@ function MobileBillingCard({
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate (₹)</Label>
             <input
               type="number"
+              min={0}
               step={0.01}
               value={item.rate}
               onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
@@ -1897,9 +1899,10 @@ function PaymentPanel({
             </label>
             <Input
               type="number"
+              min={0}
               value={details.amountReceived || ''}
               onChange={(e) =>
-                onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })
+                onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })
               }
               className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
@@ -1917,8 +1920,9 @@ function PaymentPanel({
             </label>
             <Input
               type="number"
+              min={0}
               value={details.amountReceived || ''}
-              onChange={(e) => onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })}
+              onChange={(e) => onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })}
               className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
             />
@@ -1960,8 +1964,9 @@ function PaymentPanel({
             </label>
             <Input
               type="number"
+              min={0}
               value={details.amountReceived || ''}
-              onChange={(e) => onDetailsChange({ amountReceived: parseFloat(e.target.value) || 0 })}
+              onChange={(e) => onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })}
               className="h-10 font-mono text-base font-semibold tabular-nums"
               placeholder={grandTotal.toFixed(2)}
             />
@@ -2028,8 +2033,9 @@ function PaymentPanel({
             </label>
             <Input
               type="number"
+              min={0}
               value={details.amountReceived || ''}
-              onChange={(e) => onDetailsChange({ amountReceived: Math.min(parseFloat(e.target.value) || 0, grandTotal) })}
+              onChange={(e) => onDetailsChange({ amountReceived: Math.min(Math.max(0, parseFloat(e.target.value) || 0), grandTotal) })}
               className="h-9 font-mono text-sm tabular-nums"
               placeholder="0.00"
               max={grandTotal}
@@ -2075,10 +2081,11 @@ function PaymentPanel({
               </select>
               <Input
                 type="number"
+                min={0}
                 value={split.amount || ''}
                 onChange={(e) => {
                   const newSplits = [...details.splits]
-                  newSplits[idx] = { ...split, amount: parseFloat(e.target.value) || 0 }
+                  newSplits[idx] = { ...split, amount: Math.max(0, parseFloat(e.target.value) || 0) }
                   onDetailsChange({ splits: newSplits })
                 }}
                 placeholder="Amount"
@@ -3478,6 +3485,11 @@ export default function NewSalePage() {
       toast.error('Day and title are required')
       return
     }
+    const reminderDayNum = parseInt(reminderDay)
+    if (!Number.isInteger(reminderDayNum) || reminderDayNum < 1 || reminderDayNum > 31) {
+      toast.error('Day must be between 1 and 31')
+      return
+    }
     setReminderSaving(true)
     try {
       if (editingReminderId) {
@@ -3809,13 +3821,17 @@ export default function NewSalePage() {
     setIsSubmitting(true)
     try {
       const grandTotalNum = Number(totals.grandTotal) || 0
-      const computedAmountPaid = invoiceType === 'quotation' ? 0
+      // Math.max(0, ...) at the end is a last-line-of-defense clamp: the
+      // per-field onChange handlers above already reject negative input, but
+      // this also covers state set programmatically (e.g. restoring a saved
+      // draft/quote snapshot) rather than typed directly into the field.
+      const computedAmountPaid = Math.max(0, invoiceType === 'quotation' ? 0
         : effectivePaymentMode === 'CASH' ? (Number(paymentDetails.amountReceived) || 0)
           // CREDIT can now carry an optional cash advance (down payment): the
           // amount collected up front; the rest becomes the customer's credit.
           : effectivePaymentMode === 'CREDIT' ? Math.min(Number(paymentDetails.amountReceived) || 0, grandTotalNum)
             : effectivePaymentMode === 'SPLIT' ? (paymentDetails.splits.reduce((acc, s) => acc + (Number(s.amount) || 0), 0))
-              : (Number(paymentDetails.amountReceived) || grandTotalNum)
+              : (Number(paymentDetails.amountReceived) || grandTotalNum))
       const computedChange = invoiceType === 'quotation' ? 0
         : Number(effectivePaymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - grandTotalNum) : 0)
       // Status from the money actually applied to the bill (paid minus any cash
@@ -6988,6 +7004,7 @@ export default function NewSalePage() {
             </Select>
             <Input
               type="number"
+              min={0}
               placeholder="Amount for one-by-one"
               className="h-8 text-xs font-mono flex-1 min-w-35"
               value={collectAmount}

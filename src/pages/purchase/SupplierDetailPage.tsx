@@ -31,6 +31,7 @@ import {
   FileDown,
   FileSpreadsheet,
   Printer,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
@@ -461,9 +462,18 @@ export default function SupplierDetailPage() {
           onValueChange={(v) => setActiveTab(v as typeof activeTab)}
           className="flex flex-1 flex-col overflow-hidden min-w-0"
         >
-          {/* Tab row — tabs on the left, period dropdown pinned to the right end. */}
-          <div className="shrink-0 border-b border-border/40 bg-background flex items-center gap-2 px-5">
-            <div className="flex-1 min-w-0 overflow-x-auto">
+          {/* Tab row — tabs get the full row to themselves; the period dropdown +
+              activity-only Type filter / per-tab action button sit on their OWN row
+              below (order-2), at every screen size. This used to collapse onto one
+              row from xl up, but with 7 tabs that row still needed its own
+              horizontal scrollbar even on wide desktop monitors — and the filter
+              cluster, released from a `contents` wrapper, was landing BEFORE the
+              tabs instead of after (it had no explicit `order`, so it lost to the
+              tabs list's `order-1`). Splitting the rows unconditionally fixes both:
+              tabs always get full width, and the action row is always in the
+              right place. */}
+          <div className="shrink-0 border-b border-border/40 bg-background flex flex-wrap items-center gap-2 px-3 sm:px-5">
+            <div className="order-1 w-full min-w-0 overflow-x-auto">
               <TabsList className="h-auto justify-start gap-0 rounded-none bg-transparent p-0">
                 {[
                   { value: 'overview', label: 'Overview', icon: Building2 },
@@ -489,6 +499,32 @@ export default function SupplierDetailPage() {
                 ))}
               </TabsList>
             </div>
+
+            <div className="order-2 flex w-full flex-wrap items-center justify-end gap-2 border-t border-border/40 pt-1.5">
+
+            {/* Activity-only quick-log buttons — desktop only (xl+). Below xl these
+                same actions live inside ActivityTabContent instead, icon-only and
+                pinned to the bottom of the tab (see that component for why). */}
+            {activeTab === 'activity' && (
+              <div className="hidden items-center gap-1.5 xl:flex">
+                {(['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'REMINDER'] as SAType[]).map((t) => {
+                  const meta = ACTIVITY_META[t]
+                  const Icon = meta.icon
+                  return (
+                    <Button
+                      key={t}
+                      size="sm"
+                      variant="outline"
+                      className={cn('h-8 shrink-0 gap-1.5 text-xs my-1.5', meta.btnTone)}
+                      onClick={() => setActivityDialog({ open: true, type: t, editing: null })}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {t === 'REMINDER' ? 'Reminder' : `Log ${meta.label}`}
+                    </Button>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Activity-only Type filter — uses the same DropdownMenu + Button
                 trigger as the period dropdown so both per-tab controls share
@@ -530,6 +566,20 @@ export default function SupplierDetailPage() {
               )
             })()}
 
+            {/* POs-only New button — same slot/pattern used elsewhere for a
+                per-tab primary action. Was missing entirely; this tab had no
+                way to create a purchase order for this supplier. */}
+            {activeTab === 'pos' && (
+              <Button
+                size="sm"
+                onClick={() => navigate('/purchase/orders?add=1')}
+                className="h-8 shrink-0 gap-1.5 my-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New Purchase Order
+              </Button>
+            )}
+
             {/* Period dropdown — only on transactional tabs (Batches has no period filter). */}
             {currentPeriod && (
               <DropdownMenu>
@@ -569,6 +619,7 @@ export default function SupplierDetailPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            </div>
           </div>
 
           {/* Date-picker strip — only renders when the user explicitly picks
@@ -1376,12 +1427,16 @@ function ActivityTabContent({
   const types: SAType[] = ['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'REMINDER']
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-log toolbar — pinned to the TOP so the timeline flows from here
-          without a large mid-page void when only a few activities exist. */}
-      <div className="shrink-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
+      {/* Quick-log toolbar — phone and tablet only (below xl). Icon-only, pinned
+          to the BOTTOM of the tab via `order`. At xl+ this is hidden entirely —
+          the same actions are merged into the tab-row filter cluster above
+          (text-labeled, alongside the Type/Period dropdowns) so everything
+          sits in one row on desktop instead of two. */}
+      <div className="order-2 xl:hidden shrink-0 grid grid-cols-5 gap-2 border-b border-border/40 bg-muted/5 px-3 sm:px-5 py-2.5">
         {types.map((t) => {
           const meta = ACTIVITY_META[t]
           const Icon = meta.icon
+          const label = t === 'REMINDER' ? 'Reminder' : `Log ${meta.label}`
           return (
             <Button
               key={t}
@@ -1389,15 +1444,16 @@ function ActivityTabContent({
               variant="outline"
               className={cn('h-8 w-full gap-1.5 text-xs', meta.btnTone)}
               onClick={() => onOpenDialog(t, null)}
+              aria-label={label}
+              title={label}
             >
               <Icon className="h-3.5 w-3.5" />
-              {t === 'REMINDER' ? 'Reminder' : `Log ${meta.label}`}
             </Button>
           )
         })}
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="order-1 flex-1 overflow-auto">
         {state.error && !state.data ? (
           <InlineError message={state.error} onRetry={() => state.refetch?.()} />
         ) : state.loading && !state.data ? (
@@ -1406,7 +1462,7 @@ function ActivityTabContent({
           <EmptyState
             icon={MessageSquare}
             title="No activity logged yet"
-            subtitle="Use the buttons above to log a call, WhatsApp, email, note, or schedule a reminder."
+            subtitle="Log a call, WhatsApp, email, note, or schedule a reminder to get started."
           />
         ) : (
           <ol className="divide-y divide-border/40">

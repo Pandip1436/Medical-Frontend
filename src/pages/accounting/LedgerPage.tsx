@@ -205,6 +205,22 @@ const initialsOf = (name: string) =>
     .map((s) => s[0]?.toUpperCase() ?? '')
     .join('') || '?'
 
+// Wraps the matched substring of `text` in a <mark> so a search hit reads
+// clearly even though the row itself is no longer filtered out of view.
+function highlightMatch(text: string, query: string) {
+  const idx = text.toLowerCase().indexOf(query)
+  if (idx === -1) return text
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="rounded-sm bg-amber-300/70 px-0.5 text-inherit dark:bg-amber-500/50">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
@@ -236,6 +252,11 @@ export default function LedgerPage() {
   const [hasMoreBelow, setHasMoreBelow] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // First-match row/card — searching no longer filters the list (see below),
+  // so with 100+ rows the hit can be scrolled well out of view; these let us
+  // jump straight to it instead of making the user hunt for the highlight.
+  const firstMatchRowRef = useRef<HTMLTableRowElement>(null)
+  const firstMatchCardRef = useRef<HTMLDivElement>(null)
 
   const [allLedgerEntries, setAllLedgerEntries] = useState<LedgerEntry[]>([])
   // Captured at pick-time from the paginated search response, or fetched on
@@ -377,11 +398,13 @@ export default function LedgerPage() {
     })
     const closingBal = withBal.length > 0 ? withBal[withBal.length - 1].balance : openingBal
 
+    // Search no longer hides non-matching rows — the full ledger stays
+    // visible (losing surrounding context made it hard to see a search hit
+    // in relation to the transactions around it); matches are highlighted
+    // in the render instead, and matchCount drives the "N found" badge.
     let displayed = withBal
-    if (ledgerSearch.trim()) {
-      const q = ledgerSearch.toLowerCase()
-      displayed = withBal.filter((e) => e.particular.toLowerCase().includes(q))
-    }
+    const q = ledgerSearch.trim().toLowerCase()
+    const matchCount = q ? withBal.filter((e) => e.particular.toLowerCase().includes(q)).length : withBal.length
     if (sortOrder === 'newest') {
       displayed = [...displayed].reverse()
     }
@@ -391,11 +414,13 @@ export default function LedgerPage() {
       closingBalance: closingBal,
       entries: displayed,
       inRangeCount: inRange.length,
+      matchCount,
     }
   }, [allLedgerEntries, dateFrom, dateTo, ledgerSearch, sortOrder])
 
   const { openingBalance, closingBalance } = ledgerData
   const ledgerWithBalance = ledgerData.entries
+  const ledgerSearchQuery = ledgerSearch.trim().toLowerCase()
 
   // Summary stats reflect the date-range window (search filter excluded so totals stay stable)
   const summary = useMemo(() => {
@@ -479,6 +504,19 @@ export default function LedgerPage() {
       ro.disconnect()
     }
   }, [ledgerWithBalance.length, selectedPartyId, activeTab])
+
+  // Jump to the first search hit — with the list no longer filtered (see
+  // renderLedgerCard), a match in a 100+ row ledger can render well outside
+  // the current scroll position, so the highlight alone is easy to miss.
+  // rAF-deferred so the ref is attached to the just-rendered row/card first.
+  useEffect(() => {
+    if (!ledgerSearchQuery) return
+    const raf = requestAnimationFrame(() => {
+      const target = firstMatchRowRef.current ?? firstMatchCardRef.current
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [ledgerSearchQuery, ledgerWithBalance])
 
   const resetToCurrentMonth = () => {
     setSelectedPeriod('month')
@@ -691,7 +729,6 @@ export default function LedgerPage() {
   // ── Year / Month switcher (matches the ProfitLossPage pattern) ──
   const nowYear = dayjs().year()
   const nowMonth = dayjs().month()
-  const atCurrentMonth = selectedYear === nowYear && selectedMonthIdx === nowMonth
   const cannotGoNextMonth = selectedYear === nowYear && selectedMonthIdx >= nowMonth
   const goPrevMonth = () => {
     if (selectedMonthIdx === 0) {
@@ -713,9 +750,9 @@ export default function LedgerPage() {
   const yearOptions = Array.from({ length: 10 }, (_, i) => nowYear - i)
 
   const periodSwitcher = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {/* Year / Month toggle */}
-      <div className="inline-flex rounded-md border border-border/60 overflow-hidden h-9">
+      <div className="inline-flex shrink-0 rounded-md border border-border/60 overflow-hidden h-9">
         {(['year', 'month'] as Period[]).map((p) => (
           <button
             key={p}
@@ -736,7 +773,7 @@ export default function LedgerPage() {
       {/* Year picker — always visible */}
       <Popover open={yearPopoverOpen} onOpenChange={setYearPopoverOpen}>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+          <Button variant="outline" size="sm" className="h-9 shrink-0 gap-1 px-2.5 font-medium min-w-16 sm:gap-1.5 sm:px-3 sm:min-w-20">
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
             {selectedYear}
           </Button>
@@ -762,13 +799,13 @@ export default function LedgerPage() {
 
       {/* Month navigator — only when period === 'month' */}
       {selectedPeriod === 'month' && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={goPrevMonth} aria-label="Previous month">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Popover open={monthPopoverOpen} onOpenChange={setMonthPopoverOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-1.5 font-medium min-w-20">
+              <Button variant="outline" size="sm" className="h-9 shrink-0 px-2.5 font-medium min-w-14 sm:px-3 sm:min-w-20">
                 {MONTH_NAMES[selectedMonthIdx]}
               </Button>
             </PopoverTrigger>
@@ -807,11 +844,6 @@ export default function LedgerPage() {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          {!atCurrentMonth && (
-            <Button variant="outline" size="sm" className="h-9" onClick={resetToCurrentMonth}>
-              This Month
-            </Button>
-          )}
         </div>
       )}
     </div>
@@ -1040,10 +1072,11 @@ export default function LedgerPage() {
         searchQuery={ledgerSearch}
         onSearchChange={setLedgerSearch}
         searchPlaceholder="Search ledger particulars..."
-        resultsCount={ledgerWithBalance.length}
+        resultsCount={ledgerData.matchCount}
         activeFilterCount={activeFilterCount}
         onClearFilters={handleClearFilters}
         actionNode={exportDropdown}
+        compactActionsRow
       >
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1112,27 +1145,38 @@ export default function LedgerPage() {
   // Ledger card (table + mobile list)
   // ─────────────────────────────────────────────────────────────
   function renderLedgerCard() {
-    // Sticky cells (sticky on <td>/<th> works reliably across browsers; sticky on <tr> does not).
-    // Each cell gets its own opaque bg so rows behind don't bleed through. We swap WHICH balance
-    // row goes top vs bottom based on sort order so it always reads naturally.
+    // Fixed header + fixed opening/closing balance rows, with ONLY the
+    // transaction rows scrolling in between — each piece is its own <table>
+    // (not position:sticky stacked inside one scrolling table, which was
+    // fragile: stacking multiple sticky offsets — header at top-0, balance
+    // row at top-10, another at bottom-0 — inside a single scroll container
+    // is inconsistent across browsers and produced overlapping/ghosted rows).
+    // A shared <colgroup> keeps columns aligned across the separate tables.
+    const LEDGER_COL_WIDTHS = ['14%', '38%', '16%', '16%', '16%']
+    const ledgerColGroup = (
+      <colgroup>
+        {LEDGER_COL_WIDTHS.map((w, i) => <col key={i} style={{ width: w }} />)}
+      </colgroup>
+    )
+
+    // We swap WHICH balance row goes top vs bottom based on sort order so it
+    // always reads naturally (oldest-first: opening above, closing below).
     const renderBalanceRow = (kind: 'opening' | 'closing', position: 'top' | 'bottom') => {
-      const cellCls = position === 'top'
-        ? 'sticky top-10 z-10 bg-zinc-100 dark:bg-zinc-800 font-semibold'
-        : 'sticky bottom-0 z-10 bg-zinc-100 dark:bg-zinc-800 font-bold'
       const isOpening = kind === 'opening'
       const date = isOpening ? dateFrom : dateTo
       const label = isOpening ? 'Opening Balance' : 'Closing Balance'
       const balance = isOpening ? openingBalance : closingBalance
       const rowBorder = position === 'top' ? 'border-b-2 border-border/60' : 'border-t-2 border-border/60'
+      const cellCls = 'px-3 py-2.5 text-sm bg-zinc-100 dark:bg-zinc-800'
       return (
         <tr key={kind} className={rowBorder}>
-          <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{date ? formatDate(date) : '-'}</td>
-          <td className={cn(cellCls, 'px-3 py-2.5 text-sm')}>{label}</td>
-          <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
-          <td className={cn(cellCls, 'px-3 py-2.5 text-right font-mono text-sm')}>-</td>
+          <td className={cn(cellCls, 'font-semibold')}>{date ? formatDate(date) : '-'}</td>
+          <td className={cn(cellCls, 'font-semibold')}>{label}</td>
+          <td className={cn(cellCls, 'text-right font-mono')}>-</td>
+          <td className={cn(cellCls, 'text-right font-mono')}>-</td>
           <td className={cn(
             cellCls,
-            'px-3 py-2.5 text-right font-mono text-sm',
+            'text-right font-mono font-bold',
             balance > 0 ? 'text-rose-600 dark:text-rose-400'
               : balance < 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
           )}>
@@ -1149,6 +1193,9 @@ export default function LedgerPage() {
       : renderBalanceRow('opening', 'bottom')
 
     const isEmpty = ledgerWithBalance.length === 0
+    const firstMatchIndex = ledgerSearchQuery
+      ? ledgerWithBalance.findIndex((e) => e.particular.toLowerCase().includes(ledgerSearchQuery))
+      : -1
 
     return (
       <Card className="rounded-2xl border-border/60 flex flex-col overflow-hidden">
@@ -1165,10 +1212,21 @@ export default function LedgerPage() {
               />
             ) : (
               <div className="divide-y divide-border/40">
-                {ledgerWithBalance.map((entry, idx) => (
-                  <div key={idx} className="flex items-start justify-between gap-2 px-4 py-3">
+                {ledgerWithBalance.map((entry, idx) => {
+                  const isMatch = ledgerSearchQuery && entry.particular.toLowerCase().includes(ledgerSearchQuery)
+                  return (
+                  <div
+                    key={idx}
+                    ref={idx === firstMatchIndex ? firstMatchCardRef : undefined}
+                    className={cn(
+                      'flex items-start justify-between gap-2 px-4 py-3',
+                      isMatch && 'bg-amber-50 dark:bg-amber-900/20',
+                    )}
+                  >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{entry.particular}</p>
+                      <p className="text-sm font-medium truncate">
+                        {isMatch ? highlightMatch(entry.particular, ledgerSearchQuery) : entry.particular}
+                      </p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(entry.date)}</p>
                     </div>
                     <div className="text-right shrink-0">
@@ -1183,78 +1241,60 @@ export default function LedgerPage() {
                       </p>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
 
-          {/* Desktop table — raw <table> so sticky cells anchor to THIS scroll container
-              (shadcn's <Table> adds its own overflow-auto wrapper, which would shadow ours). */}
-          <div className="hidden md:block relative">
-            <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-28rem)]">
-              <table className="w-full caption-bottom text-sm">
-                <thead>
-                  <tr className="border-b border-border/60">
-                    {[
-                      { label: 'Date', align: 'text-left' },
-                      { label: 'Particular', align: 'text-left' },
-                      { label: LEDGER_COL_BILLED, align: 'text-right' },
-                      { label: LEDGER_COL_PAID, align: 'text-right' },
-                      { label: 'Running Balance', align: 'text-right' },
-                    ].map((col) => (
-                      <th
-                        key={col.label}
-                        className={cn(
-                          'sticky top-0 z-20 h-10 px-3 align-middle bg-background',
-                          col.align,
-                        )}
-                      >
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          {col.label}
-                        </span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {!isEmpty && topBalanceRow}
-
-                  {ledgerWithBalance.map((entry, idx) => (
-                    <tr
-                      key={idx}
-                      className={cn(
-                        'border-b border-border/40 transition-colors hover:bg-muted/30',
-                        idx % 2 === 0 ? 'bg-background' : 'bg-muted/20 dark:bg-muted/10',
-                      )}
+          {/* Desktop table — a fixed header, a fixed top-balance row, only
+              the transaction rows scrolling, then a fixed bottom-balance
+              row: four separate <table>s (a single table can't have some
+              rows scroll and others stay put without position:sticky, which
+              is what we're moving away from) sharing one <colgroup> so their
+              columns stay aligned. Raw <table> throughout — shadcn's <Table>
+              adds its own overflow-auto wrapper, which would fight ours. */}
+          <div className="hidden md:flex md:flex-col relative">
+            <table className="w-full table-fixed shrink-0 caption-bottom text-sm">
+              {ledgerColGroup}
+              <thead>
+                <tr className="border-b border-border/60">
+                  {[
+                    { label: 'Date', align: 'text-left' },
+                    { label: 'Particular', align: 'text-left' },
+                    { label: LEDGER_COL_BILLED, align: 'text-right' },
+                    { label: LEDGER_COL_PAID, align: 'text-right' },
+                    { label: 'Running Balance', align: 'text-right' },
+                  ].map((col) => (
+                    <th
+                      key={col.label}
+                      className={cn('h-10 px-3 align-middle bg-background', col.align)}
                     >
-                      <td className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">
-                        {formatDate(entry.date)}
-                      </td>
-                      <td className="px-3 py-2.5 text-sm font-medium">{entry.particular}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-sm text-rose-600 dark:text-rose-400">
-                        {entry.debit > 0 ? formatCurrency(entry.debit) : '-'}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-sm text-emerald-600 dark:text-emerald-400">
-                        {entry.credit > 0 ? formatCurrency(entry.credit) : '-'}
-                      </td>
-                      <td
-                        className={cn(
-                          'px-3 py-2.5 text-right font-mono text-sm font-semibold',
-                          entry.balance > 0
-                            ? 'text-rose-600 dark:text-rose-400'
-                            : entry.balance < 0
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : '',
-                        )}
-                      >
-                        {formatLedgerBalance(entry.balance, partyType)}
-                      </td>
-                    </tr>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {col.label}
+                      </span>
+                    </th>
                   ))}
+                </tr>
+              </thead>
+            </table>
 
-                  {!isEmpty && bottomBalanceRow}
+            {!isEmpty && (
+              <table className="w-full table-fixed shrink-0 text-sm">
+                {ledgerColGroup}
+                <tbody>{topBalanceRow}</tbody>
+              </table>
+            )}
 
-                  {isEmpty && (
+            {/* Fixed height sized to ~7 data rows (each row is h-10/2.5rem
+                via the header + py-2.5 cell padding), not a viewport
+                fraction — so "7 rows visible, then scroll" holds on any
+                screen size rather than varying with window height. */}
+            <div ref={scrollRef} className="h-70 overflow-auto">
+              <table className="w-full table-fixed text-sm">
+                {ledgerColGroup}
+                <tbody>
+                  {isEmpty ? (
                     <tr>
                       <td colSpan={5} className="p-0">
                         <EmptyState
@@ -1266,10 +1306,59 @@ export default function LedgerPage() {
                         />
                       </td>
                     </tr>
+                  ) : (
+                    ledgerWithBalance.map((entry, idx) => {
+                      const isMatch = ledgerSearchQuery && entry.particular.toLowerCase().includes(ledgerSearchQuery)
+                      return (
+                      <tr
+                        key={idx}
+                        ref={idx === firstMatchIndex ? firstMatchRowRef : undefined}
+                        className={cn(
+                          'border-b border-border/40 transition-colors hover:bg-muted/30',
+                          isMatch
+                            ? 'bg-amber-50 dark:bg-amber-900/20'
+                            : idx % 2 === 0 ? 'bg-background' : 'bg-muted/20 dark:bg-muted/10',
+                        )}
+                      >
+                        <td className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">
+                          {formatDate(entry.date)}
+                        </td>
+                        <td className="px-3 py-2.5 text-sm font-medium">
+                          {isMatch ? highlightMatch(entry.particular, ledgerSearchQuery) : entry.particular}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-sm text-rose-600 dark:text-rose-400">
+                          {entry.debit > 0 ? formatCurrency(entry.debit) : '-'}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-sm text-emerald-600 dark:text-emerald-400">
+                          {entry.credit > 0 ? formatCurrency(entry.credit) : '-'}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-3 py-2.5 text-right font-mono text-sm font-semibold',
+                            entry.balance > 0
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : entry.balance < 0
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : '',
+                          )}
+                        >
+                          {formatLedgerBalance(entry.balance, partyType)}
+                        </td>
+                      </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
             </div>
+
+            {!isEmpty && (
+              <table className="w-full table-fixed shrink-0 text-sm">
+                {ledgerColGroup}
+                <tbody>{bottomBalanceRow}</tbody>
+              </table>
+            )}
+
             {hasMoreBelow && (
               <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center">
                 <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/90 backdrop-blur px-2.5 py-1 shadow-sm text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -1378,8 +1467,10 @@ export default function LedgerPage() {
             </div>
           </div>
 
-          {/* Chart */}
-          <div className="h-56 sm:h-72">
+          {/* Chart. overflow-hidden guards against ResponsiveContainer ever
+              painting taller than its box (e.g. mid-resize) and bleeding
+              into the footer stats below. */}
+          <div className="h-56 sm:h-72 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={plotData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
@@ -1463,40 +1554,40 @@ export default function LedgerPage() {
 
           {/* Footer stats */}
           <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border/40 pt-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Opening
               </p>
-              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums wrap-break-word">
                 {formatCurrency(Math.abs(opening))}
                 {opening !== 0 && (
                   <span className="ml-1 text-[10px] text-muted-foreground">
-                    {ledgerBalanceSuffix(opening, partyType)}
+                    {' '}{ledgerBalanceSuffix(opening, partyType)}
                   </span>
                 )}
               </p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Peak
               </p>
-              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums wrap-break-word">
                 {formatCurrency(peak.plot)}
                 {peak.plot > 0 && (
                   <span className="ml-1 text-[10px] text-muted-foreground">
-                    on {formatDate(peak.date)}
+                    {' '}on {formatDate(peak.date)}
                   </span>
                 )}
               </p>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Active days
               </p>
-              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+              <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums wrap-break-word">
                 {activeDays}
                 <span className="ml-1 text-[10px] text-muted-foreground">
-                  of {plotData.length}
+                  {' '}of {plotData.length}
                 </span>
               </p>
             </div>

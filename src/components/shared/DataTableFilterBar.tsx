@@ -34,6 +34,13 @@ interface DataTableFilterBarProps {
   // remaining row width (flex-1). Pass e.g. "w-full sm:w-80" to constrain it
   // when there are many action buttons on the right.
   searchClassName?: string
+  // Opt-in: keep search + the filter/action cluster on ONE row on mobile
+  // instead of the default three-stacked-rows layout. Only safe for pages
+  // whose actionNode is compact (e.g. just an Export dropdown) — pages with
+  // several prominent CTAs (Create X, view toggles, ...) should leave this
+  // off so those buttons keep their own full-width row instead of crowding
+  // the search input.
+  compactActionsRow?: boolean
 }
 
 export function DataTableFilterBar({
@@ -52,6 +59,7 @@ export function DataTableFilterBar({
   midNode,
   columnsNode,
   searchClassName,
+  compactActionsRow = false,
 }: DataTableFilterBarProps) {
   const [internalOpen, setInternalOpen] = useState(defaultFiltersOpen)
   // Controlled when `open` is provided; otherwise self-managed.
@@ -78,10 +86,14 @@ export function DataTableFilterBar({
             row 2 beside the actions; natural width from sm up. */}
         {leadingNode && <div className="order-2 min-w-0 flex-1 sm:order-1 sm:w-auto sm:flex-none sm:shrink-0">{leadingNode}</div>}
 
-        {/* Search + Filters — ONE unit on a single row. Full-width row 1 on mobile;
+        {/* Search + Filters — ONE unit on a single row. Full-width row 1 on mobile
+            (or stays inline with the action cluster when compactActionsRow is on);
             grows to fill the middle from sm up. Inside: search (flex-1) then the
             Filters toggle, so desktop reads leading → search → filters → actions. */}
-        <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:flex-1">
+        <div className={cn(
+          'order-1 flex items-center gap-2 sm:order-2 sm:w-auto sm:flex-1',
+          compactActionsRow ? 'min-w-40 flex-1' : 'w-full',
+        )}>
           <div className={cn('min-w-0', searchClassName ?? 'flex-1')}>
             <Input
               icon={<Search className="h-4 w-4" />}
@@ -124,22 +136,11 @@ export function DataTableFilterBar({
           )}
         </div>
 
-        {/* Action cluster (view switcher / export / primary action). `ml-auto`
-            pushes it to the right edge so its row spans full width — matters on
-            pages with NO leading filter (e.g. Customers), where nothing else
-            fills the row and the buttons would otherwise clump together. Pages
-            WITH a leading filter have a flex-1 growing item that already absorbs
-            the free space, so ml-auto is a no-op there (and on desktop). */}
         {actionNode && (
           <div className={cn(
             'order-3 flex items-center justify-end gap-1.5 sm:w-auto sm:shrink-0',
-            // With a leading filter, share row 2 with it (ml-auto right-aligns).
-            // Without one, take the full-width row so a page can stretch its
-            // primary action (e.g. a full-width "Add" button) if it wants to.
-            leadingNode ? 'ml-auto' : 'w-full',
+            compactActionsRow ? 'shrink-0' : (leadingNode ? 'ml-auto' : 'w-full'),
           )}>
-            {/* Hairline divider between filter controls and the action cluster
-                (desktop only — on mobile they're on separate rows). */}
             {hasPanel && <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />}
             {actionNode}
           </div>

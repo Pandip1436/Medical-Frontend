@@ -793,12 +793,15 @@ export default function SupplierOutstandingPage() {
                           const num = parseFloat(raw)
                           if (Number.isFinite(num) && num > selectedGrnBalance) {
                             setPayAmount(selectedGrnBalance.toFixed(2))
+                          } else if (Number.isFinite(num) && num < 0) {
+                            setPayAmount('0')
                           } else {
                             setPayAmount(raw)
                           }
                         }
                         setAmountAutoFilled(false)
                       }}
+                      min={0}
                       max={selectedGrnBalance}
                       disabled={!selectedGrnId}
                     />
