@@ -47,7 +47,7 @@ const pageVariants = {
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
-import { useIsCompactTouchDevice } from '@/hooks/useMediaQuery'
+import { useIsCompactTouchDevice, useIsCompactViewport } from '@/hooks/useMediaQuery'
 import { useRoute } from '@/lib/router'
 import { ImportProgressPill } from '@/components/shared/ImportProgressPill'
 
@@ -64,6 +64,12 @@ export default function AppLayout({
   // an overlay on top of it (never widens the docked rail) — so content's
   // margin must stay pinned at the rail width, not animate with sidebarCollapsed.
   const isTabletTouch = isCompactTouchDevice && !isMobile
+  const isCompactViewport = useIsCompactViewport()
+  // Any viewport below the xl breakpoint (1280px) hides the side rail and shows
+  // the fixed bottom tab bar instead — every phone/tablet AND a desktop browser
+  // resized narrow. So the main area drops its sidebar margin and reserves room
+  // at the bottom for the bar. Real desktops (>=1280px) keep the sidebar.
+  const showBottomNav = isMobile || isTabletTouch || isCompactViewport
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
   const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
@@ -183,7 +189,7 @@ export default function AppLayout({
       {/* Main Area - shifts based on sidebar width on desktop, full width on mobile */}
       <motion.div
         initial={false}
-        animate={{ marginLeft: isMobile ? 0 : isTabletTouch ? '4rem' : sidebarWidth }}
+        animate={{ marginLeft: showBottomNav ? 0 : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           // min-w-0 is critical: without it this flex-1 column's min-width
@@ -204,10 +210,12 @@ export default function AppLayout({
             isFullViewport
               ? 'flex-1 min-h-0 overflow-hidden'
               : isCompactPage
-                // Reserve room on mobile so the fixed bottom tab bar
-                // (Sidebar.tsx, <768px only) doesn't cover the split view's
-                // content — matches the pb-24 used on the scrollable path.
-                ? 'flex-1 min-h-0 overflow-hidden pb-24 md:pb-0'
+                // Reserve room on any touch device (phone or tablet) so the
+                // fixed bottom tab bar doesn't cover the split view's content.
+                // No bar on desktop, so no bottom padding there.
+                ? showBottomNav
+                  ? 'flex-1 min-h-0 overflow-hidden pb-24'
+                  : 'flex-1 min-h-0 overflow-hidden'
                 : 'flex-1 overflow-x-hidden overflow-y-auto'
           }
         >
@@ -225,7 +233,11 @@ export default function AppLayout({
                     ? 'content-area min-w-0 h-full flex flex-col px-2 pt-2 pb-2 sm:px-3 md:px-4'
                     : isTightScrollPage
                       ? 'content-area min-w-0 px-2 py-2 sm:px-3 md:px-4'
-                      : 'content-area min-w-0 p-3 pb-24 md:p-4 lg:p-6'
+                      // Keep the tall bottom pad (pb-24) on every touch device so
+                      // the last rows clear the bottom tab bar; desktop shrinks it.
+                      : showBottomNav
+                        ? 'content-area min-w-0 px-3 pt-3 pb-24 md:px-4 md:pt-4 lg:px-6 lg:pt-6'
+                        : 'content-area min-w-0 p-3 md:p-4 lg:p-6'
               }
             >
               {title && (

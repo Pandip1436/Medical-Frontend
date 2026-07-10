@@ -14,7 +14,10 @@ export function ViewModeToggle({ view, onViewChange, className }: ViewModeToggle
   return (
     <div
       className={cn(
-        'flex items-center rounded-md border border-border/60 bg-muted/30 p-0.5',
+        // Hidden on mobile/tablet — split view is only reachable from lg up
+        // (below that the list is forced to table view), so the toggle would
+        // be a no-op there.
+        'hidden items-center rounded-md border border-border/60 bg-muted/30 p-0.5 lg:flex',
         className,
       )}
     >

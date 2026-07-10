@@ -838,7 +838,7 @@ export default function NotificationsPage() {
       <motion.div variants={itemVariants}>
         <Card className="overflow-hidden p-0 shadow-lg shadow-black/5 ring-1 ring-border/50">
           {/* Premium header band — branded icon, title, live count + actions */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-gradient-to-r from-primary/[0.06] via-background/40 to-transparent px-4 py-3">
+          <div className="flex flex-col gap-3 border-b border-border/60 bg-gradient-to-r from-primary/[0.06] via-background/40 to-transparent px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary shadow-sm ring-1 ring-primary/15">
                 <Bell className="h-4 w-4" />
@@ -857,7 +857,7 @@ export default function NotificationsPage() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
               {/* Global read filter — only meaningful in the date-grouped
                   "All" view, which is driven by the in-memory store list.
                   Folder views are server-paginated and have their own

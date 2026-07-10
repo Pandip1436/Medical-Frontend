@@ -412,14 +412,29 @@ export default function ExpiryManagementPage() {
 
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2.5">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search ${activeTabLabel.toLowerCase()}…`}
-                className="h-9 pl-9 text-sm"
-              />
+            {/* On mobile, search shares a row with a Refresh button; on sm+ the
+                wrapper is display:contents so the search flows into the toolbar as
+                before and the end-of-row Refresh (below) is the one shown. */}
+            <div className="flex w-full items-center gap-2 sm:contents">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Search ${activeTabLabel.toLowerCase()}…`}
+                  className="h-9 pl-9 text-sm"
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-9 w-9 shrink-0 sm:hidden"
+                onClick={refresh}
+                disabled={loading}
+                aria-label="Refresh"
+              >
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              </Button>
             </div>
             {!isDisposalFolder && (
               <SupplierCombobox value={selectedSupplier} onChange={setSelectedSupplier} />
@@ -428,32 +443,32 @@ export default function ExpiryManagementPage() {
               <span className="font-semibold text-foreground">{displayRows.length}</span> in {activeTabLabel.toLowerCase()}
             </span>
             {/* View toggle — card grid vs. table */}
-            <div className="flex shrink-0 items-center rounded-lg border border-border/60 p-0.5">
+            <div className="flex flex-1 items-center rounded-lg border border-border/60 p-0.5 sm:flex-none sm:shrink-0">
               <Button
                 variant={viewMode === 'table' ? 'default' : 'ghost'}
                 size="sm"
-                className="h-8 gap-1.5 px-2.5"
+                className="h-8 flex-1 gap-1.5 px-2.5 sm:flex-none"
                 onClick={() => setViewMode('table')}
                 aria-label="Table view"
               >
                 <TableProperties className="h-4 w-4" />
-                <span className="hidden sm:inline">Table</span>
+                Table
               </Button>
               <Button
                 variant={viewMode === 'card' ? 'default' : 'ghost'}
                 size="sm"
-                className="h-8 gap-1.5 px-2.5"
+                className="h-8 flex-1 gap-1.5 px-2.5 sm:flex-none"
                 onClick={() => setViewMode('card')}
                 aria-label="Card view"
               >
                 <LayoutGrid className="h-4 w-4" />
-                <span className="hidden sm:inline">Cards</span>
+                Cards
               </Button>
             </div>
             <Button
               variant="ghost"
               size="icon-sm"
-              className="h-9 w-9"
+              className="hidden h-9 w-9 sm:inline-flex"
               onClick={refresh}
               disabled={loading}
               aria-label="Refresh"

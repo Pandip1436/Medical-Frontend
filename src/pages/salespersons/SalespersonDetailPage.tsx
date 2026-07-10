@@ -326,9 +326,9 @@ export default function SalespersonDetailPage() {
               </div>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
             {isAdmin && (
-              <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!salesperson}>
+              <Button size="sm" variant="outline" className="flex-1 sm:flex-none" onClick={() => setEditOpen(true)} disabled={!salesperson}>
                 <Edit2 className="mr-1.5 h-3.5 w-3.5" />
                 Edit
               </Button>
@@ -336,6 +336,7 @@ export default function SalespersonDetailPage() {
             <Button
               size="sm"
               variant="outline"
+              className="flex-1 sm:flex-none"
               onClick={() => salesperson && navigate(`/salespersons/report?salespersonId=${encodeURIComponent(salesperson.id)}`)}
               disabled={!salesperson}
             >
@@ -347,6 +348,7 @@ export default function SalespersonDetailPage() {
               <Button
                 size="sm"
                 variant={salesperson.isActive ? 'destructive' : 'default'}
+                className="flex-1 sm:flex-none"
                 onClick={handleToggle}
               >
                 {salesperson.isActive ? <UserX className="mr-1.5 h-3.5 w-3.5" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}

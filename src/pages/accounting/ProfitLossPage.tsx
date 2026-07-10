@@ -460,7 +460,7 @@ export default function ProfitLossPage() {
           const yearOptions = Array.from({ length: 10 }, (_, i) => nowYear - i)
 
           return (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           {/* responsive: single non-wrapping row; scrolls horizontally on narrow phones */}
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto [&>*]:shrink-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Period type toggle */}
@@ -571,24 +571,24 @@ export default function ProfitLossPage() {
           </div>
 
           {/* Exports */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <Button
               variant="outline"
               size="sm"
-              className="border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-400 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 dark:hover:border-rose-700"
+              className="flex-1 sm:w-auto sm:flex-none border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-400 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 dark:hover:border-rose-700"
               onClick={() => handleExport('PDF')}
             >
               <FileDown className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">PDF</span>
+              PDF
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
               onClick={() => handleExport('Excel')}
             >
               <FileSpreadsheet className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Excel</span>
+              Excel
             </Button>
           </div>
         </div>

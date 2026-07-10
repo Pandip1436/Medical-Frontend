@@ -294,25 +294,25 @@ export default function CategoriesPage() {
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { setSelectedStatus('all'); setCardFilter('all'); setCurrentPage(1) }}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <Button
               variant="outline"
               size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              className="flex-1 sm:w-auto sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
               onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true) }}
             >
               <Upload className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Import</span>
+              Import
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                  className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
                 >
                   <Download className="mr-1.5 h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  Export
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -323,6 +323,7 @@ export default function CategoriesPage() {
             </DropdownMenu>
             <Button
               size="sm"
+              className="w-full sm:w-auto"
               onClick={openAdd}
             >
               <Plus className="mr-1.5 h-4 w-4" />

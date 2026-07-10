@@ -561,12 +561,12 @@ export default function ExpensesPage() {
         }}
         columnsNode={viewMode === 'table' ? <ColumnsToggle columns={EXPENSE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} /> : undefined}
         actionNode={
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center rounded-xl border border-border/60 p-1">
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
+            <div className="flex flex-1 items-center rounded-xl border border-border/60 p-1 sm:w-auto sm:flex-none">
               <Button
                 variant={viewMode === 'table' ? 'default' : 'ghost'}
                 size="sm"
-                className="h-7 px-2"
+                className="h-7 flex-1 px-2 sm:flex-none"
                 onClick={() => setViewMode('table')}
               >
                 <TableProperties className="mr-1 h-4 w-4" />
@@ -575,7 +575,7 @@ export default function ExpensesPage() {
               <Button
                 variant={viewMode === 'chart' ? 'default' : 'ghost'}
                 size="sm"
-                className="h-7 px-2"
+                className="h-7 flex-1 px-2 sm:flex-none"
                 onClick={() => setViewMode('chart')}
               >
                 <BarChart3 className="mr-1 h-4 w-4" />
@@ -587,11 +587,11 @@ export default function ExpensesPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
+                  className="flex-1 gap-1.5 sm:w-auto sm:flex-none"
                   disabled={isExporting || total === 0}
                 >
                   <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">{isExporting ? 'Exporting…' : 'Export'}</span>
+                  {isExporting ? 'Exporting…' : 'Export'}
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -611,7 +611,7 @@ export default function ExpensesPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" onClick={handleOpenAdd}>
+            <Button size="sm" className="w-full sm:w-auto" onClick={handleOpenAdd}>
               <Plus className="mr-1 h-4 w-4" />
               Add Expense
             </Button>

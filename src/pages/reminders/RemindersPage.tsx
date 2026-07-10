@@ -422,7 +422,7 @@ export default function RemindersPage() {
       <motion.div variants={itemVariants}>
         <Card className="overflow-hidden p-0">
           {/* ── Toolbar ── */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-3 py-2">
+          <div className="flex flex-col gap-3 border-b border-border/60 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground">
               {dueTodayCount > 0 ? (
                 <><span className="font-semibold text-amber-600 dark:text-amber-400">{dueTodayCount} due today</span></>
@@ -432,8 +432,10 @@ export default function RemindersPage() {
               {' · '}<span className="font-semibold text-emerald-600 dark:text-emerald-400">{talkedThisMonthCount} talked</span> this month
               {' · '}{totalCount} total
             </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex max-w-full items-center overflow-x-auto rounded-md border border-border/60 bg-background p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              {/* Filters + sort — share one row on mobile. */}
+              <div className="flex items-center gap-2 sm:contents">
+              <div className="flex min-w-0 flex-1 items-center overflow-x-auto rounded-md border border-border/60 bg-background p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:w-auto sm:flex-none">
                 {STATUS_FILTERS.map(s => (
                   <button
                     key={s.key}
@@ -470,19 +472,23 @@ export default function RemindersPage() {
                 <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
                 {sortBy === 'newest' ? 'Newest' : 'Oldest'}
               </button>
-              <Button size="sm" className="h-7 gap-1 px-2 text-[11px]" onClick={() => setAddOpen(true)}>
+              </div>
+              {/* Add + Refresh — own full-width row on mobile, each half. */}
+              <div className="flex items-center gap-2 sm:contents">
+              <Button size="sm" className="h-7 flex-1 justify-center gap-1 px-2 text-[11px] sm:flex-none" onClick={() => setAddOpen(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="h-7 w-7"
+                className="h-7 flex-1 sm:w-7 sm:flex-none"
                 onClick={fetchReminders}
                 disabled={loading}
                 aria-label="Refresh"
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
               </Button>
+              </div>
             </div>
           </div>
 

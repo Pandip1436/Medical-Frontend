@@ -1635,6 +1635,14 @@ function MobileBillingCard({
     onUpdate(item.id, updates)
   }
 
+  const handleDiscountChange = (disc: number) => {
+    const clamped = Math.min(Math.max(0, disc), 100)
+    const updates: Partial<BillingItem> = { discountPercent: clamped }
+    const tempItem = { ...item, ...updates }
+    updates.amount = calculateItemAmount(tempItem)
+    onUpdate(item.id, updates)
+  }
+
   return (
     <Card className="mb-3 border border-border shadow-sm overflow-hidden">
       <CardContent className="p-3">
@@ -1764,7 +1772,7 @@ function MobileBillingCard({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate (₹)</Label>
             <input
@@ -1774,6 +1782,31 @@ function MobileBillingCard({
               onChange={(e) => handleRateChange(parseFloat(e.target.value) || 0)}
               className="w-full h-9 px-2.5 bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Disc (%)</Label>
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={item.discountPercent || ''}
+                onChange={(e) => handleDiscountChange(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className={cn(
+                  "w-full h-9 pl-2.5 pr-6 border-0 text-sm font-semibold font-mono tabular-nums rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                  item.discountPercent > 0
+                    ? "bg-rose-50/40 dark:bg-rose-900/10 text-rose-600 dark:text-rose-400"
+                    : "bg-muted/40 text-foreground placeholder:text-muted-foreground/40"
+                )}
+              />
+              <span className={cn(
+                "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold",
+                item.discountPercent > 0 ? "text-rose-500" : "text-muted-foreground/50"
+              )}>%</span>
+            </div>
           </div>
           <div className="space-y-1.5 text-right">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total</Label>
@@ -2355,6 +2388,9 @@ export default function NewSalePage() {
   }, [selectedCustomer, salespersons])
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
+  // Collapse the selected-customer details strip (phone/address/GSTIN/DL) to
+  // reclaim vertical space — handy on phones where it pushes the cart down.
+  const [customerDetailsHidden, setCustomerDetailsHidden] = useState(false)
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
   // Inline "Add New Product" — opens from the per-row product search dropdown
   // (see BillingRow). After save, the new product is auto-filled into the row
@@ -4862,8 +4898,10 @@ export default function NewSalePage() {
               {/* Neutral strip (no colored fill) so it doesn't clash with the
                   rose credit-block banner when both are on screen. */}
               <div className="border-b border-border/40 px-4 py-2">
-                {/* Detail fields (name shown in the selector pill above) */}
-                <div className="flex flex-wrap items-start gap-x-8 gap-y-2.5">
+                {/* Detail fields (name shown in the selector pill above).
+                    A hide/show toggle collapses the strip to reclaim vertical space. */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className={cn('flex min-w-0 flex-1 flex-wrap items-start gap-x-8 gap-y-2.5', customerDetailsHidden && 'hidden')}>
                   {selectedCustomer.phone && selectedCustomer.phone !== '0000000000' && (
                     <div className="flex items-center gap-2">
                       <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground/60" />
@@ -4903,6 +4941,19 @@ export default function NewSalePage() {
                       </div>
                     </div>
                   )}
+                  </div>
+                  {customerDetailsHidden && (
+                    <span className="self-center text-[11px] italic text-muted-foreground/70">Customer details hidden</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCustomerDetailsHidden((v) => !v)}
+                    className="shrink-0 -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                    title={customerDetailsHidden ? 'Show customer details' : 'Hide customer details'}
+                    aria-label={customerDetailsHidden ? 'Show customer details' : 'Hide customer details'}
+                  >
+                    <ChevronDown className={cn('h-4 w-4 transition-transform', !customerDetailsHidden && 'rotate-180')} />
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -6340,14 +6391,50 @@ export default function NewSalePage() {
                       </div>
                     ) : (
                       /* ════════════════════════════════════════════
-                          INVOICE LIST VIEW
+                          INVOICE LIST VIEW — mirrors the Product History tab's
+                          working scroll structure: a bounded flex column with a
+                          shrink-0 header and a flex-1 ScrollArea, so the invoice
+                          list scrolls on every screen (incl. phones).
                       ════════════════════════════════════════════ */
-                      <ScrollArea className="flex-1">
-                        <div className="px-3 py-2 border-b border-border/40 bg-muted/20">
+                      <div className="flex-1 flex flex-col overflow-hidden">
+                        <div className="px-3 py-2 border-b border-border/40 bg-muted/20 shrink-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             {customerInvoices.length} invoice{customerInvoices.length !== 1 ? 's' : ''} — {selectedCustomer.name}
                           </p>
                         </div>
+                        <ScrollArea className="flex-1">
+                        {/* responsive: card list on phones, table at md+ */}
+                        <div className="divide-y divide-border/40 md:hidden">
+                          {customerInvoices.map((inv) => (
+                            <button
+                              key={inv.id}
+                              type="button"
+                              onClick={() => setSelectedHistoryInvoice(inv)}
+                              className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent/40"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</span>
+                                  <span className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(Number(inv.grandTotal))}</span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                                  <span>{new Date(inv.date ?? inv.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</span>
+                                  <span className="opacity-50">·</span>
+                                  <span>{inv.items?.length ?? '—'} item{(inv.items?.length ?? 0) !== 1 ? 's' : ''}</span>
+                                  <Badge
+                                    variant={inv.status === 'PAID' ? 'success' : inv.status === 'UNPAID' ? 'warning' : inv.status === 'CANCELLED' ? 'destructive' : 'secondary'}
+                                    size="sm"
+                                    className="text-[9px]"
+                                  >
+                                    {inv.status}
+                                  </Badge>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+                            </button>
+                          ))}
+                        </div>
+                        <div className="hidden md:block">
                         <Table>
                           <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md">
                             <TableRow className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent border-b border-border/40">
@@ -6388,7 +6475,9 @@ export default function NewSalePage() {
                             ))}
                           </TableBody>
                         </Table>
-                      </ScrollArea>
+                        </div>
+                        </ScrollArea>
+                      </div>
                     )}
                   </>
                 )}

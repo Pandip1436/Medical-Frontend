@@ -1148,18 +1148,19 @@ export default function CustomersPage() {
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="sm" onClick={handleExport}>
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
+            <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={handleExport}>
               <Download className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
+              Export
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
+            <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={() => setImportDrawerOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Import</span>
+              Import
             </Button>
-            <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+            <Button size="sm" className="w-full sm:w-auto" onClick={() => setAddDialogOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Add Customer</span>
+              <span className="sm:hidden">Add</span>
             </Button>
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/customers') }} />
           </div>

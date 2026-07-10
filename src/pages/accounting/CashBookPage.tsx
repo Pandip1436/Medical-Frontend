@@ -464,8 +464,9 @@ export default function CashBookPage() {
               Today
             </Button>
 
-            {/* Search — flex-grow so it absorbs the middle of the row */}
-            <div className="order-last w-full sm:order-0 sm:w-auto sm:flex-1 sm:min-w-48">
+            {/* Search — first row on mobile (full width); on sm+ it flows back
+                into the middle of the toolbar and grows to fill. */}
+            <div className="order-first w-full sm:order-0 sm:w-auto sm:flex-1 sm:min-w-48">
               <Input
                 icon={<Search className="h-4 w-4" />}
                 placeholder="Search particulars or ref#..."
@@ -510,7 +511,7 @@ export default function CashBookPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" className="h-9" onClick={() => setAddExpenseOpen(true)}>
+            <Button size="sm" className="h-9 w-full sm:w-auto" onClick={() => setAddExpenseOpen(true)}>
               <Plus className="mr-1 h-4 w-4" />
               <span className="hidden sm:inline">Add Expense</span>
               <span className="sm:hidden">Add</span>

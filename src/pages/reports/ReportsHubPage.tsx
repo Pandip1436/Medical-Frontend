@@ -220,16 +220,17 @@ export default function ReportsHubPage() {
               {totalReports} reports available across {categoryKeys.length - 1} categories
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
               icon={<Search />}
               placeholder="Search reports..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 min-w-0 flex-1 text-xs sm:w-56 sm:flex-none"
+              className="h-8 w-full min-w-0 text-xs sm:w-56 sm:flex-none"
             />
+            <div className="flex items-center gap-2">
             <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as CategoryKey)}>
-              <SelectTrigger className="h-8 w-28 shrink-0 rounded-lg text-xs sm:w-32.5">
+              <SelectTrigger className="h-8 flex-1 rounded-lg text-xs sm:w-32.5 sm:flex-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -258,6 +259,7 @@ export default function ReportsHubPage() {
               >
                 <List className="h-3.5 w-3.5" />
               </button>
+            </div>
             </div>
           </div>
         </div>

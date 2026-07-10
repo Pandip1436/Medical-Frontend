@@ -518,53 +518,53 @@ export default function SalespersonReportPage() {
             resultsCount={filtered.length}
             activeFilterCount={activeFilterCount}
             onClearFilters={handleClear}
-            midNode={
-              <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 dark:bg-muted/20">
-                <button
-                  onClick={() => setViewMode('table')}
-                  className={cn(
-                    'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all',
-                    viewMode === 'table' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  title="Table view"
-                >
-                  <Table2 className="h-3.5 w-3.5" />
-                  <span>Table</span>
-                </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={cn(
-                    'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all',
-                    viewMode === 'grid' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  title="Grid view"
-                >
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  <span>Grid</span>
-                </button>
-              </div>
-            }
             actionNode={
-              <div className="flex items-center gap-1.5">
+              <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
+                {/* Table/Grid view toggle — own full-width row on mobile (keeps it
+                    off the search row), inline with the actions from sm up. */}
+                <div className="flex w-full items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 dark:bg-muted/20 sm:w-auto">
+                  <button
+                    onClick={() => setViewMode('table')}
+                    className={cn(
+                      'flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all sm:flex-none',
+                      viewMode === 'table' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Table view"
+                  >
+                    <Table2 className="h-3.5 w-3.5" />
+                    <span>Table</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={cn(
+                      'flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all sm:flex-none',
+                      viewMode === 'grid' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Grid view"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <span>Grid</span>
+                  </button>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
+                  className="flex-1 gap-1.5 sm:w-auto sm:flex-none"
                   onClick={() => fetchReport()}
                   disabled={isLoading}
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
                   <span className="hidden sm:inline">Refresh</span>
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportPdf}>
+                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handleExportPdf}>
                   <FileDown className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">PDF</span>
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportCsv}>
+                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handleExportCsv}>
                   <FileSpreadsheet className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Excel</span>
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint}>
+                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handlePrint}>
                   <Printer className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Print</span>
                 </Button>

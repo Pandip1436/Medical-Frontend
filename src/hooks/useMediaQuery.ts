@@ -40,3 +40,12 @@ export function useIsMobileOrTablet() {
 export function useIsCompactTouchDevice() {
   return useMediaQuery('(hover: none) and (max-width: 1279px)')
 }
+
+// Any viewport narrower than desktop `xl` (1280px), regardless of input type.
+// Used to hide the side rail and switch to the fixed bottom tab bar on ALL
+// phones and tablets — including desktop browsers resized narrow for testing,
+// which the touch-only check above deliberately ignores. Real desktops
+// (>=1280px) keep the sidebar.
+export function useIsCompactViewport() {
+  return useMediaQuery('(max-width: 1279px)')
+}

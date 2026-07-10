@@ -13,6 +13,12 @@ import path from 'path'
 //   - Cloud Run / static GCS bucket: configure 404 page = /index.html
 // Vite's dev server handles this automatically.
 export default defineConfig({
+  server: {
+    // Bind to all network interfaces so the dev server is reachable from other
+    // devices on the same LAN (e.g. a phone) via http://<your-PC-IP>:5173.
+    host: true,
+    port: 5173,
+  },
   plugins: [
     react(),
     tailwindcss(),

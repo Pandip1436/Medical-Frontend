@@ -419,40 +419,44 @@ export default function BranchesPage() {
         resultsCount={total}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
-        midNode={
-          <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 dark:bg-muted/20">
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all',
-                viewMode === 'table'
-                  ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Table2 className="h-3.5 w-3.5" />Table
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all',
-                viewMode === 'grid'
-                  ? 'bg-background text-foreground shadow-sm dark:bg-card'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />Grid
-            </button>
+        actionNode={
+          <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
+            {/* Table/Grid toggle — own full-width row on mobile (keeps it off the
+                search row), inline with the actions from sm up. */}
+            <div className="flex w-full items-center gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 dark:bg-muted/20 sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all sm:flex-none',
+                  viewMode === 'table'
+                    ? 'bg-background text-foreground shadow-sm dark:bg-card'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Table2 className="h-3.5 w-3.5" />Table
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all sm:flex-none',
+                  viewMode === 'grid'
+                    ? 'bg-background text-foreground shadow-sm dark:bg-card'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />Grid
+              </button>
+            </div>
+            {isAdmin && (
+              <Button size="sm" className="w-full sm:w-auto" onClick={openAdd}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add Branch
+              </Button>
+            )}
           </div>
         }
-        actionNode={isAdmin ? (
-          <Button size="sm" onClick={openAdd}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add Branch
-          </Button>
-        ) : undefined}
       >
         <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
           <EnumSelect

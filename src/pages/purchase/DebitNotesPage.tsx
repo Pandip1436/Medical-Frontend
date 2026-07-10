@@ -669,10 +669,10 @@ export default function DebitNotesPage() {
                 }
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex w-full items-center gap-1.5 sm:w-auto">
                   <Button
                     size="sm"
-                    className="shrink-0"
+                    className="flex-1 sm:w-auto sm:flex-none"
                     onClick={() => navigate('/purchase/returns')}
                   >
                     <Plus className="mr-1.5 h-4 w-4" />

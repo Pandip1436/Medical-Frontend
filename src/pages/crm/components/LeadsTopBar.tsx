@@ -45,13 +45,15 @@ export function LeadsTopBar({
   onViewChange,
 }: LeadsTopBarProps) {
   return (
-    // Single row, never wraps. flex-nowrap is explicit. Tabs scroll within
-    // their own track if needed; right cluster always pins to the right.
-    // items-end keeps tab bottoms and the action cluster bottom on the same
-    // baseline so the wrapper hairline reads as one line. min-w-0 + the
-    // inner overflow-x-auto on the tab strip keep the page itself from
-    // ever growing wider than its parent.
-    <div className="flex min-w-0 flex-nowrap items-end justify-between gap-3 border-b border-border/40">
+    // Desktop: single row, never wraps. Tabs scroll within their own track if
+    // needed; right cluster always pins to the right. items-end keeps tab
+    // bottoms and the action cluster on the same baseline so the wrapper
+    // hairline reads as one line.
+    // Mobile: flex-col-reverse stacks the action cluster on TOP and the tab
+    // strip on the BOTTOM (so the tabs' underline still sits on the container
+    // hairline) — the tabs get the full width instead of being squeezed into a
+    // sliver next to the actions.
+    <div className="flex min-w-0 flex-col-reverse gap-2 border-b border-border/40 md:flex-row md:flex-nowrap md:items-end md:justify-between md:gap-3">
       {/* Tab strip — each tab's own bottom border IS the indicator, exactly
           like CustomerDetailPage tabs. Transparent when inactive, primary
           when active. overflow-hidden + min-w-0 so trackpad/mouse-wheel
@@ -93,8 +95,10 @@ export function LeadsTopBar({
       </div>
 
       {/* Right cluster — view modes + upload/download + Add Lead + kebab.
-          pb-2 + shrink-0 → never wraps; sits on the same baseline as the tabs. */}
-      <div className="flex shrink-0 items-center gap-1.5 pb-2">
+          On mobile it's its own top row: justify-between spreads the sync
+          indicator and controls across the full width. On md+ it shrinks to
+          the right and sits on the tabs' baseline (pb-2). */}
+      <div className="flex shrink-0 items-center justify-between gap-1.5 md:justify-normal md:pb-2">
         <IndiamartSyncIndicator />
         <Button
           variant="ghost"
@@ -106,8 +110,9 @@ export function LeadsTopBar({
           <span className="hidden sm:inline">Analytics</span>
         </Button>
 
-        {/* Grouped 3-way view toggle */}
-        <div className="inline-flex rounded-md border border-border bg-muted/40 p-0.5">
+        {/* Grouped 3-way view toggle — hidden on mobile (Board/Split aren't
+            useful on a phone; the list + card view is the mobile experience). */}
+        <div className="hidden rounded-md border border-border bg-muted/40 p-0.5 md:inline-flex">
           {([
             { value: 'list', label: 'List', icon: List },
             { value: 'kanban', label: 'Board', icon: LayoutGrid },

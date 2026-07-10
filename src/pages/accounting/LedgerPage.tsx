@@ -825,10 +825,10 @@ export default function LedgerPage() {
           variant="outline"
           size="sm"
           disabled={!ledgerWithBalance.length}
-          className="gap-1.5"
+          className="w-full gap-1.5 sm:w-auto"
         >
           <Download className="h-4 w-4" />
-          <span className="hidden sm:inline">Export</span>
+          Export
           <ChevronDown className="h-3.5 w-3.5 opacity-60" />
         </Button>
       </DropdownMenuTrigger>

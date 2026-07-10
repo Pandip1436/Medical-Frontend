@@ -355,9 +355,9 @@ export default function SalespersonsPage() {
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={SALESPERSON_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             {isAdmin && (
-              <Button size="sm" onClick={openCreate}>
+              <Button size="sm" className="w-full sm:w-auto" onClick={openCreate}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add Salesperson
               </Button>

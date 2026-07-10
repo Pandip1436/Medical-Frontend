@@ -503,9 +503,10 @@ export default function OutstandingPage() {
         onClearFilters={clearFilters}
         columnsNode={<ColumnsToggle columns={OUTSTANDING_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center justify-end gap-1.5 sm:w-auto">
           <Button
             size="sm"
+            className="w-full sm:w-auto"
             onClick={handleBulkReminders}
             disabled={selectedIds.size === 0 || bulkSubmitting}
           >

@@ -139,9 +139,9 @@ export function LeadDetailsTab({
               {lead.contact.email ? (
                 <a
                   href={`mailto:${lead.contact.email}`}
-                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                  className="flex min-w-0 items-center gap-1.5 text-sm text-primary hover:underline"
                 >
-                  <span className="truncate">{lead.contact.email}</span>
+                  <span className="min-w-0 truncate">{lead.contact.email}</span>
                   <Mail className="h-3.5 w-3.5 shrink-0 text-primary/70" />
                 </a>
               ) : (

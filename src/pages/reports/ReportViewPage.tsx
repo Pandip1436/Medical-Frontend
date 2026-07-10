@@ -964,14 +964,14 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportPdf}>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handleExportPdf}>
                 <FileDown className="h-3.5 w-3.5" />PDF
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handleExportExcel}>
+              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handleExportExcel}>
                 <FileSpreadsheet className="h-3.5 w-3.5" />Excel
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-xl border-border/60" onClick={handlePrint}>
+              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handlePrint}>
                 <Printer className="h-3.5 w-3.5" />Print
               </Button>
             </div>
@@ -988,17 +988,17 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
         {/* ── View Toggle ── */}
         {reportType !== 'profit-loss' && reportType !== 'gstr3b-summary' && (
           <motion.div variants={itemVariants}>
-            <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1 w-fit border border-border/60 dark:bg-muted/30">
+            <div className="flex w-full items-center gap-1 rounded-xl bg-muted/60 p-1 border border-border/60 dark:bg-muted/30 sm:w-fit">
               <button
                 onClick={() => setViewMode('chart')}
-                className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 sm:flex-none',
                   viewMode === 'chart' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground')}
               >
                 <BarChart2 className="h-3.5 w-3.5" />Chart
               </button>
               <button
                 onClick={() => setViewMode('table')}
-                className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 sm:flex-none',
                   viewMode === 'table' ? 'bg-background text-foreground shadow-sm dark:bg-card' : 'text-muted-foreground hover:text-foreground')}
               >
                 <Table2 className="h-3.5 w-3.5" />Table

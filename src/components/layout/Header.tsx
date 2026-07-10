@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Settings,
   LogOut,
-  Menu,
   Building2,
   ChevronDown,
   RefreshCw,
@@ -19,6 +18,7 @@ import { navigate as routerNavigate, href as hashHref } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useBranchStore } from '@/stores/branchStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { isSuperAdmin, isAdminish, userRoles } from '@/types'
 import { rolePermissions } from '@/App'
 import { Button } from '@/components/ui/button'
@@ -53,10 +53,10 @@ const roleRingColors: Record<string, string> = {
 
 export function Header({ breadcrumbs }: HeaderProps) {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
-  const { user, theme, setTheme, resolvedTheme, logout, toggleMobileSidebar } =
-    useAuthStore()
+  const { user, theme, setTheme, resolvedTheme, logout } = useAuthStore()
   const { unreadCount, fetchNotifications, startPolling } = useNotificationStore()
   const { branches, activeBranch, setActiveBranch, fetchBranches } = useBranchStore()
+  const businessProfile = useSettingsStore((s) => s.businessProfile)
 
   // Branches this user may switch between. Super Admins reach every active
   // branch; everyone else is limited to their assigned set (branchIds).
@@ -120,15 +120,34 @@ export function Header({ breadcrumbs }: HeaderProps) {
     >
       {/* Left: Hamburger (mobile) + Breadcrumbs */}
       <div className="flex items-center gap-3">
-        {/* Hamburger menu - mobile only */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 md:hidden"
-          onClick={toggleMobileSidebar}
+        {/* Logo — shown on mobile/tablet where the side rail (which carries the
+            logo) is hidden. Hidden at xl+ once the sidebar returns on desktop. */}
+        <a
+          href={hashHref('/dashboard')}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+            e.preventDefault()
+            routerNavigate('/dashboard')
+          }}
+          className="flex items-center gap-2 xl:hidden"
         >
-          <Menu className="h-4 w-4" />
-        </Button>
+          <img
+            src="/logo.png"
+            alt={businessProfile?.name || 'Hospital Suppliers'}
+            className="h-8 w-8 shrink-0 rounded-full object-cover shadow-sm shadow-brand/20"
+            // Fall back to the brand pill mark if the logo file isn't present.
+            onError={(e) => {
+              const el = e.currentTarget
+              el.onerror = null
+              el.src =
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' rx='16' fill='%23e11d48'/%3E%3C/svg%3E"
+            }}
+          />
+          <span className="max-w-[42vw] truncate text-sm font-semibold tracking-tight">
+            {/* Business name only — strip the " - <branch>" suffix. */}
+            {(businessProfile?.name || 'Hospital Suppliers').split(' - ')[0]}
+          </span>
+        </a>
 
         {/* Breadcrumbs - hidden on mobile only. Lightweight enough (unlike the
             search pill/branch switcher/username below) to fit alongside the

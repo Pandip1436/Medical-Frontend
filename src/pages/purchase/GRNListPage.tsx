@@ -688,10 +688,11 @@ export default function GRNListPage() {
         }
         columnsNode={<ColumnsToggle columns={GRN_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/grn-list') }} />
             <Button
               size="sm"
+              className="flex-1 sm:w-auto sm:flex-none"
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />

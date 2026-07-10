@@ -1373,9 +1373,10 @@ export default function PurchaseOrdersPage() {
         }
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <Button
               size="sm"
+              className="flex-1 sm:w-auto sm:flex-none"
               onClick={() => setCreateDialogOpen(true)}
             >
               <Plus className="mr-1.5 h-4 w-4" />
@@ -1385,7 +1386,7 @@ export default function PurchaseOrdersPage() {
             <Button
               variant="outline"
               size="sm"
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              className="flex-1 sm:w-auto sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />

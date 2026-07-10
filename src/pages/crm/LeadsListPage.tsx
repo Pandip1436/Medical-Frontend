@@ -115,46 +115,33 @@ export default function LeadsListPage() {
     // shrink-0. overflow-x-hidden on the page itself; overflow-y is handled
     // by the inner scroll region around <LeadsTable>.
     <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col gap-3 overflow-x-hidden">
-      {/* Top bar — title + tabs + view toggles + actions */}
-      <LeadsTopBar
-        tab={list.tab}
-        counts={list.counts}
-        onTabChange={list.setTab}
-        view={effectiveView}
-        onViewChange={(v) => {
-          setView(v)
-          // Switching out of split clears the selected-lead so the new
-          // view actually appears (split is implied by ?leadId in the URL).
-          if (v !== 'split' && selectedLeadId) selectLead(null)
-        }}
-      />
-
       {/* Search input + Filters toggle — same pattern as DataTableFilterBar.
           Result count lives on the right end of the search input as a suffix.
           Hidden in split view (the rail has its own compact search). */}
       {effectiveView !== 'split' && (
         <>
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <Input
-                icon={<Search className="h-4 w-4" />}
-                suffix={
-                  <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                    {list.loading ? 'Loading…' : `${list.total} leads found`}
-                  </span>
-                }
-                placeholder="Search leads..."
-                value={list.filters.q}
-                onChange={(e) =>
-                  list.setFilters((prev) => ({ ...prev, q: e.target.value }))
-                }
-              />
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {/* Search + Filters — one unit; full-width row on mobile. */}
+            <div className="flex items-center gap-2 sm:flex-1">
+              <div className="min-w-0 flex-1">
+                <Input
+                  icon={<Search className="h-4 w-4" />}
+                  suffix={
+                    <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                      {list.loading ? 'Loading…' : `${list.total} leads found`}
+                    </span>
+                  }
+                  placeholder="Search leads..."
+                  value={list.filters.q}
+                  onChange={(e) =>
+                    list.setFilters((prev) => ({ ...prev, q: e.target.value }))
+                  }
+                />
+              </div>
               <Button
                 variant={filtersOpen ? 'default' : 'outline'}
                 size="sm"
-                className="gap-1.5"
+                className="shrink-0 gap-1.5"
                 onClick={() => setFiltersOpen((v) => !v)}
               >
                 <SlidersHorizontal className="h-4 w-4" />
@@ -173,17 +160,20 @@ export default function LeadsListPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-1 text-muted-foreground hover:text-foreground"
+                  className="shrink-0 gap-1 text-muted-foreground hover:text-foreground"
                   onClick={() => list.clearFilters()}
                 >
                   <X className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Clear</span>
                 </Button>
               )}
+            </div>
+            {/* Actions — Import/Export share a row, Add Lead full width on mobile. */}
+            <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5"
+                className="flex-1 gap-1.5 sm:flex-none"
                 onClick={() => setImportOpen(true)}
               >
                 <Upload className="h-4 w-4" />
@@ -192,7 +182,7 @@ export default function LeadsListPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5"
+                className="flex-1 gap-1.5 sm:flex-none"
                 onClick={() => setExportOpen(true)}
               >
                 <Download className="h-4 w-4" />
@@ -200,7 +190,7 @@ export default function LeadsListPage() {
               </Button>
               <Button
                 size="sm"
-                className="gap-1.5"
+                className="w-full gap-1.5 sm:w-auto"
                 onClick={() => setAddLeadOpen(true)}
               >
                 <Plus className="h-4 w-4" />
@@ -255,6 +245,20 @@ export default function LeadsListPage() {
         </>
       )}
 
+      {/* Tabs + view toggles — moved directly above the list body they filter. */}
+      <LeadsTopBar
+        tab={list.tab}
+        counts={list.counts}
+        onTabChange={list.setTab}
+        view={effectiveView}
+        onViewChange={(v) => {
+          setView(v)
+          // Switching out of split clears the selected-lead so the new
+          // view actually appears (split is implied by ?leadId in the URL).
+          if (v !== 'split' && selectedLeadId) selectLead(null)
+        }}
+      />
+
       {/* Error banner */}
       {list.error && (
         <div className="rounded-md border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">
@@ -267,14 +271,15 @@ export default function LeadsListPage() {
           pinned and only the body scrolls. */}
       {effectiveView === 'split' ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2">
-          {/* Collapsible stats cards */}
+          {/* Collapsible stats cards — desktop split-view chrome only; on mobile
+              a tapped lead's detail takes the whole screen, so hide it there. */}
           <AnimatePresence>
             {splitShowStats && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
+                className="hidden overflow-hidden md:block"
               >
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
@@ -298,8 +303,9 @@ export default function LeadsListPage() {
             )}
           </AnimatePresence>
 
-          {/* Toolbar row */}
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {/* Toolbar row — desktop split chrome; hidden on mobile so the
+              tapped lead's detail owns the screen. */}
+          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 md:flex">
             <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
               <Download className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
@@ -340,7 +346,7 @@ export default function LeadsListPage() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
+                className="hidden overflow-hidden md:block"
               >
                 <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
                   <LeadsFilterChips

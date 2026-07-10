@@ -146,9 +146,17 @@ export function LeadsSplitView({
       {/* h-full so we inherit from the page's flex-1 wrapper — no more
           hard-coded viewport math that caused the outer page to scroll when
           the panel was taller than the calculated height. */}
-      <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[minmax(240px,32%)_1fr] overflow-hidden rounded-lg border border-border/60 bg-background">
-        {/* ── Left rail ── */}
-        <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/40">
+      {/* On mobile it's a SINGLE pane at a time: the rail when nothing is
+          selected, the detail once a lead is picked (grid-rows-[1fr] makes that
+          one visible pane fill the height so its internal scroll works). On md+
+          both panes show side by side as before. */}
+      <div className="grid h-full min-h-0 grid-rows-[1fr] grid-cols-1 md:grid-cols-[minmax(240px,32%)_1fr] overflow-hidden rounded-lg border border-border/60 bg-background">
+        {/* ── Left rail ── (hidden on mobile once a lead is selected — the
+            detail takes over full-screen; the list view is the picker there) */}
+        <aside className={cn(
+          'min-h-0 min-w-0 flex-col border-r border-border/40',
+          selectedLeadId ? 'hidden md:flex' : 'flex',
+        )}>
           {/* Header strip — back arrow + total count */}
           <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5">
             <Button
@@ -208,8 +216,28 @@ export function LeadsSplitView({
           </div>
         </aside>
 
-        {/* ── Right panel ── */}
-        <section className="flex min-h-0 min-w-0 flex-col">
+        {/* ── Right panel ── (on mobile only shown once a lead is selected) */}
+        <section className={cn(
+          'min-h-0 min-w-0 flex-col',
+          selectedLeadId ? 'flex' : 'hidden md:flex',
+        )}>
+          {/* Mobile-only back bar for the states BEFORE the lead loads (loading
+              / error / empty) — otherwise there'd be no way back on a phone,
+              since the rail is hidden and the detail header (with its own close
+              button) hasn't rendered yet. Once loaded, LeadDetailHeader owns it. */}
+          {!detail.lead && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5 md:hidden">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onExitSplitView}
+                aria-label="Back to list"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground">Back to leads</span>
+            </div>
+          )}
           {detail.loading && !detail.lead ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Loading lead…

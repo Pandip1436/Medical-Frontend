@@ -39,7 +39,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { href as hashHref, navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
-import { useIsCompactTouchDevice } from '@/hooks/useMediaQuery'
+import { useIsCompactTouchDevice, useIsCompactViewport } from '@/hooks/useMediaQuery'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
 import { userRoles, primaryRole, isAdminish } from '@/types'
@@ -271,6 +271,11 @@ export function Sidebar({ currentPath }: SidebarProps) {
   // opens a temporary overlay instead of pushing it wider (see the tablet
   // branch below) so main content never re-animates its margin on tablet.
   const isTabletTouch = useIsCompactTouchDevice() && !isMobile
+  // Below the xl breakpoint (1280px) we ALWAYS use the bottom tab bar and hide
+  // the side rail — on every phone/tablet and also a desktop browser resized
+  // narrow (which the touch-only check above intentionally ignores). Only true
+  // desktops (>=1280px) keep the sidebar.
+  const isCompactViewport = useIsCompactViewport()
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
@@ -642,8 +647,10 @@ export function Sidebar({ currentPath }: SidebarProps) {
     </div>
   )
 
-  // ─── MOBILE LAYOUT ──────────────────────────────────────────────────────
-  if (isMobile) {
+  // ─── MOBILE / TABLET LAYOUT ─────────────────────────────────────────────
+  // Phones AND touch tablets (iPad etc.) both hide the side rail and use the
+  // fixed bottom tab bar — so no sidebar shows on any touch device.
+  if (isMobile || isTabletTouch || isCompactViewport) {
     return (
       <>
         {/* Full-screen overlay sidebar */}

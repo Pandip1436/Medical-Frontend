@@ -483,16 +483,16 @@ export default function UsersPage() {
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                  className="w-full sm:w-auto border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
                 >
                   <Download className="mr-1.5 h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  Export
                   <ChevronDown className="ml-1 h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -509,6 +509,7 @@ export default function UsersPage() {
             </DropdownMenu>
             <Button
               size="sm"
+              className="w-full sm:w-auto"
               onClick={openAdd}
             >
               <Plus className="mr-1.5 h-4 w-4" />

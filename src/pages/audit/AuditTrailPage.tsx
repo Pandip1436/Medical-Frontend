@@ -569,26 +569,26 @@ export default function AuditTrailPage() {
           </div>
         }
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="flex-1 gap-1.5 sm:w-auto sm:flex-none"
               onClick={() => { fetchRows(); fetchStats() }}
               disabled={isLoading}
             >
               <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-              <span className="hidden sm:inline">Refresh</span>
+              Refresh
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+                  className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
                 >
                   <Download className="mr-1.5 h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  Export
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

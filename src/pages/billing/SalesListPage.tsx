@@ -1031,13 +1031,6 @@ export default function SalesListPage() {
         })}
       </div>
 
-      {/* ── Status Tabs ── */}
-      <StatusTabs
-        tab={statusTab}
-        onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
-        counts={tabCounts}
-      />
-
       {/* ── Search + Filter Row ── */}
       <DataTableFilterBar
         searchQuery={searchQuery}
@@ -1060,13 +1053,13 @@ export default function SalesListPage() {
         }
         columnsNode={<ColumnsToggle columns={SALES_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') enterSplitView() }} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none">
                   <Download className="mr-1.5 h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  Export
                   <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1168,9 +1161,10 @@ export default function SalesListPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" onClick={() => navigate('/billing/new')}>
+            <Button size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={() => navigate('/billing/new')}>
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">New Sale</span>
+              <span className="sm:hidden">New</span>
             </Button>
           </div>
         }
@@ -1226,6 +1220,13 @@ export default function SalesListPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* ── Status Tabs — sit directly above the invoice list they filter ── */}
+      <StatusTabs
+        tab={statusTab}
+        onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
+        counts={tabCounts}
+      />
 
       {/* ── Bulk actions bar ── */}
       <AnimatePresence>

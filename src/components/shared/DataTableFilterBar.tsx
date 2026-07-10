@@ -69,86 +69,81 @@ export function DataTableFilterBar({
       {/* When a leading filter (with its own top label) is present, bottom-align
           the row so its select lines up with the search box + buttons instead of
           sitting lower than them. Without it, keep the plain centered layout. */}
-      {/* Wraps on mobile into three stacked full-width rows: (1) leading filter,
-          (2) search, (3) right-aligned action buttons. On sm+ it collapses to a
-          single row: leading filter, search (flex-1), then the action cluster. */}
+      {/* Mobile stacks into two rows via flex-wrap + order: row 1 = search +
+          Filters button together (full width); row 2 = leading filter (grows) +
+          action cluster. From sm up it collapses onto a single row (leading,
+          search flex-1, filters, actions) — identical to the previous desktop. */}
       <div className={cn('flex flex-wrap gap-2', leadingNode ? 'items-end' : 'items-center')}>
-        {/* Always-visible leading filter (e.g. Period) — sits outside the
-            collapsible panel so it's reachable without opening Filters. Full width
-            on mobile so it reads as an intentional row (matching the search bar
-            below) rather than a small select floating at the top-left; natural
-            width from sm up. */}
-        {leadingNode && <div className="order-1 w-full min-w-0 sm:w-auto sm:shrink-0">{leadingNode}</div>}
+        {/* Always-visible leading filter (e.g. Period) — grows to fill mobile
+            row 2 beside the actions; natural width from sm up. */}
+        {leadingNode && <div className="order-2 min-w-0 flex-1 sm:order-1 sm:w-auto sm:flex-none sm:shrink-0">{leadingNode}</div>}
 
-        {/* Search — own full-width line on mobile (row 2, below the leading
-            filter and above the actions); fills the remaining row width (or
-            searchClassName) from sm up. */}
-        <div className={cn('order-2 w-full min-w-0 sm:w-auto', searchClassName ?? 'sm:flex-1')}>
-          <Input
-            icon={<Search className="h-4 w-4" />}
-            suffix={
-              resultsCount !== undefined ? (
-                <span className="whitespace-nowrap rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-                  {resultsCount} found
-                </span>
-              ) : undefined
-            }
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        </div>
+        {/* Search + Filters — ONE unit on a single row. Full-width row 1 on mobile;
+            grows to fill the middle from sm up. Inside: search (flex-1) then the
+            Filters toggle, so desktop reads leading → search → filters → actions. */}
+        <div className="order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:flex-1">
+          <div className={cn('min-w-0', searchClassName ?? 'flex-1')}>
+            <Input
+              icon={<Search className="h-4 w-4" />}
+              suffix={
+                resultsCount !== undefined ? (
+                  <span className="whitespace-nowrap rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                    {resultsCount} found
+                  </span>
+                ) : undefined
+              }
+              placeholder={searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+            />
+          </div>
 
-        {/* Right cluster: midNode + filter toggle + clear + actionNode. order-3 keeps it
-            last everywhere. On mobile it's its OWN full-width row (row 3) with the
-            controls spread across it (Filters group at the left edge, actions at the
-            right) so the buttons read as an aligned app-style toolbar instead of a
-            lopsided right-hugging cluster. From sm up it trails the search on one row,
-            right-aligned. flex-wrap keeps buttons stacking rather than overflowing. */}
-        <div className="order-3 flex w-full flex-wrap items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:shrink-0 sm:justify-end">
-          {midNode}
-
-          {/* Filter toggle + clear — always visible, never wraps off-screen */}
-          {hasPanel && (
+          {/* Filters group (midNode + toggle) — icon-only on mobile, labelled sm+. */}
+          {(midNode || hasPanel) && (
             <div className="flex shrink-0 items-center gap-1.5">
-              <Button
-                variant={filtersOpen ? 'default' : 'outline'}
-                size="sm"
-                className="gap-1.5 whitespace-nowrap"
-                onClick={() => setFiltersOpen(!filtersOpen)}
-                aria-label="Toggle filters"
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                <span className="hidden sm:inline">Filters</span>
-                {activeFilterCount > 0 && (
-                  <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
-                    {activeFilterCount}
-                  </Badge>
-                )}
-              </Button>
+              {midNode}
 
-              {onClearFilters && activeFilterCount > 0 && (
+              {hasPanel && (
                 <Button
-                  variant="ghost"
+                  variant={filtersOpen ? 'default' : 'outline'}
                   size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={onClearFilters}
+                  className="gap-1.5 whitespace-nowrap"
+                  onClick={() => setFiltersOpen(!filtersOpen)}
+                  aria-label="Toggle filters"
                 >
-                  <X className="h-3.5 w-3.5 sm:mr-1" />
-                  <span className="hidden sm:inline">Clear</span>
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">Filters</span>
+                  {activeFilterCount > 0 && (
+                    <Badge variant={filtersOpen ? 'secondary' : 'info'} size="sm">
+                      {activeFilterCount}
+                    </Badge>
+                  )}
                 </Button>
               )}
             </div>
           )}
-
-          {/* Hairline divider between filter controls and the action cluster
-              (view switcher / export / primary action) for grouped structure. */}
-          {actionNode && hasPanel && (
-            <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
-          )}
-
-          {actionNode}
         </div>
+
+        {/* Action cluster (view switcher / export / primary action). `ml-auto`
+            pushes it to the right edge so its row spans full width — matters on
+            pages with NO leading filter (e.g. Customers), where nothing else
+            fills the row and the buttons would otherwise clump together. Pages
+            WITH a leading filter have a flex-1 growing item that already absorbs
+            the free space, so ml-auto is a no-op there (and on desktop). */}
+        {actionNode && (
+          <div className={cn(
+            'order-3 flex items-center justify-end gap-1.5 sm:w-auto sm:shrink-0',
+            // With a leading filter, share row 2 with it (ml-auto right-aligns).
+            // Without one, take the full-width row so a page can stretch its
+            // primary action (e.g. a full-width "Add" button) if it wants to.
+            leadingNode ? 'ml-auto' : 'w-full',
+          )}>
+            {/* Hairline divider between filter controls and the action cluster
+                (desktop only — on mobile they're on separate rows). */}
+            {hasPanel && <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />}
+            {actionNode}
+          </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -162,6 +157,28 @@ export function DataTableFilterBar({
           >
             <Card className="bg-muted/20 dark:bg-muted/10">
               <CardContent className="p-4">
+                {/* Clear-all lives INSIDE the panel — a labelled header row above
+                    the filter inputs, so clearing filters is discovered where the
+                    filters themselves live rather than in the top toolbar. */}
+                {onClearFilters && activeFilterCount > 0 && (
+                  <div className={cn(
+                    'flex items-center justify-between gap-3',
+                    (children || columnsNode) && 'mb-4 border-b border-border/40 pb-3',
+                  )}>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={onClearFilters}
+                    >
+                      <X className="mr-1 h-3.5 w-3.5" />
+                      Clear all
+                    </Button>
+                  </div>
+                )}
                 {children && (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     {children}
