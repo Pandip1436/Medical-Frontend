@@ -341,7 +341,8 @@ export default function CashBookPage() {
       className="space-y-5"
     >
       {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Opening Balance',
@@ -401,9 +402,9 @@ export default function CashBookPage() {
             onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey) } } : undefined}
             className={cn('border-l-[3px] transition-shadow', stat.borderAccent, clickable && 'cursor-pointer', active && stat.activeRing)}
           >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
+            <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', stat.iconBg)}>
+                <stat.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

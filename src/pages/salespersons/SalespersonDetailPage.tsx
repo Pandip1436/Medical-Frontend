@@ -294,7 +294,9 @@ export default function SalespersonDetailPage() {
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ── Sticky Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-5 py-3">
-        <div className="flex items-start justify-between gap-3">
+        {/* responsive: stack identity above the actions on phones so the name
+            isn't squeezed out by the buttons; single row at sm+ */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="ghost"
@@ -324,7 +326,7 @@ export default function SalespersonDetailPage() {
               </div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {isAdmin && (
               <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!salesperson}>
                 <Edit2 className="mr-1.5 h-3.5 w-3.5" />
@@ -527,21 +529,29 @@ export default function SalespersonDetailPage() {
               ) : rows.length === 0 ? (
                 <EmptyState period={period} />
               ) : (
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
-                    <TableRow>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Date</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Customer</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Invoice #</TableHead>
-                      <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
-                      <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
-                      <TableHead className="h-10 w-8 px-3" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((inv) => <SalesRow key={inv.id} inv={inv} />)}
-                  </TableBody>
-                </Table>
+                <>
+                  {/* responsive: cards on phones, table at md+ */}
+                  <div className="divide-y divide-border/40 md:hidden">
+                    {rows.map((inv) => <SalesCard key={inv.id} inv={inv} />)}
+                  </div>
+                  <div className="hidden md:block">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur-sm">
+                      <TableRow>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Date</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Customer</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Invoice #</TableHead>
+                        <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
+                        <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+                        <TableHead className="h-10 w-8 px-3" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((inv) => <SalesRow key={inv.id} inv={inv} />)}
+                    </TableBody>
+                  </Table>
+                  </div>
+                </>
               )}
             </div>
 
@@ -585,7 +595,7 @@ function SalesRow({ inv }: { inv: Invoice }) {
     <TableRow
       className="group cursor-pointer border-b border-border/30 hover:bg-muted/20"
       title="View invoice details"
-      onClick={() => navigate(`/billing/sales?view=split&invoiceId=${inv.id}`)}
+      onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
     >
       <TableCell className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(inv.date)}</TableCell>
       <TableCell className="px-3 py-2.5 max-w-50">
@@ -609,6 +619,40 @@ function SalesRow({ inv }: { inv: Invoice }) {
         <ArrowUpRight className="h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" aria-hidden />
       </TableCell>
     </TableRow>
+  )
+}
+
+// Mobile card — mirrors SalesRow. Row navigates to the invoice; the customer
+// name (via CustomerNameLine) navigates to the customer detail.
+function SalesCard({ inv }: { inv: Invoice }) {
+  return (
+    <div
+      className="flex items-start justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-muted/20 transition-colors"
+      title="View invoice details"
+      onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
+    >
+      <div className="min-w-0 flex-1">
+        <CustomerNameLine
+          name={inv.customerName}
+          phone={inv.customerPhone}
+          onNameClick={inv.customerId ? () => navigate(`/customers/detail?customerId=${inv.customerId}`) : undefined}
+        />
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1 font-mono font-semibold">
+            <Receipt className="h-3 w-3 text-muted-foreground/50" />
+            {inv.invoiceNumber}
+          </span>
+          <span className="opacity-50">·</span>
+          <span>{formatDate(inv.date)}</span>
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+          {formatCurrency(inv.grandTotal)}
+        </span>
+        <StatusBadge status={inv.status} />
+      </div>
+    </div>
   )
 }
 

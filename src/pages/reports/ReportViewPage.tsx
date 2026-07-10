@@ -138,17 +138,18 @@ const KPI_ICONS = [IndianRupee, Receipt, TrendingUp, Package, Calendar]
 
 function KpiCards({ kpis }: { kpis: { label: string; value: string }[] }) {
   return (
-    <div className={cn('grid gap-4', kpis.length <= 3 ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4')}>
+    // responsive: 2-up on phones so wide currency values fit; 3/4-up at sm+
+    <div className={cn('grid gap-2 sm:gap-4', kpis.length <= 3 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 lg:grid-cols-4')}>
       {kpis.map((kpi, i) => {
         const Icon = KPI_ICONS[i % KPI_ICONS.length]
         return (
           <Card key={kpi.label} hover>
-            <CardContent className="p-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/15 mb-3">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/15 mb-2 sm:mb-3">
                 <Icon className="h-4 w-4 text-primary" />
               </div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{kpi.label}</p>
-              <p className="mt-1 text-xl font-bold font-mono tracking-tight">{kpi.value}</p>
+              <p className="mt-1 text-lg font-bold font-mono tracking-tight break-words sm:text-xl">{kpi.value}</p>
             </CardContent>
           </Card>
         )

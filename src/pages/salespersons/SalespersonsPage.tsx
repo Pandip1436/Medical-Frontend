@@ -265,7 +265,7 @@ export default function SalespersonsPage() {
       {/* ── Summary stat cards — click Total / Active / Inactive to drill the
           Status filter. Total Sales MTD & Top Performer are pure aggregates
           (no list subset), so they clear the drill-down and carry no ring. ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total Salespersons',
@@ -328,15 +328,15 @@ export default function SalespersonsPage() {
             onKeyDown={clickable ? ((e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }) : undefined}
             className={cn('border-l-[3px]', stat.borderAccent, clickable && 'cursor-pointer transition-shadow', active && stat.activeRing)}
           >
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
+            <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', stat.iconBg)}>
+                <stat.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {stat.label}
                 </p>
-                <p className="text-lg font-bold leading-tight truncate" title={stat.value}>{stat.value}</p>
+                <p className="text-base font-bold leading-tight truncate sm:text-lg" title={stat.value}>{stat.value}</p>
                 <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
               </div>
             </CardContent>

@@ -554,19 +554,19 @@ export default function SalespersonReportPage() {
                   disabled={isLoading}
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                  <span>Refresh</span>
+                  <span className="hidden sm:inline">Refresh</span>
                 </Button>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportPdf}>
                   <FileDown className="h-3.5 w-3.5" />
-                  <span>PDF</span>
+                  <span className="hidden sm:inline">PDF</span>
                 </Button>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExportCsv}>
                   <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Excel</span>
+                  <span className="hidden sm:inline">Excel</span>
                 </Button>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={handlePrint}>
                   <Printer className="h-3.5 w-3.5" />
-                  <span>Print</span>
+                  <span className="hidden sm:inline">Print</span>
                 </Button>
               </div>
             }
@@ -672,7 +672,41 @@ export default function SalespersonReportPage() {
           ) : (
             <Card className="overflow-hidden">
               {viewMode === 'table' ? (
-                <Table>
+                <>
+                  {/* responsive: compact leaderboard cards on phones, table at md+ */}
+                  <div className="divide-y divide-border/40 md:hidden">
+                    {paged.map((row) => {
+                      const absoluteIdx = sorted.findIndex((r) => r.salespersonId === row.salespersonId)
+                      const rank = absoluteIdx + 1
+                      const share = totalSales > 0 ? (row.totalSales / totalSales) * 100 : 0
+                      const avgPer = row.invoiceCount > 0 ? row.totalSales / row.invoiceCount : 0
+                      return (
+                        <div key={row.salespersonId} className="flex items-center gap-3 px-4 py-3">
+                          <RankMedal rank={rank} />
+                          <Avatar name={row.name} colorIndex={absoluteIdx} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-medium">{row.name}</p>
+                              <Badge variant={row.isActive ? 'success' : 'secondary'} size="sm" dot className="shrink-0">
+                                {row.isActive ? 'Active' : 'Inactive'}
+                              </Badge>
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                              <span>{row.invoiceCount} inv</span>
+                              <span>Avg {formatCurrency(avgPer)}</span>
+                              <span>{share.toFixed(1)}% share</span>
+                            </div>
+                          </div>
+                          <span className="shrink-0 font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            {formatCurrency(row.totalSales)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="hidden md:block">
+                  <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-16">Rank</TableHead>
@@ -714,6 +748,8 @@ export default function SalespersonReportPage() {
                     })}
                   </TableBody>
                 </Table>
+                  </div>
+                </>
               ) : (
                 <div className="p-4">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

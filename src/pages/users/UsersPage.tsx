@@ -387,7 +387,7 @@ export default function UsersPage() {
           filter. The Admins card counts ADMIN + SUPER_ADMIN together, which the
           single-value Role filter can't express without mismatching the shown
           number, so it stays a pure aggregate (not clickable, no ring). ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {([
           {
             label: 'Total Users',
@@ -452,20 +452,20 @@ export default function UsersPage() {
             onKeyDown={clickable ? ((e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); apply() } }) : undefined}
             className={cn('border-l-[3px]', stat.borderAccent, clickable && 'cursor-pointer transition-shadow', active && stat.activeRing)}
           >
-            <CardContent className="flex items-center gap-4 p-4">
+            <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
               <div
                 className={cn(
-                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10',
                   stat.iconBg,
                 )}
               >
-                <stat.icon className="h-5 w-5" />
+                <stat.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {stat.label}
                 </p>
-                <p className="text-lg font-bold font-mono leading-tight">{stat.value}</p>
+                <p className="text-base font-bold font-mono leading-tight sm:text-lg">{stat.value}</p>
                 <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
               </div>
             </CardContent>
@@ -562,8 +562,8 @@ export default function UsersPage() {
 
       {/* ── Table ── */}
       <Card>
-        {/* Mobile cards */}
-        <div className="md:hidden">
+        {/* Mobile + tablet cards (below lg) */}
+        <div className="lg:hidden">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
@@ -656,8 +656,8 @@ export default function UsersPage() {
           )}
         </div>
 
-        {/* Desktop table */}
-        <div className="hidden md:block">
+        {/* Desktop table (lg+) */}
+        <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow>

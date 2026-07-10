@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn, formatDate } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import ReportViewPage from './ReportViewPage'
 
 // ─────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ export default function ReportsHubPage() {
   const [activeReport, setActiveReport] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<ReportDef | null>(null)
   const [recentReports, setRecentReports] = useState<RecentReport[]>([])
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     setRecentReports(loadRecentReports())
@@ -187,6 +189,13 @@ export default function ReportsHubPage() {
     setActiveReport(reportId)
   }
 
+  // On phones the right-hand detail/Generate panel is hidden, so tapping a
+  // report generates it directly. On desktop it selects for the preview panel.
+  const openReport = (report: ReportDef) => {
+    if (isMobile) handleGenerate(report.id)
+    else setSelectedReport(report)
+  }
+
   if (activeReport) {
     return <ReportViewPage reportType={activeReport} onBack={() => setActiveReport(null)} />
   }
@@ -217,10 +226,10 @@ export default function ReportsHubPage() {
               placeholder="Search reports..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-56 h-8 text-xs"
+              className="h-8 min-w-0 flex-1 text-xs sm:w-56 sm:flex-none"
             />
             <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as CategoryKey)}>
-              <SelectTrigger className="h-8 w-full sm:w-32.5 rounded-lg text-xs">
+              <SelectTrigger className="h-8 w-28 shrink-0 rounded-lg text-xs sm:w-32.5">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -229,8 +238,8 @@ export default function ReportsHubPage() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="h-5 w-px bg-border/60" />
-            <div className="flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5">
+            <div className="hidden h-5 w-px bg-border/60 sm:block" />
+            <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border/60 bg-muted/30 p-0.5">
               <button
                 onClick={() => setViewMode('grid')}
                 className={cn(
@@ -279,7 +288,7 @@ export default function ReportsHubPage() {
                           key={report.id}
                           whileHover={{ y: -2 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => setSelectedReport(report)}
+                          onClick={() => openReport(report)}
                           className={cn(
                             'group flex items-center gap-2.5 rounded-xl border border-border/40 bg-background p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm',
                             selectedReport?.id === report.id && 'border-primary/50 bg-primary/5 shadow-sm'
@@ -323,7 +332,7 @@ export default function ReportsHubPage() {
                             key={report.id}
                             whileHover={{ y: -1 }}
                             whileTap={{ scale: 0.99 }}
-                            onClick={() => setSelectedReport(report)}
+                            onClick={() => openReport(report)}
                             className={cn(
                               'group flex flex-col gap-2.5 rounded-xl border p-4 text-left transition-all',
                               isSelected
@@ -362,7 +371,7 @@ export default function ReportsHubPage() {
                     return (
                       <button
                         key={report.id}
-                        onClick={() => setSelectedReport(report)}
+                        onClick={() => openReport(report)}
                         className={cn(
                           'group flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 text-left transition-all',
                           isSelected

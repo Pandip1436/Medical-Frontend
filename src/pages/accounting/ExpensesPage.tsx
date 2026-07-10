@@ -481,7 +481,8 @@ export default function ExpensesPage() {
       {!isLoading && !fetchError && <>
 
       {/* ── Monthly Summary Cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {[
           {
             label: 'This Month',
@@ -525,9 +526,9 @@ export default function ExpensesPage() {
           },
         ].map((stat) => (
           <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                <stat.icon className="h-5 w-5" />
+            <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+              <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', stat.iconBg)}>
+                <stat.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -691,10 +692,27 @@ export default function ExpensesPage() {
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(expense.date)}</p>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="flex flex-col items-end gap-1 shrink-0">
                     <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
                       {formatCurrency(expense.amount)}
                     </p>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DataTableRowActions
+                        customActions={[
+                          {
+                            label: 'Edit',
+                            icon: <Pencil className="h-4 w-4" />,
+                            onClick: () => handleOpenEdit(expense),
+                          },
+                          {
+                            label: 'Delete',
+                            icon: <Trash2 className="h-4 w-4" />,
+                            onClick: () => handleDelete(expense),
+                            variant: 'destructive',
+                          },
+                        ]}
+                      />
+                    </div>
                   </div>
                 </div>
               ))}

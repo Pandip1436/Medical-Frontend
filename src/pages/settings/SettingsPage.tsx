@@ -885,8 +885,8 @@ function GeneralSettingsSection() {
             <SectionLabel>Display</SectionLabel>
             <div className="mt-3 space-y-2">
               {/* Display Scale — applies live, per-device (authStore) */}
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
-                <div className="min-w-0 space-y-0.5 pr-4">
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-0.5 sm:pr-4">
                   <p className="text-sm font-medium text-foreground">Display Scale</p>
                   <p className="text-xs text-muted-foreground">
                     Auto adjusts to your screen so the app isn't oversized at high Windows
@@ -897,7 +897,7 @@ function GeneralSettingsSection() {
                   value={uiScale === 'auto' ? 'auto' : String(uiScale)}
                   onValueChange={(v) => setUiScale(v === 'auto' ? 'auto' : Number(v))}
                 >
-                  <SelectTrigger className="w-44 shrink-0">
+                  <SelectTrigger className="w-full shrink-0 sm:w-44">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -912,13 +912,13 @@ function GeneralSettingsSection() {
               </div>
 
               {/* Date Format */}
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
-                <div className="min-w-0 space-y-0.5 pr-4">
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-0.5 sm:pr-4">
                   <p className="text-sm font-medium text-foreground">Date Format</p>
                   <p className="text-xs text-muted-foreground">How dates are displayed across the app</p>
                 </div>
                 <Select value={dateFormat} onValueChange={(v) => setDateFormat(v as DateFormat)}>
-                  <SelectTrigger className="w-44 shrink-0">
+                  <SelectTrigger className="w-full shrink-0 sm:w-44">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -954,7 +954,7 @@ function GeneralSettingsSection() {
           {/* Session */}
           <div>
             <SectionLabel>Security</SectionLabel>
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10">
+            <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-0.5">
                 <p className="text-sm font-medium text-foreground">Session Timeout</p>
                 <p className="text-xs text-muted-foreground">
@@ -966,7 +966,7 @@ function GeneralSettingsSection() {
                   type="number"
                   value={sessionTimeout}
                   onChange={(e) => setSessionTimeout(e.target.value)}
-                  className="w-38"
+                  className="w-full sm:w-38"
                   min={5}
                   max={480}
                   suffix="min"

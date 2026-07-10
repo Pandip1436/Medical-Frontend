@@ -269,13 +269,13 @@ function KPICard({
   const isUp = change >= 0
   return (
     <Card hover className={cn('border-l-[3px]', borderAccent)}>
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', iconBg)}>
-          <Icon className={cn('h-5 w-5', iconColor)} />
+      <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', iconBg)}>
+          <Icon className={cn('h-4.5 w-4.5 sm:h-5 sm:w-5', iconColor)} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="font-mono text-lg font-bold tabular-nums leading-tight">{formatCurrency(value)}</p>
+          <p className="font-mono text-base font-bold tabular-nums leading-tight sm:text-lg">{formatCurrency(value)}</p>
         </div>
         {change !== 0 && (
           <div className={cn(
@@ -389,7 +389,8 @@ export default function ProfitLossPage() {
       {/* KPI STRIP                                                  */}
       {/* ══════════════════════════════════════════════════════════ */}
       <div className="shrink-0 border-b border-border/40 bg-muted/10 px-4 py-3 sm:px-6 dark:bg-muted/5">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
           <KPICard
             label="Net Revenue"
             value={plData.netRevenue}
@@ -460,7 +461,8 @@ export default function ProfitLossPage() {
 
           return (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* responsive: single non-wrapping row; scrolls horizontally on narrow phones */}
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto [&>*]:shrink-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Period type toggle */}
             <div className="inline-flex rounded-md border border-border/60 overflow-hidden h-9">
               {(['year', 'month'] as Period[]).map((p) => (
@@ -597,9 +599,11 @@ export default function ProfitLossPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* MAIN WORKSPACE — Two-column                               */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* responsive: stacks into one vertical scroll on phones (statement then charts);
+          two fixed columns at lg+ */}
+      <div className="flex flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         {/* ─── LEFT: P&L Statement (55%) ─────────────────────── */}
-        <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[55%]">
+        <div className="flex w-full flex-col border-border/40 lg:w-[55%] lg:overflow-hidden lg:border-r">
           {/* Statement header */}
           <div className="shrink-0 flex items-center justify-between border-b border-border/40 bg-muted/5 px-5 py-2 dark:bg-muted/2">
             <span className="text-xs font-semibold text-muted-foreground">
@@ -610,8 +614,8 @@ export default function ProfitLossPage() {
             </Badge>
           </div>
 
-          {/* Statement body — scrollable */}
-          <ScrollArea className="min-h-0 flex-1">
+          {/* Statement body — scrollable at lg+, flows in the page scroll on phones */}
+          <ScrollArea className="lg:min-h-0 lg:flex-1">
             <div className="py-2">
               {/* REVENUE SECTION */}
               <PLSection title="Revenue" totalAmount={plData.netRevenue}>
@@ -760,7 +764,8 @@ export default function ProfitLossPage() {
         </div>
 
         {/* ─── RIGHT: Visualizations (45%) ───────────────────── */}
-        <div className="hidden lg:flex lg:w-[45%] flex-col overflow-hidden">
+        {/* responsive: visible on phones (stacked below the statement); side column at lg+ */}
+        <div className="flex w-full flex-col border-t border-border/40 lg:w-[45%] lg:border-t-0 lg:overflow-hidden">
           {/* Tab switcher */}
           <div className="shrink-0 flex items-center gap-1 border-b border-border/40 bg-muted/5 px-4 py-2 dark:bg-muted/2">
             <button
@@ -789,8 +794,8 @@ export default function ProfitLossPage() {
             </button>
           </div>
 
-          {/* Chart panels — scrollable */}
-          <ScrollArea className="min-h-0 flex-1">
+          {/* Chart panels — scrollable at lg+, flows in the page scroll on phones */}
+          <ScrollArea className="lg:min-h-0 lg:flex-1">
             <div className="p-4 space-y-4">
               <AnimatePresence mode="wait">
                 {rightTab === 'trend' && (

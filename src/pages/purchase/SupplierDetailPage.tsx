@@ -345,7 +345,9 @@ export default function SupplierDetailPage() {
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
       {/* ── Sticky Header ── */}
       <div className="shrink-0 border-b border-border/40 bg-background px-5 py-3">
-        <div className="flex items-start justify-between gap-3">
+        {/* responsive: stack identity above the export/edit actions on phones so
+            the supplier name isn't squeezed out; single row at sm+ */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <Button
               variant="ghost"
@@ -373,7 +375,7 @@ export default function SupplierDetailPage() {
                   details live in the persistent Overview panel on the left. */}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {/* Ledger exports — operate on whatever is currently in the Ledger
                 tab, so the period dropdown above doubles as the report's date
                 filter. Disabled until the ledger has loaded at least once. */}

@@ -965,8 +965,9 @@ export default function LedgerPage() {
           </div>
 
           {/* Outstanding + credit usage + change party */}
-          <div className="flex items-center gap-4 sm:ml-auto">
-            <div className="text-right shrink-0">
+          {/* responsive: full-width, top-aligned & spread on phones; inline centered at sm+ */}
+          <div className="flex w-full items-start justify-between gap-4 sm:w-auto sm:items-center sm:justify-start sm:ml-auto">
+            <div className="shrink-0 sm:text-right">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Outstanding
               </p>
@@ -1027,7 +1028,7 @@ export default function LedgerPage() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
           {kpis.map((kpi) => (
             <KpiTile key={kpi.key} kpi={kpi} />
           ))}

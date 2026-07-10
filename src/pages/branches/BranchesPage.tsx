@@ -343,7 +343,7 @@ export default function BranchesPage() {
     <div className="space-y-5">
       {/* ── Summary stat cards (admin/accountant only) ── */}
       {canSeeStats && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
           {[
             {
               label: 'Total Branches',
@@ -383,13 +383,13 @@ export default function BranchesPage() {
             },
           ].map((stat) => (
             <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', stat.iconBg)}>
-                  <stat.icon className="h-5 w-5" />
+              <CardContent className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+                <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10', stat.iconBg)}>
+                  <stat.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-                  <p className="text-lg font-bold leading-tight truncate" title={stat.value}>{stat.value}</p>
+                  <p className="text-base font-bold leading-tight truncate sm:text-lg" title={stat.value}>{stat.value}</p>
                   <p className="text-[11px] text-muted-foreground">{stat.subtitle}</p>
                 </div>
               </CardContent>
@@ -505,7 +505,71 @@ export default function BranchesPage() {
         </Card>
       ) : viewMode === 'table' ? (
         <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* responsive: card list on phones + tablets, table only at lg+ */}
+          <div className="lg:hidden divide-y divide-border/40">
+            {rows.map((b) => {
+              const isActive = b.id === activeBranchId
+              return (
+                <div
+                  key={b.id}
+                  className={cn('flex items-start gap-3 p-4 cursor-pointer transition-colors', isActive ? 'bg-primary/5' : 'hover:bg-muted/30')}
+                  onClick={() => setDrawerId(b.id)}
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground font-bold text-xs">
+                    {b.code}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-sm font-medium truncate">{b.name}</p>
+                      {b.isDefault && (
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 gap-0.5">
+                          <Star className="h-2.5 w-2.5" />Default
+                        </Badge>
+                      )}
+                      {isActive && (
+                        <Badge className="text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-primary/20">Current</Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                      {b.phone || '—'}{b.email ? ` · ${b.email}` : ''}
+                    </p>
+                    {canSeeStats && (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                        <span>{b.invoiceCount ?? 0} inv</span>
+                        <span className="font-mono">Sales {formatCurrency(b.invoiceTotal ?? 0)}</span>
+                        <span className="font-mono">Exp {formatCurrency(b.expenseTotal ?? 0)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <StatusBadge status={b.isActive ? 'active' : 'inactive'} />
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DataTableRowActions
+                        onView={() => setDrawerId(b.id)}
+                        onEdit={isAdmin ? () => openEdit(b) : undefined}
+                        onDelete={isAdmin ? () => setDeleting(b) : undefined}
+                        deleteLabel="Delete branch"
+                        customActions={[
+                          ...(isActive ? [] : [{
+                            label: 'Set as Active',
+                            icon: <CheckCircle2 className="h-4 w-4" />,
+                            onClick: () => setActiveBranch(b.id),
+                          }]),
+                          ...(isAdmin ? [{
+                            label: b.isActive ? 'Deactivate' : 'Activate',
+                            icon: b.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />,
+                            onClick: () => toggleActive(b),
+                            variant: b.isActive ? 'destructive' as const : 'default' as const,
+                          }] : []),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="hidden lg:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1050,7 +1114,8 @@ function BranchDrawerBody({
       </div>
 
       {/* Sticky footer */}
-      <div className="shrink-0 border-t border-border/40 bg-background px-5 py-3 flex gap-2">
+      {/* responsive: 2-up grid on phones so the action labels fit; inline row at sm+ */}
+      <div className="shrink-0 border-t border-border/40 bg-background px-5 py-3 grid grid-cols-2 gap-2 sm:flex">
         <Button
           size="sm"
           className="flex-1 gap-2"
