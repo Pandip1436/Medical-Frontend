@@ -222,8 +222,6 @@ function DashboardBody() {
       <DashboardHeader
         userName={userName}
         businessName={businessProfile?.name || 'Hospital Suppliers'}
-        isRefreshing={isLoading}
-        onRefresh={() => fetchDashboard({ reset: true })}
       />
 
       <div className="space-y-4">

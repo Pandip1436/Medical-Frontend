@@ -36,8 +36,11 @@ const masterSearchSectionIcons: Record<MasterSearchType, React.ElementType> = {
 // anywhere in the app.
 //
 // mobileMode: when true the wrapper is visible and full-width (used inside
-// the mobile search overlay in Header). When false (default) the component
-// hides itself on < md so the desktop-only header pill isn't wasted on phones.
+// the mobile/tablet search overlay in Header). When false (default) the
+// component hides itself below xl (1280px) — matching Sidebar.tsx's touch
+// tablet ceiling — so the desktop-only header pill isn't wasted on phones or
+// tablets (including landscape iPads at 1024-1279px), where it doesn't fit
+// alongside the rest of the header cluster (see Header.tsx).
 export function HeaderSearch({ mobileMode = false }: { mobileMode?: boolean }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -98,7 +101,7 @@ export function HeaderSearch({ mobileMode = false }: { mobileMode?: boolean }) {
   const showNoResults = hasQuery && !isQueryTooShort && !masterLoading && masterCount === 0
 
   return (
-    <div ref={containerRef} className={mobileMode ? 'relative flex-1' : 'relative hidden md:block'}>
+    <div ref={containerRef} className={mobileMode ? 'relative flex-1' : 'relative hidden xl:block'}>
       <Command
         shouldFilter={false}
         loop

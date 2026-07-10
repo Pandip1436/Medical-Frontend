@@ -39,6 +39,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { href as hashHref, navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
+import { useIsCompactTouchDevice } from '@/hooks/useMediaQuery'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
 import { userRoles, primaryRole, isAdminish } from '@/types'
@@ -266,6 +267,10 @@ export function Sidebar({ currentPath }: SidebarProps) {
     return () => clearInterval(interval)
   }, [user])
   const isMobile = useIsMobile()
+  // Real tablets (touch, <1280px) always dock the slim icon rail; "expanding"
+  // opens a temporary overlay instead of pushing it wider (see the tablet
+  // branch below) so main content never re-animates its margin on tablet.
+  const isTabletTouch = useIsCompactTouchDevice() && !isMobile
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
@@ -783,12 +788,19 @@ export function Sidebar({ currentPath }: SidebarProps) {
     )
   }
 
-  // ─── DESKTOP LAYOUT ─────────────────────────────────────────────────────
+  // ─── DESKTOP / TABLET LAYOUT ────────────────────────────────────────────
+  // On a real tablet, the docked rail is always icon-only (4rem) — tapping
+  // "expand" opens a translucent overlay on top of it instead of widening
+  // the rail, so `AppLayout`'s content margin never re-animates on tablet.
+  const dockedCollapsed = isTabletTouch ? true : sidebarCollapsed
+  const dockedWidth = isTabletTouch ? '4rem' : sidebarWidth
+  const tabletOverlayOpen = isTabletTouch && !sidebarCollapsed
+
   return (
     <TooltipProvider delayDuration={0}>
       <motion.aside
         initial={false}
-        animate={{ width: sidebarWidth }}
+        animate={{ width: dockedWidth }}
         transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
         className="fixed left-0 top-0 z-40 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground"
       >
@@ -797,18 +809,54 @@ export function Sidebar({ currentPath }: SidebarProps) {
 
         <div className="relative flex h-full flex-col">
           {/* Logo */}
-          {renderLogo(sidebarCollapsed)}
+          {renderLogo(dockedCollapsed)}
 
           {/* Separator */}
           <div className="mx-3 h-px bg-sidebar-border/60" />
 
           {/* Navigation */}
-          {renderNavGroups(sidebarCollapsed)}
+          {renderNavGroups(dockedCollapsed)}
 
           {/* Bottom section */}
-          {renderBottom(sidebarCollapsed)}
+          {renderBottom(dockedCollapsed)}
         </div>
       </motion.aside>
+
+      {/* Tablet-only expand overlay. A light blurred tint (not mobile's
+          opaque backdrop) so dashboard data stays visible behind it. */}
+      {isTabletTouch && (
+        <AnimatePresence>
+          {tabletOverlayOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 z-50 bg-background/40 backdrop-blur-sm"
+                onClick={toggleSidebar}
+              />
+              <motion.aside
+                initial={{ x: -280 }}
+                animate={{ x: 0 }}
+                exit={{ x: -280 }}
+                transition={{ type: 'spring', stiffness: 350, damping: 35 }}
+                className="fixed left-0 top-0 z-50 flex h-screen-z w-70 flex-col bg-sidebar text-sidebar-foreground shadow-2xl"
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+              >
+                <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/2 to-transparent" />
+                <div className="relative flex h-full flex-col">
+                  {renderLogo(false)}
+                  <div className="mx-3 h-px bg-sidebar-border/60" />
+                  {renderNavGroups(false)}
+                  {renderBottom(false)}
+                </div>
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
+      )}
     </TooltipProvider>
   )
 }

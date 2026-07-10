@@ -198,7 +198,7 @@ export function NeedsAttentionInbox({
 
   return (
     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="h-full">
-      <Card className="flex flex-col min-h-75 lg:h-115">
+      <Card className="flex flex-col h-105 md:h-120 lg:h-115">
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">

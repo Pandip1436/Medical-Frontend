@@ -32,3 +32,11 @@ export function useIsDesktop() {
 export function useIsMobileOrTablet() {
   return useMediaQuery('(max-width: 1023px)')
 }
+
+// Touch devices (no hover) narrower than desktop `xl` (1280px) — real
+// tablets like an iPad Pro at 1024px land here, but a desktop/laptop
+// browser window resized to the same width never matches (it has
+// `hover: hover`), so desktop layout stays untouched.
+export function useIsCompactTouchDevice() {
+  return useMediaQuery('(hover: none) and (max-width: 1279px)')
+}

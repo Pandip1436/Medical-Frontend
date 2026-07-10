@@ -101,8 +101,14 @@ export function Header({ breadcrumbs }: HeaderProps) {
   return (
     <header
       className={cn(
+        // Note: no separate `relative` here — tailwind-merge treats all
+        // position utilities (static/relative/absolute/fixed/sticky) as one
+        // conflicting group and keeps only the last one, so adding `relative`
+        // after `sticky` silently downgraded this to position:relative (the
+        // header scrolled away instead of sticking). `sticky` already
+        // establishes a positioning context for the `after:` pseudo-element.
         'sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:px-6',
-        'relative border-b border-border/40 dark:border-border/60',
+        'border-b border-border/40 dark:border-border/60',
         'bg-linear-to-b from-background/90 to-background/65 backdrop-blur-xl backdrop-saturate-180',
         'supports-backdrop-filter:bg-background/55',
         'shadow-[0_1px_2px_-1px_rgb(0_0_0/0.06),0_4px_16px_-8px_rgb(0_0_0/0.08)]',
@@ -124,7 +130,9 @@ export function Header({ breadcrumbs }: HeaderProps) {
           <Menu className="h-4 w-4" />
         </Button>
 
-        {/* Breadcrumbs - hidden on mobile */}
+        {/* Breadcrumbs - hidden on mobile only. Lightweight enough (unlike the
+            search pill/branch switcher/username below) to fit alongside the
+            docked icon rail on tablet, so it stays at md rather than xl. */}
         <nav className="hidden items-center gap-1 text-sm md:flex">
           {breadcrumbs.map((crumb, index) => (
             <div key={index} className="flex items-center gap-1">
@@ -152,6 +160,19 @@ export function Header({ breadcrumbs }: HeaderProps) {
       {/* Right: Actions */}
       <div className="flex items-center gap-1.5 md:gap-2">
 
+        {/* Global search — inline pill on desktop (lg+); icon button on
+            mobile/tablet that opens the full-screen overlay below. */}
+        <HeaderSearch />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-full hover:bg-accent xl:hidden"
+          onClick={() => setMobileSearchOpen(true)}
+          aria-label="Search"
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+
         {/* Branch selector — a switcher when the user may reach >1 branch
             (Super Admins and multi-branch staff), a locked badge otherwise. */}
         {activeBranch && (
@@ -160,7 +181,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-linear-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow md:flex"
+                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-linear-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow xl:flex"
                 >
                   <Building2 className="h-3.5 w-3.5 text-primary" />
                   <span className="max-w-30 truncate">{activeBranch.name}</span>
@@ -188,25 +209,12 @@ export function Header({ breadcrumbs }: HeaderProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium md:flex">
+            <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium xl:flex">
               <Building2 className="h-3.5 w-3.5 text-primary" />
               <span className="max-w-30 truncate">{activeBranch.name}</span>
             </div>
           )
         )}
-
-        {/* Global search — inline pill on md+; icon button on mobile that
-            opens the full-screen overlay below. */}
-        <HeaderSearch />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 rounded-full hover:bg-accent md:hidden"
-          onClick={() => setMobileSearchOpen(true)}
-          aria-label="Search"
-        >
-          <Search className="h-4 w-4" />
-        </Button>
 
         {/* Control cluster — bell / theme / language grouped into a single
             glass pill for a more premium, cohesive toolbar. */}
@@ -282,7 +290,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
         <Separator
           orientation="vertical"
-          className="mx-1 hidden h-5 md:block"
+          className="mx-1 hidden h-5 xl:block"
         />
 
         {/* User Menu */}
@@ -305,7 +313,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                   {user ? getInitials(user.name) : '?'}
                 </AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm font-medium md:inline-block">
+              <span className="hidden text-sm font-medium xl:inline-block">
                 {user?.name}
               </span>
             </Button>
@@ -368,7 +376,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-60 bg-background/97 backdrop-blur-md md:hidden"
+            className="fixed inset-0 z-60 bg-background/97 backdrop-blur-md xl:hidden"
           >
             <div className="flex h-14 items-center gap-2 border-b border-border/40 px-4">
               <HeaderSearch mobileMode />

@@ -47,6 +47,7 @@ const pageVariants = {
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
+import { useIsCompactTouchDevice } from '@/hooks/useMediaQuery'
 import { useRoute } from '@/lib/router'
 import { ImportProgressPill } from '@/components/shared/ImportProgressPill'
 
@@ -58,6 +59,11 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
   const isMobile = useIsMobile()
+  const isCompactTouchDevice = useIsCompactTouchDevice()
+  // On tablet, Sidebar.tsx always docks the icon rail and "expanding" opens
+  // an overlay on top of it (never widens the docked rail) — so content's
+  // margin must stay pinned at the rail width, not animate with sidebarCollapsed.
+  const isTabletTouch = isCompactTouchDevice && !isMobile
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
   const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
@@ -151,6 +157,18 @@ export default function AppLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompactPage])
 
+  // Same auto-collapse-once behavior for real tablets (touch + <1280px, e.g.
+  // an iPad Pro at 1024px) — the desktop-style sidebar would otherwise open
+  // expanded (260px) and squeeze page content into a narrow column. Gated on
+  // `hover: none` so a desktop/laptop browser window at the same width (mouse
+  // input) never matches and keeps today's expanded-by-default behavior.
+  useEffect(() => {
+    if (isCompactTouchDevice && !sidebarCollapsed) {
+      useAuthStore.setState({ sidebarCollapsed: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCompactTouchDevice])
+
   return (
     <div
       className={
@@ -165,7 +183,7 @@ export default function AppLayout({
       {/* Main Area - shifts based on sidebar width on desktop, full width on mobile */}
       <motion.div
         initial={false}
-        animate={{ marginLeft: isMobile ? 0 : sidebarWidth }}
+        animate={{ marginLeft: isMobile ? 0 : isTabletTouch ? '4rem' : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           // min-w-0 is critical: without it this flex-1 column's min-width

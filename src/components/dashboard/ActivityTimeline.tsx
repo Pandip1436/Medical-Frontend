@@ -88,7 +88,7 @@ export function ActivityTimeline({ activities, total, isLoadingMore = false, onL
   })
 
   return (
-    <Card className="flex flex-col min-h-75 lg:h-115">
+    <Card className="flex flex-col h-105 md:h-120 lg:h-115">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
