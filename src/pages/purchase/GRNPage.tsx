@@ -1291,26 +1291,26 @@ export default function GRNPage() {
                 </div>
 
                 {/* Source / Invoice meta — single horizontal card */}
-                <div className="flex items-stretch overflow-x-auto rounded-xl border border-border/40 bg-muted/20">
-                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center px-4 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Source</p>
-                    <p className="mt-0.5 text-sm font-medium truncate">
+                <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/40 bg-muted/20 sm:grid-cols-4">
+                  <div className="flex min-w-0 flex-col justify-center px-3 py-3 sm:px-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source</p>
+                    <p className="mt-0.5 truncate text-sm font-medium">
                       {sourceType === 'po' && selectedPO ? `PO · ${selectedPO.poNumber}` : 'Direct Entry'}
                     </p>
                   </div>
-                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier</p>
-                    <p className="mt-0.5 text-sm font-medium truncate" title={selectedPO?.supplierName || directSupplierName || '—'}>
+                  <div className="flex min-w-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
+                    <p className="mt-0.5 truncate text-sm font-medium" title={selectedPO?.supplierName || directSupplierName || '—'}>
                       {selectedPO?.supplierName || directSupplierName || '—'}
                     </p>
                   </div>
-                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supplier Invoice</p>
-                    <p className="mt-0.5 font-mono text-sm font-medium truncate">{invoiceNo || '—'}</p>
+                  <div className="flex min-w-0 flex-col justify-center border-t border-border/40 px-3 py-3 sm:border-t-0 sm:border-l sm:px-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier Invoice</p>
+                    <p className="mt-0.5 truncate font-mono text-sm font-medium">{invoiceNo || '—'}</p>
                   </div>
-                  <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center border-l border-border/40 px-4 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Inv. Amount</p>
-                    <p className="mt-0.5 font-mono text-sm font-medium">{invoiceAmount > 0 ? formatCurrency(invoiceAmount) : '—'}</p>
+                  <div className="flex min-w-0 flex-col justify-center border-l border-t border-border/40 px-3 py-3 sm:border-t-0 sm:px-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Inv. Amount</p>
+                    <p className="mt-0.5 truncate font-mono text-sm font-medium">{invoiceAmount > 0 ? formatCurrency(invoiceAmount) : '—'}</p>
                   </div>
                 </div>
 
@@ -1336,7 +1336,7 @@ export default function GRNPage() {
                       Items to Receive ({receivedItems.length})
                     </p>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="hidden md:block overflow-x-auto">
                   <Table className="min-w-175">
                     <TableHeader className="bg-muted/30">
                       <TableRow className="hover:bg-transparent">
@@ -1400,6 +1400,72 @@ export default function GRNPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
+
+                  {/* Mobile (<md): same received items as stacked cards */}
+                  <div className="space-y-2 p-3 md:hidden">
+                    {receivedItems.map((item, idx) => {
+                      // Expiry color coding — mirrors the desktop table cell.
+                      let expiryEl: React.ReactNode = <span className="text-muted-foreground/40">—</span>
+                      if (item.expiryDate) {
+                        const exp = new Date(item.expiryDate)
+                        exp.setHours(23, 59, 59, 999)
+                        const now = new Date()
+                        const expired = exp < now
+                        const ninetyDays = 90 * 24 * 60 * 60 * 1000
+                        const nearExpiry = !expired && (exp.getTime() - now.getTime()) < ninetyDays
+                        expiryEl = (
+                          <span className={cn(
+                            'font-mono tabular-nums',
+                            expired ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                              : nearExpiry ? 'text-amber-600 dark:text-amber-400 font-semibold'
+                              : 'text-foreground/80',
+                          )}>
+                            {expired && '⚠ '}{formatDate(item.expiryDate)}
+                          </span>
+                        )
+                      }
+                      return (
+                        <div key={item.id} className="rounded-lg border border-border/40 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="min-w-0 break-words text-sm font-semibold">{item.productName}</p>
+                            <span className="shrink-0 font-mono text-xs text-muted-foreground">#{idx + 1}</span>
+                          </div>
+                          <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2.5">
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</p>
+                              <p className="mt-0.5 font-mono text-xs">{item.batchNumber || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</p>
+                              <p className="mt-0.5 text-xs">{expiryEl}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</p>
+                              <p className="mt-0.5 font-mono text-xs font-bold text-emerald-700 dark:text-emerald-300">{item.receivedQty}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Free</p>
+                              <p className="mt-0.5 font-mono text-xs">
+                                {item.freeQty ? (
+                                  <span className="font-semibold text-blue-600 dark:text-blue-400">+{item.freeQty}</span>
+                                ) : (
+                                  <span className="text-muted-foreground/40">—</span>
+                                )}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</p>
+                              <p className="mt-0.5 font-mono text-xs">{formatCurrency(item.purchaseRate)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</p>
+                              <p className="mt-0.5 font-mono text-xs font-semibold">{formatCurrency(item.receivedQty * item.purchaseRate)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
 

@@ -394,6 +394,18 @@
   background: hsl(0 0% 100% / 0.14);
 }
 
+/* Radix ScrollArea wraps its content in an inline-styled
+   `display: table; min-width: 100%` div. `display: table` sizes to its
+   content, so any descendant that can't shrink (a long name, a wide flex row)
+   makes the wrapper grow past the viewport — pushing right-aligned values and
+   buttons off-screen (seen on the GRN review panel on mobile). Every ScrollArea
+   in this app scrolls vertically (wide tables use their own overflow-x-auto),
+   so force the wrapper to a plain block that wraps to the viewport width. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 100% !important;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    TOUCH — show hover-revealed actions by default on touch devices
    ═══════════════════════════════════════════════════════════════ */

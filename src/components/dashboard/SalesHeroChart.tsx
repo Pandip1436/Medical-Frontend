@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import dayjs from 'dayjs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,30 +31,8 @@ function bucketForPreset(preset: DateRangePreset): 'day' | 'month' {
   return preset === 'month' ? 'day' : 'month'
 }
 
-// Measure an element's box so we can hand recharts real pixel dimensions
-// instead of ResponsiveContainer's percentage sizing. ResponsiveContainer
-// paints once with its -1×-1 placeholder before its own observer fires, which
-// logs the "width(-1) and height(-1)" warning; gating the chart on a measured
-// width > 0 avoids that first zero-size render entirely.
-function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T>(null)
-  const [size, setSize] = useState({ width: 0, height: 0 })
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect
-      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }))
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  return [ref, size] as const
-}
-
 export function SalesHeroChart() {
   const { resolved, range, setPreset, setAnchor } = useDateRange()
-  const [chartRef, chartSize] = useElementSize<HTMLDivElement>()
   const bucket = bucketForPreset(range.preset)
   const anchor = useMemo(() => dayjs(range.anchor), [range.anchor])
 
@@ -169,9 +147,9 @@ export function SalesHeroChart() {
         ) : data.length === 0 ? (
           <EmptyState />
         ) : (
-          <div ref={chartRef} className="h-55 sm:h-65 lg:h-70">
-          {chartSize.width > 0 && (
-            <AreaChart width={chartSize.width} height={chartSize.height} data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+          <div className="h-55 sm:h-65 lg:h-70">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="hero-area" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
@@ -214,7 +192,7 @@ export function SalesHeroChart() {
                 activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
               />
             </AreaChart>
-          )}
+          </ResponsiveContainer>
           </div>
         )}
       </CardContent>
