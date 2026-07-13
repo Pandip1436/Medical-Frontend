@@ -2,8 +2,6 @@ import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Download,
-  Printer,
   Share2,
   Copy,
   RotateCcw,
@@ -20,9 +18,7 @@ import {
   Send,
   QrCode,
   RefreshCw,
-  ChevronDown,
   Plus,
-  FileSpreadsheet,
   FileCode2,
   Eye,
   ArrowLeft,
@@ -31,13 +27,7 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Button } from '@/components/ui/button'
@@ -83,9 +73,9 @@ import {
 } from '@/lib/pdf/invoicePdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate, useRoute } from '@/lib/router'
-import { exportToCsv, csvText, printReport } from '@/lib/exportUtils'
 import { InvoiceSplitView } from './components/InvoiceSplitView'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -621,74 +611,38 @@ export default function SalesListPage() {
 
   if (effectiveView === 'split') {
     const splitExportMenu = (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64 p-1.5">
-          <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Export {filteredInvoices.length} {filteredInvoices.length === 1 ? 'invoice' : 'invoices'}
-          </p>
-          <DropdownMenuItem
-            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
-            onClick={() => {
-              if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
-              printReport(filteredInvoices.map((inv) => ({
-                Invoice: inv.invoiceNumber,
-                Date: formatDate(inv.date),
-                Customer: inv.customerName,
-                Phone: inv.customerPhone ?? '',
-                Items: inv.items?.length ?? 0,
-                Total: formatCurrency(inv.grandTotal),
-                Paid: formatCurrency(inv.amountPaid),
-                Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
-                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
-                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                Status: inv.status,
-              })), 'Sales Invoices')
-            }}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <Printer className="h-4 w-4" />
-            </span>
-            <span className="flex flex-col">
-              <span className="text-sm font-semibold">Print List</span>
-              <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator className="my-1" />
-          <DropdownMenuItem
-            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
-            onClick={() => {
-              if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
-              const exported = exportToCsv(filteredInvoices.map((inv) => ({
-                Invoice: inv.invoiceNumber,
-                Date: csvText(formatDate(inv.date)),
-                Customer: inv.customerName,
-                Phone: csvText(inv.customerPhone ?? ''),
-                Items: inv.items?.length ?? 0,
-                Total: inv.grandTotal,
-                Paid: inv.amountPaid,
-                Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
-                'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
-                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                Status: inv.status,
-              })), 'sales-invoices')
-              toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
-            }}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <FileSpreadsheet className="h-4 w-4" />
-            </span>
-            <span className="flex flex-col">
-              <span className="text-sm font-semibold">CSV</span>
-              <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
-            </span>
-          </DropdownMenuItem>
+      <ExportMenu
+        title="Sales Invoices"
+        filename="sales-invoices"
+        noun="invoice"
+        showCountInHeader
+        rows={filteredInvoices.map((inv) => ({
+          Invoice: inv.invoiceNumber,
+          Date: formatDate(inv.date),
+          Customer: inv.customerName,
+          Phone: inv.customerPhone ?? '',
+          Items: inv.items?.length ?? 0,
+          Total: formatCurrency(inv.grandTotal),
+          Paid: formatCurrency(inv.amountPaid),
+          Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+          'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+          'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+          Status: inv.status,
+        }))}
+        excelRows={filteredInvoices.map((inv) => ({
+          Invoice: inv.invoiceNumber,
+          Date: formatDate(inv.date),
+          Customer: inv.customerName,
+          Phone: inv.customerPhone ?? '',
+          Items: inv.items?.length ?? 0,
+          Total: inv.grandTotal,
+          Paid: inv.amountPaid,
+          Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+          'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
+          'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+          Status: inv.status,
+        }))}
+        extraItems={
           <DropdownMenuItem
             className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
             onClick={async () => {
@@ -719,8 +673,8 @@ export default function SalesListPage() {
               <span className="text-[11px] text-muted-foreground">Import file for Tally</span>
             </span>
           </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        }
+      />
     )
 
     return (
@@ -734,7 +688,7 @@ export default function SalesListPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total Sales', value: formatCurrency(stats.totalSales), subtitle: `${stats.totalInvoices} invoices`, icon: IndianRupee, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
                   { label: 'Collected', value: formatCurrency(stats.paidTotal), subtitle: `${stats.paidCount} paid`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'paid' as const, activeRing: 'ring-2 ring-emerald-500/50' },
@@ -753,14 +707,13 @@ export default function SalesListPage() {
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
                       className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
                     >
-                      <CardContent className="flex items-center gap-3 p-3">
-                        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
-                          <stat.icon className="h-4 w-4" />
+                      <CardContent className="flex items-center gap-2.5 px-2.5 py-2">
+                        <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                          <stat.icon className="h-3.5 w-3.5" />
                         </div>
                         <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
                           <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
-                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
                         </div>
                       </CardContent>
                     </Card>
@@ -1055,80 +1008,39 @@ export default function SalesListPage() {
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') enterSplitView() }} />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none">
-                  <Download className="mr-1.5 h-4 w-4" />
-                  Export
-                  <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 p-1.5">
-                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Export {filteredInvoices.length} {filteredInvoices.length === 1 ? 'invoice' : 'invoices'}
-                </p>
-                <DropdownMenuItem
-                  className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
-                  onClick={() => {
-                    if (filteredInvoices.length === 0) { toast.info('No invoices to print'); return }
-                    // Prints the on-screen sales LIST as a report table (not each
-                    // invoice individually). Mirrors the CSV column set.
-                    printReport(filteredInvoices.map((inv) => ({
-                      Invoice: inv.invoiceNumber,
-                      Date: formatDate(inv.date),
-                      Customer: inv.customerName,
-                      Phone: inv.customerPhone ?? '',
-                      Items: inv.items?.length ?? 0,
-                      Total: formatCurrency(inv.grandTotal),
-                      Paid: formatCurrency(inv.amountPaid),
-                      Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
-                      'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
-                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                      Status: inv.status,
-                    })), 'Sales Invoices')
-                  }}
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                    <Printer className="h-4 w-4" />
-                  </span>
-                  <span className="flex flex-col">
-                    <span className="text-sm font-semibold">Print List</span>
-                    <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="my-1" />
-                <DropdownMenuItem
-                  className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
-                  onClick={() => {
-                    if (!filteredInvoices.length) { toast.info('No invoices to export'); return }
-                    const exported = exportToCsv(filteredInvoices.map((inv) => ({
-                      Invoice: inv.invoiceNumber,
-                      Date: csvText(formatDate(inv.date)),
-                      Customer: inv.customerName,
-                      Phone: csvText(inv.customerPhone ?? ''),
-                      Items: inv.items?.length ?? 0,
-                      Total: inv.grandTotal,
-                      Paid: inv.amountPaid,
-                      Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
-                      'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
-                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                      Status: inv.status,
-                    })), 'sales-invoices')
-                    // Bug #6: surface the row count so the user can reconcile
-                    // the file vs the on-screen list. The list filter is whatever
-                    // is currently active — if it's narrower than the dataset,
-                    // make that visible rather than silently dropping rows.
-                    toast.success(`Exported ${exported} invoice${exported === 1 ? '' : 's'} to sales-invoices.csv`)
-                  }}
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <FileSpreadsheet className="h-4 w-4" />
-                  </span>
-                  <span className="flex flex-col">
-                    <span className="text-sm font-semibold">CSV</span>
-                    <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
-                  </span>
-                </DropdownMenuItem>
+            <ExportMenu
+              className="flex-1 sm:w-auto sm:flex-none"
+              title="Sales Invoices"
+              filename="sales-invoices"
+              noun="invoice"
+              showCountInHeader
+              rows={filteredInvoices.map((inv) => ({
+                Invoice: inv.invoiceNumber,
+                Date: formatDate(inv.date),
+                Customer: inv.customerName,
+                Phone: inv.customerPhone ?? '',
+                Items: inv.items?.length ?? 0,
+                Total: formatCurrency(inv.grandTotal),
+                Paid: formatCurrency(inv.amountPaid),
+                Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                Status: inv.status,
+              }))}
+              excelRows={filteredInvoices.map((inv) => ({
+                Invoice: inv.invoiceNumber,
+                Date: formatDate(inv.date),
+                Customer: inv.customerName,
+                Phone: inv.customerPhone ?? '',
+                Items: inv.items?.length ?? 0,
+                Total: inv.grandTotal,
+                Paid: inv.amountPaid,
+                Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
+                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                Status: inv.status,
+              }))}
+              extraItems={
                 <DropdownMenuItem
                   className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
                   onClick={async () => {
@@ -1159,8 +1071,8 @@ export default function SalesListPage() {
                     <span className="text-[11px] text-muted-foreground">Import file for Tally</span>
                   </span>
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              }
+            />
             <Button size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={() => navigate('/billing/new')}>
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">New Sale</span>
@@ -1242,38 +1154,43 @@ export default function SalesListPage() {
                 {selectedIds.size} selected
               </Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id))
-                  printReport(selected.map((inv) => ({
-                    Invoice: inv.invoiceNumber,
-                    Date: inv.date?.slice(0, 10) ?? '',
-                    Customer: inv.customerName,
-                    Amount: inv.grandTotal,
-                    Status: inv.status,
-                  })), 'Sales Invoices')
-                }}>
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id))
-                  exportToCsv(selected.map((inv) => ({
-                    Invoice: inv.invoiceNumber,
-                    Date: csvText(formatDate(inv.date)),
-                    Customer: inv.customerName,
-                    Phone: csvText(inv.customerPhone ?? ''),
-                    Items: inv.items?.length ?? 0,
-                    Total: inv.grandTotal,
-                    Paid: inv.amountPaid,
-                    Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
-                    'Due Date': inv.dueDate ? csvText(formatDate(inv.dueDate)) : '',
-                    'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                    Status: inv.status,
-                  })), 'sales-invoices-selected')
-                }}>
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                  Export
-                </Button>
+                <ExportMenu
+                  variant="ghost"
+                  size="sm"
+                  title="Sales Invoices"
+                  filename="sales-invoices-selected"
+                  noun="invoice"
+                  rows={() => filteredInvoices
+                    .filter((inv) => selectedIds.has(inv.id))
+                    .map((inv) => ({
+                      Invoice: inv.invoiceNumber,
+                      Date: formatDate(inv.date),
+                      Customer: inv.customerName,
+                      Phone: inv.customerPhone ?? '',
+                      Items: inv.items?.length ?? 0,
+                      Total: formatCurrency(inv.grandTotal),
+                      Paid: formatCurrency(inv.amountPaid),
+                      Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+                      'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                      Status: inv.status,
+                    }))}
+                  excelRows={() => filteredInvoices
+                    .filter((inv) => selectedIds.has(inv.id))
+                    .map((inv) => ({
+                      Invoice: inv.invoiceNumber,
+                      Date: formatDate(inv.date),
+                      Customer: inv.customerName,
+                      Phone: inv.customerPhone ?? '',
+                      Items: inv.items?.length ?? 0,
+                      Total: inv.grandTotal,
+                      Paid: inv.amountPaid,
+                      Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+                      'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
+                      'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+                      Status: inv.status,
+                    }))}
+                />
               </div>
               <Button
                 variant="ghost"

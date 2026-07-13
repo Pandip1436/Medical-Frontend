@@ -27,9 +27,6 @@ import {
   CheckCircle2,
   Trash2,
   MoreHorizontal,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
   Filter,
   Upload,
   Eye,
@@ -73,6 +70,7 @@ import {
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { CustomerFormDialog, type CustomerFormValues } from '@/components/shared/CustomerFormDialog'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
   SupplierActivityDialog,
   type SupplierActivity,
@@ -82,7 +80,6 @@ import {
 import { navigate, goBack, useRoute } from '@/lib/router'
 import api, { API_SERVER_URL } from '@/lib/api'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import type { Customer } from '@/types'
 import { useCustomerDetail, CUSTOMER_TAB_PAGE_SIZE, type TabRange } from '@/hooks/useCustomerDetail'
 
@@ -346,7 +343,10 @@ export default function CustomerDetailPage() {
 
   // Export the current ledger view (PDF / Excel / Print) — period-aware via
   // the same dropdown that filters the on-screen rows.
-  const handleExportLedger = async (format: 'PDF' | 'Excel' | 'Print') => {
+  const ledgerPeriodLabel =
+    d.ledger.from && d.ledger.to ? ` (${d.ledger.from} → ${d.ledger.to})` : ''
+  const ledgerSafeName = (cust?.name ?? 'customer').replace(/[^a-z0-9-_]+/gi, '_')
+  const fetchLedgerExportRows = async () => {
     // The Ledger tab shows one page (10 rows); export the FULL period by
     // re-fetching the ledger without skip/take.
     let fullRows = ledgerRows
@@ -360,15 +360,7 @@ export default function CustomerDetailPage() {
     } catch {
       /* fall back to the visible page on failure */
     }
-    if (!fullRows.length) {
-      toast.info('No ledger data to export for the selected period')
-      return
-    }
-    const periodLabel =
-      d.ledger.from && d.ledger.to ? ` (${d.ledger.from} → ${d.ledger.to})` : ''
-    const title = `Customer Ledger — ${cust?.name ?? '—'}${periodLabel}`
-    const safeName = (cust?.name ?? 'customer').replace(/[^a-z0-9-_]+/gi, '_')
-    const rows = fullRows.map((r) => ({
+    return fullRows.map((r) => ({
       Date: r.date ? formatDate(r.date) : '',
       Reference: r.ref ?? '',
       Description: r.description ?? '',
@@ -376,9 +368,6 @@ export default function CustomerDetailPage() {
       [LEDGER_COL_PAID]: Number(r.credit ?? 0) || '',
       Balance: Number(r.balance ?? 0),
     }))
-    if (format === 'PDF') exportToPdf(rows, title, `ledger-${safeName}`)
-    else if (format === 'Excel') exportToCsv(rows, `ledger-${safeName}`)
-    else printReport(rows, title)
   }
 
   return (
@@ -412,36 +401,13 @@ export default function CustomerDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap [&>button]:flex-1 sm:[&>button]:flex-none">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('PDF')}
+            <ExportMenu
+              title={`Customer Ledger — ${cust?.name ?? '—'}${ledgerPeriodLabel}`}
+              filename={`ledger-${ledgerSafeName}`}
+              noun="entry"
               disabled={!d.ledger.data}
-              className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              <FileDown className="mr-1.5 h-3.5 w-3.5" />
-              PDF
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('Excel')}
-              disabled={!d.ledger.data}
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
-            >
-              <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
-              Excel
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('Print')}
-              disabled={!d.ledger.data}
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-500/40 dark:text-sky-300 dark:hover:bg-sky-500/10"
-            >
-              <Printer className="mr-1.5 h-3.5 w-3.5" />
-              Print
-            </Button>
+              rows={fetchLedgerExportRows}
+            />
             <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!cust}>
               <Edit2 className="mr-1.5 h-3.5 w-3.5" />
               Edit

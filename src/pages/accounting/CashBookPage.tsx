@@ -22,11 +22,6 @@ import {
   Paperclip,
   Upload,
   X,
-  Download,
-  ChevronDown,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
 } from 'lucide-react'
 
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -62,14 +57,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { cn, formatCurrency } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -227,11 +215,7 @@ export default function CashBookPage() {
   // from `transactionsWithBalance` without re-hitting the BE. Opening + closing
   // balance rows bookend the table so the export reads as a self-contained
   // cash book on paper.
-  const handleExport = (format: 'PDF' | 'CSV' | 'Print') => {
-    if (!transactionsWithBalance.length) {
-      toast.info('Nothing to export for this date')
-      return
-    }
+  const cashBookExportRows = () => {
     // jsPDF's default font can't render the ₹ glyph (it prints as a stray
     // character), so amounts go into the export without the currency symbol —
     // just the Indian-grouped number. The column headers ("Cash In", etc.)
@@ -264,13 +248,7 @@ export default function CashBookPage() {
       'Cash Out': t.credit > 0 ? money(t.credit) : '—',
       Balance: money(t.balance),
     }))
-    const rows = [openingRow, ...txnRows, closingRow]
-    const prettyDate = dayjs(selectedDate).format('DD MMM YYYY')
-    const title = `Cash Book — ${prettyDate}`
-    const filename = `cash-book-${selectedDate}`
-    if (format === 'PDF') exportToPdf(rows, title, filename)
-    else if (format === 'CSV') exportToCsv(rows, filename)
-    else printReport(rows, title)
+    return [openingRow, ...txnRows, closingRow]
   }
 
   // Expense form
@@ -482,35 +460,14 @@ export default function CashBookPage() {
             </div>
 
             {/* Right cluster — Export · Add Expense · Manage */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 gap-1.5"
-                  disabled={transactionsWithBalance.length === 0}
-                >
-                  <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onSelect={() => handleExport('PDF')}>
-                  <FileDown className="h-4 w-4 text-rose-600" />
-                  <span>PDF</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleExport('CSV')}>
-                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                  <span>CSV</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => handleExport('Print')}>
-                  <Printer className="h-4 w-4 text-sky-600" />
-                  <span>Print</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title={`Cash Book — ${dayjs(selectedDate).format('DD MMM YYYY')}`}
+              filename={`cash-book-${selectedDate}`}
+              noun="transaction"
+              disabled={transactionsWithBalance.length === 0}
+              rows={cashBookExportRows}
+              className="h-9"
+            />
             <Button size="sm" className="h-9 w-full sm:w-auto" onClick={() => setAddExpenseOpen(true)}>
               <Plus className="mr-1 h-4 w-4" />
               <span className="hidden sm:inline">Add Expense</span>

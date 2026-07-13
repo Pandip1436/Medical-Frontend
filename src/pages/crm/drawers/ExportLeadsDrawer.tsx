@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CheckSquare,
   Download,
+  FileDown,
   FileSpreadsheet,
   FileText,
   Loader2,
@@ -23,7 +24,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { cn, formatDate } from '@/lib/utils'
-import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
+import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 import { exportToExcel } from '@/lib/excelUtils'
 
 import { USE_MOCK_DATA, mockFilteredLeads, MOCK_LEADS } from '../mockData'
@@ -107,7 +108,7 @@ const COLUMN_GROUPS: Array<ExportColumn['group']> = [
 const DEFAULT_KEYS = COLUMNS.filter((c) => c.defaultChecked).map((c) => c.key)
 
 type Scope = 'all' | 'filtered' | 'selected'
-type Format = 'csv' | 'xlsx' | 'pdf'
+type Format = 'csv' | 'xlsx' | 'pdf' | 'print'
 
 // ── Component ─────────────────────────────────────────────────────────
 export function ExportLeadsDrawer({
@@ -230,10 +231,17 @@ export function ExportLeadsDrawer({
       const filename = `leads-export-${ts}`
       if (format === 'csv') exportToCsv(rows, filename)
       else if (format === 'xlsx') exportToExcel(rows, filename)
-      else exportToPdf(rows, 'Leads', filename)
-      toast.success(
-        `Downloaded ${leads.length.toLocaleString()} lead${leads.length === 1 ? '' : 's'}`,
-      )
+      else if (format === 'pdf') exportToPdf(rows, 'Leads', filename)
+      else printReport(rows, 'Leads')
+      // Print opens the browser's print dialog directly — it doesn't save a
+      // file, so a "Downloaded N leads" toast would be inaccurate. The print
+      // dialog itself is the user-visible confirmation (matches the shared
+      // ExportMenu's Print item, which also skips the success toast).
+      if (format !== 'print') {
+        toast.success(
+          `Downloaded ${leads.length.toLocaleString()} lead${leads.length === 1 ? '' : 's'}`,
+        )
+      }
       onOpenChange(false)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string | string[] } } }
@@ -383,7 +391,7 @@ export function ExportLeadsDrawer({
               title="3. Format"
               subtitle="CSV opens anywhere. Excel preserves number/date formatting. PDF is best for printed reports."
             >
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                 <FormatCard
                   active={format === 'csv'}
                   icon={FileText}
@@ -400,10 +408,17 @@ export function ExportLeadsDrawer({
                 />
                 <FormatCard
                   active={format === 'pdf'}
-                  icon={Printer}
+                  icon={FileDown}
                   title="PDF"
                   hint=".pdf — printable report layout"
                   onClick={() => setFormat('pdf')}
+                />
+                <FormatCard
+                  active={format === 'print'}
+                  icon={Printer}
+                  title="Print"
+                  hint="Opens the print dialog — nothing is downloaded"
+                  onClick={() => setFormat('print')}
                 />
               </div>
             </Section>
@@ -424,6 +439,14 @@ export function ExportLeadsDrawer({
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Preparing…</span>
+              </>
+            ) : format === 'print' ? (
+              <>
+                <Printer className="h-4 w-4" />
+                <span>
+                  Print {scopeCount > 0 && `${scopeCount.toLocaleString()} `}
+                  lead{scopeCount === 1 ? '' : 's'}
+                </span>
               </>
             ) : (
               <>

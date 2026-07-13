@@ -9,9 +9,6 @@ import {
   UserCheck,
   Search,
   RefreshCw,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
   Trophy,
   Medal,
   Award,
@@ -51,7 +48,7 @@ import {
 } from '@/components/ui/table'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, getInitials } from '@/lib/utils'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import api from '@/lib/api'
 
 // ─────────────────────────────────────────────────────────────
@@ -486,19 +483,6 @@ export default function SalespersonReportPage() {
     [sorted, totalSales],
   )
 
-  const handleExportPdf = () => {
-    if (!exportRows.length) { toast.info('No data to export'); return }
-    exportToPdf(exportRows, 'Salesperson Performance Report', 'salesperson-report')
-  }
-  const handleExportCsv = () => {
-    if (!exportRows.length) { toast.info('No data to export'); return }
-    exportToCsv(exportRows, 'salesperson-report')
-  }
-  const handlePrint = () => {
-    if (!exportRows.length) { toast.info('No data to print'); return }
-    printReport(exportRows, 'Salesperson Performance Report')
-  }
-
   // Active filter count for the FilterBar badge
   const isCustomRangeActive = activePreset === 'custom' && (from !== '' || to !== '')
   const activeFilterCount = isCustomRangeActive ? 1 : 0
@@ -556,18 +540,13 @@ export default function SalespersonReportPage() {
                   <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
                   <span className="hidden sm:inline">Refresh</span>
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handleExportPdf}>
-                  <FileDown className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">PDF</span>
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handleExportCsv}>
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Excel</span>
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1 gap-1.5 sm:w-auto sm:flex-none" onClick={handlePrint}>
-                  <Printer className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Print</span>
-                </Button>
+                <ExportMenu
+                  title="Salesperson Performance Report"
+                  filename="salesperson-report"
+                  noun="salesperson"
+                  rows={exportRows}
+                  className="flex-1 sm:w-auto sm:flex-none"
+                />
               </div>
             }
           >

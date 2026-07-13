@@ -17,8 +17,6 @@ import {
   Cell,
 } from 'recharts'
 import {
-  FileDown,
-  FileSpreadsheet,
   TrendingUp,
   TrendingDown,
   ArrowUpRight,
@@ -44,8 +42,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { cn, formatCurrency, currentFinancialYearLong } from '@/lib/utils'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Period definitions
@@ -366,22 +364,16 @@ export default function ProfitLossPage() {
     [plData.expenses]
   )
 
-  const handleExport = (format: string) => {
-    const title = `Profit & Loss Statement`
-    const rows = [
-      { Item: 'Sales Revenue', Amount: plData.salesRevenue },
-      { Item: 'Less: Sales Returns', Amount: -plData.salesReturns },
-      { Item: 'Net Revenue', Amount: plData.netRevenue },
-      { Item: 'Cost of Goods Sold', Amount: -plData.cogs },
-      { Item: 'Gross Profit', Amount: plData.grossProfit },
-      ...Object.entries(plData.expenses).map(([cat, amt]) => ({ Item: `  ${cat}`, Amount: -(amt as number) })),
-      { Item: 'Total Expenses', Amount: -plData.totalExpenses },
-      { Item: 'Net Profit', Amount: plData.netProfit },
-    ]
-    if (format === 'PDF') exportToPdf(rows, title, 'profit-loss')
-    else if (format === 'Excel') exportToCsv(rows, 'profit-loss')
-    else if (format === 'Print') printReport(rows, title)
-  }
+  const plExportRows = () => [
+    { Item: 'Sales Revenue', Amount: plData.salesRevenue },
+    { Item: 'Less: Sales Returns', Amount: -plData.salesReturns },
+    { Item: 'Net Revenue', Amount: plData.netRevenue },
+    { Item: 'Cost of Goods Sold', Amount: -plData.cogs },
+    { Item: 'Gross Profit', Amount: plData.grossProfit },
+    ...Object.entries(plData.expenses).map(([cat, amt]) => ({ Item: `  ${cat}`, Amount: -(amt as number) })),
+    { Item: 'Total Expenses', Amount: -plData.totalExpenses },
+    { Item: 'Net Profit', Amount: plData.netProfit },
+  ]
 
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
@@ -572,24 +564,13 @@ export default function ProfitLossPage() {
 
           {/* Exports */}
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-400 dark:border-rose-800/60 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300 dark:hover:border-rose-700"
-              onClick={() => handleExport('PDF')}
-            >
-              <FileDown className="mr-1.5 h-4 w-4" />
-              PDF
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={() => handleExport('Excel')}
-            >
-              <FileSpreadsheet className="mr-1.5 h-4 w-4" />
-              Excel
-            </Button>
+            <ExportMenu
+              title="Profit & Loss Statement"
+              filename="profit-loss"
+              noun="line item"
+              rows={plExportRows}
+              className="flex-1 sm:w-auto sm:flex-none"
+            />
           </div>
         </div>
           )

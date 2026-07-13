@@ -3,14 +3,11 @@ import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
   Shield,
-  Download,
   RefreshCw,
   FilePlus2,
   FilePenLine,
   Trash2,
   Activity,
-  FileSpreadsheet,
-  FileDown,
 } from 'lucide-react'
 
 import api from '@/lib/api'
@@ -36,18 +33,11 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { exportToCsv, exportToPdf } from '@/lib/exportUtils'
-import { exportToExcel } from '@/lib/excelUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -397,7 +387,7 @@ export default function AuditTrailPage() {
   // Common pipeline for all three export formats: pull the full filtered set
   // (server-capped at 5000) so the file reflects the table's current filters
   // — not just the visible page — and shape rows into a flat plain-object
-  // array that exportToCsv / exportToExcel / exportToPdf can each consume.
+  // array that ExportMenu's Print / Excel / PDF exporters can each consume.
   const fetchExportRows = async (): Promise<Record<string, string>[]> => {
     const res = await api.get('/audit-logs', {
       params: { ...requestParams(), skip: '0', take: '5000' },
@@ -416,40 +406,15 @@ export default function AuditTrailPage() {
     }))
   }
 
-  const exportFilename = `audit-trail-${new Date().toISOString().slice(0, 10)}`
-
-  const handleExportCsv = async () => {
-    try {
-      const rows = await fetchExportRows()
-      if (rows.length === 0) { toast.info('No audit entries to export'); return }
-      exportToCsv(rows, exportFilename)
-      toast.success(`Exported ${rows.length} entries to CSV`)
-    } catch { toast.error('Failed to export audit log') }
-  }
-
-  const handleExportExcel = async () => {
-    try {
-      const rows = await fetchExportRows()
-      if (rows.length === 0) { toast.info('No audit entries to export'); return }
-      exportToExcel(rows, exportFilename)
-      toast.success(`Exported ${rows.length} entries to Excel`)
-    } catch { toast.error('Failed to export audit log') }
-  }
-
-  const handleExportPdf = async () => {
-    try {
-      const rows = await fetchExportRows()
-      if (rows.length === 0) { toast.info('No audit entries to export'); return }
-      // PDF is space-constrained — drop the verbose JSON columns for the
-      // printable summary. They're still in the CSV / Excel exports.
-      const slim = rows.map((r) => {
-        const { 'Old Value': _oldV, 'New Value': _newV, ...rest } = r
-        void _oldV; void _newV
-        return rest
-      })
-      exportToPdf(slim, `Audit Trail — ${formatDate(new Date())}`, exportFilename)
-      toast.success(`Exported ${rows.length} entries to PDF`)
-    } catch { toast.error('Failed to export audit log') }
+  // PDF is space-constrained — drop the verbose JSON columns for the
+  // printable summary. They're still in the Excel export (and Print).
+  const fetchExportRowsForPdf = async (): Promise<Record<string, string>[]> => {
+    const rows = await fetchExportRows()
+    return rows.map((r) => {
+      const { 'Old Value': _oldV, 'New Value': _newV, ...rest } = r
+      void _oldV; void _newV
+      return rest
+    })
   }
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -580,29 +545,13 @@ export default function AuditTrailPage() {
               <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
               Refresh
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportExcel}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as Excel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportCsv}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportPdf}>
-                  <FileDown className="mr-2 h-4 w-4" /> Export as PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title="Audit Trail"
+              filename="audit-trail"
+              rows={fetchExportRows}
+              pdfRows={fetchExportRowsForPdf}
+              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+            />
           </div>
         }
       >

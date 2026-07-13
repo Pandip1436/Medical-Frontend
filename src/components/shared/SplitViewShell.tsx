@@ -14,6 +14,12 @@ interface SplitViewShellProps {
   loading: boolean
   /** Rendered inside the scrollable card list area */
   cards: ReactNode
+  /**
+   * Kept for backward compatibility with existing callers, which also wire
+   * the same handler to the page's table/split ViewModeToggle — that's the
+   * only place it's still invoked from. The shell itself no longer renders
+   * its own exit-split-view control (see the header strip below).
+   */
   onExitSplitView: () => void
   /**
    * Mobile-only (<768px): clear the current selection and return to the list
@@ -47,7 +53,6 @@ export function SplitViewShell({
   resultLabel,
   loading,
   cards,
-  onExitSplitView,
   onBackToList,
   tabsNode,
   selectedId,
@@ -74,25 +79,18 @@ export function SplitViewShell({
     <div className="grid h-full min-h-0 grid-cols-1 overflow-hidden rounded-lg border border-border/60 bg-background md:grid-cols-[minmax(280px,30%)_1fr]">
       {/* ── Left rail ── (list). On phones it's hidden while viewing a detail. */}
       <aside className={cn('min-h-0 min-w-0 flex-col border-r border-border/40', mobileShowDetail ? 'hidden md:flex' : 'flex')}>
-        {/* Header strip: back arrow + search */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onExitSplitView}
-            aria-label="Back to list"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0 flex-1">
-            <Input
-              icon={<Search className="h-3.5 w-3.5" />}
-              placeholder={searchPlaceholder}
-              value={searchValue}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="h-8 text-xs"
-            />
-          </div>
+        {/* Header strip: search. Exiting split view lives in the toolbar's
+            table/split ViewModeToggle (via the same onExitSplitView the
+            caller wires there) — a second exit control here, right next to
+            an unrelated local search box, was redundant and confusing. */}
+        <div className="flex shrink-0 items-center border-b border-border/40 px-3 py-2.5">
+          <Input
+            icon={<Search className="h-3.5 w-3.5" />}
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="h-8 text-xs"
+          />
         </div>
 
         {/* Optional status tabs */}

@@ -1,22 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuthStore } from '@/stores/authStore'
 import { navigate } from '@/lib/router'
 import { resolveListView } from '@/lib/listView'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false)
-  useEffect(() => {
-    const mql = window.matchMedia('(max-width: 767px)')
-    const onChange = (e: MediaQueryList | MediaQueryListEvent) => setIsMobile(e.matches)
-    onChange(mql)
-    mql.addEventListener('change', onChange as (e: MediaQueryListEvent) => void)
-    return () => mql.removeEventListener('change', onChange as (e: MediaQueryListEvent) => void)
-  }, [])
-  return isMobile
-}
 
 interface BreadcrumbItem {
   label: string
@@ -47,7 +35,7 @@ const pageVariants = {
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
-import { useIsCompactTouchDevice, useIsCompactViewport } from '@/hooks/useMediaQuery'
+import { useIsTouchCompact, useIsCompactChrome } from '@/hooks/useMediaQuery'
 import { useRoute } from '@/lib/router'
 import { ImportProgressPill } from '@/components/shared/ImportProgressPill'
 
@@ -58,18 +46,18 @@ export default function AppLayout({
   currentPath,
 }: AppLayoutProps) {
   const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
-  const isMobile = useIsMobile()
-  const isCompactTouchDevice = useIsCompactTouchDevice()
-  // On tablet, Sidebar.tsx always docks the icon rail and "expanding" opens
-  // an overlay on top of it (never widens the docked rail) — so content's
-  // margin must stay pinned at the rail width, not animate with sidebarCollapsed.
-  const isTabletTouch = isCompactTouchDevice && !isMobile
-  const isCompactViewport = useIsCompactViewport()
-  // Any viewport below the xl breakpoint (1280px) hides the side rail and shows
-  // the fixed bottom tab bar instead — every phone/tablet AND a desktop browser
-  // resized narrow. So the main area drops its sidebar margin and reserves room
-  // at the bottom for the bar. Real desktops (>=1280px) keep the sidebar.
-  const showBottomNav = isMobile || isTabletTouch || isCompactViewport
+  // Any touch device up to tablet width (phone OR tablet) — mirrors
+  // Sidebar.tsx's own branch exactly. A narrow desktop/laptop window (whether
+  // from display scaling or just a small restored window) never matches
+  // this — see isTabletTouch below instead.
+  const isMobile = useIsTouchCompact()
+  // Non-touch narrow windows only (display scaling, a small restored
+  // window) — touch tablets are already caught by isMobile above. Docks the
+  // collapsed icon rail; Sidebar.tsx always docks it and "expanding" opens
+  // an overlay on top (never widens the docked rail), so content's margin
+  // must stay pinned at the rail width, not animate with sidebarCollapsed.
+  const isTabletTouch = useIsCompactChrome()
+  const showBottomNav = isMobile
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
   const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
@@ -163,17 +151,18 @@ export default function AppLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompactPage])
 
-  // Same auto-collapse-once behavior for real tablets (touch + <1280px, e.g.
-  // an iPad Pro at 1024px) — the desktop-style sidebar would otherwise open
-  // expanded (260px) and squeeze page content into a narrow column. Gated on
-  // `hover: none` so a desktop/laptop browser window at the same width (mouse
-  // input) never matches and keeps today's expanded-by-default behavior.
+  // Same auto-collapse-once behavior for non-touch windows narrower than xl
+  // (1280px) — display scaling or a small restored browser window — the
+  // desktop-style sidebar would otherwise open expanded (260px) and squeeze
+  // page content into a narrow column. Touch tablets never reach this (they
+  // get the bottom-bar shell via isMobile instead). Real desktops (non-touch,
+  // >=1280px) keep today's expanded-by-default behavior.
   useEffect(() => {
-    if (isCompactTouchDevice && !sidebarCollapsed) {
+    if (isTabletTouch && !sidebarCollapsed) {
       useAuthStore.setState({ sidebarCollapsed: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCompactTouchDevice])
+  }, [isTabletTouch])
 
   return (
     <div
@@ -189,7 +178,7 @@ export default function AppLayout({
       {/* Main Area - shifts based on sidebar width on desktop, full width on mobile */}
       <motion.div
         initial={false}
-        animate={{ marginLeft: showBottomNav ? 0 : sidebarWidth }}
+        animate={{ marginLeft: isMobile ? 0 : isTabletTouch ? '4rem' : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           // min-w-0 is critical: without it this flex-1 column's min-width
@@ -210,9 +199,9 @@ export default function AppLayout({
             isFullViewport
               ? 'flex-1 min-h-0 overflow-hidden'
               : isCompactPage
-                // Reserve room on any touch device (phone or tablet) so the
-                // fixed bottom tab bar doesn't cover the split view's content.
-                // No bar on desktop, so no bottom padding there.
+                // Reserve room on any touch device (phone or tablet — the
+                // bottom-bar shell) so it doesn't cover the split view's
+                // content. Desktop docks a side rail instead, so no bar, no padding.
                 ? showBottomNav
                   ? 'flex-1 min-h-0 overflow-hidden pb-24'
                   : 'flex-1 min-h-0 overflow-hidden'
@@ -233,7 +222,7 @@ export default function AppLayout({
                     ? 'content-area min-w-0 h-full flex flex-col px-2 pt-2 pb-2 sm:px-3 md:px-4'
                     : isTightScrollPage
                       ? 'content-area min-w-0 px-2 py-2 sm:px-3 md:px-4'
-                      // Keep the tall bottom pad (pb-24) on every touch device so
+                      // Keep the tall bottom pad (pb-24) on any touch device so
                       // the last rows clear the bottom tab bar; desktop shrinks it.
                       : showBottomNav
                         ? 'content-area min-w-0 px-3 pt-3 pb-24 md:px-4 md:pt-4 lg:px-6 lg:pt-6'

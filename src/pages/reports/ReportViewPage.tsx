@@ -1,15 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '@/lib/api'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import { exportToPdf, printReport } from '@/lib/exportUtils'
-import { exportToExcel } from '@/lib/excelUtils'
-import { toast } from 'sonner'
 import { motion, type Variants } from 'framer-motion'
 import {
   ArrowLeft,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
   Table2,
   BarChart2,
   Calendar,
@@ -20,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
   BarChart,
   Bar,
@@ -265,19 +260,6 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
 
   const kpis: { label: string; value: string }[] = liveData?.kpis ?? []
   const exportRows: Record<string, unknown>[] = liveData?.tableData ?? liveData?.chartData ?? []
-
-  const handleExportPdf = () => {
-    if (!exportRows.length) { toast.info('No data to export'); return }
-    exportToPdf(exportRows, title, `${reportType}-report`)
-  }
-  const handleExportExcel = () => {
-    if (!exportRows.length) { toast.info('No data to export'); return }
-    exportToExcel(exportRows, `${reportType}-report`)
-  }
-  const handlePrint = () => {
-    if (!exportRows.length) { toast.info('No data to print'); return }
-    printReport(exportRows, title)
-  }
 
   const renderContent = () => {
     if (isLoading) return (
@@ -965,15 +947,12 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
               </div>
             </div>
             <div className="flex w-full items-center gap-2 sm:w-auto">
-              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handleExportPdf}>
-                <FileDown className="h-3.5 w-3.5" />PDF
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handleExportExcel}>
-                <FileSpreadsheet className="h-3.5 w-3.5" />Excel
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 gap-1.5 rounded-xl border-border/60 sm:flex-none" onClick={handlePrint}>
-                <Printer className="h-3.5 w-3.5" />Print
-              </Button>
+              <ExportMenu
+                title={title}
+                filename={`${reportType}-report`}
+                rows={exportRows}
+                className="flex-1 rounded-xl border-border/60 sm:flex-none"
+              />
             </div>
           </div>
         </motion.div>

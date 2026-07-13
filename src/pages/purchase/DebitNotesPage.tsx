@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   Filter,
   BarChart3,
-  Download,
   X,
   SlidersHorizontal,
 } from 'lucide-react'
@@ -45,8 +44,8 @@ import { toast } from 'sonner'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
-import { exportToCsv } from '@/lib/exportUtils'
 import { DebitNoteSplitView } from './components/DebitNoteSplitView'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 // ─────────────────────────────────────────────────────────────
 // DEBIT NOTES HISTORY PAGE
@@ -411,7 +410,7 @@ export default function DebitNotesPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total Notes', value: stats.totalCount.toString(), borderAccent: 'border-l-blue-500' },
                   { label: 'Total Debit', value: formatCurrency(stats.totalAmount), borderAccent: 'border-l-rose-500' },
@@ -419,7 +418,7 @@ export default function DebitNotesPage() {
                   { label: 'Settled', value: formatCurrency(stats.settledTotal), borderAccent: 'border-l-emerald-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
@@ -437,25 +436,20 @@ export default function DebitNotesPage() {
           <div className="w-40 min-w-35">
             <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (!pastReturns.length) { toast.error('No debit notes to export'); return }
-              exportToCsv(pastReturns.map(dn => ({
-                'Note #': dn.debitNoteNo,
-                Date: formatDate(dn.date),
-                Supplier: dn.supplierName,
-                Type: /short/i.test(dn.reason || '') ? 'Short-Billing' : 'Goods Returned',
-                PE: dn.grn?.grnNumber ?? '',
-                Amount: Number(dn.totalAmount),
-                Status: dn.status,
-              })), 'debit-notes')
-            }}
-          >
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Debit Notes"
+            filename="debit-notes"
+            noun="debit note"
+            rows={() => pastReturns.map(dn => ({
+              'Note #': dn.debitNoteNo,
+              Date: formatDate(dn.date),
+              Supplier: dn.supplierName,
+              Type: /short/i.test(dn.reason || '') ? 'Short-Billing' : 'Goods Returned',
+              PE: dn.grn?.grnNumber ?? '',
+              Amount: Number(dn.totalAmount),
+              Status: dn.status,
+            }))}
+          />
           {/* Segmented utility toggles (Filter · Summary) — same language as the
               view switcher: one bordered pill, active item lifts on a surface. */}
           <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -679,6 +673,21 @@ export default function DebitNotesPage() {
                     <span className="hidden sm:inline">New Return</span>
                     <span className="sm:hidden">New</span>
                   </Button>
+                  <ExportMenu
+                    className="flex-1 sm:w-auto sm:flex-none"
+                    title="Debit Notes"
+                    filename="debit-notes"
+                    noun="debit note"
+                    rows={() => tabFilteredReturns.map(dn => ({
+                      'Note #': dn.debitNoteNo,
+                      Date: formatDate(dn.date),
+                      Supplier: dn.supplierName,
+                      Type: /short/i.test(dn.reason || '') ? 'Short-Billing' : 'Goods Returned',
+                      PE: dn.grn?.grnNumber ?? '',
+                      Amount: Number(dn.totalAmount),
+                      Status: dn.status,
+                    }))}
+                  />
                   <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/debit-notes') }} />
                   </div>
                 }

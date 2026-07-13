@@ -20,11 +20,6 @@ import {
   X,
   TableProperties,
   BarChart3,
-  Download,
-  ChevronDown,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
 } from 'lucide-react'
 import { useDebounce } from '@/hooks/useDebounce'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -67,14 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
@@ -288,47 +276,29 @@ export default function ExpensesPage() {
   // The table view is server-paginated, so `expenses` only holds the current
   // page. For an export the user almost always wants ALL rows matching their
   // current filters, so we re-fetch with a large page size on demand.
-  const [isExporting, setIsExporting] = useState(false)
-
-  const handleExport = async (format: 'PDF' | 'CSV' | 'Print') => {
-    setIsExporting(true)
-    try {
-      const res = await api.get('/expenses', {
-        params: {
-          page: 1,
-          pageSize: 10000,
-          search: debouncedSearch.trim() || undefined,
-          category: categoryFilter !== 'all' ? categoryFilter : undefined,
-          paymentMode: paymentModeFilter !== 'all' ? paymentModeFilter : undefined,
-        },
-      })
-      const allRows: Expense[] = Array.isArray(res.data?.data) ? res.data.data : []
-      if (!allRows.length) {
-        toast.info('No expenses to export with current filters')
-        return
-      }
-      // jsPDF's default font can't render the ₹ glyph (it prints as a stray
-      // character), so strip the symbol from the exported amount — just the
-      // Indian-grouped number under the "Amount" header.
-      const money = (v: number) => formatCurrency(v).replace(/₹\s?/g, '')
-      // Map to user-facing columns; exportUtils derives headers from key names.
-      const rows = allRows.map((e) => ({
-        Date: formatDate(e.date),
-        Category: e.category,
-        Description: e.description,
-        Amount: money(e.amount),
-        'Payment Mode': e.paymentMode,
-      }))
-      const title = 'Expenses Report'
-      const filename = `expenses-${new Date().toISOString().split('T')[0]}`
-      if (format === 'PDF') exportToPdf(rows, title, filename)
-      else if (format === 'CSV') exportToCsv(rows, filename)
-      else printReport(rows, title)
-    } catch {
-      toast.error('Export failed')
-    } finally {
-      setIsExporting(false)
-    }
+  const fetchExpensesExportRows = async () => {
+    const res = await api.get('/expenses', {
+      params: {
+        page: 1,
+        pageSize: 10000,
+        search: debouncedSearch.trim() || undefined,
+        category: categoryFilter !== 'all' ? categoryFilter : undefined,
+        paymentMode: paymentModeFilter !== 'all' ? paymentModeFilter : undefined,
+      },
+    })
+    const allRows: Expense[] = Array.isArray(res.data?.data) ? res.data.data : []
+    // jsPDF's default font can't render the ₹ glyph (it prints as a stray
+    // character), so strip the symbol from the exported amount — just the
+    // Indian-grouped number under the "Amount" header.
+    const money = (v: number) => formatCurrency(v).replace(/₹\s?/g, '')
+    // Map to user-facing columns; exportUtils derives headers from key names.
+    return allRows.map((e) => ({
+      Date: formatDate(e.date),
+      Category: e.category,
+      Description: e.description,
+      Amount: money(e.amount),
+      'Payment Mode': e.paymentMode,
+    }))
   }
 
   // Form
@@ -582,35 +552,14 @@ export default function ExpensesPage() {
                 Chart
               </Button>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 gap-1.5 sm:w-auto sm:flex-none"
-                  disabled={isExporting || total === 0}
-                >
-                  <Download className="h-4 w-4" />
-                  {isExporting ? 'Exporting…' : 'Export'}
-                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onSelect={() => handleExport('PDF')}>
-                  <FileDown className="h-4 w-4 text-rose-600" />
-                  <span>PDF</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleExport('CSV')}>
-                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                  <span>CSV</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => handleExport('Print')}>
-                  <Printer className="h-4 w-4 text-sky-600" />
-                  <span>Print</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title="Expenses Report"
+              filename={`expenses-${new Date().toISOString().split('T')[0]}`}
+              noun="expense"
+              disabled={total === 0}
+              rows={fetchExpensesExportRows}
+              className="flex-1 sm:w-auto sm:flex-none"
+            />
             <Button size="sm" className="w-full sm:w-auto" onClick={handleOpenAdd}>
               <Plus className="mr-1 h-4 w-4" />
               Add Expense

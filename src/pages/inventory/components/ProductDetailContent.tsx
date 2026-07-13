@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronRight, ChevronUp,
-  BarChart3, Download, ShoppingCart, Truck, GitMerge,
+  BarChart3, ShoppingCart, Truck, GitMerge,
   RotateCcw, PackageX,
 } from 'lucide-react'
 import { useProductDetail } from '../hooks/useProductDetail'
@@ -17,11 +17,16 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import api from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { exportToCsv } from '@/lib/exportUtils'
+import {
+  buildProductHistoryExportRows,
+  productHistoryExportFilename,
+  productHistoryExportTitle,
+} from '../productHistoryExport'
 
 // ─── Types ────────────────────────────────────────────────────
 type ActiveTab = 'overview' | 'sales' | 'purchases' | 'timeline'
@@ -365,32 +370,9 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     tabPendingRef.current = false
   }, [tabVisibleCount])
 
-  const handleExport = () => {
-    const rows = activeTab === 'sales' ? filteredSales : activeTab === 'purchases' ? filteredPurchases : filteredTimeline
-    if (!rows.length) { toast.info('No data to export'); return }
-    const productName = selectedProduct?.name ?? history?.product?.name ?? 'product'
-    const name = `product-${activeTab}-${productName.replace(/\s+/g, '-').toLowerCase()}`
-    if (activeTab === 'sales') {
-      exportToCsv((filteredSales as any[]).map(r => ({
-        Type: r.isReturn ? 'Sales Return' : 'Sale',
-        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
-        Batch: r.batch, Qty: r.isReturn ? `+${r.qty}` : `-${r.qty}`,
-        Rate: r.rate, Amount: r.amount, 'GST%': r.gst, Status: r.status,
-      })), name)
-    } else if (activeTab === 'purchases') {
-      exportToCsv((filteredPurchases as any[]).map(r => ({
-        Type: r.isReturn ? 'Purchase Return' : 'Purchase',
-        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
-        Batch: r.batch, Qty: r.isReturn ? `-${r.qty}` : `+${r.qty}`,
-        Rate: r.purchaseRate, Amount: r.amount, Status: r.status,
-      })), name)
-    } else {
-      exportToCsv((filteredTimeline as TimelineRow[]).map(r => ({
-        Type: r.type, Date: formatDate(r.date.toISOString()), Ref: r.ref,
-        Party: r.party, Batch: r.batch, Qty: r.qty, Amount: r.amount, Stock: r.runningStock,
-      })), name)
-    }
-  }
+  // Product name used for the export title/filename — falls back the same
+  // way the action bar's name label does when history hasn't resolved yet.
+  const exportProductName = selectedProduct?.name ?? history?.product?.name ?? 'product'
 
   const hasData = history && (filteredSales.length > 0 || filteredPurchases.length > 0 || filteredTimeline.length > 0)
   const activeCount = activeTab === 'sales' ? filteredSales.length : activeTab === 'purchases' ? filteredPurchases.length : filteredTimeline.length
@@ -414,9 +396,16 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               {sortOrder === 'desc' ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />}
               {sortOrder === 'desc' ? 'New to Old' : 'Old to New'}
             </Button>
-            <Button size="sm" variant="outline" className="gap-1 h-7" onClick={handleExport} disabled={activeCount === 0}>
-              <Download className="h-3 w-3" /> Export
-            </Button>
+            <ExportMenu
+              title={productHistoryExportTitle(activeTab, exportProductName)}
+              filename={productHistoryExportFilename(activeTab, exportProductName)}
+              noun="record"
+              rows={() => buildProductHistoryExportRows(activeTab, filteredSales, filteredPurchases, filteredTimeline)}
+              disabled={activeCount === 0}
+              size="sm"
+              variant="outline"
+              className="h-7"
+            />
           </>
         )}
         <Button size="sm" variant="outline" className="h-7" onClick={() => navigate(`/inventory/products?view=table&editId=${productId}&fromSplit=${productId}`)}>

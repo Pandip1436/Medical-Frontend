@@ -8,12 +8,8 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { KpiTile } from '@/components/dashboard/KpiTile'
 import type { KpiTileData, KpiDelta } from '@/components/dashboard/types'
 import { motion } from 'framer-motion'
-import { toast } from 'sonner'
 import {
   Search,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
   BookOpen,
   ArrowUpRight,
   ArrowDownLeft,
@@ -26,7 +22,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
-  Download,
   Rows3,
   LineChart as LineChartIcon,
   Phone,
@@ -48,13 +43,7 @@ import {
   Card,
   CardContent,
 } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SkeletonCard, SkeletonTable } from '@/components/ui/skeleton'
 import {
@@ -68,7 +57,6 @@ import {
 } from 'recharts'
 import type { Customer, Supplier } from '@/types'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, formatLedgerBalance, ledgerBalanceSuffix, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -468,20 +456,13 @@ export default function LedgerPage() {
 
   const activeFilterCount = sortOrder !== 'oldest' ? 1 : 0
 
-  const handleExport = (format: string) => {
-    if (!ledgerWithBalance.length) { toast.info('No ledger data to export'); return }
-    const title = `Party Ledger — ${selectedPartyName}`
-    const rows = ledgerWithBalance.map((e) => ({
-      Date: formatDate(e.date),
-      Particular: e.particular,
-      [LEDGER_COL_BILLED]: e.debit,
-      [LEDGER_COL_PAID]: e.credit,
-      Balance: e.balance,
-    }))
-    if (format === 'PDF') exportToPdf(rows, title, `ledger-${selectedPartyName}`)
-    else if (format === 'Excel') exportToCsv(rows, `ledger-${selectedPartyName}`)
-    else if (format === 'Print') printReport(rows, title)
-  }
+  const ledgerExportRows = () => ledgerWithBalance.map((e) => ({
+    Date: formatDate(e.date),
+    Particular: e.particular,
+    [LEDGER_COL_BILLED]: e.debit,
+    [LEDGER_COL_PAID]: e.credit,
+    Balance: e.balance,
+  }))
 
   const selectedPartyName = selectedParty?.name ?? ''
 
@@ -851,35 +832,14 @@ export default function LedgerPage() {
 
   // ── Export dropdown (single trigger replaces 3 buttons)
   const exportDropdown = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!ledgerWithBalance.length}
-          className="w-full gap-1.5 sm:w-auto"
-        >
-          <Download className="h-4 w-4" />
-          Export
-          <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem onSelect={() => handleExport('PDF')}>
-          <FileDown className="h-4 w-4 text-rose-600" />
-          <span>PDF</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => handleExport('Excel')}>
-          <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-          <span>CSV</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => handleExport('Print')}>
-          <Printer className="h-4 w-4 text-sky-600" />
-          <span>Print</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <ExportMenu
+      title={`Party Ledger — ${selectedPartyName}`}
+      filename={`ledger-${selectedPartyName}`}
+      noun="entry"
+      disabled={!ledgerWithBalance.length}
+      rows={ledgerExportRows}
+      className="w-full sm:w-auto"
+    />
   )
 
   // ── No-party hero state — inline embedded picker, no popover ──

@@ -157,27 +157,20 @@ export function LeadsSplitView({
           'min-h-0 min-w-0 flex-col border-r border-border/40',
           selectedLeadId ? 'hidden md:flex' : 'flex',
         )}>
-          {/* Header strip — back arrow + total count */}
-          <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2.5">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onExitSplitView}
-              aria-label="Back to list"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0 flex-1">
-              <Input
-                icon={<Search className="h-3.5 w-3.5" />}
-                placeholder="Search leads…"
-                value={list.filters.q}
-                onChange={(e) =>
-                  list.setFilters((prev) => ({ ...prev, q: e.target.value }))
-                }
-                className="h-8 text-xs"
-              />
-            </div>
+          {/* Header strip — search. Exiting split view lives in the toolbar's
+              table/split ViewModeToggle (same onExitSplitView handler) — a
+              second exit control here, next to an unrelated local search box,
+              was redundant and confusing. */}
+          <div className="flex shrink-0 items-center border-b border-border/40 px-3 py-2.5">
+            <Input
+              icon={<Search className="h-3.5 w-3.5" />}
+              placeholder="Search leads…"
+              value={list.filters.q}
+              onChange={(e) =>
+                list.setFilters((prev) => ({ ...prev, q: e.target.value }))
+              }
+              className="h-8 text-xs"
+            />
           </div>
           <div className="shrink-0 border-b border-border/40 bg-muted/15 px-3 py-1.5 text-[11px] text-muted-foreground">
             {list.loading

@@ -6,8 +6,6 @@ import {
   UserX,
   IndianRupee,
   Building2,
-  Download,
-  Printer,
   X,
   Users,
   CheckCircle2,
@@ -41,6 +39,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,7 +53,6 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
-import { exportToCsv, printReport } from '@/lib/exportUtils'
 import {
   exportSuppliersToWorkbook,
   type SupplierExportPayload,
@@ -501,7 +499,7 @@ export default function SuppliersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: (ms?.totalCount ?? stats.totalCount).toString(), sub: 'suppliers', borderAccent: 'border-l-blue-500' },
                   { label: 'Active', value: (ms?.activeCount ?? stats.activeCount).toString(), sub: 'in directory', borderAccent: 'border-l-emerald-500' },
@@ -509,11 +507,10 @@ export default function SuppliersPage() {
                   { label: 'Pending Payment', value: formatCurrency(ms?.pendingPayments ?? 0), sub: 'outstanding', borderAccent: 'border-l-rose-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={`border-l-[3px] ${s.borderAccent}`}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -525,10 +522,14 @@ export default function SuppliersPage() {
 
         {/* Toolbar */}
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Suppliers"
+            filename="suppliers"
+            noun="supplier"
+            onExcelExport={handleExport}
+            excelSubtitle="Round-trip import workbook"
+            formats={['excel']}
+          />
           <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
             <Upload className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Import</span>
@@ -751,15 +752,15 @@ export default function SuppliersPage() {
         columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={handleExport}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              Export
-            </Button>
+            <ExportMenu
+              title="Suppliers"
+              filename="suppliers"
+              noun="supplier"
+              onExcelExport={handleExport}
+              excelSubtitle="Round-trip import workbook"
+              formats={['excel']}
+              className="flex-1 sm:w-auto sm:flex-none"
+            />
             <Button
               variant="outline"
               size="sm"
@@ -862,32 +863,22 @@ export default function SuppliersPage() {
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 dark:bg-primary/10">
               <Badge variant="default" size="sm" dot>{selectedIds.size} selected</Badge>
               <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = suppliers.filter((s) => selectedIds.has(s.id))
-                  exportToCsv(selected.map((s) => ({
-                    Name: s.name,
-                    Phone: s.phone,
-                    Email: s.email ?? '',
-                    GSTIN: s.gstin,
-                    Status: s.isActive ? 'Active' : 'Inactive',
-                  })), 'suppliers-selected')
-                }}>
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                  Export
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = suppliers.filter((s) => selectedIds.has(s.id))
-                  printReport(selected.map((s) => ({
-                    Name: s.name,
-                    Phone: s.phone,
-                    Email: s.email ?? '',
-                    GSTIN: s.gstin,
-                    Status: s.isActive ? 'Active' : 'Inactive',
-                  })), 'Suppliers')
-                }}>
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
+                <ExportMenu
+                  variant="ghost"
+                  size="sm"
+                  title="Suppliers"
+                  filename="suppliers-selected"
+                  noun="supplier"
+                  rows={() => suppliers
+                    .filter((s) => selectedIds.has(s.id))
+                    .map((s) => ({
+                      Name: s.name,
+                      Phone: s.phone,
+                      Email: s.email ?? '',
+                      GSTIN: s.gstin,
+                      Status: s.isActive ? 'Active' : 'Inactive',
+                    }))}
+                />
                 <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setBulkDeactivateOpen(true)}>
                   <UserX className="mr-1 h-3.5 w-3.5" />
                   Deactivate

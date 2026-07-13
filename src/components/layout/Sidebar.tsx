@@ -39,7 +39,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { href as hashHref, navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
-import { useIsCompactTouchDevice, useIsCompactViewport } from '@/hooks/useMediaQuery'
+import { useIsTouchCompact, useIsCompactChrome } from '@/hooks/useMediaQuery'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
 import { userRoles, primaryRole, isAdminish } from '@/types'
@@ -190,22 +190,6 @@ const roleRingColors: Record<string, string> = {
   DELIVERY: 'ring-cyan-500',
 }
 
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false)
-
-  useEffect(() => {
-    const mql = window.matchMedia('(max-width: 767px)')
-    const onChange = (e: MediaQueryListEvent | MediaQueryList) => {
-      setIsMobile(e.matches)
-    }
-    onChange(mql)
-    mql.addEventListener('change', onChange as (e: MediaQueryListEvent) => void)
-    return () => mql.removeEventListener('change', onChange as (e: MediaQueryListEvent) => void)
-  }, [])
-
-  return isMobile
-}
-
 interface SidebarProps {
   currentPath: string
 }
@@ -266,16 +250,14 @@ export function Sidebar({ currentPath }: SidebarProps) {
     const interval = setInterval(fetchCount, 60000)
     return () => clearInterval(interval)
   }, [user])
-  const isMobile = useIsMobile()
-  // Real tablets (touch, <1280px) always dock the slim icon rail; "expanding"
-  // opens a temporary overlay instead of pushing it wider (see the tablet
-  // branch below) so main content never re-animates its margin on tablet.
-  const isTabletTouch = useIsCompactTouchDevice() && !isMobile
-  // Below the xl breakpoint (1280px) we ALWAYS use the bottom tab bar and hide
-  // the side rail — on every phone/tablet and also a desktop browser resized
-  // narrow (which the touch-only check above intentionally ignores). Only true
-  // desktops (>=1280px) keep the sidebar.
-  const isCompactViewport = useIsCompactViewport()
+  // Any touch device up to tablet width (phone OR tablet) — see the branch below.
+  const isMobile = useIsTouchCompact()
+  // Non-touch narrow windows only (display scaling, a small restored browser
+  // window) — touch tablets are already caught by isMobile above and go to
+  // the bottom-bar shell instead. Always docks the slim icon rail;
+  // "expanding" opens a temporary overlay instead of pushing it wider (see
+  // the branch further below) so main content never re-animates its margin.
+  const isTabletTouch = useIsCompactChrome()
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
@@ -663,9 +645,13 @@ export function Sidebar({ currentPath }: SidebarProps) {
   )
 
   // ─── MOBILE / TABLET LAYOUT ─────────────────────────────────────────────
-  // Phones AND touch tablets (iPad etc.) both hide the side rail and use the
-  // fixed bottom tab bar — so no sidebar shows on any touch device.
-  if (isMobile || isTabletTouch || isCompactViewport) {
+  // Any touch device up to tablet width (phone OR tablet, e.g. an iPad Pro)
+  // hides the side rail entirely and uses the full-screen hamburger sheet +
+  // fixed bottom tab bar. Gated on `hover: none` so a desktop/laptop browser
+  // window — even one that's narrow because of display scaling or a small
+  // restored (non-maximized) window — never falls into this branch; it
+  // always gets a docked sidebar instead (see the branch further below).
+  if (isMobile) {
     return (
       <>
         {/* Full-screen overlay sidebar */}
@@ -810,10 +796,13 @@ export function Sidebar({ currentPath }: SidebarProps) {
     )
   }
 
-  // ─── DESKTOP / TABLET LAYOUT ────────────────────────────────────────────
-  // On a real tablet, the docked rail is always icon-only (4rem) — tapping
-  // "expand" opens a translucent overlay on top of it instead of widening
-  // the rail, so `AppLayout`'s content margin never re-animates on tablet.
+  // ─── DESKTOP LAYOUT ─────────────────────────────────────────────────────
+  // Touch tablets never reach here (isMobile catches them above). This
+  // branch is real desktops, plus non-touch narrow windows (display scaling,
+  // a small restored window) — for those, the docked rail is always
+  // icon-only (4rem) and tapping "expand" opens a translucent overlay on top
+  // of it instead of widening the rail, so `AppLayout`'s content margin
+  // never re-animates.
   const dockedCollapsed = isTabletTouch ? true : sidebarCollapsed
   const dockedWidth = isTabletTouch ? '4rem' : sidebarWidth
   const tabletOverlayOpen = isTabletTouch && !sidebarCollapsed
@@ -844,8 +833,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
         </div>
       </motion.aside>
 
-      {/* Tablet-only expand overlay. A light blurred tint (not mobile's
-          opaque backdrop) so dashboard data stays visible behind it. */}
+      {/* Non-touch-narrow-only expand overlay. A light blurred tint (not
+          mobile's opaque backdrop) so dashboard data stays visible behind it. */}
       {isTabletTouch && (
         <AnimatePresence>
           {tabletOverlayOpen && (

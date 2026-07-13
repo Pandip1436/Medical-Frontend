@@ -33,19 +33,25 @@ export function useIsMobileOrTablet() {
   return useMediaQuery('(max-width: 1023px)')
 }
 
-// Touch devices (no hover) narrower than desktop `xl` (1280px) — real
-// tablets like an iPad Pro at 1024px land here, but a desktop/laptop
-// browser window resized to the same width never matches (it has
-// `hover: hover`), so desktop layout stays untouched.
-export function useIsCompactTouchDevice() {
+// ANY touch device up to tablet width — phone OR tablet (<=1279px CSS px),
+// e.g. an iPhone or an iPad Pro. Hides the sidebar entirely behind a
+// hamburger sheet and shows the fixed bottom tab bar instead. A non-touch
+// window never matches this, no matter how narrow (display scaling or a
+// small restored browser window) — it falls through to useIsCompactChrome
+// instead, which keeps a docked (just collapsed) sidebar. Only real desktops
+// (non-touch, any width) are excluded from the bottom-bar shell.
+export function useIsTouchCompact() {
   return useMediaQuery('(hover: none) and (max-width: 1279px)')
 }
 
-// Any viewport narrower than desktop `xl` (1280px), regardless of input type.
-// Used to hide the side rail and switch to the fixed bottom tab bar on ALL
-// phones and tablets — including desktop browsers resized narrow for testing,
-// which the touch-only check above deliberately ignores. Real desktops
-// (>=1280px) keep the sidebar.
-export function useIsCompactViewport() {
-  return useMediaQuery('(max-width: 1279px)')
+// Non-touch windows narrower than desktop `xl` (1280px) — a real
+// desktop/laptop browser window shrunk by Windows display scaling or just a
+// small restored window. Docks a collapsed icon-rail sidebar (with
+// overlay-on-expand, see Sidebar.tsx) instead of either the full desktop
+// sidebar or the touch-compact bottom-bar shell above. Touch devices never
+// reach this — they're always caught by useIsTouchCompact first.
+export function useIsCompactChrome() {
+  const isTouchCompact = useIsTouchCompact()
+  const isNarrow = useMediaQuery('(max-width: 1279px)')
+  return !isTouchCompact && isNarrow
 }

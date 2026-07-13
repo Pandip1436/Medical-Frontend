@@ -28,13 +28,8 @@ import {
   CheckCircle2,
   Trash2,
   MoreHorizontal,
-  FileDown,
-  FileSpreadsheet,
-  Printer,
   Plus,
 } from 'lucide-react'
-import { toast } from 'sonner'
-import { exportToCsv, exportToPdf, printReport } from '@/lib/exportUtils'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -59,6 +54,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { SupplierFormDialog, type SupplierFormValues } from '@/components/shared/SupplierFormDialog'
 import {
   SupplierActivityDialog,
@@ -318,29 +314,19 @@ export default function SupplierDetailPage() {
   // `ledgerRows` which is already period-filtered server-side via the period
   // dropdown — so the file matches exactly what's on screen. Mirrors the
   // handler shape used by accounting/LedgerPage so we stay consistent.
-  const handleExportLedger = (format: 'PDF' | 'Excel' | 'Print') => {
-    if (!ledgerRows.length) {
-      toast.info('No ledger data to export for the selected period')
-      return
-    }
-    const periodLabel =
-      d.ledger.from && d.ledger.to
-        ? ` (${d.ledger.from} → ${d.ledger.to})`
-        : ''
-    const title = `Supplier Ledger — ${sup?.name ?? '—'}${periodLabel}`
-    const safeName = (sup?.name ?? 'supplier').replace(/[^a-z0-9-_]+/gi, '_')
-    const rows = ledgerRows.map((r) => ({
-      Date: r.date ? formatDate(r.date) : '',
-      Reference: r.ref ?? '',
-      Description: r.description ?? '',
-      [LEDGER_COL_BILLED]: Number(r.debit ?? 0) || '',
-      [LEDGER_COL_PAID]: Number(r.credit ?? 0) || '',
-      Balance: Number(r.balance ?? 0),
-    }))
-    if (format === 'PDF') exportToPdf(rows, title, `ledger-${safeName}`)
-    else if (format === 'Excel') exportToCsv(rows, `ledger-${safeName}`)
-    else printReport(rows, title)
-  }
+  const ledgerPeriodLabel =
+    d.ledger.from && d.ledger.to
+      ? ` (${d.ledger.from} → ${d.ledger.to})`
+      : ''
+  const ledgerSafeName = (sup?.name ?? 'supplier').replace(/[^a-z0-9-_]+/gi, '_')
+  const ledgerExportRows = () => ledgerRows.map((r) => ({
+    Date: r.date ? formatDate(r.date) : '',
+    Reference: r.ref ?? '',
+    Description: r.description ?? '',
+    [LEDGER_COL_BILLED]: Number(r.debit ?? 0) || '',
+    [LEDGER_COL_PAID]: Number(r.credit ?? 0) || '',
+    Balance: Number(r.balance ?? 0),
+  }))
 
   return (
     <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
@@ -380,36 +366,13 @@ export default function SupplierDetailPage() {
             {/* Ledger exports — operate on whatever is currently in the Ledger
                 tab, so the period dropdown above doubles as the report's date
                 filter. Disabled until the ledger has loaded at least once. */}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('PDF')}
+            <ExportMenu
+              title={`Supplier Ledger — ${sup?.name ?? '—'}${ledgerPeriodLabel}`}
+              filename={`ledger-${ledgerSafeName}`}
+              noun="entry"
               disabled={!d.ledger.data}
-              className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              <FileDown className="mr-1.5 h-3.5 w-3.5" />
-              PDF
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('Excel')}
-              disabled={!d.ledger.data}
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
-            >
-              <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" />
-              Excel
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleExportLedger('Print')}
-              disabled={!d.ledger.data}
-              className="border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-500/40 dark:text-sky-300 dark:hover:bg-sky-500/10"
-            >
-              <Printer className="mr-1.5 h-3.5 w-3.5" />
-              Print
-            </Button>
+              rows={ledgerExportRows}
+            />
             <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!sup}>
               <Edit2 className="mr-1.5 h-3.5 w-3.5" />
               Edit

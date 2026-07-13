@@ -9,10 +9,7 @@ import {
   Shield,
   UserX,
   X,
-  Download,
-  Printer,
   Building2,
-  ChevronDown,
 } from 'lucide-react'
 
 import api from '@/lib/api'
@@ -45,19 +42,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { exportToCsv, printReport } from '@/lib/exportUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 import { UserFormDrawer, type UserDrawerRow } from '@/components/users/UserFormDrawer'
 
@@ -339,25 +329,6 @@ export default function UsersPage() {
     }))
   }
 
-  const handleExportCsv = () => {
-    const rows = buildExportRows()
-    if (!rows.length) {
-      toast.info('No users to export')
-      return
-    }
-    exportToCsv(rows, selectedIds.size > 0 ? 'users-selected' : 'users')
-    toast.success(`Exported ${rows.length} user${rows.length === 1 ? '' : 's'} to CSV`)
-  }
-
-  const handlePrint = () => {
-    const rows = buildExportRows()
-    if (!rows.length) {
-      toast.info('No users to print')
-      return
-    }
-    printReport(rows, 'Users')
-  }
-
   // ── Branch filter options ──
   const branchFilterOptions = useMemo(
     () => [
@@ -484,29 +455,13 @@ export default function UsersPage() {
         onClearFilters={clearFilters}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full sm:w-auto border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  Export
-                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={handleExportCsv}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Export as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handlePrint}>
-                  <Printer className="mr-2 h-4 w-4" />
-                  Print
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title="Users"
+              filename={selectedIds.size > 0 ? 'users-selected' : 'users'}
+              noun="user"
+              rows={buildExportRows}
+              className="w-full sm:w-auto border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+            />
             <Button
               size="sm"
               className="w-full sm:w-auto"

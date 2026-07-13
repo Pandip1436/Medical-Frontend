@@ -286,7 +286,7 @@ export default function LeadsListPage() {
                 exit={{ opacity: 0, height: 0 }}
                 className="hidden overflow-hidden md:block"
               >
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {[
                     { label: 'Total Leads', value: list.counts.all, subtitle: 'all leads', iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
                     { label: 'Open', value: list.counts.open, subtitle: 'in progress', iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
@@ -294,11 +294,10 @@ export default function LeadsListPage() {
                     { label: 'Won', value: list.counts.won, subtitle: 'closed won', iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
                   ].map((stat) => (
                     <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-                      <CardContent className="flex items-center gap-3 p-3">
+                      <CardContent className="flex items-center gap-3 px-2.5 py-2">
                         <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
                           <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
-                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
                         </div>
                       </CardContent>
                     </Card>

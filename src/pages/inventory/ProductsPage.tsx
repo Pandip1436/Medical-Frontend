@@ -4,10 +4,10 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
-  Plus, Upload, Download,
-  FileDown, FileSpreadsheet,
+  Plus, Upload,
+  FileDown,
   Package, AlertTriangle, Layers, PowerOff, Power,
-  Filter, BarChart3, X, ChevronDown, Printer,
+  Filter, BarChart3, X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -25,9 +25,6 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
 
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -47,10 +44,10 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
-import { exportToCsv, exportToPdf, printReport, csvText } from '@/lib/exportUtils'
 import { importFromExcel } from '@/lib/excelUtils'
 import { ImportProductsDrawer } from '@/components/products/ImportProductsDrawer'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductSplitView } from './components/ProductSplitView'
 import {
   exportProductsToWorkbook,
@@ -594,15 +591,6 @@ export default function ProductsPage() {
     }
   }
 
-  // CSV / PDF exports fetch the full matching set (was previously a bug —
-  // only the current page was exported, which is destructive for filtered
-  // exports). Returns a flat array for simple non-round-trip use.
-  const fetchAllProductsForExport = async () => {
-    const res = await api.get('/products/export', { params: exportFilterParams() })
-    const data = res.data as ProductExportPayload
-    return data.products
-  }
-
   const handleImport = async () => {
     if (!importFile) { toast.error('Please select a file'); return }
     setImporting(true)
@@ -666,33 +654,18 @@ export default function ProductsPage() {
   // ── Split-view early return ──────────────────────────────────
   if (effectiveView === 'split') {
     const splitExportMenu = (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56 p-1.5">
-          <DropdownMenuItem
-            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
-            onClick={handleExportExcel}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <FileSpreadsheet className="h-4 w-4" />
-            </span>
-            <span className="flex flex-col">
-              <span className="text-sm font-semibold">Excel</span>
-              <span className="text-[11px] text-muted-foreground">Round-trip import workbook</span>
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ExportMenu
+        title="Products"
+        filename="products"
+        noun="product"
+        onExcelExport={handleExportExcel}
+        excelSubtitle="Round-trip import workbook"
+        formats={['excel']}
+      />
     )
 
     return (
-      <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex h-full min-h-0 flex-col gap-2 p-2">
         {/* Collapsible stats */}
         <AnimatePresence>
           {splitShowStats && (
@@ -702,7 +675,7 @@ export default function ProductsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {[
                   { label: 'Total Products', value: summaryStats.total, subtitle: 'in catalog', icon: Package, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
                   { label: 'Low Stock', value: summaryStats.lowStock, subtitle: 'below min level', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
@@ -710,14 +683,13 @@ export default function ProductsPage() {
                   { label: 'Categories', value: summaryStats.categories, subtitle: 'product groups', icon: Layers, iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
                 ].map((stat) => (
                   <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-                    <CardContent className="flex items-center gap-3 p-3">
-                      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
-                        <stat.icon className="h-4 w-4" />
+                    <CardContent className="flex items-center gap-2.5 px-2.5 py-2">
+                      <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                        <stat.icon className="h-3.5 w-3.5" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
                         <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -823,7 +795,7 @@ export default function ProductsPage() {
           )}
         </AnimatePresence>
 
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 pt-1">
           <ProductSplitView
             selectedProductId={selectedProductId}
             onSelectProduct={selectProduct}
@@ -949,49 +921,15 @@ export default function ProductsPage() {
               <span className="hidden sm:inline">Import</span>
               <span className="sm:hidden">Import</span>
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
-                  <span className="sm:hidden">Export</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportExcel}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as Excel (round-trip)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={async () => {
-                  // Fetches all matching products (not just the current page)
-                  // — fixes the prior bug where filtered/paged exports lost rows.
-                  const all = await fetchAllProductsForExport()
-                  const rows = all.map(p => ({
-                    Name: p.name, Generic: p.genericName ?? '',
-                    Category: p.category?.name ?? '',
-                    MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
-                    HSN: p.hsnCode ?? '', GST: p.gstRate,
-                  }))
-                  exportToCsv(rows, 'products')
-                }}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV (flat)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={async () => {
-                  const all = await fetchAllProductsForExport()
-                  const rows = all.map(p => ({
-                    Name: p.name, Generic: p.genericName ?? '',
-                    Category: p.category?.name ?? '',
-                    MRP: p.mrp, Rate: p.purchaseRate, Stock: p.totalStock,
-                  }))
-                  exportToPdf(rows, 'Products List', 'products')
-                }}>
-                  <FileDown className="mr-2 h-4 w-4" /> Export as PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title="Products"
+              filename="products"
+              noun="product"
+              onExcelExport={handleExportExcel}
+              excelSubtitle="Round-trip import workbook"
+              formats={['excel']}
+              className="flex-1 sm:w-auto sm:flex-none"
+            />
             <Button
               size="sm"
               onClick={openAddDialog}

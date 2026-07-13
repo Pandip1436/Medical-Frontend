@@ -5,8 +5,8 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
-  Plus, Download, Upload, Tag, Package, CheckCircle2,
-  FileDown, FileSpreadsheet, FolderOpen,
+  Plus, Upload, Tag, Package, CheckCircle2,
+  FileDown, FolderOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,14 +20,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
 import api from '@/lib/api'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { cn } from '@/lib/utils'
 import type { Category } from '@/types'
 
@@ -133,15 +131,18 @@ export default function CategoriesPage() {
     }
   }
 
-  const handleExportCsv = async () => {
-    try {
-      const res = await api.get('/categories/export', { responseType: 'blob' })
-      const url = URL.createObjectURL(res.data)
-      const a = document.createElement('a')
-      a.href = url; a.download = 'categories.csv'; a.click()
-      URL.revokeObjectURL(url)
-    } catch { toast.error('Export failed') }
-  }
+  // Flat rows for Print / Excel / PDF — mirrors the columns shown in the
+  // table below and respects the current search/status/card filters. (CSV
+  // export used to stream a pre-built file straight from
+  // GET /categories/export; ExportMenu needs real row objects so Print/PDF
+  // can render them too, so this now builds them client-side instead.)
+  const buildExportRows = () =>
+    filtered.map((c) => ({
+      Name: c.name,
+      Description: c.description || '',
+      Products: c._count?.products ?? 0,
+      Status: c.isActive ? 'Active' : 'Inactive',
+    }))
 
   const handleImport = async () => {
     if (!importFile) { toast.error('Please select a CSV file'); return }
@@ -304,23 +305,14 @@ export default function CategoriesPage() {
               <Upload className="mr-1.5 h-4 w-4" />
               Import
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportCsv}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Export as CSV
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ExportMenu
+              title="Categories"
+              filename="categories"
+              noun="category"
+              emptyMessage="No categories to export"
+              rows={buildExportRows}
+              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+            />
             <Button
               size="sm"
               className="w-full sm:w-auto"

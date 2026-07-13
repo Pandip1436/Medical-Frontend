@@ -68,8 +68,8 @@ import {
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
-import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import type { PurchaseOrder, Product } from '@/types'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -977,7 +977,7 @@ export default function PurchaseOrdersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total Orders', value: formatCurrency(stats.totalAmount), sub: `${stats.totalCount} orders`, borderAccent: 'border-l-blue-500' },
                   { label: 'Received', value: formatCurrency(stats.receivedTotal), sub: `${stats.receivedCount} completed`, borderAccent: 'border-l-emerald-500' },
@@ -985,11 +985,10 @@ export default function PurchaseOrdersPage() {
                   { label: 'Partial', value: formatCurrency(stats.partialTotal), sub: `${stats.partialCount} in progress`, borderAccent: 'border-l-purple-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -1004,24 +1003,19 @@ export default function PurchaseOrdersPage() {
           <div className="w-40 min-w-35">
             <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (!filteredPOs.length) { toast.info('No purchase orders to export'); return }
-              exportToCsv(filteredPOs.map((po) => ({
-                'PO Number': po.poNumber,
-                Date: po.date.slice(0, 10),
-                Supplier: po.supplierName,
-                Items: po.items.length,
-                Amount: po.totalAmount,
-                Status: po.status,
-              })), 'purchase-orders')
-            }}
-          >
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Purchase Orders"
+            filename="purchase-orders"
+            noun="purchase order"
+            rows={() => filteredPOs.map((po) => ({
+              'PO Number': po.poNumber,
+              Date: po.date.slice(0, 10),
+              Supplier: po.supplierName,
+              Items: po.items.length,
+              Amount: po.totalAmount,
+              Status: po.status,
+            }))}
+          />
           {/* Segmented utility toggles (Filter · Summary) — same language as the
               view switcher: one bordered pill, active item lifts on a surface. */}
           <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -1393,6 +1387,20 @@ export default function PurchaseOrdersPage() {
               <span className="hidden sm:inline">New PE</span>
               <span className="sm:hidden">PE</span>
             </Button>
+            <ExportMenu
+              className="flex-1 sm:w-auto sm:flex-none"
+              title="Purchase Orders"
+              filename="purchase-orders"
+              noun="purchase order"
+              rows={() => filteredPOs.map((po) => ({
+                'PO Number': po.poNumber,
+                Date: po.date.slice(0, 10),
+                Supplier: po.supplierName,
+                Items: po.items.length,
+                Amount: po.totalAmount,
+                Status: po.status,
+              }))}
+            />
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
           </div>
         }
@@ -1472,34 +1480,23 @@ export default function PurchaseOrdersPage() {
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredPOs.filter((po) => selectedIds.has(po.id))
-                  exportToCsv(selected.map((po) => ({
-                    'PO Number': po.poNumber,
-                    Date: po.date.slice(0, 10),
-                    Supplier: po.supplierName,
-                    Items: po.items.length,
-                    Amount: po.totalAmount,
-                    Status: po.status,
-                  })), 'purchase-orders-selected')
-                }}>
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                  Export
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredPOs.filter((po) => selectedIds.has(po.id))
-                  printReport(selected.map((po) => ({
-                    'PO Number': po.poNumber,
-                    Date: po.date.slice(0, 10),
-                    Supplier: po.supplierName,
-                    Items: po.items.length,
-                    Amount: formatCurrency(po.totalAmount),
-                    Status: po.status,
-                  })), 'Purchase Orders')
-                }}>
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
+                <ExportMenu
+                  variant="ghost"
+                  size="sm"
+                  title="Purchase Orders"
+                  filename="purchase-orders-selected"
+                  noun="purchase order"
+                  rows={() => filteredPOs
+                    .filter((po) => selectedIds.has(po.id))
+                    .map((po) => ({
+                      'PO Number': po.poNumber,
+                      Date: po.date.slice(0, 10),
+                      Supplier: po.supplierName,
+                      Items: po.items.length,
+                      Amount: po.totalAmount,
+                      Status: po.status,
+                    }))}
+                />
               </div>
               <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setSelectedIds(new Set())}>
                 <X />

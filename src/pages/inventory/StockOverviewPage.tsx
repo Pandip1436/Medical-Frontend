@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { toast } from 'sonner'
 import {
   Package,
   IndianRupee,
@@ -12,7 +11,6 @@ import {
   PackageX,
   Pencil,
   Upload,
-  Download,
   FileDown,
 } from 'lucide-react'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
@@ -23,6 +21,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -138,7 +137,6 @@ export default function StockOverviewPage() {
   const [categoryFilter, setCategoryFilter] = usePersistedState('filters:inventory.stock:category', 'all')
   const [statusFilter, setStatusFilter] = usePersistedState('filters:inventory.stock:status', 'all')
   const [currentPage, setCurrentPage] = useState(1)
-  const [exporting, setExporting] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [detailBatchId, setDetailBatchId] = useState<string | null>(null)
 
@@ -226,51 +224,38 @@ export default function StockOverviewPage() {
   // Reset to page 1 whenever a filter changes (or the view mode flips).
   useEffect(() => { setCurrentPage(1) }, [viewMode, search, categoryFilter, statusFilter])
 
-  // ── Export: pull all matching rows in one request, then write .xlsx ──
-  const handleExport = async () => {
-    setExporting(true)
-    try {
-      const res = await api.get('/batches', {
-        params: {
-          q: search.trim() || undefined,
-          ...statusToBatchParams(statusFilter),
-          take: 10000,
-        },
-      })
-      const rawRows: any[] = res.data?.data ?? []
-      const rows = statusFilter === 'out_of_stock'
-        ? rawRows
-        : rawRows.filter((r) => Number(r.quantity) > 0)
-      if (rows.length === 0) {
-        toast.error('No stock records to export for the current filters')
-        return
+  // ── Export: pull all matching rows (server-capped at 10000) reflecting the
+  // current filters, then hand them to ExportMenu for Print / Excel / PDF.
+  const fetchStockExportRows = async (): Promise<Record<string, string | number>[]> => {
+    const res = await api.get('/batches', {
+      params: {
+        q: search.trim() || undefined,
+        ...statusToBatchParams(statusFilter),
+        take: 10000,
+      },
+    })
+    const rawRows: any[] = res.data?.data ?? []
+    const rows = statusFilter === 'out_of_stock'
+      ? rawRows
+      : rawRows.filter((r) => Number(r.quantity) > 0)
+    return rows.map((r) => {
+      const qty = Number(r.quantity) || 0
+      const mrp = Number(r.mrp) || 0
+      const status = getBatchStatus(
+        { totalStock: r.productTotalStock, minStock: r.minStock },
+        r,
+      )
+      return {
+        'Product Name': r.productName ?? '',
+        'Batch Number': r.batchNumber ?? '',
+        'Expiry Date': r.expiryDate ? formatDate(r.expiryDate) : '',
+        'Quantity': qty,
+        'MRP': mrp,
+        'Stock Value': qty * mrp,
+        'Rack Location': r.rackLocation ?? '',
+        'Status': statusConfig[status].label,
       }
-      const exportRows = rows.map((r) => {
-        const qty = Number(r.quantity) || 0
-        const mrp = Number(r.mrp) || 0
-        const status = getBatchStatus(
-          { totalStock: r.productTotalStock, minStock: r.minStock },
-          r,
-        )
-        return {
-          'Product Name': r.productName ?? '',
-          'Batch Number': r.batchNumber ?? '',
-          'Expiry Date': r.expiryDate ? formatDate(r.expiryDate) : '',
-          'Quantity': qty,
-          'MRP': mrp,
-          'Stock Value': qty * mrp,
-          'Rack Location': r.rackLocation ?? '',
-          'Status': statusConfig[status].label,
-        }
-      })
-      const today = new Date().toISOString().slice(0, 10)
-      exportToExcel(exportRows, `stock-overview-${today}`)
-      toast.success(`Exported ${exportRows.length} record${exportRows.length === 1 ? '' : 's'}`)
-    } catch {
-      toast.error('Failed to export stock data')
-    } finally {
-      setExporting(false)
-    }
+    })
   }
 
   // ── Import: sample template download only (upload deferred) ──
@@ -492,16 +477,14 @@ export default function StockOverviewPage() {
               <Upload className="mr-1.5 h-4 w-4" />
               Import
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={exporting}
+            <ExportMenu
+              title="Stock Overview"
+              filename={`stock-overview-${new Date().toISOString().slice(0, 10)}`}
+              noun="record"
+              rows={fetchStockExportRows}
+              emptyMessage="No stock records to export for the current filters"
               className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={handleExport}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              {exporting ? 'Exporting…' : 'Export'}
-            </Button>
+            />
             <div className="flex w-full items-center rounded-xl border border-border/60 p-1 sm:w-auto">
               <Button
                 variant={viewMode === 'table' ? 'default' : 'ghost'}

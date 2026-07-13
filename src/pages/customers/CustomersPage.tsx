@@ -19,7 +19,6 @@ import {
   X,
   FileText,
   Camera,
-  Download,
   Stethoscope,
   Wallet,
   CheckCircle2,
@@ -27,6 +26,7 @@ import {
   BarChart3,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
   exportCustomersToWorkbook,
   type CustomerExportPayload,
@@ -878,7 +878,7 @@ export default function CustomersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: summary.total.toLocaleString(), sub: 'customers', borderAccent: 'border-l-blue-500' },
                   { label: 'With Outstanding', value: summary.withOutstanding.toLocaleString(), sub: 'have balance', borderAccent: 'border-l-rose-500' },
@@ -886,11 +886,10 @@ export default function CustomersPage() {
                   { label: 'Outstanding', value: `₹${(summary.totalOutstanding / 1000).toFixed(0)}k`, sub: 'pending', borderAccent: 'border-l-amber-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={`border-l-[3px] ${s.borderAccent}`}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -902,10 +901,14 @@ export default function CustomersPage() {
 
         {/* Toolbar */}
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Customers"
+            filename="customers"
+            noun="customer"
+            onExcelExport={handleExport}
+            excelSubtitle="Round-trip import workbook"
+            formats={['excel']}
+          />
           <Button variant="outline" size="sm" onClick={() => setImportDrawerOpen(true)}>
             <Upload className="mr-1.5 h-4 w-4" />
             <span className="hidden sm:inline">Import</span>
@@ -1149,10 +1152,15 @@ export default function CustomersPage() {
         columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
-            <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={handleExport}>
-              <Download className="mr-1.5 h-4 w-4" />
-              Export
-            </Button>
+            <ExportMenu
+              title="Customers"
+              filename="customers"
+              noun="customer"
+              onExcelExport={handleExport}
+              excelSubtitle="Round-trip import workbook"
+              formats={['excel']}
+              className="flex-1 sm:w-auto sm:flex-none"
+            />
             <Button variant="outline" size="sm" className="flex-1 sm:w-auto sm:flex-none" onClick={() => setImportDrawerOpen(true)}>
               <Upload className="mr-1.5 h-4 w-4" />
               Import

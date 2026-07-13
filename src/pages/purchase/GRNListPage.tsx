@@ -6,13 +6,9 @@ import {
   ClipboardList, TrendingUp,
   CheckCircle2, XCircle, ShieldAlert,
   RotateCcw,
-  Download,
-  ChevronDown,
   Filter,
   BarChart3,
   X,
-  FileSpreadsheet,
-  Printer,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -28,13 +24,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -47,7 +36,7 @@ import type { GRN } from '@/types'
 import { GRNSplitView } from './components/GRNSplitView'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { resolveListView } from '@/lib/listView'
-import { exportToCsv, csvText, printReport } from '@/lib/exportUtils'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function grnBalance(grn: GRN) {
@@ -364,69 +353,31 @@ export default function GRNListPage() {
   // ── Split view (default) ──
   if (effectiveView === 'split') {
     const splitExportMenu = (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-            <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64 p-1.5">
-          <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Export {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}
-          </p>
-          <DropdownMenuItem
-            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-sky-500/10"
-            onClick={() => {
-              if (filtered.length === 0) { toast.info('No entries to print'); return }
-              printReport(filtered.map((g) => ({
-                'PE #': g.grnNumber,
-                Date: formatDate(g.date),
-                Supplier: g.supplierName,
-                'Supplier Invoice': g.supplierInvoiceNo ?? '',
-                Products: g.items.length,
-                Value: formatCurrency(g.supplierInvoiceAmount || g.totalAmount),
-                Status: grnPayStatus(g),
-              })), 'Purchase Entries')
-            }}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <Printer className="h-4 w-4" />
-            </span>
-            <span className="flex flex-col">
-              <span className="text-sm font-semibold">Print List</span>
-              <span className="text-[11px] text-muted-foreground">Printable table of this view</span>
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator className="my-1" />
-          <DropdownMenuItem
-            className="gap-3 rounded-md py-2 cursor-pointer focus:bg-emerald-500/10"
-            onClick={() => {
-              if (!filtered.length) { toast.info('No entries to export'); return }
-              const exported = exportToCsv(filtered.map((g) => ({
-                'PE #': g.grnNumber,
-                Date: csvText(formatDate(g.date)),
-                Supplier: g.supplierName,
-                'Supplier Invoice': csvText(g.supplierInvoiceNo ?? ''),
-                Products: g.items.length,
-                Value: Number(g.supplierInvoiceAmount || g.totalAmount),
-                'Amount Paid': Number(g.amountPaid || 0),
-                Status: grnPayStatus(g),
-              })), 'purchase-entries')
-              toast.success(`Exported ${exported} entr${exported === 1 ? 'y' : 'ies'} to purchase-entries.csv`)
-            }}
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <FileSpreadsheet className="h-4 w-4" />
-            </span>
-            <span className="flex flex-col">
-              <span className="text-sm font-semibold">CSV</span>
-              <span className="text-[11px] text-muted-foreground">Spreadsheet (Excel / Sheets)</span>
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ExportMenu
+        title="Purchase Entries"
+        filename="purchase-entries"
+        noun="PE"
+        showCountInHeader
+        rows={filtered.map((g) => ({
+          'PE #': g.grnNumber,
+          Date: formatDate(g.date),
+          Supplier: g.supplierName,
+          'Supplier Invoice': g.supplierInvoiceNo ?? '',
+          Products: g.items.length,
+          Value: formatCurrency(g.supplierInvoiceAmount || g.totalAmount),
+          Status: grnPayStatus(g),
+        }))}
+        excelRows={filtered.map((g) => ({
+          'PE #': g.grnNumber,
+          Date: formatDate(g.date),
+          Supplier: g.supplierName,
+          'Supplier Invoice': g.supplierInvoiceNo ?? '',
+          Products: g.items.length,
+          Value: Number(g.supplierInvoiceAmount || g.totalAmount),
+          'Amount Paid': Number(g.amountPaid || 0),
+          Status: grnPayStatus(g),
+        }))}
+      />
     )
 
     return (
@@ -440,7 +391,7 @@ export default function GRNListPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total Entries', value: statsBaseGrns.length.toString(), subtitle: 'purchase entries', icon: ClipboardList, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
                   { label: 'Units Received', value: stats.totalReceived.toString(), subtitle: 'units received', icon: TrendingUp, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-emerald-500/50' },
@@ -458,14 +409,13 @@ export default function GRNListPage() {
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(active ? 'all' : stat.filterKey); setCurrentPage(1) } }}
                       className={cn('border-l-[3px] cursor-pointer transition-shadow', stat.borderAccent, active && stat.activeRing)}
                     >
-                      <CardContent className="flex items-center gap-3 p-3">
-                        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
-                          <stat.icon className="h-4 w-4" />
+                      <CardContent className="flex items-center gap-2.5 px-2.5 py-2">
+                        <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', stat.iconBg)}>
+                          <stat.icon className="h-3.5 w-3.5" />
                         </div>
                         <div className="min-w-0">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
                           <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
-                          <p className="text-[10px] text-muted-foreground">{stat.subtitle}</p>
                         </div>
                       </CardContent>
                     </Card>
@@ -690,6 +640,32 @@ export default function GRNListPage() {
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/grn-list') }} />
+            <ExportMenu
+              className="flex-1 sm:w-auto sm:flex-none"
+              title="Purchase Entries"
+              filename="purchase-entries"
+              noun="PE"
+              showCountInHeader
+              rows={filtered.map((g) => ({
+                'PE #': g.grnNumber,
+                Date: formatDate(g.date),
+                Supplier: g.supplierName,
+                'Supplier Invoice': g.supplierInvoiceNo ?? '',
+                Products: g.items.length,
+                Value: formatCurrency(g.supplierInvoiceAmount || g.totalAmount),
+                Status: grnPayStatus(g),
+              }))}
+              excelRows={filtered.map((g) => ({
+                'PE #': g.grnNumber,
+                Date: formatDate(g.date),
+                Supplier: g.supplierName,
+                'Supplier Invoice': g.supplierInvoiceNo ?? '',
+                Products: g.items.length,
+                Value: Number(g.supplierInvoiceAmount || g.totalAmount),
+                'Amount Paid': Number(g.amountPaid || 0),
+                Status: grnPayStatus(g),
+              }))}
+            />
             <Button
               size="sm"
               className="flex-1 sm:w-auto sm:flex-none"

@@ -9,7 +9,6 @@ import {
   Receipt,
   IndianRupee,
   Printer,
-  Download,
   Eye,
   RotateCcw,
   Wallet,
@@ -49,12 +48,12 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { exportToCsv, csvText } from '@/lib/exportUtils'
 import { navigate, useRoute } from '@/lib/router'
 import { printCreditNote } from './CreditNoteDetailContent'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { CreditNoteSplitView } from './components/CreditNoteSplitView'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -575,7 +574,7 @@ export default function CreditNotesPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
                 {([
                   { label: 'Pending Review', value: stats.pendingCount.toString(), iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
                   { label: 'Total Notes', value: stats.count.toString(), iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
@@ -584,7 +583,7 @@ export default function CreditNotesPage() {
                   { label: 'Adjustments', value: formatCurrency(stats.adjustments), iconBg: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', borderAccent: 'border-l-violet-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
@@ -607,26 +606,21 @@ export default function CreditNotesPage() {
               options={PERIOD_OPTIONS}
             />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (!filtered.length) { toast.info('No credit notes to export'); return }
-              exportToCsv(filtered.map(cn => ({
-                'Credit Note #': cn.creditNoteNo,
-                Date: csvText(formatDate(cn.date)),
-                Customer: cn.customerName,
-                'Invoice #': cn.invoiceNumber,
-                Reason: cn.reason,
-                Status: statusConfig[cn.status]?.label ?? cn.status,
-                Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
-                Total: cn.totalAmount,
-              })), 'credit-notes')
-            }}
-          >
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Credit Notes"
+            filename="credit-notes"
+            noun="credit note"
+            rows={() => filtered.map(cn => ({
+              'Credit Note #': cn.creditNoteNo,
+              Date: formatDate(cn.date),
+              Customer: cn.customerName,
+              'Invoice #': cn.invoiceNumber,
+              Reason: cn.reason,
+              Status: statusConfig[cn.status]?.label ?? cn.status,
+              Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
+              Total: cn.totalAmount,
+            }))}
+          />
           {/* Segmented utility toggles (Filter · Summary) — same language as the
               view switcher: one bordered pill, active item lifts on a surface. */}
           <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -860,33 +854,28 @@ export default function CreditNotesPage() {
         columnsNode={<ColumnsToggle columns={CREDIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
-              onClick={() => {
-                if (!filtered.length) { toast.info('No credit notes to export'); return }
-                exportToCsv(filtered.map(cn => ({
-                  'Credit Note #': cn.creditNoteNo,
-                  Date: csvText(formatDate(cn.date)),
-                  Customer: cn.customerName,
-                  Phone: csvText(cn.customerPhone ?? ''),
-                  'Invoice #': cn.invoiceNumber,
-                  Reason: cn.reason,
-                  Status: statusConfig[cn.status]?.label ?? cn.status,
-                  Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
-                  Subtotal: cn.subtotal,
-                  CGST: cn.cgst,
-                  SGST: cn.sgst,
-                  Total: cn.totalAmount,
-                  'Reviewed By': cn.reviewedBy?.name ?? '',
-                  'Reviewed At': cn.reviewedAt ? csvText(formatDate(cn.reviewedAt)) : '',
-                })), 'credit-notes')
-              }}
-            >
-              <Download className="mr-1.5 h-4 w-4" />
-              CSV
-            </Button>
+            <ExportMenu
+              className="flex-1 sm:w-auto sm:flex-none"
+              title="Credit Notes"
+              filename="credit-notes"
+              noun="credit note"
+              rows={() => filtered.map(cn => ({
+                'Credit Note #': cn.creditNoteNo,
+                Date: formatDate(cn.date),
+                Customer: cn.customerName,
+                Phone: cn.customerPhone ?? '',
+                'Invoice #': cn.invoiceNumber,
+                Reason: cn.reason,
+                Status: statusConfig[cn.status]?.label ?? cn.status,
+                Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
+                Subtotal: cn.subtotal,
+                CGST: cn.cgst,
+                SGST: cn.sgst,
+                Total: cn.totalAmount,
+                'Reviewed By': cn.reviewedBy?.name ?? '',
+                'Reviewed At': cn.reviewedAt ? formatDate(cn.reviewedAt) : '',
+              }))}
+            />
             <Button
               size="sm"
               className="flex-1 sm:w-auto sm:flex-none"

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
-  IndianRupee, BarChart3, Download, ShoppingCart, Truck, GitMerge,
+  IndianRupee, BarChart3, ShoppingCart, Truck, GitMerge,
   RotateCcw, PackageX, PackagePlus, SquarePen, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,11 +19,16 @@ import {
 } from '@/components/ui/table'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import api from '@/lib/api'
 import { useRoute, navigate, goBack } from '@/lib/router'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { exportToCsv } from '@/lib/exportUtils'
+import { cn, formatCurrency } from '@/lib/utils'
+import {
+  buildProductHistoryExportRows,
+  productHistoryExportFilename,
+  productHistoryExportTitle,
+} from './productHistoryExport'
 
 // ─── Types ────────────────────────────────────────────────────
 type ActiveTab = 'sales' | 'purchases' | 'timeline'
@@ -348,32 +353,9 @@ export default function ProductHistoryPage() {
     setBatchFilter('all')
   }
 
-  const handleExport = () => {
-    const rows = activeTab === 'sales' ? filteredSales : activeTab === 'purchases' ? filteredPurchases : filteredTimeline
-    if (!rows.length) { toast.info('No data to export'); return }
-    const productName = selectedProduct?.name ?? history?.product?.name ?? 'product'
-    const name = `product-${activeTab}-${productName.replace(/\s+/g, '-').toLowerCase()}`
-    if (activeTab === 'sales') {
-      exportToCsv((filteredSales as any[]).map(r => ({
-        Type: r.isReturn ? 'Sales Return' : 'Sale',
-        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
-        Batch: r.batch, Qty: r.isReturn ? `+${r.qty}` : `-${r.qty}`,
-        Rate: r.rate, Amount: r.amount, 'GST%': r.gst, Status: r.status,
-      })), name)
-    } else if (activeTab === 'purchases') {
-      exportToCsv((filteredPurchases as any[]).map(r => ({
-        Type: r.isReturn ? 'Purchase Return' : 'Purchase',
-        Date: formatDate(r.date.toISOString()), Ref: r.ref, Party: r.party,
-        Batch: r.batch, Qty: r.isReturn ? `-${r.qty}` : `+${r.qty}`,
-        Rate: r.purchaseRate, Amount: r.amount, Status: r.status,
-      })), name)
-    } else {
-      exportToCsv((filteredTimeline as TimelineRow[]).map(r => ({
-        Type: r.type, Date: formatDate(r.date.toISOString()), Ref: r.ref,
-        Party: r.party, Batch: r.batch, Qty: r.qty, Amount: r.amount, Stock: r.runningStock,
-      })), name)
-    }
-  }
+  // Product name used for the export title/filename — falls back the same
+  // way the header below does when the history payload hasn't resolved yet.
+  const exportProductName = selectedProduct?.name ?? history?.product?.name ?? 'product'
 
   // ── Pagination footer ───────────────────────────────────────
 
@@ -446,16 +428,15 @@ export default function ProductHistoryPage() {
                 : <><ArrowUp className="h-3.5 w-3.5" /> Old to New</>
               }
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={handleExport}
+            <ExportMenu
+              title={productHistoryExportTitle(activeTab, exportProductName)}
+              filename={productHistoryExportFilename(activeTab, exportProductName)}
+              noun="record"
+              rows={() => buildProductHistoryExportRows(activeTab, filteredSales, filteredPurchases, filteredTimeline)}
               disabled={activeCount === 0}
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
-            </Button>
+              size="sm"
+              variant="outline"
+            />
           </div>
         )}
       </div>

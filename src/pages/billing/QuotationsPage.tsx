@@ -7,8 +7,6 @@ import {
   Send,
   ArrowRightLeft,
   FileText,
-  Download,
-  Printer,
   X,
   IndianRupee,
   CheckCircle2,
@@ -67,11 +65,11 @@ import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
-import { exportToCsv, printReport } from '@/lib/exportUtils'
 import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { QuotationSplitView } from './components/QuotationSplitView'
+import { ExportMenu } from '@/components/shared/ExportMenu'
 
 export type QuotationStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'CONVERTED'
 
@@ -553,7 +551,7 @@ export default function QuotationsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: formatCurrency(stats.total), sub: `${stats.totalCount} quotations`, borderAccent: 'border-l-blue-500' },
                   { label: 'Converted', value: formatCurrency(stats.convertedTotal), sub: `${stats.convertedCount} converted`, borderAccent: 'border-l-emerald-500' },
@@ -561,11 +559,10 @@ export default function QuotationsPage() {
                   { label: 'Rejected', value: stats.rejectedCount.toString(), sub: 'this period', borderAccent: 'border-l-rose-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={cn('border-l-[3px]', s.borderAccent)}>
-                    <CardContent className="flex items-center gap-2 p-3">
+                    <CardContent className="flex items-center gap-2 px-2.5 py-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-mono text-sm font-bold leading-tight">{s.value}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.sub}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -580,23 +577,18 @@ export default function QuotationsPage() {
           <div className="w-full min-w-0 sm:w-40 sm:min-w-35">
             <EnumSelect value={period} onValueChange={onPeriodChange} onClear={() => onPeriodChange('all')} options={PERIOD_OPTIONS} />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (!filteredQuotations.length) { toast.info('No quotations to export'); return }
-              exportToCsv(filteredQuotations.map((qt) => ({
-                'Quotation #': qt.quotationNumber,
-                Date: qt.date?.slice(0, 10) ?? '',
-                Customer: qt.customerName,
-                Total: qt.total,
-                Status: qt.status,
-              })), 'quotations')
-            }}
-          >
-            <Download className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+          <ExportMenu
+            title="Quotations"
+            filename="quotations"
+            noun="quotation"
+            rows={() => filteredQuotations.map((qt) => ({
+              'Quotation #': qt.quotationNumber,
+              Date: qt.date?.slice(0, 10) ?? '',
+              Customer: qt.customerName,
+              Total: qt.total,
+              Status: qt.status,
+            }))}
+          />
           {/* Segmented utility toggles (Filter · Summary) — same language as the
               view switcher: one bordered pill, active item lifts on a surface. */}
           <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -831,6 +823,19 @@ export default function QuotationsPage() {
               <span className="hidden sm:inline">Invoice List</span>
               <span className="sm:hidden">Invoices</span>
             </Button>
+            <ExportMenu
+              className="flex-1 sm:w-auto sm:flex-none"
+              title="Quotations"
+              filename="quotations"
+              noun="quotation"
+              rows={() => filteredQuotations.map((qt) => ({
+                'Quotation #': qt.quotationNumber,
+                Date: qt.date?.slice(0, 10) ?? '',
+                Customer: qt.customerName,
+                Total: qt.total,
+                Status: qt.status,
+              }))}
+            />
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/billing/quotations') }} />
           </div>
         }
@@ -912,32 +917,22 @@ export default function QuotationsPage() {
                   <Send className="mr-1 h-3.5 w-3.5" />
                   Send
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredQuotations.filter((qt) => selectedIds.has(qt.id))
-                  exportToCsv(selected.map((qt) => ({
-                    'Quotation #': qt.quotationNumber,
-                    Date: qt.date?.slice(0, 10) ?? '',
-                    Customer: qt.customerName,
-                    Total: qt.total,
-                    Status: qt.status,
-                  })), 'quotations-selected')
-                }}>
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                  Export
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => {
-                  const selected = filteredQuotations.filter((qt) => selectedIds.has(qt.id))
-                  printReport(selected.map((qt) => ({
-                    'Quotation #': qt.quotationNumber,
-                    Date: qt.date?.slice(0, 10) ?? '',
-                    Customer: qt.customerName,
-                    Total: formatCurrency(qt.total),
-                    Status: qt.status,
-                  })), 'Quotations')
-                }}>
-                  <Printer className="mr-1 h-3.5 w-3.5" />
-                  Print
-                </Button>
+                <ExportMenu
+                  variant="ghost"
+                  size="sm"
+                  title="Quotations"
+                  filename="quotations-selected"
+                  noun="quotation"
+                  rows={() => filteredQuotations
+                    .filter((qt) => selectedIds.has(qt.id))
+                    .map((qt) => ({
+                      'Quotation #': qt.quotationNumber,
+                      Date: qt.date?.slice(0, 10) ?? '',
+                      Customer: qt.customerName,
+                      Total: qt.total,
+                      Status: qt.status,
+                    }))}
+                />
               </div>
               <Button
                 variant="ghost"
