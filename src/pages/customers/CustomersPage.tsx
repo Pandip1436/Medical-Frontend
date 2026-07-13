@@ -1306,15 +1306,23 @@ export default function CustomersPage() {
                     {/* Info */}
                     <div className="min-w-0 flex-1 cursor-pointer" onClick={() => handleViewDetails(customer)} >
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate">{customer.name}</p>
-                        <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
-                          {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
-                        </Badge>
-                        {Number(customer.pendingCreditCount ?? 0) > 0 && (
-                          <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
-                            {customer.pendingCreditCount} pending
-                          </Badge>
-                        )}
+                        <p className="min-w-0 flex-1 truncate text-sm font-medium">{customer.name}</p>
+                        {/* Badges grouped + right-aligned so they line up in a
+                            consistent column regardless of name length. The
+                            default "Retail" type badge is omitted (only Wholesale
+                            / Doctor are worth flagging). */}
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {customer.type !== 'RETAIL' && (
+                            <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
+                              {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
+                            </Badge>
+                          )}
+                          {Number(customer.pendingCreditCount ?? 0) > 0 && (
+                            <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
+                              {customer.pendingCreditCount} pending
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
                     </div>

@@ -135,7 +135,7 @@ export function LeadDetailsTab({
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 p-5 sm:grid-cols-4">
             <Field label="First Name">{lead.contact.firstName || '-'}</Field>
             <Field label="Last Name">{lead.contact.lastName || '-'}</Field>
-            <Field label="Email">
+            <Field label="Email" className="col-span-2 sm:col-span-4">
               {lead.contact.email ? (
                 <a
                   href={`mailto:${lead.contact.email}`}
@@ -148,7 +148,7 @@ export function LeadDetailsTab({
                 <span>-</span>
               )}
             </Field>
-            <Field label="Phone">
+            <Field label="Phone" className="col-span-2 sm:col-span-4">
               {phone ? (
                 <div className="flex items-center gap-2">
                   <a
@@ -272,9 +272,9 @@ function stripStructuredTrailer(msg: string): string {
 
 // ── helpers ─────────────────────────────────────────────────
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="min-w-0 space-y-1">
+    <div className={cn('min-w-0 space-y-1', className)}>
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>

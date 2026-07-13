@@ -74,8 +74,8 @@ export function LeadTabs({
                       : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
                   )}
                 >
-                  <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
-                  <span className="hidden sm:inline">{t.label}</span>
+                  <Icon className="h-4 w-4 shrink-0 sm:h-3.5 sm:w-3.5" />
+                  <span className="whitespace-nowrap">{t.label}</span>
                 </button>
               )
             })}

@@ -448,8 +448,9 @@ export function ContactDetailsDrawer({
                 </div>
               </div>
 
-              {/* ── Quick contact: Email + Phone in side-by-side tiles ── */}
-              <div className="mb-4 grid grid-cols-2 gap-2">
+              {/* ── Quick contact: Email + Phone stacked full width so long
+                     emails don't truncate in the narrow drawer ── */}
+              <div className="mb-4 grid grid-cols-1 gap-2">
                 <ContactTile
                   icon={Mail}
                   label="Email"

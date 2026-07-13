@@ -171,18 +171,18 @@ export default function LeadsListPage() {
             {/* Actions — Import/Export share a row, Add Lead full width on mobile. */}
             <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="flex-1 gap-1.5 sm:flex-none"
+                className="flex-1 gap-1.5 sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
                 onClick={() => setImportOpen(true)}
               >
                 <Upload className="h-4 w-4" />
                 <span>Import</span>
               </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="flex-1 gap-1.5 sm:flex-none"
+                className="flex-1 gap-1.5 sm:flex-none border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
                 onClick={() => setExportOpen(true)}
               >
                 <Download className="h-4 w-4" />
@@ -245,19 +245,24 @@ export default function LeadsListPage() {
         </>
       )}
 
-      {/* Tabs + view toggles — moved directly above the list body they filter. */}
-      <LeadsTopBar
-        tab={list.tab}
-        counts={list.counts}
-        onTabChange={list.setTab}
-        view={effectiveView}
-        onViewChange={(v) => {
-          setView(v)
-          // Switching out of split clears the selected-lead so the new
-          // view actually appears (split is implied by ?leadId in the URL).
-          if (v !== 'split' && selectedLeadId) selectLead(null)
-        }}
-      />
+      {/* Tabs + view toggles — moved directly above the list body they filter.
+          Hidden on mobile while a lead's detail is open (the detail takes the
+          full screen there); still shown from md up where the split view keeps
+          the left rail that these tabs filter. */}
+      <div className={cn(selectedLeadId && 'hidden md:block')}>
+        <LeadsTopBar
+          tab={list.tab}
+          counts={list.counts}
+          onTabChange={list.setTab}
+          view={effectiveView}
+          onViewChange={(v) => {
+            setView(v)
+            // Switching out of split clears the selected-lead so the new
+            // view actually appears (split is implied by ?leadId in the URL).
+            if (v !== 'split' && selectedLeadId) selectLead(null)
+          }}
+        />
+      </div>
 
       {/* Error banner */}
       {list.error && (

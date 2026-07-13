@@ -258,10 +258,14 @@ export function LeadsSplitView({
                 onDelete={handleDelete}
                 onClose={onExitSplitView}
               />
+              {/* Call / WhatsApp / Email — moved out of the tab strip to their
+                  own row directly under the lead's contact details. */}
+              <div className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-background px-2 py-1.5">
+                <LeadCommIcons lead={detail.lead} />
+              </div>
               <LeadTabs
                 active={activeTab}
                 onChange={setActiveTab}
-                rightSlot={<LeadCommIcons lead={detail.lead} />}
               >
                 {activeTab === 'details' && (
                   <LeadDetailsTab
@@ -398,15 +402,16 @@ function CommIcon({
 }) {
   const toneClass =
     tone === 'emerald'
-      ? 'text-emerald-600 hover:bg-emerald-500/10'
-      : 'text-violet-600 hover:bg-violet-500/10'
+      ? 'border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10'
+      : 'border-violet-500/30 text-violet-600 hover:bg-violet-500/10'
   if (!href) {
     return (
       <span
         aria-label={ariaLabel}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40"
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/40 px-2.5 text-xs font-medium text-muted-foreground/40"
       >
         {children}
+        <span>{ariaLabel}</span>
       </span>
     )
   }
@@ -417,11 +422,12 @@ function CommIcon({
       rel={external ? 'noreferrer' : undefined}
       aria-label={ariaLabel}
       className={cn(
-        'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+        'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors',
         toneClass,
       )}
     >
       {children}
+      <span>{ariaLabel}</span>
     </a>
   )
 }
