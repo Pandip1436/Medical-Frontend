@@ -450,7 +450,12 @@ function BillingRow({
         .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
-      const firstBatch = productBatches[0]
+      // Skip batches already taken by other rows so re-adding the same product
+      // lands on a FRESH batch (and doesn't oversell one batch across two lines).
+      const firstBatch = productBatches.find((b) => !batchesUsedByOthers?.has(b.id))
+      if (!firstBatch && productBatches.length > 0) {
+        toast.warning(`All batches of ${product.name} are already on the bill.`)
+      }
       const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
       const lastRate = customerLastRates[product.id]
       const rate = lastRate ?? defaultRate
@@ -489,7 +494,7 @@ function BillingRow({
         }
       }, 50)
     },
-    [billingType, item, onUpdate, batches, customerLastRates]
+    [billingType, item, onUpdate, batches, customerLastRates, batchesUsedByOthers]
   )
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2569,25 +2574,51 @@ export default function NewSalePage() {
           }
         } catch { /* customer fetch failed — user can pick manually */ }
         try {
-          const resolved = await Promise.all(
-            repurchaseItems.map(async (it) => {
-              if (!it.productId) return it
+          let anyCapped = false
+          const resolvedNested = await Promise.all(
+            repurchaseItems.map(async (it): Promise<BillingItem[]> => {
+              if (!it.productId) return [it]
               try {
                 const res = await api.get(`/products/${it.productId}`)
                 syncProductBatchesIntoStore(res.data)
-                const fefo = useMasterDataStore.getState().batches
+                // Available batches, earliest-expiry first (FEFO order).
+                const batches = useMasterDataStore.getState().batches
                   .filter((b) => b.productId === it.productId && b.quantity > 0 && !isExpired(b.expiryDate))
-                  .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
-                if (fefo) {
-                  const u = { ...it, batchId: fefo.id, batchNumber: fefo.batchNumber, expiryDate: fefo.expiryDate, mrp: Number(fefo.mrp) || it.mrp }
+                  .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+                let remaining = Number(it.quantity) || 0
+                // Split the requested quantity across batches FEFO — draw from the
+                // earliest-expiry batch first, then the next, until it's fulfilled
+                // (a sale line draws from ONE batch, so one repurchase line becomes
+                // several when no single batch can cover the whole quantity).
+                const lines: BillingItem[] = []
+                for (const b of batches) {
+                  if (remaining <= 0) break
+                  const take = Math.min(remaining, b.quantity)
+                  const u = {
+                    ...it,
+                    id: generateRowId(),
+                    batchId: b.id,
+                    batchNumber: b.batchNumber,
+                    expiryDate: b.expiryDate,
+                    mrp: Number(b.mrp) || it.mrp,
+                    quantity: take,
+                  }
                   u.amount = calculateItemAmount(u)
-                  return u
+                  lines.push(u)
+                  remaining -= take
                 }
-                return { ...it, batchId: '', batchNumber: '', expiryDate: '' }
-              } catch { return it }
+                // Not enough total stock to cover the full quantity.
+                if (remaining > 0) anyCapped = true
+                // No sellable stock at all — keep one row prompting a manual pick.
+                if (lines.length === 0) return [{ ...it, batchId: '', batchNumber: '', expiryDate: '', quantity: 0 }]
+                return lines
+              } catch { return [it] }
             })
           )
-          setItems(resolved)
+          setItems(resolvedNested.flat())
+          if (anyCapped) {
+            toast.warning('Some quantities were reduced to match available stock.')
+          }
         } catch { /* keep the copied items as-is */ }
       })()
       toast.info(`Items pre-loaded from previous invoice`)
@@ -5668,12 +5699,15 @@ export default function NewSalePage() {
                                   productPurchases={productPurchases}
                                   showInlineHistory={showInlineHistory}
                                   onRequestAddProduct={openAddProductForm}
-                                  // Batches already taken by OTHER rows of the same product —
-                                  // disabled in this row's batch picker so one batch can't be
-                                  // billed on two lines (which would oversell its stock).
+                                  // Batches already taken by OTHER rows — disabled in this
+                                  // row's batch picker so one batch can't be billed on two
+                                  // lines (which would oversell its stock). Not filtered by
+                                  // product (batch ids are product-specific anyway) so it's
+                                  // already populated when an EMPTY row picks its product and
+                                  // auto-selects a fresh batch.
                                   batchesUsedByOthers={new Set(
                                     items
-                                      .filter((o) => o.id !== item.id && o.productId === item.productId && o.batchId)
+                                      .filter((o) => o.id !== item.id && o.batchId)
                                       .map((o) => o.batchId)
                                   )}
                                 />
@@ -6204,55 +6238,64 @@ export default function NewSalePage() {
                             className="gap-1.5 h-8 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-500/10 w-full justify-center sm:w-auto sm:shrink-0"
                             onClick={async () => {
                               if (!selectedHistoryInvoice?.items?.length) return
-                              const repurchaseItems = await Promise.all(
-                                selectedHistoryInvoice.items.map(async (it) => {
-                                  const base: BillingItem = {
-                                    ...createEmptyItem(),
-                                    productId: it.productId,
-                                    productName: it.productName,
-                                    batchId: it.batchId,
-                                    batchNumber: it.batchNumber,
-                                    expiryDate: it.expiryDate,
-                                    quantity: it.quantity,
-                                    mrp: Number(it.mrp),
-                                    rate: Number(it.rate),
-                                    discountPercent: Number(it.discountPercent),
-                                    gstPercent: Number(it.gstPercent),
-                                    amount: 0,
-                                  }
-                                  // Auto-select the FEFO batch (earliest-expiry with stock)
-                                  // instead of reusing the previous invoice's batch, which is
-                                  // usually depleted/expired by now — that left the row on
-                                  // "Select Batch". Mirrors handleProductSelect's FEFO pick.
-                                  if (it.productId) {
-                                    try {
-                                      const res = await api.get(`/products/${it.productId}`)
-                                      syncProductBatchesIntoStore(res.data)
-                                      const fefo = useMasterDataStore.getState().batches
-                                        .filter((b) => b.productId === it.productId && b.quantity > 0 && !isExpired(b.expiryDate))
-                                        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())[0]
-                                      if (fefo) {
-                                        base.batchId = fefo.id
-                                        base.batchNumber = fefo.batchNumber
-                                        base.expiryDate = fefo.expiryDate
-                                        base.mrp = Number(fefo.mrp) || base.mrp
-                                      } else {
-                                        // No sellable stock — clear the stale batch so the
-                                        // row clearly prompts for a manual pick.
-                                        base.batchId = ''
-                                        base.batchNumber = ''
-                                        base.expiryDate = ''
-                                      }
-                                    } catch { /* product fetch failed — keep the copied values */ }
-                                  }
-                                  base.amount = calculateItemAmount(base)
-                                  return base
+                              let anyCapped = false
+                              const makeLine = (it: typeof selectedHistoryInvoice.items[number], over: Partial<BillingItem>): BillingItem => {
+                                const base: BillingItem = {
+                                  ...createEmptyItem(),
+                                  productId: it.productId,
+                                  productName: it.productName,
+                                  batchId: it.batchId,
+                                  batchNumber: it.batchNumber,
+                                  expiryDate: it.expiryDate,
+                                  quantity: it.quantity,
+                                  mrp: Number(it.mrp),
+                                  rate: Number(it.rate),
+                                  discountPercent: Number(it.discountPercent),
+                                  gstPercent: Number(it.gstPercent),
+                                  amount: 0,
+                                  ...over,
+                                }
+                                base.amount = calculateItemAmount(base)
+                                return base
+                              }
+                              const repurchaseNested = await Promise.all(
+                                selectedHistoryInvoice.items.map(async (it): Promise<BillingItem[]> => {
+                                  if (!it.productId) return [makeLine(it, {})]
+                                  try {
+                                    const res = await api.get(`/products/${it.productId}`)
+                                    syncProductBatchesIntoStore(res.data)
+                                    const avail = useMasterDataStore.getState().batches
+                                      .filter((b) => b.productId === it.productId && b.quantity > 0 && !isExpired(b.expiryDate))
+                                      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+                                    // Split the requested qty across batches FEFO — one line
+                                    // per batch drawn from, so a quantity no single batch can
+                                    // cover is fulfilled from several (never "insufficient stock").
+                                    let remaining = Number(it.quantity) || 0
+                                    const lines: BillingItem[] = []
+                                    for (const b of avail) {
+                                      if (remaining <= 0) break
+                                      const take = Math.min(remaining, b.quantity)
+                                      lines.push(makeLine(it, {
+                                        batchId: b.id,
+                                        batchNumber: b.batchNumber,
+                                        expiryDate: b.expiryDate,
+                                        mrp: Number(b.mrp) || Number(it.mrp),
+                                        quantity: take,
+                                      }))
+                                      remaining -= take
+                                    }
+                                    if (remaining > 0) anyCapped = true
+                                    if (lines.length === 0) return [makeLine(it, { batchId: '', batchNumber: '', expiryDate: '', quantity: 0 })]
+                                    return lines
+                                  } catch { return [makeLine(it, {})] }
                                 })
                               )
+                              const repurchaseItems = repurchaseNested.flat()
                               setItems(repurchaseItems)
                               setSelectedHistoryInvoice(null)
                               setTableView('products')
                               toast.success(`${repurchaseItems.length} item${repurchaseItems.length !== 1 ? 's' : ''} loaded from previous invoice`)
+                              if (anyCapped) toast.warning('Some quantities were reduced to match available stock.')
                             }}
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
