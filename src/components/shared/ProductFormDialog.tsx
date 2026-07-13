@@ -291,13 +291,15 @@ export function ProductFormDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Purchase (₹){OPTIONAL}</Label>
-                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 180" {...register('purchaseRate')} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 180" {...register('purchaseRate')} error={!!errors.purchaseRate} />
+                    {errors.purchaseRate && <p className="text-[11px] text-rose-500">{errors.purchaseRate.message}</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Wholesale (₹){OPTIONAL}</Label>
-                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 200" {...register('wholesaleRate')} />
+                    <Input className="h-9" type="number" step="0.01" placeholder="e.g. 200" {...register('wholesaleRate')} error={!!errors.wholesaleRate} />
+                    {errors.wholesaleRate && <p className="text-[11px] text-rose-500">{errors.wholesaleRate.message}</p>}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST Rate *</Label>

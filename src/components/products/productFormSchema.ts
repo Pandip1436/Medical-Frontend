@@ -60,12 +60,24 @@ export const productSchema = z
       path: ['purchaseRate'],
     },
   )
-  // Wholesale rate is still a retail-bound price and cannot exceed the MRP
-  // ceiling. Optional (0 = not entered), so only check when it's set.
+  // Wholesale rate must sit between cost and the retail ceiling: strictly ABOVE
+  // the purchase rate (so wholesale sales still make a margin). Optional
+  // (0 = not entered), and only meaningful when a purchase rate is also set.
   .refine(
-    (data) => Number(data.wholesaleRate) <= 0 || Number(data.wholesaleRate) <= Number(data.mrp),
+    (data) =>
+      Number(data.wholesaleRate) <= 0 ||
+      Number(data.purchaseRate) <= 0 ||
+      Number(data.wholesaleRate) > Number(data.purchaseRate),
     {
-      message: 'Wholesale rate cannot exceed MRP',
+      message: 'Wholesale rate must be greater than the purchase rate',
+      path: ['wholesaleRate'],
+    },
+  )
+  // ...and strictly BELOW the MRP (the legal retail ceiling). Only when set.
+  .refine(
+    (data) => Number(data.wholesaleRate) <= 0 || Number(data.wholesaleRate) < Number(data.mrp),
+    {
+      message: 'Wholesale rate must be less than MRP',
       path: ['wholesaleRate'],
     },
   )
