@@ -620,6 +620,19 @@ export default function LoginPage({
               </AnimatePresence>
             </div>
 
+            {/* Vendor attribution */}
+            <p className="mt-8 text-center text-[11px] text-[#94a3b8]">
+              Powered by{' '}
+              <a
+                href="https://unitednexa.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-[#475569] transition-colors hover:text-[#0fb5a8] hover:underline"
+              >
+                United Nexa Tech
+              </a>
+            </p>
+
           </div>
         </aside>
 

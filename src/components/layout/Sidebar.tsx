@@ -644,6 +644,21 @@ export function Sidebar({ currentPath }: SidebarProps) {
           </motion.span>
         )}
       </button>
+
+      {/* Vendor attribution — only in the expanded rail */}
+      {!collapsed && (
+        <p className="mt-2.5 border-t border-sidebar-border/40 pt-2.5 text-center text-[10px] leading-none text-sidebar-muted/70">
+          Powered by{' '}
+          <a
+            href="https://unitednexa.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-sidebar-muted transition-colors hover:text-primary hover:underline"
+          >
+            United Nexa Tech
+          </a>
+        </p>
+      )}
     </div>
   )
 
