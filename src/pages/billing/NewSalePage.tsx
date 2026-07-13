@@ -3308,11 +3308,17 @@ export default function NewSalePage() {
   // Reference (UTR / card / cheque no.) — the backend rejects non-cash
   // collections without one, so capture and send it for CARD / UPI / CHEQUE.
   const [collectRef, setCollectRef] = useState('')
+  // Invoice picked in the pay-credits dialog to record a payment AGAINST (like
+  // the Customer Outstanding "Record Payment" drawer). null = nothing selected.
+  const [selectedPendingId, setSelectedPendingId] = useState<string | null>(null)
 
   const openCreditPayDialog = useCallback(async () => {
     if (!selectedCustomer) return
     setCreditPayDialogOpen(true)
     setPendingInvoicesLoading(true)
+    setSelectedPendingId(null)
+    setCollectAmount('')
+    setCollectRef('')
     try {
       const res = await api.get(`/billing?customerId=${selectedCustomer.id}`)
       const all: Invoice[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
@@ -3324,72 +3330,59 @@ export default function NewSalePage() {
     }
   }, [selectedCustomer])
 
-  const handleCollectOne = async (invoiceId: string) => {
-    if (!collectAmount || Number(collectAmount) <= 0) {
-      toast.error('Enter an amount to collect')
+  // Selected invoice's outstanding balance (for auto-fill + validation).
+  const selectedPendingBalance = useMemo(() => {
+    const inv = pendingInvoices.find((i) => i.id === selectedPendingId)
+    return inv ? Number(inv.grandTotal) - Number(inv.amountPaid) : 0
+  }, [pendingInvoices, selectedPendingId])
+
+  // Pick an invoice and auto-fill the amount with its full balance (editable
+  // afterwards for a partial collection).
+  const selectPendingInvoice = (inv: Invoice) => {
+    setSelectedPendingId(inv.id)
+    setCollectAmount(String(Number(inv.grandTotal) - Number(inv.amountPaid)))
+  }
+
+  // Record a payment AGAINST the selected invoice (mirrors the Customer
+  // Outstanding "Record Payment" drawer). Uses the customer payment endpoint
+  // with an explicit invoiceIds so the payment is linked to that invoice.
+  const handleReceiveSelected = async () => {
+    if (!selectedCustomer) return
+    if (!selectedPendingId) { toast.error('Select an invoice to collect against'); return }
+    const amt = parseFloat(collectAmount)
+    if (!Number.isFinite(amt) || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (amt > selectedPendingBalance + 0.01) {
+      toast.error(`Amount exceeds invoice balance (${formatCurrency(selectedPendingBalance)})`)
       return
     }
-    // Non-cash modes need a reference (backend rejects otherwise).
     const refRequired = collectMode !== 'CASH'
     if (refRequired && !collectRef.trim()) {
       toast.error(`Enter the ${collectMode} reference number`)
       return
     }
-    // Re-entry guard: rapid double-click would fire two PATCHes and double-credit.
     if (payingInvoiceId) return
-    setPayingInvoiceId(invoiceId)
+    setPayingInvoiceId(selectedPendingId)
     try {
-      await api.patch(`/billing/${invoiceId}/collect-payment`, {
-        amountReceived: parseFloat(collectAmount),
+      const res = await api.post(`/customers/${selectedCustomer.id}/payment`, {
+        amount: amt,
         paymentMode: collectMode,
         referenceNumber: refRequired ? collectRef.trim() : undefined,
+        invoiceIds: [selectedPendingId],
       })
-      toast.success('Payment collected')
+      toast.success(`Payment recorded · Receipt ${res.data?.receiptNumber ?? '—'}`)
       setCollectAmount('')
       setCollectRef('')
-      // Refresh pending list and customer
+      setSelectedPendingId(null)
       const [invRes, custRes] = await Promise.all([
-        api.get(`/billing?customerId=${selectedCustomer!.id}`),
-        api.get(`/customers/${selectedCustomer!.id}`),
+        api.get(`/billing?customerId=${selectedCustomer.id}`),
+        api.get(`/customers/${selectedCustomer.id}`),
       ])
       const all: Invoice[] = Array.isArray(invRes.data) ? invRes.data : (invRes.data.data ?? [])
       const updated = all.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
       setPendingInvoices(updated)
-      // Refresh selectedCustomer so pendingCreditCount updates
       if (custRes.data) setSelectedCustomer({ ...selectedCustomer!, ...custRes.data, pendingCreditCount: updated.length })
     } catch {
-      toast.error('Failed to collect payment')
-    } finally {
-      setPayingInvoiceId(null)
-    }
-  }
-
-  const handleCollectAll = async () => {
-    if (!selectedCustomer) return
-    // Non-cash modes need a reference (backend rejects otherwise).
-    const refRequired = collectMode !== 'CASH'
-    if (refRequired && !collectRef.trim()) {
-      toast.error(`Enter the ${collectMode} reference number`)
-      return
-    }
-    // Re-entry guard: if a collect is already in flight, swallow this click.
-    // Without it, rapid double-clicks fire two POSTs that both apply the same
-    // payment — customer's outstanding would go negative.
-    if (payingInvoiceId === 'all') return
-    setPayingInvoiceId('all')
-    try {
-      const res = await api.post(`/customers/${selectedCustomer.id}/payment`, {
-        amount: pendingInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) - Number(inv.amountPaid)), 0),
-        paymentMode: collectMode,
-        referenceNumber: refRequired ? collectRef.trim() : undefined,
-      })
-      toast.success(`All pending credits cleared. Receipt: ${res.data.receiptNumber}`)
-      setCollectRef('')
-      setPendingInvoices([])
-      setSelectedCustomer({ ...selectedCustomer!, currentOutstanding: 0, pendingCreditCount: 0 })
-      setCreditPayDialogOpen(false)
-    } catch {
-      toast.error('Failed to collect all payments')
+      toast.error('Failed to record payment')
     } finally {
       setPayingInvoiceId(null)
     }
@@ -7007,41 +7000,8 @@ export default function NewSalePage() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Payment mode selector */}
-          {/* responsive: wraps the amount input onto its own row below sm */}
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Mode</label>
-            <Select value={collectMode} onValueChange={setCollectMode}>
-              <SelectTrigger className="h-8 text-xs w-28 sm:w-32 shrink-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
-                  <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              type="number"
-              min={0}
-              placeholder="Amount for one-by-one"
-              className="h-8 text-xs font-mono flex-1 min-w-35"
-              value={collectAmount}
-              onChange={(e) => setCollectAmount(e.target.value)}
-            />
-            {/* Reference is mandatory for non-cash modes — the backend rejects
-                a CARD / UPI / CHEQUE collection without one. */}
-            {collectMode !== 'CASH' && (
-              <Input
-                placeholder={`${collectMode} reference no.`}
-                className="h-8 text-xs font-mono w-full sm:w-40"
-                value={collectRef}
-                onChange={(e) => setCollectRef(e.target.value)}
-              />
-            )}
-          </div>
-
-          {/* Pending invoices list */}
+          {/* Pending invoices — pick one to record a payment against (mirrors
+              the Customer Outstanding "Record Payment" drawer). */}
           {pendingInvoicesLoading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/40" />
@@ -7051,54 +7011,107 @@ export default function NewSalePage() {
               All credits cleared! You can now proceed with credit sales.
             </div>
           ) : (
-            <div className="divide-y divide-border/40 rounded-xl border border-border/60 overflow-hidden">
-              {pendingInvoices.map((inv) => {
-                const due = Number(inv.grandTotal) - Number(inv.amountPaid)
-                const isPaying = payingInvoiceId === inv.id
-                return (
-                  <div key={inv.id} className="flex items-center justify-between gap-3 px-3 py-2.5 bg-background">
-                    <div className="min-w-0">
-                      <p className="font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
-                        {' · '}{inv.status}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-mono text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(due)}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-[11px] shrink-0"
-                      disabled={isPaying || payingInvoiceId === 'all'}
-                      onClick={() => handleCollectOne(inv.id)}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-0.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Open Invoices ({pendingInvoices.length})
+                </p>
+                {selectedPendingId && (
+                  <p className="text-[10px] font-semibold text-primary tabular-nums">
+                    1 selected · {formatCurrency(selectedPendingBalance)}
+                  </p>
+                )}
+              </div>
+
+              <div className="max-h-56 divide-y divide-border/40 overflow-y-auto rounded-xl border border-border/60">
+                {pendingInvoices.map((inv) => {
+                  const due = Number(inv.grandTotal) - Number(inv.amountPaid)
+                  const isSel = selectedPendingId === inv.id
+                  return (
+                    <button
+                      key={inv.id}
+                      type="button"
+                      onClick={() => selectPendingInvoice(inv)}
+                      className={cn(
+                        'flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                        isSel ? 'bg-primary/5' : 'bg-background hover:bg-muted/40',
+                      )}
                     >
-                      {isPaying ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Collect'}
-                    </Button>
-                  </div>
-                )
-              })}
+                      <span className={cn(
+                        'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
+                        isSel ? 'border-primary' : 'border-border',
+                      )}>
+                        {isSel && <span className="h-2 w-2 rounded-full bg-primary" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(inv.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                          {' · '}{inv.status}
+                        </p>
+                      </div>
+                      <p className="shrink-0 font-mono text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(due)}</p>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Record payment against the selected invoice */}
+              <div className="space-y-2.5 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Record Payment</p>
+                {/* responsive: mode + amount + Receive wrap; reference gets its own row */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={collectMode} onValueChange={setCollectMode}>
+                    <SelectTrigger className="h-8 w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
+                        <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="Amount"
+                    className="h-8 min-w-28 flex-1 font-mono text-xs"
+                    value={collectAmount}
+                    onChange={(e) => setCollectAmount(e.target.value)}
+                    disabled={!selectedPendingId}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 shrink-0 gap-1.5"
+                    disabled={!selectedPendingId || payingInvoiceId !== null || !collectAmount}
+                    onClick={handleReceiveSelected}
+                  >
+                    {payingInvoiceId === selectedPendingId
+                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      : <><CreditCard className="h-3.5 w-3.5" /> Receive</>}
+                  </Button>
+                  {/* Reference is mandatory for non-cash modes — the backend
+                      rejects a CARD / UPI / CHEQUE collection without one. */}
+                  {collectMode !== 'CASH' && (
+                    <Input
+                      placeholder={`${collectMode} reference no.`}
+                      className="h-8 w-full font-mono text-xs"
+                      value={collectRef}
+                      onChange={(e) => setCollectRef(e.target.value)}
+                    />
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {selectedPendingId
+                    ? `Payment will be recorded against the selected invoice (balance ${formatCurrency(selectedPendingBalance)}).`
+                    : 'Select an invoice above to collect against.'}
+                </p>
+              </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2">
+          <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setCreditPayDialogOpen(false)}>
               Close
             </Button>
-            {pendingInvoices.length > 0 && (
-              <Button
-                size="sm"
-                className="gap-1.5"
-                disabled={payingInvoiceId !== null}
-                onClick={handleCollectAll}
-              >
-                {payingInvoiceId === 'all'
-                  ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Clearing…</>
-                  : <><CreditCard className="h-3.5 w-3.5" /> Clear All ({formatCurrency(pendingInvoices.reduce((s, inv) => s + Number(inv.grandTotal) - Number(inv.amountPaid), 0))})</>
-                }
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
