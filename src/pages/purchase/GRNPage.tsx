@@ -226,6 +226,10 @@ export default function GRNPage() {
   const [invoiceNo, setInvoiceNo] = useState('')
   const [invoiceDate, setInvoiceDate] = useState('')
   const [invoiceAmount, setInvoiceAmount] = useState<number>(0)
+  // Invoice Amount auto-fills from the computed line total until the operator
+  // types their own figure (e.g. supplier added freight/rounding). Once edited,
+  // this flips true and we stop overwriting it.
+  const [invoiceAmountEdited, setInvoiceAmountEdited] = useState(false)
 
   // Receive-time payment (create-only, non-replacement). CREDIT = pay nothing now
   // → whole invoice goes to supplier outstanding. PAID = settle in full now.
@@ -386,6 +390,10 @@ export default function GRNPage() {
         setInvoiceNo(grn.supplierInvoiceNo ?? '')
         setInvoiceDate(grn.supplierInvoiceDate ? String(grn.supplierInvoiceDate).slice(0, 10) : '')
         setInvoiceAmount(Number(grn.supplierInvoiceAmount) || 0)
+        // Treat the loaded amount as operator-set so the auto-fill effect can't
+        // clobber it with the line total (which would silently rewrite the
+        // supplier invoice amount — and outstanding — on any edit-save).
+        setInvoiceAmountEdited(true)
         setGrnItems(
           ((grn.items ?? []) as GRNItem[]).map((it, i) => {
             const received = Number(it.receivedQty) || 0
@@ -526,7 +534,7 @@ export default function GRNPage() {
     setGrnItems(type === 'direct' ? [createEmptyItem()] : [])
     setInvoiceNo('')
     setInvoiceDate('')
-    setInvoiceAmount(0)
+    setInvoiceAmount(0); setInvoiceAmountEdited(false)
     setPayChoice('CREDIT')
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
@@ -595,6 +603,12 @@ export default function GRNPage() {
   const totalItems = receivedItems.length
   const totalQty = receivedItems.reduce((s, i) => s + i.receivedQty + (i.freeQty || 0), 0)
   const totalValue = receivedItems.reduce((s, i) => s + i.receivedQty * i.purchaseRate, 0)
+
+  // Auto-fill the supplier Invoice Amount with the line total as items change,
+  // unless the operator has manually overridden it.
+  useEffect(() => {
+    if (!invoiceAmountEdited) setInvoiceAmount(totalValue)
+  }, [totalValue, invoiceAmountEdited])
   const shortSupplyCount = grnItems.filter((i) => i.shortSupply).length
   
   // Real GST calculation per-item based on master product data. Purchase rate
@@ -812,7 +826,7 @@ export default function GRNPage() {
       setGrnItems([])
       setInvoiceNo('')
       setInvoiceDate('')
-      setInvoiceAmount(0)
+      setInvoiceAmount(0); setInvoiceAmountEdited(false)
       setPayChoice('CREDIT')
       setPaidAmount(0)
       setPayMode('NEFT_UPI')
@@ -872,7 +886,7 @@ export default function GRNPage() {
     setGrnItems([])
     setInvoiceNo('')
     setInvoiceDate('')
-    setInvoiceAmount(0)
+    setInvoiceAmount(0); setInvoiceAmountEdited(false)
     setPayChoice('CREDIT')
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
@@ -937,7 +951,7 @@ export default function GRNPage() {
                   className="h-8 font-mono text-xs"
                   placeholder="0.00"
                   value={invoiceAmount || ''}
-                  onChange={(e) => setInvoiceAmount(Number(e.target.value))}
+                  onChange={(e) => { setInvoiceAmount(Number(e.target.value)); setInvoiceAmountEdited(true) }}
                 />
               </div>
             </div>
