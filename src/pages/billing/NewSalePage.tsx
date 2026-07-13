@@ -3305,6 +3305,9 @@ export default function NewSalePage() {
   const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null)
   const [collectAmount, setCollectAmount] = useState('')
   const [collectMode, setCollectMode] = useState('CASH')
+  // Reference (UTR / card / cheque no.) — the backend rejects non-cash
+  // collections without one, so capture and send it for CARD / UPI / CHEQUE.
+  const [collectRef, setCollectRef] = useState('')
 
   const openCreditPayDialog = useCallback(async () => {
     if (!selectedCustomer) return
@@ -3326,6 +3329,12 @@ export default function NewSalePage() {
       toast.error('Enter an amount to collect')
       return
     }
+    // Non-cash modes need a reference (backend rejects otherwise).
+    const refRequired = collectMode !== 'CASH'
+    if (refRequired && !collectRef.trim()) {
+      toast.error(`Enter the ${collectMode} reference number`)
+      return
+    }
     // Re-entry guard: rapid double-click would fire two PATCHes and double-credit.
     if (payingInvoiceId) return
     setPayingInvoiceId(invoiceId)
@@ -3333,9 +3342,11 @@ export default function NewSalePage() {
       await api.patch(`/billing/${invoiceId}/collect-payment`, {
         amountReceived: parseFloat(collectAmount),
         paymentMode: collectMode,
+        referenceNumber: refRequired ? collectRef.trim() : undefined,
       })
       toast.success('Payment collected')
       setCollectAmount('')
+      setCollectRef('')
       // Refresh pending list and customer
       const [invRes, custRes] = await Promise.all([
         api.get(`/billing?customerId=${selectedCustomer!.id}`),
@@ -3355,6 +3366,12 @@ export default function NewSalePage() {
 
   const handleCollectAll = async () => {
     if (!selectedCustomer) return
+    // Non-cash modes need a reference (backend rejects otherwise).
+    const refRequired = collectMode !== 'CASH'
+    if (refRequired && !collectRef.trim()) {
+      toast.error(`Enter the ${collectMode} reference number`)
+      return
+    }
     // Re-entry guard: if a collect is already in flight, swallow this click.
     // Without it, rapid double-clicks fire two POSTs that both apply the same
     // payment — customer's outstanding would go negative.
@@ -3364,8 +3381,10 @@ export default function NewSalePage() {
       const res = await api.post(`/customers/${selectedCustomer.id}/payment`, {
         amount: pendingInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) - Number(inv.amountPaid)), 0),
         paymentMode: collectMode,
+        referenceNumber: refRequired ? collectRef.trim() : undefined,
       })
       toast.success(`All pending credits cleared. Receipt: ${res.data.receiptNumber}`)
+      setCollectRef('')
       setPendingInvoices([])
       setSelectedCustomer({ ...selectedCustomer!, currentOutstanding: 0, pendingCreditCount: 0 })
       setCreditPayDialogOpen(false)
@@ -7010,6 +7029,16 @@ export default function NewSalePage() {
               value={collectAmount}
               onChange={(e) => setCollectAmount(e.target.value)}
             />
+            {/* Reference is mandatory for non-cash modes — the backend rejects
+                a CARD / UPI / CHEQUE collection without one. */}
+            {collectMode !== 'CASH' && (
+              <Input
+                placeholder={`${collectMode} reference no.`}
+                className="h-8 text-xs font-mono w-full sm:w-40"
+                value={collectRef}
+                onChange={(e) => setCollectRef(e.target.value)}
+              />
+            )}
           </div>
 
           {/* Pending invoices list */}
