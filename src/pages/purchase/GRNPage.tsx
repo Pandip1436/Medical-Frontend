@@ -15,8 +15,6 @@ import {
   FileText,
   Printer,
   Download,
-  ShieldCheck,
-  AlertCircle,
   RotateCcw,
   Clock,
   FileWarning,
@@ -953,6 +951,15 @@ export default function GRNPage() {
                   value={invoiceAmount || ''}
                   onChange={(e) => { setInvoiceAmount(Number(e.target.value)); setInvoiceAmountEdited(true) }}
                 />
+                {/* Live mismatch warning — invoice amount vs the calculated line total. */}
+                {Number(invoiceAmount) > 0 &&
+                  Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
+                  <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                    Doesn't match calculated total ({formatCurrency(Number(gstBreakdown.total) || 0)}) —
+                    {' '}{Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over by' : 'short by'}{' '}
+                    {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1087,60 +1094,6 @@ export default function GRNPage() {
         </div>
 
         <Separator className="bg-border/50" />
-
-        {/* ── Invoice Comparison ── */}
-        {invoiceAmount > 0 && (
-          <>
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className={cn(
-                  'flex h-6 w-6 items-center justify-center rounded-md',
-                  Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                    ? 'bg-emerald-500/10'
-                    : 'bg-amber-500/10'
-                )}>
-                  {Math.abs(invoiceAmount - gstBreakdown.total) < 1 ? (
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  ) : (
-                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  )}
-                </div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Invoice Verification
-                </p>
-              </div>
-
-              <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
-                <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Supplier Invoice</span>
-                  <span className="font-mono font-medium">{formatCurrency(invoiceAmount)}</span>
-                </div>
-                <div className="flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">System Calculated</span>
-                  <span className="font-mono font-medium">{formatCurrency(gstBreakdown.total)}</span>
-                </div>
-                <Separator className="bg-border/40" />
-                <div className={cn(
-                  'flex justify-between text-xs font-semibold',
-                  Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-amber-600 dark:text-amber-400'
-                )}>
-                  <span>Difference</span>
-                  <span className="font-mono">
-                    {Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                      ? 'Match'
-                      : `${formatCurrency(Math.abs(invoiceAmount - gstBreakdown.total))} ${
-                          invoiceAmount > gstBreakdown.total ? '(Over)' : '(Under)'
-                        }`
-                    }
-                  </span>
-                </div>
-              </div>
-            </div>
-            <Separator className="bg-border/50" />
-          </>
-        )}
 
         {/* ── Quick Actions ── */}
         <div>
@@ -2111,8 +2064,17 @@ export default function GRNPage() {
                         className="h-8 font-mono text-xs"
                         placeholder="0.00"
                         value={invoiceAmount || ''}
-                        onChange={(e) => setInvoiceAmount(Number(e.target.value))}
+                        onChange={(e) => { setInvoiceAmount(Number(e.target.value)); setInvoiceAmountEdited(true) }}
                       />
+                      {/* Live mismatch warning — invoice amount vs calculated total. */}
+                      {Number(invoiceAmount) > 0 &&
+                        Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
+                        <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          Doesn't match calculated total ({formatCurrency(Number(gstBreakdown.total) || 0)}) —
+                          {' '}{Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over by' : 'short by'}{' '}
+                          {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2247,60 +2209,6 @@ export default function GRNPage() {
               </div>
 
               <Separator className="bg-border/50" />
-
-              {/* ── Invoice Comparison ── */}
-              {invoiceAmount > 0 && (
-                <>
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className={cn(
-                        'flex h-6 w-6 items-center justify-center rounded-md',
-                        Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                          ? 'bg-emerald-500/10'
-                          : 'bg-amber-500/10'
-                      )}>
-                        {Math.abs(invoiceAmount - gstBreakdown.total) < 1 ? (
-                          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                        ) : (
-                          <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                        )}
-                      </div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Invoice Verification
-                      </p>
-                    </div>
-
-                    <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-muted-foreground">Supplier Invoice</span>
-                        <span className="font-mono font-medium">{formatCurrency(invoiceAmount)}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-muted-foreground">System Calculated</span>
-                        <span className="font-mono font-medium">{formatCurrency(gstBreakdown.total)}</span>
-                      </div>
-                      <Separator className="bg-border/40" />
-                      <div className={cn(
-                        'flex justify-between text-xs font-semibold',
-                        Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-amber-600 dark:text-amber-400'
-                      )}>
-                        <span>Difference</span>
-                        <span className="font-mono">
-                          {Math.abs(invoiceAmount - gstBreakdown.total) < 1
-                            ? 'Match'
-                            : `${formatCurrency(Math.abs(invoiceAmount - gstBreakdown.total))} ${
-                                invoiceAmount > gstBreakdown.total ? '(Over)' : '(Under)'
-                              }`
-                          }
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <Separator className="bg-border/50" />
-                </>
-              )}
 
               {/* ── Quick Actions ── */}
               <div>
