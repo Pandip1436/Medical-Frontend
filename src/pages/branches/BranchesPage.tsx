@@ -96,7 +96,7 @@ const branchSchema = z.object({
   name: z.string().min(1, 'Branch name is required'),
   code: z.string().min(1, 'Branch code is required').max(10, 'Code max 10 chars'),
   address: z.string().optional(),
-  phone: z.string().optional(),
+  phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number').or(z.literal('')).optional(),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   gstin: z.string().optional(),
   drugLicense: z.string().optional(),
@@ -167,6 +167,7 @@ export default function BranchesPage() {
     handleSubmit,
     control,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<BranchFormValues>({
     resolver: zodResolver(branchSchema),
@@ -883,7 +884,15 @@ export default function BranchesPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Phone</Label>
-                    <Input {...register('phone')} placeholder="9876543210" />
+                    <Input
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="9876543210"
+                      {...register('phone')}
+                      // Accept digits only, capped at 10 (overrides register's onChange).
+                      onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                    />
+                    {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Email</Label>
@@ -894,7 +903,14 @@ export default function BranchesPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>GSTIN</Label>
-                    <Input {...register('gstin')} placeholder="22AAAAA0000A1Z5" />
+                    <Input
+                      className="uppercase"
+                      maxLength={15}
+                      placeholder="22AAAAA0000A1Z5"
+                      {...register('gstin')}
+                      // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
+                      onChange={(e) => setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Drug License No.</Label>

@@ -34,6 +34,7 @@ import {
   CalendarClock,
   ShieldCheck,
   Sparkles,
+  MousePointer2,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -197,10 +198,13 @@ interface SidebarProps {
 import { useSettingsStore } from '@/stores/settingsStore'
 
 export function Sidebar({ currentPath }: SidebarProps) {
-  const { user, sidebarCollapsed, toggleSidebar, expandedSection, toggleSection, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
+  const { user, sidebarCollapsed, toggleSidebar, sidebarHoverExpand, toggleSidebarHoverExpand, expandedSection, toggleSection, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
   const unreadCount = useNotificationStore((s) => s.unreadCount())
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [pendingApprovals, setPendingApprovals] = useState(0)
+  // Hover-to-expand (desktop only): the slim rail widens on mouse-enter and
+  // shrinks on mouse-leave when `sidebarHoverExpand` is on.
+  const [hovered, setHovered] = useState(false)
 
   // Persist nav scroll position across renders. Without this, clicking any
   // sidebar link triggers a parent re-render (currentPath prop changes) and
@@ -228,6 +232,9 @@ export function Sidebar({ currentPath }: SidebarProps) {
     // Let the browser handle modified clicks (open in new tab, etc.)
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
     e.preventDefault()
+    // Clicking any page collapses the hover-expanded rail (e.g. jumping to
+    // Quick Sale). Harmless when hover-expand is off.
+    setHovered(false)
     navigate(path)
   }, [])
 
@@ -261,6 +268,9 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
+  // Hover-to-expand only applies to a real docked desktop rail — never the
+  // touch/tablet bottom-bar shell or the narrow-window click overlay.
+  const hoverMode = sidebarHoverExpand && !isMobile && !isTabletTouch
 
   // Keyboard shortcut: [ to toggle sidebar
   useEffect(() => {
@@ -325,11 +335,30 @@ export function Sidebar({ currentPath }: SidebarProps) {
   // rem (not px) so the sidebar scales with the display-scale font-size.
   const sidebarWidth = sidebarCollapsed ? '4rem' : '16.25rem'
 
-  const isActive = (item: NavItem) =>
-    currentPath === item.href ||
-    (item.href !== '/dashboard' &&
-      item.href !== '/billing/new' &&
-      currentPath.startsWith(item.href))
+  // All nav hrefs, used to resolve the "most specific" match below.
+  const allHrefs = useMemo(
+    () => filteredGroups.flatMap((g) => g.items.map((it) => it.href)),
+    [filteredGroups],
+  )
+
+  // An item is active when the current path is its href, OR a descendant of it
+  // (segment-boundary prefix, so `/purchase/suppliers` doesn't match
+  // `/purchase/suppliers-foo`). For nested routes where one item's href is a
+  // prefix of another's (e.g. `/purchase/suppliers` vs
+  // `/purchase/suppliers/outstanding`), only the MOST specific matching item
+  // highlights — otherwise both the parent and the child tab appear active.
+  const isActive = (item: NavItem) => {
+    if (currentPath === item.href) return true
+    if (item.href === '/dashboard' || item.href === '/billing/new') return false
+    if (!currentPath.startsWith(item.href + '/')) return false
+    // Suppress the parent when a longer sibling href also matches the path.
+    const hasMoreSpecificMatch = allHrefs.some(
+      (h) =>
+        h.length > item.href.length &&
+        (currentPath === h || currentPath.startsWith(h + '/')),
+    )
+    return !hasMoreSpecificMatch
+  }
 
   // On first load with no remembered choice, auto-open the (multi-item)
   // section that contains the current page. Runs once per mount; afterwards
@@ -599,6 +628,48 @@ export function Sidebar({ currentPath }: SidebarProps) {
         </div>
       )}
 
+      {/* Hover-to-expand toggle — only on a real docked desktop rail. Lets the
+          user turn the "mouse-in opens / mouse-out closes" behavior on or off. */}
+      {!isMobile && !isTabletTouch && (
+        <button
+          onClick={() => {
+            // Enabling hover-mode while the cursor is already on the rail: keep
+            // it expanded until the mouse actually leaves (mouse-enter won't
+            // re-fire while the pointer is already inside).
+            if (!sidebarHoverExpand) setHovered(true)
+            toggleSidebarHoverExpand()
+          }}
+          className={cn(
+            'mb-1 flex w-full items-center gap-2 rounded-lg p-2 transition-colors',
+            collapsed ? 'justify-center' : 'justify-between',
+            sidebarHoverExpand
+              ? 'text-brand hover:bg-brand/10'
+              : 'text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+          )}
+          aria-label="Toggle hover to expand"
+          aria-pressed={sidebarHoverExpand}
+          title={sidebarHoverExpand
+            ? 'Hover-to-expand is ON — the rail opens on mouse-over. Click to turn off.'
+            : 'Hover-to-expand is OFF — click to turn on (rail opens on mouse-over).'}
+        >
+          <span className="flex items-center gap-2">
+            <MousePointer2 className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="text-xs">Hover to expand</span>}
+          </span>
+          {!collapsed && (
+            <span className={cn(
+              'rounded px-1.5 py-0.5 text-[10px] font-bold',
+              sidebarHoverExpand ? 'bg-brand/15 text-brand' : 'bg-sidebar-accent text-sidebar-muted',
+            )}>
+              {sidebarHoverExpand ? 'ON' : 'OFF'}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Manual collapse toggle — hidden when hover-expand drives the rail
+          automatically (it would fight the hover state). */}
+      {!hoverMode && (
       <button
         onClick={toggleSidebar}
         className={cn(
@@ -626,6 +697,7 @@ export function Sidebar({ currentPath }: SidebarProps) {
           </motion.span>
         )}
       </button>
+      )}
 
       {/* Vendor attribution — only in the expanded rail */}
       {!collapsed && (
@@ -803,8 +875,12 @@ export function Sidebar({ currentPath }: SidebarProps) {
   // icon-only (4rem) and tapping "expand" opens a translucent overlay on top
   // of it instead of widening the rail, so `AppLayout`'s content margin
   // never re-animates.
-  const dockedCollapsed = isTabletTouch ? true : sidebarCollapsed
-  const dockedWidth = isTabletTouch ? '4rem' : sidebarWidth
+  // In hover-expand mode the rail is collapsed unless the mouse is over it.
+  // Its width animates between the slim rail and the full width; AppLayout
+  // keeps the content margin pinned at the rail width, so the expanded rail
+  // overlays the page instead of pushing it.
+  const dockedCollapsed = isTabletTouch ? true : hoverMode ? !hovered : sidebarCollapsed
+  const dockedWidth = isTabletTouch ? '4rem' : hoverMode ? (hovered ? '16.25rem' : '4rem') : sidebarWidth
   const tabletOverlayOpen = isTabletTouch && !sidebarCollapsed
 
   return (
@@ -813,7 +889,14 @@ export function Sidebar({ currentPath }: SidebarProps) {
         initial={false}
         animate={{ width: dockedWidth }}
         transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-        className="fixed left-0 top-0 z-40 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground"
+        onMouseEnter={hoverMode ? () => setHovered(true) : undefined}
+        onMouseLeave={hoverMode ? () => setHovered(false) : undefined}
+        className={cn(
+          'fixed left-0 top-0 z-40 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground',
+          // When the hover rail is expanded it floats over the page — a shadow
+          // lifts it off the content it's covering.
+          hoverMode && hovered && 'shadow-2xl shadow-black/20',
+        )}
       >
         {/* Subtle gradient overlay - barely visible */}
         <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/2 via-transparent to-black/2" />

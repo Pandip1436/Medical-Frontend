@@ -1592,6 +1592,8 @@ export default function CustomersPage() {
                     maxLength={10}
                     autoComplete="tel"
                     error={!!form.formState.errors.phone || !!phoneCheckError}
+                    // Accept digits only, capped at 10 (overrides register's onChange).
+                    onChange={(e) => form.setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
                     onBlur={(e) => checkPhoneDuplicate(e.target.value)}
                   />
                   {form.formState.errors.phone && <p className="text-xs text-rose-500">{form.formState.errors.phone.message}</p>}
@@ -1626,7 +1628,15 @@ export default function CustomersPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
-                    <Input {...form.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!form.formState.errors.gstin} />
+                    <Input
+                      className="uppercase"
+                      maxLength={15}
+                      placeholder="22AAAAA0000A1Z5"
+                      {...form.register('gstin')}
+                      error={!!form.formState.errors.gstin}
+                      // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
+                      onChange={(e) => form.setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
+                    />
                     {form.formState.errors.gstin && <p className="text-xs text-rose-500">{form.formState.errors.gstin.message}</p>}
                   </div>
                   <div className="space-y-1.5">

@@ -45,7 +45,7 @@ export default function AppLayout({
   title,
   currentPath,
 }: AppLayoutProps) {
-  const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
+  const { isAuthenticated, sidebarCollapsed, sidebarHoverExpand, theme, resolvedTheme } = useAuthStore()
   // Any touch device up to tablet width (phone OR tablet) — mirrors
   // Sidebar.tsx's own branch exactly. A narrow desktop/laptop window (whether
   // from display scaling or just a small restored window) never matches
@@ -108,6 +108,10 @@ export default function AppLayout({
 
   // rem (not px) so the sidebar scales with the display-scale font-size.
   const sidebarWidth = sidebarCollapsed ? '4rem' : '16rem'
+  // Hover-to-expand (desktop only): the docked rail stays slim and the expanded
+  // state overlays the page, so the content margin must stay pinned at the rail
+  // width — never widen with the hover expansion.
+  const hoverPinned = sidebarHoverExpand && !isMobile && !isTabletTouch
 
   // POS-style routes use full viewport with no global header/padding
   const isFullViewport = currentPath === '/billing/new'
@@ -178,7 +182,7 @@ export default function AppLayout({
       {/* Main Area - shifts based on sidebar width on desktop, full width on mobile */}
       <motion.div
         initial={false}
-        animate={{ marginLeft: isMobile ? 0 : isTabletTouch ? '4rem' : sidebarWidth }}
+        animate={{ marginLeft: isMobile ? 0 : (isTabletTouch || hoverPinned) ? '4rem' : sidebarWidth }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className={
           // min-w-0 is critical: without it this flex-1 column's min-width

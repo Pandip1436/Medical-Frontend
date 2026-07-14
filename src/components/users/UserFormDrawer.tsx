@@ -156,7 +156,7 @@ const createSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
     email: z.string().email('Valid email required'),
-    phone: z.string().min(10, 'Valid phone number required').regex(/^\d+$/, 'Phone must be digits only'),
+    phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
     roles: rolesField,
     password: z.string().min(6, 'Password must be at least 6 characters'),
     branchIds: z.array(z.string()),
@@ -167,7 +167,7 @@ const createSchema = z
 const editSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    phone: z.string().min(10, 'Valid phone number required').regex(/^\d+$/, 'Phone must be digits only'),
+    phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
     roles: rolesField,
     newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
     branchIds: z.array(z.string()),
@@ -371,6 +371,7 @@ function CreateUserBody({
     control,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
@@ -439,7 +440,14 @@ function CreateUserBody({
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Phone *
               </Label>
-              <Input placeholder="9876543210" {...register('phone')} />
+              <Input
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="9876543210"
+                {...register('phone')}
+                // Accept digits only, capped at 10 (overrides register's onChange).
+                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+              />
               {errors.phone && (
                 <p className="text-xs text-destructive">{errors.phone.message}</p>
               )}
@@ -552,6 +560,7 @@ function EditUserBody({
     register,
     control,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<EditValues>({
     resolver: zodResolver(editSchema),
@@ -623,7 +632,14 @@ function EditUserBody({
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Phone *
               </Label>
-              <Input {...register('phone')} placeholder="9876543210" />
+              <Input
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="9876543210"
+                {...register('phone')}
+                // Accept digits only, capped at 10 (overrides register's onChange).
+                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+              />
               {errors.phone && (
                 <p className="text-xs text-destructive">{errors.phone.message}</p>
               )}

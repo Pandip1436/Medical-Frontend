@@ -268,7 +268,14 @@ export function SupplierFormDialog({
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Phone <span className="text-rose-500">*</span>
                     </Label>
-                    <Input placeholder="10-digit phone number" {...register('phone')} />
+                    <Input
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="10-digit phone number"
+                      {...register('phone')}
+                      // Accept digits only, capped at 10 (overrides register's onChange).
+                      onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                    />
                     {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
                   </div>
                   <div className="space-y-2">
@@ -305,8 +312,12 @@ export function SupplierFormDialog({
                     </Label>
                     <Input
                       placeholder="15-character GSTIN"
-                      className="font-mono"
+                      className="font-mono uppercase"
+                      maxLength={15}
                       {...register('gstin')}
+                      // GSTIN is 15 uppercase alphanumerics — force case, strip
+                      // anything else, cap at 15 (overrides register's onChange).
+                      onChange={(e) => setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
                     />
                     {errors.gstin && <p className="text-xs text-destructive">{errors.gstin.message}</p>}
                   </div>
@@ -372,8 +383,12 @@ export function SupplierFormDialog({
                     WhatsApp Number
                   </Label>
                   <Input
+                    inputMode="numeric"
+                    maxLength={10}
                     placeholder="Leave blank to use the phone number above"
                     {...register('whatsappNumber')}
+                    // Accept digits only, capped at 10 (overrides register's onChange).
+                    onChange={(e) => setValue('whatsappNumber', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
                   />
                   {errors.whatsappNumber && (
                     <p className="text-xs text-destructive">{errors.whatsappNumber.message}</p>

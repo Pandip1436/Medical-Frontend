@@ -28,6 +28,10 @@ interface AuthState {
   // Preferences
   theme: Theme
   sidebarCollapsed: boolean
+  // When true (desktop only), the sidebar stays as a slim icon rail and
+  // expands on mouse-enter / collapses on mouse-leave instead of using the
+  // manual collapse toggle.
+  sidebarHoverExpand: boolean
   expandedSection: string | null
   mobileSidebarOpen: boolean
   language: Language
@@ -40,6 +44,7 @@ interface AuthState {
   setTheme: (theme: Theme) => void
   resolvedTheme: () => 'light' | 'dark'
   toggleSidebar: () => void
+  toggleSidebarHoverExpand: () => void
   toggleSection: (title: string) => void
   toggleMobileSidebar: () => void
   setMobileSidebarOpen: (open: boolean) => void
@@ -60,6 +65,7 @@ export const useAuthStore = create<AuthState>()(
       // Default to the light (Zoho-style) look; users can switch via the header toggle.
       theme: 'light' as Theme,
       sidebarCollapsed: false,
+      sidebarHoverExpand: false,
       expandedSection: null,
       mobileSidebarOpen: false,
       language: 'en' as Language,
@@ -163,6 +169,10 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))
       },
 
+      toggleSidebarHoverExpand: () => {
+        set((state) => ({ sidebarHoverExpand: !state.sidebarHoverExpand }))
+      },
+
       // Accordion: opening a section replaces the previously open one;
       // clicking the open section again collapses everything (null).
       toggleSection: (title: string) => {
@@ -224,6 +234,7 @@ export const useAuthStore = create<AuthState>()(
         theme: state.theme,
         language: state.language,
         sidebarCollapsed: state.sidebarCollapsed,
+        sidebarHoverExpand: state.sidebarHoverExpand,
         expandedSection: state.expandedSection,
         uiScale: state.uiScale,
         hasCompletedOnboarding: state.hasCompletedOnboarding,

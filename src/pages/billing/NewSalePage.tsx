@@ -5119,7 +5119,10 @@ export default function NewSalePage() {
                           {...customerForm.register('phone')}
                           placeholder="10-digit number"
                           inputMode="numeric"
+                          maxLength={10}
                           error={!!customerForm.formState.errors.phone || !!nsPhoneCheckError}
+                          // Accept digits only, capped at 10 (overrides register's onChange).
+                          onChange={(e) => customerForm.setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
                           onBlur={(e) => checkNsPhoneDuplicate(e.target.value)}
                         />
                         {customerForm.formState.errors.phone && <p className="text-xs text-rose-500">{customerForm.formState.errors.phone.message}</p>}
@@ -5154,7 +5157,15 @@ export default function NewSalePage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GSTIN *</Label>
-                          <Input {...customerForm.register('gstin')} placeholder="22AAAAA0000A1Z5" error={!!customerForm.formState.errors.gstin} />
+                          <Input
+                            className="uppercase"
+                            maxLength={15}
+                            placeholder="22AAAAA0000A1Z5"
+                            {...customerForm.register('gstin')}
+                            error={!!customerForm.formState.errors.gstin}
+                            // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
+                            onChange={(e) => customerForm.setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
+                          />
                           {customerForm.formState.errors.gstin && <p className="text-xs text-rose-500">{customerForm.formState.errors.gstin.message}</p>}
                         </div>
                         <div className="space-y-1.5">

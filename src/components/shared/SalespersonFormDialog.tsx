@@ -184,7 +184,15 @@ export function SalespersonFormDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="sp-phone">Phone</Label>
-                  <Input id="sp-phone" {...register('phone')} placeholder="9876543210" maxLength={10} inputMode="numeric" />
+                  <Input
+                    id="sp-phone"
+                    placeholder="9876543210"
+                    maxLength={10}
+                    inputMode="numeric"
+                    {...register('phone')}
+                    // Accept digits only, capped at 10 (overrides register's onChange).
+                    onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                  />
                   {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
                 </div>
               </div>

@@ -124,7 +124,20 @@ export default function DeliveriesPage() {
   const handleCheckAll = async () => {
     setCheckingAll(true)
     try {
-      const res = await api.post('/delivery/check-all')
+      // Only sync the shipments matching the active filters (search / status /
+      // courier / date) — so "Check All" respects what the user is looking at.
+      // Body is `undefined` (not null): axios's default JSON content-type would
+      // serialize null → the string "null", which Express's strict JSON parser
+      // rejects ("… 'null' is not valid JSON"). The filters ride as query params.
+      const res = await api.post('/delivery/check-all', undefined, {
+        params: {
+          q: q || undefined,
+          status: status === 'ALL' ? undefined : status,
+          courier: courier === 'ALL' ? undefined : courier,
+          from: dateRange.from,
+          to: dateRange.to,
+        },
+      })
       const d = res.data ?? {}
       if (d.liveIntegration === false) {
         toast.info('Live courier sync isn’t connected — set TRACKINGMORE_API_KEY and restart the backend.')

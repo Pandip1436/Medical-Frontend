@@ -142,6 +142,7 @@ export function CustomerFormDialog({
     control,
     reset,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
@@ -269,14 +270,28 @@ export function CustomerFormDialog({
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Phone
               </Label>
-              <Input placeholder="10-digit phone number" inputMode="numeric" {...register('phone')} />
+              <Input
+                placeholder="10-digit phone number"
+                inputMode="numeric"
+                maxLength={10}
+                {...register('phone')}
+                // Accept digits only, capped at 10 (overrides register's onChange).
+                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+              />
               {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
             </div>
             <div className="space-y-2">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Alternate Phone (optional)
               </Label>
-              <Input placeholder="10-digit alternate" inputMode="numeric" {...register('alternatePhone')} />
+              <Input
+                placeholder="10-digit alternate"
+                inputMode="numeric"
+                maxLength={10}
+                {...register('alternatePhone')}
+                // Accept digits only, capped at 10 (overrides register's onChange).
+                onChange={(e) => setValue('alternatePhone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+              />
               {errors.alternatePhone && <p className="text-xs text-destructive">{errors.alternatePhone.message}</p>}
             </div>
           </div>
@@ -295,7 +310,14 @@ export function CustomerFormDialog({
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   GSTIN
                 </Label>
-                <Input placeholder="15-character GSTIN" className="font-mono" {...register('gstin')} />
+                <Input
+                  placeholder="15-character GSTIN"
+                  className="font-mono uppercase"
+                  maxLength={15}
+                  {...register('gstin')}
+                  // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
+                  onChange={(e) => setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
+                />
                 {errors.gstin && <p className="text-xs text-destructive">{errors.gstin.message}</p>}
               </div>
               <div className="space-y-2">

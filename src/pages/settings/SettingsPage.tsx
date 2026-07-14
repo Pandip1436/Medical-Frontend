@@ -93,7 +93,7 @@ const settingsSections: SettingsSection[] = [
 const businessProfileSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
   address: z.string().min(1, 'Address is required'),
-  phone: z.string().min(10, 'Valid phone number required'),
+  phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
   email: z.string().email('Valid email required'),
   gstin: z.string().min(15, 'Valid GSTIN required').max(15),
   drugLicense: z.string().min(1, 'Drug license is required'),
@@ -324,6 +324,7 @@ function BusinessProfileSection() {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<BusinessProfileForm>({
     resolver: zodResolver(businessProfileSchema),
@@ -393,7 +394,11 @@ function BusinessProfileSection() {
                   <Label htmlFor="phone">Phone <span className="text-destructive">*</span></Label>
                   <Input
                     id="phone"
+                    inputMode="numeric"
+                    maxLength={10}
                     {...register('phone')}
+                    // Accept digits only, capped at 10 (overrides register's onChange).
+                    onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
                     error={!!errors.phone}
                   />
                   {errors.phone && (
@@ -433,8 +438,10 @@ function BusinessProfileSection() {
                     id="gstin"
                     {...register('gstin')}
                     maxLength={15}
-                    className="font-mono text-xs"
+                    className="font-mono text-xs uppercase"
                     error={!!errors.gstin}
+                    // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
+                    onChange={(e) => setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
                   />
                   {errors.gstin && (
                     <p className="text-xs text-destructive">{errors.gstin.message}</p>
