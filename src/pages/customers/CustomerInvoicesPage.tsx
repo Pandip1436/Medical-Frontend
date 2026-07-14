@@ -584,6 +584,21 @@ export default function CustomerInvoicesPage() {
                 options={PAYMENT_OPTIONS}
               />
             </div>
+            {/* Custom date range — full width below sm forces its own dedicated row (never squeezed alongside another field) so both pickers stay usable; sm+ reverts to flex-1 so desktop layout is unchanged */}
+            {period === 'custom' && (
+              <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                    <DatePicker value={fromDate} onChange={setFromDate} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                    <DatePicker value={toDate} onChange={setToDate} />
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="min-w-40 flex-1">
               <EnumSelect
                 label="Salesperson"
@@ -593,18 +608,6 @@ export default function CustomerInvoicesPage() {
                 options={salespersonOptions}
               />
             </div>
-            {period === 'custom' && (
-              <>
-                <div className="min-w-40 flex-1 space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-                  <DatePicker value={fromDate} onChange={setFromDate} />
-                </div>
-                <div className="min-w-40 flex-1 space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-                  <DatePicker value={toDate} onChange={setToDate} />
-                </div>
-              </>
-            )}
           </div>
         </DataTableFilterBar>
       </motion.div>

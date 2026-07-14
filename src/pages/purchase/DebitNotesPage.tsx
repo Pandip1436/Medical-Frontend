@@ -186,8 +186,8 @@ export default function DebitNotesPage() {
   const [selectedSupplierName, setSelectedSupplierName] = usePageFilter<string>('purchase.debitNotes', 'supplierName', '')
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.debitNotes', 'splitShowStats', true)
 
-  // Stat-card drill-down — not persisted (intentional: resets on page open)
-  const [cardFilter, setCardFilter] = useState<'all' | 'short-billing' | 'settled'>('all')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'short-billing' | 'settled'>('purchase.debitNotes', 'cardFilter', 'all')
+  // Split-view filter panel visibility — not persisted (intentional)
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
@@ -667,15 +667,6 @@ export default function DebitNotesPage() {
                 columnsNode={<ColumnsToggle columns={DEBIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
                 actionNode={
                   <div className="flex w-full items-center gap-1.5 sm:w-auto">
-                  <Button
-                    size="sm"
-                    className="flex-1 sm:w-auto sm:flex-none"
-                    onClick={() => navigate('/purchase/returns')}
-                  >
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    <span className="hidden sm:inline">New Return</span>
-                    <span className="sm:hidden">New</span>
-                  </Button>
                   <ExportMenu
                     className="flex-1 sm:w-auto sm:flex-none"
                     title="Debit Notes"
@@ -692,6 +683,15 @@ export default function DebitNotesPage() {
                     }))}
                   />
                   <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/debit-notes') }} />
+                  <Button
+                    size="sm"
+                    className="flex-1 sm:w-auto sm:flex-none"
+                    onClick={() => navigate('/purchase/returns')}
+                  >
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    <span className="hidden sm:inline">New Return</span>
+                    <span className="sm:hidden">New</span>
+                  </Button>
                   </div>
                 }
               >
@@ -717,7 +717,7 @@ export default function DebitNotesPage() {
                     />
                   </div>
 
-                  <div className="min-w-40 flex-1">
+                  <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
                     <SupplierSearchSelect
                       value={selectedSupplier}
                       selectedName={selectedSupplierName}
@@ -725,22 +725,24 @@ export default function DebitNotesPage() {
                     />
                   </div>
 
-                  {/* Custom date range — only when period is 'custom' */}
+                  {/* Custom date range — full width below sm forces its own dedicated row (never squeezed alongside another field) so both pickers stay usable; sm+ reverts to flex-1 so desktop layout is unchanged */}
                   {period === 'custom' && (
-                    <>
-                      <div className="min-w-40 flex-1 space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Date From
-                        </Label>
-                        <DatePicker value={dateFrom} onChange={setDateFrom} />
+                    <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Date From
+                          </Label>
+                          <DatePicker value={dateFrom} onChange={setDateFrom} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Date To
+                          </Label>
+                          <DatePicker value={dateTo} onChange={setDateTo} />
+                        </div>
                       </div>
-                      <div className="min-w-40 flex-1 space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Date To
-                        </Label>
-                        <DatePicker value={dateTo} onChange={setDateTo} />
-                      </div>
-                    </>
+                    </div>
                   )}
                 </div>
               </DataTableFilterBar>

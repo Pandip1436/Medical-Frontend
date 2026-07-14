@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { useFormDraft } from '@/hooks/useFormDraft'
+import { useBranchStore } from '@/stores/branchStore'
 import type { Product } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -20,6 +22,7 @@ import {
   FileWarning,
   XCircle,
   ChevronLeft,
+  ChevronRight,
   Plus,
   Wallet,
   Phone,
@@ -107,6 +110,52 @@ function createEmptyItem(): GRNFormItem {
     shortSupply: false,
     _alreadyReceived: 0,
     _remaining: 0,
+  }
+}
+
+// ── Enter-key field navigation ──────────────────────────────
+// Order Enter advances through within one product row. GST is deliberately
+// excluded — still directly editable by click/Tab, just not part of the
+// Enter chain the operator uses for fast keyboard-driven entry.
+const GRN_FIELD_ORDER = ['receivedQty', 'freeQty', 'purchaseRate', 'mrp', 'batchNumber', 'expiryDate'] as const
+type GrnFieldName = (typeof GRN_FIELD_ORDER)[number]
+
+function grnFieldId(itemId: string, field: GrnFieldName): string {
+  return `grn-item-${itemId}-${field}`
+}
+
+function focusGrnField(itemId: string, field: GrnFieldName) {
+  document.getElementById(grnFieldId(itemId, field))?.focus()
+}
+
+// Invoice Number/Date exist twice in the DOM at once (a mobile copy and a
+// desktop copy, one hidden via CSS depending on viewport) — a plain id
+// lookup would either collide or silently grab the hidden copy, so this
+// queries every match and focuses whichever one is actually visible/laid
+// out (offsetParent is null for display:none elements).
+function focusVisibleGrnField(dataAttrSelector: string) {
+  const candidates = document.querySelectorAll<HTMLElement>(dataAttrSelector)
+  for (const el of candidates) {
+    if (el.offsetParent !== null) {
+      el.focus()
+      return
+    }
+  }
+}
+
+// Same visible-copy disambiguation as focusVisibleGrnField, but scrolls
+// instead of focusing — for content that newly appears (e.g. the Amount
+// Paid/Mode fields revealed by picking Partial/Paid in full) rather than an
+// always-present input. `block: 'nearest'` scrolls the minimum distance
+// needed to bring it fully into view, and does nothing if it's already
+// visible.
+function scrollVisibleGrnFieldIntoView(dataAttrSelector: string) {
+  const candidates = document.querySelectorAll<HTMLElement>(dataAttrSelector)
+  for (const el of candidates) {
+    if (el.offsetParent !== null) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      return
+    }
   }
 }
 
@@ -227,7 +276,17 @@ export default function GRNPage() {
   // Invoice Amount auto-fills from the computed line total until the operator
   // types their own figure (e.g. supplier added freight/rounding). Once edited,
   // this flips true and we stop overwriting it.
-  const [invoiceAmountEdited, setInvoiceAmountEdited] = useState(false)
+  const [invoiceAmountEdited, setInvoiceAmountEditedState] = useState(false)
+  // Mirrors invoiceAmountEdited synchronously (ref writes apply immediately,
+  // unlike state). The auto-fill effect below reads this instead of the state
+  // closure directly — on mount it can fire multiple times before the restore
+  // effect's setInvoiceAmountEdited(true) is actually reflected in a render,
+  // and a stale `false` closure would clobber a just-restored invoiceAmount.
+  const invoiceAmountEditedRef = useRef(false)
+  const setInvoiceAmountEdited = useCallback((val: boolean) => {
+    invoiceAmountEditedRef.current = val
+    setInvoiceAmountEditedState(val)
+  }, [])
 
   // Receive-time payment (create-only, non-replacement). CREDIT = pay nothing now
   // → whole invoice goes to supplier outstanding. PAID = settle in full now.
@@ -236,8 +295,76 @@ export default function GRNPage() {
   const [paidAmount, setPaidAmount] = useState<number>(0)
   const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
 
+  // ── Form draft — auto-saves so an in-progress entry survives navigating
+  // away and back. Skipped when arriving via an intentional prefill (editing
+  // an existing GRN, a PO/supplier deep-link, or receiving replacement goods
+  // for a return) — those flows already populate the form from their own
+  // source of truth, so restoring a stale draft over them would be wrong.
+  const activeBranchId = useBranchStore((s) => s.activeBranchId)
+  interface GrnDraftSnapshot {
+    sourceType: 'po' | 'direct'
+    selectedPOId: string | null
+    directSupplierId: string
+    directSupplierName: string
+    grnItems: GRNFormItem[]
+    invoiceNo: string
+    invoiceDate: string
+    invoiceAmount: number
+    invoiceAmountEdited: boolean
+    payChoice: 'CREDIT' | 'PAID' | 'PARTIAL'
+    paidAmount: number
+    payMode: 'CASH' | 'CHEQUE' | 'NEFT_UPI'
+  }
+  const draft = useFormDraft<GrnDraftSnapshot>(`grn-draft:${activeBranchId ?? 'none'}`, {
+    skip: editMode || !!prefilledPoId || !!prefilledSupplierId || !!replacementReturnId,
+  })
+
+  // Restore once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const saved = draft.load()
+    if (!saved) return
+    const hasContent =
+      saved.grnItems?.some((i) => i.productId) || !!saved.invoiceNo || !!saved.directSupplierId || !!saved.selectedPOId
+    if (!hasContent) return
+    setSourceType(saved.sourceType)
+    setSelectedPOId(saved.selectedPOId)
+    setDirectSupplierId(saved.directSupplierId)
+    setDirectSupplierName(saved.directSupplierName)
+    setGrnItems(saved.grnItems)
+    setInvoiceNo(saved.invoiceNo)
+    setInvoiceDate(saved.invoiceDate)
+    setInvoiceAmount(saved.invoiceAmount)
+    setInvoiceAmountEdited(saved.invoiceAmountEdited)
+    setPayChoice(saved.payChoice)
+    setPaidAmount(saved.paidAmount)
+    setPayMode(saved.payMode)
+    toast.info('Restored your in-progress purchase entry')
+  }, [])
+
+  // Save snapshot on every change.
+  useEffect(() => {
+    draft.save({
+      sourceType, selectedPOId, directSupplierId, directSupplierName, grnItems,
+      invoiceNo, invoiceDate, invoiceAmount, invoiceAmountEdited,
+      payChoice, paidAmount, payMode,
+    })
+  }, [sourceType, selectedPOId, directSupplierId, directSupplierName, grnItems, invoiceNo, invoiceDate, invoiceAmount, invoiceAmountEdited, payChoice, paidAmount, payMode])
+
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
+
+  // Right panel step (Invoice+Payment, then Summary+Confirm) — independent
+  // of showConfirm above. The panel used to be one long scroll; splitting it
+  // into two steps means each one fits on screen without scrolling. Which
+  // step is showing has no bearing on whether the left workspace is in edit
+  // or review mode — they're separate axes that happen to share a footer.
+  const [panelStep, setPanelStep] = useState<1 | 2>(1)
+  const [panelDirection, setPanelDirection] = useState(1)
+  const goToPanelStep = (step: 1 | 2) => {
+    setPanelDirection(step > panelStep ? 1 : -1)
+    setPanelStep(step)
+  }
 
   // Post-confirm short supply action dialog
   const [shortActionDialog, setShortActionDialog] = useState<{
@@ -595,6 +722,28 @@ export default function GRNPage() {
     setGrnItems((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // Enter-key chain for one product row: advance within GRN_FIELD_ORDER; off
+  // the end (past Expiry Date), jump to the next row's Received Qty if one
+  // exists, otherwise to Invoice Number. `filteredIndex` matches the index
+  // the render loop and updateItem/removeItem already use (grnItems filtered
+  // to rows with a productId), so this stays in sync with them.
+  function handleRowEnter(filteredIndex: number, field: GrnFieldName) {
+    const filtered = grnItems.filter((i) => i.productId)
+    const item = filtered[filteredIndex]
+    if (!item) return
+    const pos = GRN_FIELD_ORDER.indexOf(field)
+    if (pos < GRN_FIELD_ORDER.length - 1) {
+      focusGrnField(item.id, GRN_FIELD_ORDER[pos + 1])
+      return
+    }
+    const nextItem = filtered[filteredIndex + 1]
+    if (nextItem) {
+      focusGrnField(nextItem.id, GRN_FIELD_ORDER[0])
+    } else {
+      focusVisibleGrnField('[data-field="invoiceNumber"]')
+    }
+  }
+
   // ── Calculations ──
   const isSupplementary = grnItems.some((i) => (i._alreadyReceived ?? 0) > 0)
   const receivedItems = grnItems.filter((i) => i.receivedQty > 0)
@@ -605,7 +754,7 @@ export default function GRNPage() {
   // Auto-fill the supplier Invoice Amount with the line total as items change,
   // unless the operator has manually overridden it.
   useEffect(() => {
-    if (!invoiceAmountEdited) setInvoiceAmount(totalValue)
+    if (!invoiceAmountEditedRef.current) setInvoiceAmount(totalValue)
   }, [totalValue, invoiceAmountEdited])
   const shortSupplyCount = grnItems.filter((i) => i.shortSupply).length
   
@@ -764,6 +913,7 @@ export default function GRNPage() {
           description: `${editGrnNumber} — stock, payables and PO reconciled.`,
         })
         setShowConfirm(false)
+        draft.clear()
         navigate('/purchase/grn-list')
         return
       }
@@ -792,6 +942,7 @@ export default function GRNPage() {
       }
 
       setShowConfirm(false)
+      draft.clear()
 
       // Check if any items had short supply — if so, prompt action
       const shortItems = grnItems.filter((i) => i.shortSupply && i.orderedQty > i.receivedQty)
@@ -888,18 +1039,26 @@ export default function GRNPage() {
     setPayChoice('CREDIT')
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
+    setPanelStep(1)
+    draft.clear()
   }
 
   // Shared between the desktop right-hand context panel (always visible at
   // lg+) and a mobile/tablet-only copy rendered inline in the item list
   // below lg — without this, Invoice Number/Date/Amount (required) and the
   // Payment method have no entry point at all below 1024px.
-  function renderInvoicePaymentSummary() {
+  //
+  // Split into two step-content functions (rather than one long fragment)
+  // so the panel can show one step at a time instead of a single long
+  // scroll — see `panelStep`. Both are pure content; neither renders its
+  // own Next/Back/Confirm buttons, which stay in the (already step-aware)
+  // pinned footers below.
+  function renderInvoiceAndPaymentStep() {
     return (
       <>
         {/* ── Supplier Invoice ── */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-500/10">
               <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
             </div>
@@ -917,25 +1076,28 @@ export default function GRNPage() {
               <strong>Optional</strong> for replacements. Enter delivery challan number if available, leave amount as <strong>₹0</strong> (no money owed).
             </p>
           )}
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             <div className="space-y-1">
               <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Invoice Number{!replacementReturnId && <span className="text-rose-500"> *</span>}
               </Label>
               <Input
+                data-field="invoiceNumber"
                 className="h-8 font-mono text-xs"
                 placeholder="e.g. INV-2025-001"
                 value={invoiceNo}
                 onChange={(e) => setInvoiceNo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-2">
               <div className="space-y-1">
                 <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}
                 </Label>
                 <DatePicker
-                  className="h-8 text-xs"
+                  dataField="invoiceDate"
+                  className="h-9 text-sm"
                   value={invoiceDate}
                   onChange={setInvoiceDate}
                 />
@@ -946,10 +1108,11 @@ export default function GRNPage() {
                 </Label>
                 <Input
                   type="number"
-                  className="h-8 font-mono text-xs"
+                  min={0}
+                  className="h-9 font-mono text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00"
                   value={invoiceAmount || ''}
-                  onChange={(e) => { setInvoiceAmount(Number(e.target.value)); setInvoiceAmountEdited(true) }}
+                  onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
                 />
                 {/* Live mismatch warning — invoice amount vs the calculated line total. */}
                 {Number(invoiceAmount) > 0 &&
@@ -970,7 +1133,7 @@ export default function GRNPage() {
           <>
             <Separator className="bg-border/50" />
             <div>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
                   <Wallet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
@@ -978,12 +1141,20 @@ export default function GRNPage() {
                   Payment
                 </p>
               </div>
-              <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5 mb-2.5">
+              <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5 mb-2">
                 {([['CREDIT', 'Credit'], ['PARTIAL', 'Partial'], ['PAID', 'Paid in full']] as const).map(([val, label]) => (
                   <button
                     key={val}
                     type="button"
-                    onClick={() => setPayChoice(val)}
+                    onClick={() => {
+                      setPayChoice(val)
+                      // Partial/Paid reveal the Amount Paid/Mode/Balance block below —
+                      // bring it into view instead of leaving the user to find it by
+                      // scrolling. setTimeout(…, 0) lets the reveal actually render first.
+                      if (val !== 'CREDIT') {
+                        setTimeout(() => scrollVisibleGrnFieldIntoView('[data-field="paymentExtra"]'), 0)
+                      }
+                    }}
                     className={cn(
                       'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all',
                       payChoice === val
@@ -1000,7 +1171,7 @@ export default function GRNPage() {
                   Full invoice amount will be added to the supplier's outstanding.
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2" data-field="paymentExtra">
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1008,12 +1179,13 @@ export default function GRNPage() {
                       </Label>
                       <Input
                         type="number"
+                        min={0}
                         className="h-8 font-mono text-xs"
                         placeholder="0.00"
                         value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
                         disabled={payChoice === 'PAID'}
                         max={invoiceAmount || undefined}
-                        onChange={(e) => setPaidAmount(Number(e.target.value))}
+                        onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value) || 0))}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1039,12 +1211,16 @@ export default function GRNPage() {
             </div>
           </>
         )}
+      </>
+    )
+  }
 
-        <Separator className="bg-border/50" />
-
+  function renderSummaryAndActionsStep() {
+    return (
+      <>
         {/* ── Live Summary ── */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
               <Layers className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             </div>
@@ -1054,7 +1230,7 @@ export default function GRNPage() {
           </div>
 
           {/* Metric cards */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="grid grid-cols-3 gap-2 mb-3">
             <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
               <p className="font-mono text-lg font-bold">{totalItems}</p>
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
@@ -1097,7 +1273,7 @@ export default function GRNPage() {
 
         {/* ── Quick Actions ── */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-purple-500/10">
               <Printer className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
             </div>
@@ -1222,22 +1398,30 @@ export default function GRNPage() {
 
             <ScrollArea className="min-h-0 flex-1">
               <div className="p-6 space-y-5">
-                {/* KPI strip — Items / Total Qty / Value / Short */}
+                {/* KPI strip — Items / Total Qty / Value / Short.
+                    min-w-0 on each cell + truncate on the figure: CSS grid
+                    items default to min-width:auto, so a long figure (a
+                    large quantity or currency value) would otherwise refuse
+                    to shrink and bleed into the next card. text-base (down
+                    from text-xl) keeps realistic-to-large values on one
+                    line; truncate is only a fallback for pathological
+                    values, with the title tooltip on Value revealing the
+                    full number on hover in that rare case. */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold">{totalItems}</p>
+                    <p className="mt-0.5 truncate font-mono text-base font-bold">{totalItems}</p>
                   </div>
-                  <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold">{totalQty}</p>
+                    <p className="mt-0.5 truncate font-mono text-base font-bold">{totalQty}</p>
                   </div>
-                  <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+                  <div className="min-w-0 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Value</p>
-                    <p className="mt-0.5 font-mono text-xl font-bold text-primary">{formatCurrency(gstBreakdown.total)}</p>
+                    <p className="mt-0.5 truncate font-mono text-base font-bold text-primary" title={formatCurrency(gstBreakdown.total)}>{formatCurrency(gstBreakdown.total)}</p>
                   </div>
                   <div className={cn(
-                    'rounded-xl border px-4 py-3',
+                    'min-w-0 rounded-xl border px-4 py-3',
                     shortSupplyCount > 0
                       ? 'border-amber-300/60 bg-amber-50/60 dark:border-amber-800/40 dark:bg-amber-900/10'
                       : 'border-emerald-300/40 bg-emerald-50/40 dark:border-emerald-800/30 dark:bg-emerald-900/10',
@@ -1249,7 +1433,7 @@ export default function GRNPage() {
                       {shortSupplyCount > 0 ? 'Short Supply' : 'Status'}
                     </p>
                     <p className={cn(
-                      'mt-0.5 font-mono text-xl font-bold',
+                      'mt-0.5 truncate font-mono text-base font-bold',
                       shortSupplyCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400',
                     )}>
                       {shortSupplyCount > 0 ? `${shortSupplyCount}` : '✓ Ready'}
@@ -1438,8 +1622,20 @@ export default function GRNPage() {
 
                 {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
                     the desktop right-hand context panel is hidden below lg. */}
-                <div className="lg:hidden mt-5 space-y-5 border-t border-border/40 pt-5">
-                  {renderInvoicePaymentSummary()}
+                <div className="lg:hidden mt-3 space-y-5 border-t border-border/40 pt-3 overflow-hidden">
+                  <AnimatePresence mode="wait" custom={panelDirection}>
+                    <motion.div
+                      key={panelStep}
+                      custom={panelDirection}
+                      initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
+                      transition={{ duration: 0.15, ease: 'easeInOut' }}
+                      className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
+                    >
+                      {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
               </div>
             </ScrollArea>
@@ -1522,7 +1718,7 @@ export default function GRNPage() {
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                         <FileText className="h-4 w-4 text-primary" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <p className="font-mono text-sm font-bold">{selectedPO.poNumber}</p>
                           {isSupplementary ? (
@@ -1533,7 +1729,7 @@ export default function GRNPage() {
                             </Badge>
                           )}
                         </div>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="truncate text-[11px] text-muted-foreground" title={`${selectedPO.supplierName} · ${formatDate(selectedPO.date)} · ${selectedPO.items.length} ${selectedPO.items.length === 1 ? 'item' : 'items'}`}>
                           {selectedPO.supplierName} &middot; {formatDate(selectedPO.date)} &middot; {selectedPO.items.length} {selectedPO.items.length === 1 ? 'item' : 'items'}
                         </p>
                       </div>
@@ -1628,12 +1824,14 @@ export default function GRNPage() {
                 <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-4 py-3">
                   <div className="min-w-0">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Selected supplier</p>
-                    <p className="mt-0.5 truncate text-lg font-bold text-foreground">{directSupplierName}</p>
-                    {directSupplierPhone && (
-                      <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <Phone className="h-3.5 w-3.5" /> {directSupplierPhone}
-                      </p>
-                    )}
+                    <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-lg font-bold text-foreground" title={directSupplierName}>{directSupplierName}</p>
+                      {directSupplierPhone && (
+                        <p className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
+                          <Phone className="h-3.5 w-3.5" /> {directSupplierPhone}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   {!editMode && (
                     <button
@@ -1861,23 +2059,27 @@ export default function GRNPage() {
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
+                            id={grnFieldId(item.id, 'receivedQty')}
                             type="number"
                             min={0}
                             className="h-9 font-mono text-xs font-black border-primary/10 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.receivedQty || ''}
                             onChange={(e) => updateItem(index, 'receivedQty', Number(e.target.value))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'receivedQty') } }}
                           />
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Free Qty</Label>
                           <Input
+                            id={grnFieldId(item.id, 'freeQty')}
                             type="number"
                             min={0}
                             className="h-9 font-mono text-xs border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             placeholder="0"
                             value={item.freeQty || ''}
                             onChange={(e) => updateItem(index, 'freeQty', Number(e.target.value))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'freeQty') } }}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1885,12 +2087,14 @@ export default function GRNPage() {
                           <div className="relative">
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
                             <Input
+                              id={grnFieldId(item.id, 'purchaseRate')}
                               type="number"
                               min={0}
                               className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
                               placeholder="0.00"
                               value={item.purchaseRate || ''}
                               onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }}
                             />
                           </div>
                         </div>
@@ -1899,12 +2103,14 @@ export default function GRNPage() {
                           <div className="relative">
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
                             <Input
+                              id={grnFieldId(item.id, 'mrp')}
                               type="number"
                               min={0}
                               className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
                               placeholder="0.00"
                               value={item.mrp || ''}
                               onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }}
                             />
                           </div>
                         </div>
@@ -1914,15 +2120,18 @@ export default function GRNPage() {
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
+                            id={grnFieldId(item.id, 'batchNumber')}
                             className="h-9 font-mono text-xs font-bold tracking-tight border-primary/5 bg-muted/20 focus:bg-background transition-all"
                             placeholder="B-00000"
                             value={item.batchNumber}
                             onChange={(e) => updateItem(index, 'batchNumber', e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'batchNumber') } }}
                           />
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
                           <DatePicker
+                            id={grnFieldId(item.id, 'expiryDate')}
                             className={cn(
                               "h-9 text-xs font-bold bg-muted/20 focus:bg-background transition-all",
                               !item.expiryDate && "border-primary/5",
@@ -1937,6 +2146,7 @@ export default function GRNPage() {
                             value={item.expiryDate}
                             min={new Date().toISOString().slice(0, 10)}
                             onChange={(v) => updateItem(index, 'expiryDate', v)}
+                            onEnterKey={() => handleRowEnter(index, 'expiryDate')}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1975,8 +2185,20 @@ export default function GRNPage() {
 
               {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
                   the desktop right-hand context panel is hidden below lg. */}
-              <div className="lg:hidden mt-5 space-y-5 border-t border-border/40 pt-5">
-                {renderInvoicePaymentSummary()}
+              <div className="lg:hidden mt-3 space-y-5 border-t border-border/40 pt-3 overflow-hidden">
+                <AnimatePresence mode="wait" custom={panelDirection}>
+                  <motion.div
+                    key={panelStep}
+                    custom={panelDirection}
+                    initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeInOut' }}
+                    className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
+                  >
+                    {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
+                  </motion.div>
+                </AnimatePresence>
               </div>
             </div>
           </ScrollArea>
@@ -1985,282 +2207,91 @@ export default function GRNPage() {
 
         {/* ── Mobile action footer (hidden on lg+, where the right panel shows) ── */}
         <div className="lg:hidden shrink-0 border-t border-border/40 bg-background p-3 space-y-2">
-          <Button
-            className="w-full"
-            disabled={!canConfirm || (showConfirm && isSubmitting)}
-            onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
-          >
-            {showConfirm && isSubmitting ? (
-              <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
-            ) : (
-              <CheckCircle2 className="mr-1.5 h-4 w-4" />
-            )}
-            {showConfirm
-              ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update' : 'Confirm & Create')
-              : editMode ? 'Review & Update' : 'Review & Confirm'}
-          </Button>
-          {showConfirm && (
-            <Button variant="outline" className="w-full" disabled={isSubmitting} onClick={() => setShowConfirm(false)}>
-              <ChevronLeft className="mr-1.5 h-4 w-4" />
-              Back to Edit
+          {panelStep === 1 ? (
+            <Button className="w-full" onClick={() => goToPanelStep(2)}>
+              Next
+              <ChevronRight className="ml-1.5 h-4 w-4" />
             </Button>
+          ) : (
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => goToPanelStep(1)}>
+                <ChevronLeft className="mr-1.5 h-4 w-4" />
+                Back
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={!canConfirm || (showConfirm && isSubmitting)}
+                onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
+              >
+                {showConfirm && isSubmitting ? (
+                  <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                )}
+                {showConfirm ? (isSubmitting ? 'Saving…' : 'Confirm') : 'Review'}
+              </Button>
+            </div>
           )}
+          {editMode ? (
+            <Button variant="outline" className="w-full text-muted-foreground" onClick={() => navigate('/purchase/grn-list')}>
+              Cancel
+            </Button>
+          ) : grnItems.length > 0 ? (
+            <Button variant="outline" className="w-full text-muted-foreground" onClick={handleDiscard}>
+              Discard & Start Over
+            </Button>
+          ) : null}
         </div>
         </div>
 
         {/* ─── RIGHT: Context Panel (30%) ──────────────────────── */}
         <div className="hidden lg:flex lg:w-[30%] flex-col overflow-hidden bg-muted/5 dark:bg-muted/2">
           <ScrollArea className="min-h-0 flex-1">
-            <div className="p-5 space-y-5">
-              {/* ── Supplier Invoice ── */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-500/10">
-                    <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Supplier Invoice
-                  </p>
-                </div>
-                {isSupplementary && !replacementReturnId && (
-                  <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 mb-2 leading-relaxed">
-                    Use the <strong>new invoice</strong> the supplier sent for this delivery — not the original PO invoice.
-                  </p>
-                )}
-                {replacementReturnId && (
-                  <p className="text-[10px] text-emerald-600/80 dark:text-emerald-300/70 mb-2 leading-relaxed">
-                    <strong>Optional</strong> for replacements. Enter delivery challan number if available, leave amount as <strong>₹0</strong> (no money owed).
-                  </p>
-                )}
-                <div className="space-y-2.5">
-                  <div className="space-y-1">
-                    <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Invoice Number{!replacementReturnId && <span className="text-rose-500"> *</span>}
-                    </Label>
-                    <Input
-                      className="h-8 font-mono text-xs"
-                      placeholder="e.g. INV-2025-001"
-                      value={invoiceNo}
-                      onChange={(e) => setInvoiceNo(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}
-                      </Label>
-                      <DatePicker
-                        className="h-8 text-xs"
-                        value={invoiceDate}
-                        onChange={setInvoiceDate}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}
-                      </Label>
-                      <Input
-                        type="number"
-                        className="h-8 font-mono text-xs"
-                        placeholder="0.00"
-                        value={invoiceAmount || ''}
-                        onChange={(e) => { setInvoiceAmount(Number(e.target.value)); setInvoiceAmountEdited(true) }}
-                      />
-                      {/* Live mismatch warning — invoice amount vs calculated total. */}
-                      {Number(invoiceAmount) > 0 &&
-                        Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
-                        <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                          Doesn't match calculated total ({formatCurrency(Number(gstBreakdown.total) || 0)}) —
-                          {' '}{Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over by' : 'short by'}{' '}
-                          {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Payment at receipt ── (create-only, not for replacements) */}
-              {!editMode && !replacementReturnId && (
-                <>
-                  <Separator className="bg-border/50" />
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
-                        <Wallet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                      </div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Payment
-                      </p>
-                    </div>
-                    <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5 mb-2.5">
-                      {([['CREDIT', 'Credit'], ['PARTIAL', 'Partial'], ['PAID', 'Paid in full']] as const).map(([val, label]) => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setPayChoice(val)}
-                          className={cn(
-                            'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all',
-                            payChoice === val
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {payChoice === 'CREDIT' ? (
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Full invoice amount will be added to the supplier's outstanding.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Amount Paid{payChoice === 'PARTIAL' && <span className="text-rose-500"> *</span>}
-                            </Label>
-                            <Input
-                              type="number"
-                              className="h-8 font-mono text-xs"
-                              placeholder="0.00"
-                              value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
-                              disabled={payChoice === 'PAID'}
-                              max={invoiceAmount || undefined}
-                              onChange={(e) => setPaidAmount(Number(e.target.value))}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Mode</Label>
-                            <Select value={payMode} onValueChange={(v) => setPayMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
-                              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="CASH">Cash</SelectItem>
-                                <SelectItem value="CHEQUE">Cheque</SelectItem>
-                                <SelectItem value="NEFT_UPI">NEFT / UPI</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div className="flex justify-between text-[11px]">
-                          <span className="text-muted-foreground">Balance to outstanding</span>
-                          <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-                            {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <Separator className="bg-border/50" />
-
-              {/* ── Live Summary ── */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10">
-                    <Layers className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Live Summary
-                  </p>
-                </div>
-
-                {/* Metric cards */}
-                <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-                    <p className="font-mono text-lg font-bold">{totalItems}</p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
-                  </div>
-                  <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-                    <p className="font-mono text-lg font-bold">{totalQty}</p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
-                  </div>
-                  <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-                    <p className={cn('font-mono text-lg font-bold', shortSupplyCount > 0 && 'text-amber-600 dark:text-amber-400')}>
-                      {shortSupplyCount}
-                    </p>
-                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Short</p>
-                  </div>
-                </div>
-
-                {/* GST breakdown */}
-                <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">Taxable Amount</span>
-                    <span className="font-mono font-medium">{formatCurrency(gstBreakdown.taxable)}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">CGST{gstHalfLabel}</span>
-                    <span className="font-mono font-medium">{formatCurrency(gstBreakdown.cgst)}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-muted-foreground">SGST{gstHalfLabel}</span>
-                    <span className="font-mono font-medium">{formatCurrency(gstBreakdown.sgst)}</span>
-                  </div>
-                  <Separator className="bg-border/40" />
-                  <div className="flex justify-between">
-                    <span className="text-sm font-semibold">Total Value</span>
-                    <span className="font-mono text-sm font-bold text-primary">{formatCurrency(gstBreakdown.total)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <Separator className="bg-border/50" />
-
-              {/* ── Quick Actions ── */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-purple-500/10">
-                    <Printer className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    After Confirmation
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handlePrintGrn}>
-                    <Printer className="mr-1.5 h-3.5 w-3.5" />
-                    Print PE
-                  </Button>
-                  <Button variant="outline" size="sm" className="flex-1" disabled={!canConfirm} onClick={handleDownloadGrn}>
-                    <Download className="mr-1.5 h-3.5 w-3.5" />
-                    Download
-                  </Button>
-                </div>
-              </div>
+            <div className="p-5 overflow-hidden">
+              <AnimatePresence mode="wait" custom={panelDirection}>
+                <motion.div
+                  key={panelStep}
+                  custom={panelDirection}
+                  initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
+                  transition={{ duration: 0.15, ease: 'easeInOut' }}
+                  className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
+                >
+                  {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
+                </motion.div>
+              </AnimatePresence>
             </div>
           </ScrollArea>
 
-          {/* ── Pinned Action Footer ── (context-aware: review vs edit mode) ── */}
+          {/* ── Pinned Action Footer ── (step + review-mode aware) ── */}
           <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
-            <Button
-              className="w-full"
-              disabled={!canConfirm || (showConfirm && isSubmitting)}
-              onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
-            >
-              {showConfirm && isSubmitting ? (
-                <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              )}
-              {showConfirm
-                ? (isSubmitting ? 'Saving…' : editMode ? 'Confirm & Update Purchase Entry' : 'Confirm & Create Entry')
-                : editMode ? 'Review & Update Purchase Entry' : 'Review & Confirm Entry'}
-            </Button>
-            {showConfirm ? (
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={isSubmitting}
-                onClick={() => setShowConfirm(false)}
-              >
-                <ChevronLeft className="mr-1.5 h-4 w-4" />
-                Back to Edit
+            {panelStep === 1 ? (
+              <Button className="w-full" onClick={() => goToPanelStep(2)}>
+                Next
+                <ChevronRight className="ml-1.5 h-4 w-4" />
               </Button>
-            ) : editMode ? (
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => goToPanelStep(1)}>
+                  <ChevronLeft className="mr-1.5 h-4 w-4" />
+                  Back
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={!canConfirm || (showConfirm && isSubmitting)}
+                  onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
+                >
+                  {showConfirm && isSubmitting ? (
+                    <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                  )}
+                  {showConfirm ? (isSubmitting ? 'Saving…' : 'Confirm') : 'Review'}
+                </Button>
+              </div>
+            )}
+            {editMode ? (
               <Button variant="outline" className="w-full text-muted-foreground" onClick={() => navigate('/purchase/grn-list')}>
                 Cancel
               </Button>

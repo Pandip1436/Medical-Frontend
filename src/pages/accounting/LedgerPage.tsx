@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import api from '@/lib/api'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { KpiTile } from '@/components/dashboard/KpiTile'
@@ -217,12 +218,12 @@ export default function LedgerPage() {
   const [partyType, setPartyType] = useState<'customer' | 'supplier'>('customer')
   const [selectedPartyId, setSelectedPartyId] = useState<string>('')
   const [partySearch, setPartySearch] = useState('')
-  const [ledgerSearch, setLedgerSearch] = useState('')
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('oldest')
+  const [ledgerSearch, setLedgerSearch] = usePageFilter<string>('accounting.ledger', 'ledgerSearch', '')
+  const [sortOrder, setSortOrder] = usePageFilter<'newest' | 'oldest'>('accounting.ledger', 'sortOrder', 'oldest')
 
-  const [selectedPeriod, setSelectedPeriod] = useState<Period>('month')
-  const [selectedYear, setSelectedYear] = useState(() => dayjs().year())
-  const [selectedMonthIdx, setSelectedMonthIdx] = useState(() => dayjs().month())
+  const [selectedPeriod, setSelectedPeriod] = usePageFilter<Period>('accounting.ledger', 'period', 'month')
+  const [selectedYear, setSelectedYear] = usePageFilter<number>('accounting.ledger', 'year', dayjs().year())
+  const [selectedMonthIdx, setSelectedMonthIdx] = usePageFilter<number>('accounting.ledger', 'monthIdx', dayjs().month())
   const [yearPopoverOpen, setYearPopoverOpen] = useState(false)
   const [monthPopoverOpen, setMonthPopoverOpen] = useState(false)
 
@@ -231,7 +232,7 @@ export default function LedgerPage() {
     [selectedPeriod, selectedYear, selectedMonthIdx],
   )
 
-  const [activeTab, setActiveTab] = useState<'ledger' | 'trend'>('ledger')
+  const [activeTab, setActiveTab] = usePageFilter<'ledger' | 'trend'>('accounting.ledger', 'activeTab', 'ledger')
   const [isLoading, setIsLoading] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   // Which tab is active INSIDE the picker. Independent of `partyType` (which

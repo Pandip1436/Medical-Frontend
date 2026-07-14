@@ -12,9 +12,6 @@ import {
   ChevronDown,
   Filter,
   Package,
-  TrendingUp,
-  TrendingDown,
-  IndianRupee,
   ClipboardList,
   Receipt,
   Layers,
@@ -239,7 +236,6 @@ export default function SupplierDetailPage() {
 
   const sup = d.supplier.data
   const kpis = d.ledger.data?.kpis ?? []
-  const outstanding = sup?.currentOutstanding ?? 0
 
   // Per-tab pagination state
   const [ledgerPage, setLedgerPage] = useState(1)
@@ -378,43 +374,6 @@ export default function SupplierDetailPage() {
               Edit
             </Button>
           </div>
-        </div>
-      </div>
-
-      {/* ── KPI Strip ── */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-3">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCell
-            icon={TrendingUp}
-            label="Total Purchases"
-            value={pickKpi(kpis, 'Total Purchases')}
-            tone="blue"
-            loading={d.ledger.loading && !d.ledger.data}
-          />
-          <KpiCell
-            icon={TrendingDown}
-            label="Total Returns"
-            value={pickKpi(kpis, 'Total Returns')}
-            tone="rose"
-            loading={d.ledger.loading && !d.ledger.data}
-            borderLeft
-          />
-          <KpiCell
-            icon={IndianRupee}
-            label="Outstanding"
-            value={Number(outstanding) > 0 ? formatCurrency(Number(outstanding)) : '₹0'}
-            tone={Number(outstanding) > 0 ? 'amber' : 'emerald'}
-            loading={d.supplier.loading && !sup}
-            borderLeft
-          />
-          <KpiCell
-            icon={ClipboardList}
-            label="Open POs"
-            value={pickKpi(kpis, 'Open POs')}
-            tone="purple"
-            loading={d.ledger.loading && !d.ledger.data}
-            borderLeft
-          />
         </div>
       </div>
 
@@ -660,6 +619,7 @@ export default function SupplierDetailPage() {
                           label="Terms"
                           value={<Badge variant="secondary" size="sm">{sup.paymentTerms}</Badge>}
                         />
+                        <Row label="Total Purchases" value={pickKpi(kpis, 'Total Purchases')} mono />
                         <Row
                           label="Outstanding"
                           value={
@@ -672,6 +632,8 @@ export default function SupplierDetailPage() {
                             )
                           }
                         />
+                        <Row label="Total Returns" value={pickKpi(kpis, 'Total Returns')} mono />
+                        <Row label="Open POs" value={pickKpi(kpis, 'Open POs')} mono />
                         {sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />}
                       </OverviewSection>
                     </div>
@@ -1146,40 +1108,6 @@ function currentTabCountLabel(
     case 'activity': return d.activities.loading ? 'Loading…' : `${activityCount} activit${activityCount !== 1 ? 'ies' : 'y'}`
     default: return ''
   }
-}
-
-function KpiCell({
-  icon: Icon,
-  label,
-  value,
-  tone,
-  loading,
-}: {
-  icon: typeof Package
-  label: string
-  value: string
-  tone: 'blue' | 'emerald' | 'rose' | 'amber' | 'purple'
-  loading?: boolean
-  borderLeft?: boolean
-}) {
-  const toneMap: Record<typeof tone, string> = {
-    blue: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-    amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-  }
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
-      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', toneMap[tone])}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-        {loading ? <Skeleton className="mt-1 h-5 w-24" /> : <p className="font-mono text-base font-bold leading-tight truncate">{value}</p>}
-      </div>
-    </div>
-  )
 }
 
 /** Section header + fields for an Overview card. */

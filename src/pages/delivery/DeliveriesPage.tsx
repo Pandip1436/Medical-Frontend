@@ -16,6 +16,7 @@ import api from '@/lib/api'
 import { cn, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { displayDeliveryStatus } from '@/lib/courierOcr'
 import type { DeliveryTracking, DeliveryStatus } from '@/types'
 
@@ -28,10 +29,10 @@ export default function DeliveriesPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState<DeliveryStatus | 'ALL'>('ALL')
-  const [courier, setCourier] = useState<string>('ALL')
-  const [dateRange, setDateRange] = useState<DateRangeValue>({ preset: 'all' })
+  const [q, setQ] = usePageFilter<string>('delivery.list', 'q', '')
+  const [status, setStatus] = usePageFilter<DeliveryStatus | 'ALL'>('delivery.list', 'status', 'ALL')
+  const [courier, setCourier] = usePageFilter<string>('delivery.list', 'courier', 'ALL')
+  const [dateRange, setDateRange] = usePageFilter<DateRangeValue>('delivery.list', 'dateRange', { preset: 'all' })
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   const [courierCounts, setCourierCounts] = useState<Record<string, number>>({})
 

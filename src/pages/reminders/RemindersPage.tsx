@@ -29,6 +29,7 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
+import { usePageFilter } from '@/hooks/usePageFilter'
 
 // ─── Types ────────────────────────────────────────────────────
 type ContactStatus = 'TALKED' | 'NOT_RESPONDED' | 'DENIED' | 'NEED_TO_TALK' | 'SCHEDULED' | 'WHATSAPP_AUTO_SENT' | 'STOPPED'
@@ -199,13 +200,13 @@ export default function RemindersPage() {
 
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<StatusKey>('today')
-  const [typeFolder, setTypeFolder] = useState<TypeKey>('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = usePageFilter<StatusKey>('reminders.list', 'status', 'today')
+  const [typeFolder, setTypeFolder] = usePageFilter<TypeKey>('reminders.list', 'typeFolder', 'all')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('reminders.list', 'search', '')
   // Sort by when the reminder was created: newest-first (default) or oldest-first.
   // The next-due urgency grouping still drives the bucket order; this orders rows
   // within each bucket.
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest')
+  const [sortBy, setSortBy] = usePageFilter<'newest' | 'oldest'>('reminders.list', 'sortBy', 'newest')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // True when the open detail panel was reached via a notification deep-link.
   // In that case the panel's Back arrow steps back to the notification folder

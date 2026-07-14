@@ -18,6 +18,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate, timeAgo } from '@/lib/utils'
 import { assignExpiryBucket, daysToExpiry as computeDaysToExpiry, type ExpiryBucket } from '@/lib/inventory'
@@ -136,9 +137,9 @@ function batchStatus(daysToExpiry: number): {
 // ─────────────────────────────────────────────────────────────
 
 export default function ExpiryManagementPage() {
-  const [folder, setFolder] = useState<FolderKey>('expired')
-  const [search, setSearch] = useState('')
-  const [selectedSupplier, setSelectedSupplier] = useState<SupplierLite | null>(null)
+  const [folder, setFolder] = usePageFilter<FolderKey>('inventory.expiry', 'folder', 'expired')
+  const [search, setSearch] = usePageFilter<string>('inventory.expiry', 'search', '')
+  const [selectedSupplier, setSelectedSupplier] = usePageFilter<SupplierLite | null>('inventory.expiry', 'supplier', null)
   const [viewMode, setViewMode] = useState<ViewMode>('table')
 
   // Read-only disposal detail shown in a modal (write-offs aren't reachable

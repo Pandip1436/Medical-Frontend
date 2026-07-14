@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { Label } from '@/components/ui/label'
 import api from '@/lib/api'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, timeAgo, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -121,10 +122,10 @@ export default function ApprovalsPage() {
 
   const [allRequests, setAllRequests] = useState<ApprovalRequest[]>([])
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<StatusKey>('PENDING')
-  const [typeFolder, setTypeFolder] = useState<TypeKey>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [sortDir, setSortDir] = useState<'newest' | 'oldest'>('newest')
+  const [statusFilter, setStatusFilter] = usePageFilter<StatusKey>('admin.approvals', 'status', 'PENDING')
+  const [typeFolder, setTypeFolder] = usePageFilter<TypeKey>('admin.approvals', 'typeFolder', 'all')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('admin.approvals', 'search', '')
+  const [sortDir, setSortDir] = usePageFilter<'newest' | 'oldest'>('admin.approvals', 'sortDir', 'newest')
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // True when the open detail panel was reached via a notification deep-link, so

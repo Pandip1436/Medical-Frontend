@@ -47,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, getInitials } from '@/lib/utils'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import api from '@/lib/api'
@@ -354,11 +355,11 @@ function SalespersonPerformanceCard({
 export default function SalespersonReportPage() {
   const [rows, setRows] = useState<ReportRow[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [activePreset, setActivePreset] = useState<RangePreset>('all')
+  const [from, setFrom] = usePageFilter<string>('salespersons.report', 'from', '')
+  const [to, setTo] = usePageFilter<string>('salespersons.report', 'to', '')
+  const [activePreset, setActivePreset] = usePageFilter<RangePreset>('salespersons.report', 'preset', 'all')
   const [viewMode, setViewMode] = useState<ViewMode>('table')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = usePageFilter<string>('salespersons.report', 'search', '')
   const [currentPage, setCurrentPage] = useState(1)
   const [generatedAt, setGeneratedAt] = useState<string>('')
   // Optional drill-down from the Salespersons list page (?salespersonId=...).

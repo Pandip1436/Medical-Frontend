@@ -166,7 +166,7 @@ export default function ExpensesPage() {
   const cols = useColumnVisibility('accounting.expenses', EXPENSE_COLUMNS)
   // View toggle: table is the default list; chart shows the category breakdown
   // chart in place of the table (replacing the old "always below" placement).
-  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table')
+  const [viewMode, setViewMode] = usePersistedState<'table' | 'chart'>('filters:accounting.expenses:viewMode', 'table')
 
   // Filters (persisted to sessionStorage so they survive refresh + back)
   const [search, setSearch] = usePersistedState('filters:accounting.expenses:search', '')

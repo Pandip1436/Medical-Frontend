@@ -113,7 +113,7 @@ export default function SupplierOutstandingPage() {
   // carry a balance in that bucket. Client-side (on top of the server-filtered
   // rows) since the cards are aging aggregates, not a separate query. Kept
   // separate from the Aging Bucket enum filter.
-  const [cardFilter, setCardFilter] = useState<'all' | 'early' | 'mid' | 'late'>('all')
+  const [cardFilter, setCardFilter] = usePersistedState<'all' | 'early' | 'mid' | 'late'>('filters:purchase.supplierOutstanding:cardFilter', 'all')
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)

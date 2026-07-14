@@ -559,8 +559,8 @@ export default function PurchaseOrdersPage() {
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('purchase.orders', 'splitShowStats', true)
   const [statusTab, setStatusTab] = usePageFilter<POTabKey>('purchase.orders', 'statusTab', 'all')
 
-  // Card drill-down and split filters — not persisted (intentional)
-  const [cardFilter, setCardFilter] = useState<'all' | 'received' | 'pending' | 'partial'>('all')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'received' | 'pending' | 'partial'>('purchase.orders', 'cardFilter', 'all')
+  // Split-view filter panel visibility — not persisted (intentional)
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   // Controls the table-view DataTableFilterBar collapsible panel so it can be
   // auto-opened when "Custom Range" is picked (the From/To pickers live inside).
@@ -1368,25 +1368,6 @@ export default function PurchaseOrdersPage() {
         columnsNode={<ColumnsToggle columns={PO_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
-            <Button
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Create PO</span>
-              <span className="sm:hidden">Create</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => navigate('/purchase/grn')}
-            >
-              <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New PE</span>
-              <span className="sm:hidden">PE</span>
-            </Button>
             <ExportMenu
               className="flex-1 sm:w-auto sm:flex-none"
               title="Purchase Orders"
@@ -1402,6 +1383,15 @@ export default function PurchaseOrdersPage() {
               }))}
             />
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/orders') }} />
+            <Button
+              size="sm"
+              className="flex-1 sm:w-auto sm:flex-none"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Create PO</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
           </div>
         }
       >
@@ -1427,28 +1417,30 @@ export default function PurchaseOrdersPage() {
             />
           </div>
 
-          {/* Custom date range — only when period is 'custom' */}
+          {/* Custom date range — full width below sm forces its own dedicated row (never squeezed alongside another field) so both pickers stay usable; sm+ reverts to flex-1 so desktop layout is unchanged */}
           {period === 'custom' && (
-            <>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Date From
-                </Label>
-                <DatePicker
-                  value={dateFrom}
-                  onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
-                />
+            <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Date From
+                  </Label>
+                  <DatePicker
+                    value={dateFrom}
+                    onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Date To
+                  </Label>
+                  <DatePicker
+                    value={dateTo}
+                    onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
+                  />
+                </div>
               </div>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Date To
-                </Label>
-                <DatePicker
-                  value={dateTo}
-                  onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-                />
-              </div>
-            </>
+            </div>
           )}
         </div>
       </DataTableFilterBar>

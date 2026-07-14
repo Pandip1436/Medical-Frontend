@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import type {
   Lead,
   LeadListCounts,
@@ -55,9 +56,9 @@ const emptyCounts: LeadListCounts = {
 export function useLeadsList(opts: UseLeadsListOptions = {}) {
   const pageSize = opts.pageSize ?? 30
 
-  const [tab, setTab] = useState<LeadTab>(opts.tab ?? 'all')
+  const [tab, setTab] = usePageFilter<LeadTab>('crm.leads', 'tab', opts.tab ?? 'all')
   const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState<LeadsFilters>({
+  const [filters, setFilters] = usePageFilter<LeadsFilters>('crm.leads', 'filters', {
     q: '',
     stage: [],
     source: [],

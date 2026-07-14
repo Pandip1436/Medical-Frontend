@@ -645,7 +645,14 @@ export default function NotificationsPage() {
     [userRole, isSuper]
   )
 
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>(() => readFolderFromUrl())
+  const [activeCategory, setActiveCategory] = usePersistedState<CategoryKey>('notifications:activeCategory', readFolderFromUrl())
+  // A URL-specified folder (deep link from elsewhere) always wins over
+  // whatever category was last persisted from browsing this page before.
+  useEffect(() => {
+    const urlFolder = readFolderFromUrl()
+    if (urlFolder !== 'all') setActiveCategory(urlFolder)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Switch folders and mirror the choice into the URL. Uses replaceState (not a
   // pushState navigate) so flipping between folders doesn't pile up history
@@ -661,7 +668,7 @@ export default function NotificationsPage() {
     window.history.replaceState(window.history.state, '', `/notifications${qs ? `?${qs}` : ''}`)
   }, [])
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = usePersistedState('notifications:searchQuery', '')
   // View preferences persist (sessionStorage) so they survive navigating to a
   // detail page and back, instead of snapping back to the defaults each time.
   const [readFilter, setReadFilter] = usePersistedState<'all' | 'unread' | 'read'>('notifications:readFilter', 'all')
@@ -672,7 +679,7 @@ export default function NotificationsPage() {
   // "Resolved" shows only the ones closed out (e.g. a Payment Due that got paid).
   const [folderView, setFolderView] = usePersistedState<'unread' | 'all' | 'resolved'>('notifications:folderView', 'unread')
   // Expiry-folder severity filter (client-side, on the loaded rows). 'all' = off.
-  const [severityFilter, setSeverityFilter] = useState<'all' | typeof EXPIRY_SEVERITIES[number]>('all')
+  const [severityFilter, setSeverityFilter] = usePersistedState<'all' | typeof EXPIRY_SEVERITIES[number]>('notifications:severityFilter', 'all')
   // Expanded cluster bundles in the All view. Each key is `${dateBucket}-${type}`
   // (see AllTable). Collapsed by default so a long mixed-type day reads as a
   // tight summary instead of a wall of rows.

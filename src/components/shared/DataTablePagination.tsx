@@ -53,14 +53,17 @@ export function DataTablePagination({
   const rangeEnd = totalItems ? Math.min(currentPage * (itemsPerPage || 10), totalItems) : 0
 
   return (
-    <div className={cn("flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 py-3 px-1 flex-wrap", className)}>
+    <div className={cn("flex flex-row items-center justify-between gap-2 sm:gap-4 py-3 px-1", className)}>
       {totalItems !== undefined && (
-        <p className="text-xs sm:text-[11px] text-muted-foreground whitespace-nowrap">
-          Showing <span className="font-bold text-foreground">{rangeStart}-{rangeEnd}</span> of <span className="font-bold text-foreground">{totalItems}</span> results
+        <p className="text-[11px] sm:text-[11px] text-muted-foreground whitespace-nowrap truncate">
+          <span className="sm:hidden">{rangeStart}-{rangeEnd} of {totalItems}</span>
+          <span className="hidden sm:inline">
+            Showing <span className="font-bold text-foreground">{rangeStart}-{rangeEnd}</span> of <span className="font-bold text-foreground">{totalItems}</span> results
+          </span>
         </p>
       )}
 
-      <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+      <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
         <Button
           variant="outline"
           size="sm"

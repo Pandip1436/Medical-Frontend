@@ -10,7 +10,6 @@ import {
   Users,
   CheckCircle2,
   AlertCircle,
-  ClipboardList,
   Upload,
   Filter,
   BarChart3,
@@ -770,26 +769,16 @@ export default function SuppliersPage() {
               <Upload className="mr-1.5 h-4 w-4" />
               Import
             </Button>
+            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/suppliers') }} />
             <Button
               size="sm"
-              className="order-last w-full sm:order-none sm:w-auto"
+              className="flex-1 sm:w-auto sm:flex-none"
               onClick={openAddDialog}
             >
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Add Supplier</span>
               <span className="sm:hidden">Add</span>
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => navigate('/purchase/orders')}
-            >
-              <ClipboardList className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Purchase Orders</span>
-              <span className="sm:hidden">POs</span>
-            </Button>
-            <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/purchase/suppliers') }} />
           </div>
         }
       >

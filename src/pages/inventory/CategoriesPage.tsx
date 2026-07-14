@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import api from '@/lib/api'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -39,12 +40,12 @@ type CategoryFormValues = z.input<typeof categorySchema>
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
-  const [search, setSearch] = useState('')
-  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [search, setSearch] = usePageFilter<string>('inventory.categories', 'search', '')
+  const [selectedStatus, setSelectedStatus] = usePageFilter<string>('inventory.categories', 'status', 'all')
   // Stat-card drill-down: clicking a summary card narrows the list to that
   // subset. 'withProducts' spans the "With Products" card; 'active' mirrors
   // the Active card. Kept separate from the Status enum filter above.
-  const [cardFilter, setCardFilter] = useState<'all' | 'active' | 'withProducts'>('all')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'active' | 'withProducts'>('inventory.categories', 'cardFilter', 'all')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -315,7 +316,7 @@ export default function CategoriesPage() {
             />
             <Button
               size="sm"
-              className="w-full sm:w-auto"
+              className="flex-1 sm:w-auto sm:flex-none"
               onClick={openAdd}
             >
               <Plus className="mr-1.5 h-4 w-4" />

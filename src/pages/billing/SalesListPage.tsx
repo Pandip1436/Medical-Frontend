@@ -825,19 +825,7 @@ export default function SalesListPage() {
                     onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
                     options={STATUS_OPTIONS}
                   />
-                  {salespersonsList.length > 0 ? (
-                    <EnumSelect
-                      label="Salesperson"
-                      value={selectedSalespersonId}
-                      onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
-                      onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
-                      options={[
-                        { value: 'all', label: 'All Salespersons' },
-                        ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
-                      ]}
-                    />
-                  ) : <div />}
-                  {/* Custom date range — same row as the other filters */}
+                  {/* Custom date range — Date From + Date To paired together so they always land on the same row */}
                   {period === 'custom' && (
                     <>
                       <div className="space-y-1.5">
@@ -850,6 +838,19 @@ export default function SalesListPage() {
                       </div>
                     </>
                   )}
+                  {/* Salesperson — last, so a lone flex-1 item gets its own full-width row */}
+                  {salespersonsList.length > 0 ? (
+                    <EnumSelect
+                      label="Salesperson"
+                      value={selectedSalespersonId}
+                      onValueChange={(val) => { setSelectedSalespersonId(val); setCurrentPage(1) }}
+                      onClear={() => { setSelectedSalespersonId('all'); setCurrentPage(1) }}
+                      options={[
+                        { value: 'all', label: 'All Salespersons' },
+                        ...salespersonsList.map((s) => ({ value: s.id, label: s.name })),
+                      ]}
+                    />
+                  ) : <div />}
                   <div className="flex-none! min-w-0! flex items-end gap-2">
                     <ColumnsToggle
                       columns={CARD_FIELDS}
@@ -1103,6 +1104,21 @@ export default function SalesListPage() {
               options={STATUS_OPTIONS}
             />
           </div>
+          {/* Custom date range — full width below sm forces its own dedicated row (never squeezed alongside another field) so both pickers stay usable; sm+ reverts to flex-1 so desktop layout is unchanged */}
+          {period === 'custom' && (
+            <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+                  <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+                  <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
+                </div>
+              </div>
+            </div>
+          )}
           {salespersonsList.length > 0 && (
             <div className="min-w-40 flex-1">
               <EnumSelect
@@ -1116,19 +1132,6 @@ export default function SalesListPage() {
                 ]}
               />
             </div>
-          )}
-          {/* Custom date range — only when period is 'custom' */}
-          {period === 'custom' && (
-            <>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-                <DatePicker value={dateFrom} onChange={(v) => { setDateFrom(v); setCurrentPage(1) }} />
-              </div>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-                <DatePicker value={dateTo} onChange={(v) => { setDateTo(v); setCurrentPage(1) }} />
-              </div>
-            </>
           )}
         </div>
       </DataTableFilterBar>

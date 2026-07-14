@@ -22,6 +22,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import api from '@/lib/api'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import { useRoute, navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency } from '@/lib/utils'
 import {
@@ -132,14 +133,14 @@ export default function ProductHistoryPage() {
   })
   const [history, setHistory] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('timeline')
+  const [activeTab, setActiveTab] = usePageFilter<ActiveTab>('inventory.productHistory', 'activeTab', 'timeline')
 
   // Shared search/date filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [batchFilter, setBatchFilter] = useState('all')
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('inventory.productHistory', 'search', '')
+  const [dateFrom, setDateFrom] = usePageFilter<string>('inventory.productHistory', 'dateFrom', '')
+  const [dateTo, setDateTo] = usePageFilter<string>('inventory.productHistory', 'dateTo', '')
+  const [batchFilter, setBatchFilter] = usePageFilter<string>('inventory.productHistory', 'batchFilter', 'all')
+  const [sortOrder, setSortOrder] = usePageFilter<'desc' | 'asc'>('inventory.productHistory', 'sortOrder', 'desc')
 
   // Per-tab pagination
   const [salesPage, setSalesPage] = useState(1)
@@ -520,13 +521,16 @@ export default function ProductHistoryPage() {
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
       >
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-          <DatePicker value={dateFrom} onChange={setDateFrom} />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-          <DatePicker value={dateTo} onChange={setDateTo} />
+        {/* Date From + Date To paired together so they always land on the same row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+            <DatePicker value={dateFrom} onChange={setDateFrom} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+            <DatePicker value={dateTo} onChange={setDateTo} />
+          </div>
         </div>
         <div className="space-y-1.5">
           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</Label>

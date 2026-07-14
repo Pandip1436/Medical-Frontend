@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useFormDraft } from '@/hooks/useFormDraft'
+import { useBranchStore } from '@/stores/branchStore'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -342,6 +344,39 @@ export default function SalesReturnsPage() {
     setCustomerOutstanding(null)
     setCurrentStep(1)
   })
+
+  // ── Form draft — auto-saves so an in-progress return survives navigating
+  // away and back. No deep-link prefill exists on this page (unlike the
+  // purchase-return wizard), so nothing needs to skip the restore.
+  const activeBranchId = useBranchStore((s) => s.activeBranchId)
+  interface ReturnDraftSnapshot {
+    currentStep: number
+    direction: number
+    selectedCustomer: Customer | null
+    customerSearch: string
+    returnItems: ReturnItemState[]
+    settlementOption: string
+  }
+  const draft = useFormDraft<ReturnDraftSnapshot>(`sales-return-draft:${activeBranchId ?? 'none'}`)
+
+  // Restore once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const saved = draft.load()
+    if (!saved?.selectedCustomer) return
+    setCurrentStep(saved.currentStep)
+    setDirection(saved.direction)
+    setSelectedCustomer(saved.selectedCustomer)
+    setCustomerSearch(saved.customerSearch)
+    setReturnItems(saved.returnItems)
+    setSettlementOption(saved.settlementOption)
+    toast.info('Restored your in-progress return')
+  }, [])
+
+  // Save snapshot on every change.
+  useEffect(() => {
+    draft.save({ currentStep, direction, selectedCustomer, customerSearch, returnItems, settlementOption })
+  }, [currentStep, direction, selectedCustomer, customerSearch, returnItems, settlementOption])
 
   const creditNoteNumber = useMemo(() => generateInvoiceNumber('CN', 12), [])
 
@@ -712,6 +747,7 @@ export default function SalesReturnsPage() {
       setProductSearch('')
       setSettlementOption('refund')
       setCustomerOutstanding(null)
+      draft.clear()
     }
     // If nothing succeeded, stay on the page so the user can retry; api.ts has
     // already shown the failure toast.

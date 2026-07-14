@@ -18,6 +18,7 @@ import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { isSuperAdmin } from '@/types'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePageFilter } from '@/hooks/usePageFilter'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -138,10 +139,10 @@ export default function UsersPage() {
   const [isLoading, setIsLoading] = useState(false)
 
   // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [roleFilter, setRoleFilter] = useState<string>('all')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [branchFilter, setBranchFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('users.list', 'search', '')
+  const [roleFilter, setRoleFilter] = usePageFilter<string>('users.list', 'role', 'all')
+  const [statusFilter, setStatusFilter] = usePageFilter<string>('users.list', 'status', 'all')
+  const [branchFilter, setBranchFilter] = usePageFilter<string>('users.list', 'branch', 'all')
   const [currentPage, setCurrentPage] = useState(1)
 
   // Drawer + dialogs

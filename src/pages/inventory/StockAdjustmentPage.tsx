@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import api from '@/lib/api'
 import { cn, formatCurrency, generateId } from '@/lib/utils'
 
@@ -173,7 +174,7 @@ const HISTORY_PAGE_SIZE = 10
 export default function StockAdjustmentPage() {
   const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
 
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = usePageFilter<string>('inventory.stockAdjustment', 'search', '')
   const [items, setItems] = useState<AdjustmentItem[]>([])
   const [batchesPage, setBatchesPage] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -189,7 +190,7 @@ export default function StockAdjustmentPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [fetchingHistory, setFetchingHistory] = useState(false)
 
-  const [folder, setFolder] = useState<FolderKey>('all')
+  const [folder, setFolder] = usePageFilter<FolderKey>('inventory.stockAdjustment', 'folder', 'all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // Reset to page 1 when search changes

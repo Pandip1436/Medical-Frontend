@@ -36,6 +36,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
+import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
@@ -754,12 +755,14 @@ export default function ProductsPage() {
             >
               <div className="flex items-end gap-3 rounded-lg border border-border/40 bg-muted/20 px-4 py-3">
                 <div className="flex flex-1 items-end gap-3 *:flex-1 *:min-w-25">
-                  <EnumSelect
+                  <SearchableSelect
                     label="Category"
                     value={selectedCategoryId}
                     onValueChange={(val) => { setSelectedCategoryId(val); setCurrentPage(1) }}
                     onClear={() => { setSelectedCategoryId('all'); setCurrentPage(1) }}
                     options={categoryFilterOptions}
+                    placeholder="All Categories"
+                    searchPlaceholder="Search categories..."
                   />
                   <EnumSelect
                     label="Schedule"
@@ -933,7 +936,7 @@ export default function ProductsPage() {
             <Button
               size="sm"
               onClick={openAddDialog}
-              className="w-full sm:w-auto"
+              className="flex-1 sm:w-auto sm:flex-none"
             >
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Add Product</span>
@@ -942,12 +945,14 @@ export default function ProductsPage() {
           </div>
         }
       >
-        <EnumSelect
+        <SearchableSelect
           label="Category"
           value={selectedCategoryId}
           onValueChange={val => { setSelectedCategoryId(val); setCurrentPage(1) }}
           onClear={() => { setSelectedCategoryId('all'); setCurrentPage(1) }}
           options={categoryFilterOptions}
+          placeholder="All Categories"
+          searchPlaceholder="Search categories..."
         />
         <EnumSelect
           label="Schedule"

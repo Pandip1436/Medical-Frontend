@@ -11,8 +11,6 @@ import {
   Calendar,
   ChevronDown,
   Package,
-  TrendingUp,
-  TrendingDown,
   IndianRupee,
   Receipt,
   FileText,
@@ -310,7 +308,6 @@ export default function CustomerDetailPage() {
 
   const cust = d.customer.data
   const kpis = d.ledger.data?.kpis ?? []
-  const outstanding = cust?.currentOutstanding ?? 0
 
   // Current-page rows — the server already returned just this page (10 rows).
   const ledgerRows = d.ledger.data?.tableData ?? []
@@ -412,56 +409,6 @@ export default function CustomerDetailPage() {
               <Edit2 className="mr-1.5 h-3.5 w-3.5" />
               Edit
             </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── KPI Strip ── */}
-      <div className="shrink-0 border-b border-border/40 bg-muted/30 px-4 py-3">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <KpiCell
-            icon={TrendingUp}
-            label="Total Sales"
-            value={pickKpi(kpis, 'Total Sales') !== '—' ? pickKpi(kpis, 'Total Sales') : pickKpi(kpis, 'Total Debit')}
-            tone="blue"
-            loading={d.ledger.loading && !d.ledger.data}
-          />
-          <KpiCell
-            icon={CheckCircle2}
-            label="Paid"
-            value={pickKpi(kpis, 'Total Paid')}
-            tone="emerald"
-            loading={d.ledger.loading && !d.ledger.data}
-            borderLeft
-          />
-          <KpiCell
-            icon={IndianRupee}
-            label="Outstanding"
-            value={Number(outstanding) > 0 ? formatCurrency(Number(outstanding)) : '₹0'}
-            tone={Number(outstanding) > 0 ? 'amber' : 'emerald'}
-            loading={d.customer.loading && !cust}
-            borderLeft
-          />
-          <KpiCell
-            icon={TrendingDown}
-            label="Total Returns"
-            value={pickKpi(kpis, 'Total Returns')}
-            tone="rose"
-            loading={d.ledger.loading && !d.ledger.data}
-            borderLeft
-          />
-          {/* 5 tiles in a 2-col grid leaves this one orphaned on its own row
-              on mobile/tablet — hidden below lg, which is where the grid
-              itself steps up to 5 columns and the tile fits in-line. */}
-          <div className="hidden lg:block">
-            <KpiCell
-              icon={FileSignature}
-              label="Active Quotations"
-              value={pickKpi(kpis, 'Active Quotations')}
-              tone="purple"
-              loading={d.ledger.loading && !d.ledger.data}
-              borderLeft
-            />
           </div>
         </div>
       </div>
@@ -758,6 +705,12 @@ export default function CustomerDetailPage() {
                             })()}
                           />
                           <Row
+                            label="Total Sales"
+                            value={pickKpi(kpis, 'Total Sales') !== '—' ? pickKpi(kpis, 'Total Sales') : pickKpi(kpis, 'Total Debit')}
+                            mono
+                          />
+                          <Row label="Paid" value={pickKpi(kpis, 'Total Paid')} mono />
+                          <Row
                             label="Outstanding"
                             value={
                               Number(cust.currentOutstanding) > 0 ? (
@@ -769,6 +722,8 @@ export default function CustomerDetailPage() {
                               )
                             }
                           />
+                          <Row label="Total Returns" value={pickKpi(kpis, 'Total Returns')} mono />
+                          <Row label="Active Quotations" value={pickKpi(kpis, 'Active Quotations')} mono />
                           {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
                           {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
                         </OverviewSection>
@@ -1262,40 +1217,6 @@ function currentTabCountLabel(
     case 'rx':          return d.prescriptions.loading ? 'Loading…' : `${rxCount} prescription${rxCount !== 1 ? 's' : ''}`
     default: return ''
   }
-}
-
-function KpiCell({
-  icon: Icon,
-  label,
-  value,
-  tone,
-  loading,
-}: {
-  icon: typeof Package
-  label: string
-  value: string
-  tone: 'blue' | 'emerald' | 'rose' | 'amber' | 'purple'
-  loading?: boolean
-  borderLeft?: boolean
-}) {
-  const toneMap: Record<typeof tone, string> = {
-    blue: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-    amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-  }
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
-      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', toneMap[tone])}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-        {loading ? <Skeleton className="mt-1 h-5 w-24" /> : <p className="font-mono text-base font-bold leading-tight truncate">{value}</p>}
-      </div>
-    </div>
-  )
 }
 
 function OverviewSection({ icon: Icon, title, children }: { icon: typeof Package; title: string; children: React.ReactNode }) {

@@ -172,7 +172,11 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
           badge and the Expiry pill below, so no banner here — it just pushed
           the action footer off-screen in the side panel. */}
       <div className={cn(
-        'flex-1 overflow-y-auto px-6 py-4',
+        // bg-card (pure white) and bg-background (99% lightness) are nearly
+        // indistinguishable, so the white BigTile cards below were blending
+        // into the sheet/page canvas. bg-muted (95%) gives the canvas enough
+        // contrast for the cards to read as distinct surfaces again.
+        'flex-1 overflow-y-auto bg-muted/30 px-6 py-4',
         // Page: the four lower cards sit in one row on wide screens (xl:4-up) so
         // the whole view is just 2 rows and fits without scrolling; medium
         // screens fall back to 2-up. Panel: single-column stack for the sheet.

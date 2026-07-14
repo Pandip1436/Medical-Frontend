@@ -71,6 +71,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { isAdminish, userRoles } from '@/types'
 import { useBranchStore, type Branch } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { usePageFilter } from '@/hooks/usePageFilter'
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -137,9 +138,9 @@ export default function BranchesPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   // ── Filters ──
-  const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [activityFilter, setActivityFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('branches.list', 'search', '')
+  const [statusFilter, setStatusFilter] = usePageFilter<string>('branches.list', 'status', 'all')
+  const [activityFilter, setActivityFilter] = usePageFilter<string>('branches.list', 'activity', 'all')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
 

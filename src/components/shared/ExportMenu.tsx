@@ -123,7 +123,7 @@ export function ExportMenu({
       <DropdownMenuTrigger asChild>
         <Button variant={variant} size={size} className={className} disabled={disabled || busy}>
           {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
-          <span className="hidden sm:inline">{label}</span>
+          <span>{label}</span>
           <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
         </Button>
       </DropdownMenuTrigger>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -71,6 +71,18 @@ export function DataTableFilterBar({
   // The filters panel (and its toggle) appear when there are filter inputs OR a
   // columns control to host.
   const hasPanel = Boolean(children || columnsNode)
+
+  // framer-motion's height:'auto' entrance animation measures scrollHeight once
+  // at transition start; if content settles at a taller size afterward (e.g. an
+  // async-loaded search-select), the panel can freeze at a shorter height while
+  // `overflow-hidden` permanently clips the rest — visible content gets cut off
+  // with no way to scroll to it (the outer page has nothing left to scroll into).
+  // Once the enter transition finishes, drop overflow-hidden so any residual
+  // mismeasurement just lets content overflow visibly instead of clipping it.
+  const [panelSettled, setPanelSettled] = useState(false)
+  useEffect(() => {
+    if (!filtersOpen) setPanelSettled(false)
+  }, [filtersOpen])
 
   return (
     <div className="space-y-3">
@@ -154,7 +166,8 @@ export function DataTableFilterBar({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            onAnimationComplete={() => setPanelSettled(true)}
+            className={panelSettled ? undefined : 'overflow-hidden'}
           >
             <Card className="bg-muted/20 dark:bg-muted/10">
               <CardContent className="p-4">

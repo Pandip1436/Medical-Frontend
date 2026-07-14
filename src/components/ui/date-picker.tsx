@@ -76,6 +76,16 @@ export interface DatePickerProps {
   error?: boolean
   clearable?: boolean
   name?: string
+  // Fires after Enter commits a valid, in-range date — not on every Enter
+  // press, so a caller chaining focus to the next field doesn't jump away
+  // from a date that was just silently rejected (empty/unparseable/out of
+  // min-max range).
+  onEnterKey?: () => void
+  // Rendered as a `data-field` attribute on the underlying input — lets a
+  // caller find/focus a *specific* DatePicker via a plain CSS attribute
+  // selector (e.g. when the same field is duplicated in the DOM for
+  // separate mobile/desktop layouts, where a single `id` would collide).
+  dataField?: string
 }
 
 export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
@@ -92,6 +102,8 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       error,
       clearable = true,
       name,
+      onEnterKey,
+      dataField,
     },
     ref
   ) {
@@ -115,19 +127,33 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value, displayFmt])
 
-    const commit = (input: string) => {
+    // Returns whether a valid, in-range date was actually committed — Enter
+    // handling below uses this to decide whether to advance focus onward.
+    const commit = (input: string): boolean => {
       const trimmed = input.trim()
       if (!trimmed) {
         onChange?.("")
-        return
+        return false
       }
       const d = parseFlexible(trimmed, displayFmt)
       if (d) {
-        onChange?.(format(d, ISO_FMT))
-        setText(format(d, displayFmt))
-      } else {
-        setText(selected ? format(selected, displayFmt) : "")
+        // Compare as ISO date strings (not Date objects) — sidesteps any
+        // time-of-day component parse() may carry over from its reference
+        // date, and yyyy-MM-dd strings sort identically to chronological
+        // order. The calendar pop-up already blocks out-of-range dates via
+        // `disabled`; typing/pasting one in must be rejected the same way,
+        // otherwise min/max only ever constrained the pop-up, never the text
+        // path — silently reverts to the last valid value, matching the
+        // unparseable-text case below.
+        const iso = format(d, ISO_FMT)
+        if ((!min || iso >= min) && (!max || iso <= max)) {
+          onChange?.(iso)
+          setText(format(d, displayFmt))
+          return true
+        }
       }
+      setText(selected ? format(selected, displayFmt) : "")
+      return false
     }
 
     const handleClear = (e: React.MouseEvent) => {
@@ -167,6 +193,7 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
             <input
               ref={ref}
               id={id}
+              data-field={dataField}
               type="text"
               inputMode={useDdMask ? "numeric" : "text"}
               autoComplete="off"
@@ -178,7 +205,9 @@ export const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault()
-                  commit((e.target as HTMLInputElement).value)
+                  if (commit((e.target as HTMLInputElement).value)) {
+                    onEnterKey?.()
+                  }
                 }
               }}
               className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"

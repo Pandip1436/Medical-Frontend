@@ -243,8 +243,7 @@ export default function QuotationsPage() {
   const [splitShowStats, setSplitShowStats] = usePageFilter<boolean>('billing.quotations', 'splitShowStats', true)
   const [statusTab, setStatusTab] = usePageFilter<QuotationTabKey>('billing.quotations', 'statusTab', 'all')
 
-  // Stat-card drill-down — not persisted (intentional)
-  const [cardFilter, setCardFilter] = useState<'all' | 'converted' | 'pending' | 'rejected'>('all')
+  const [cardFilter, setCardFilter] = usePageFilter<'all' | 'converted' | 'pending' | 'rejected'>('billing.quotations', 'cardFilter', 'all')
   const [splitShowFilters, setSplitShowFilters] = useState(false)
   // Table-view filters panel — controlled so picking "Custom Range" auto-opens it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
@@ -804,25 +803,6 @@ export default function QuotationsPage() {
         columnsNode={<ColumnsToggle columns={QUOTATION_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
-            <Button
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none"
-              onClick={() => navigate('/billing/new?type=quotation')}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Create Quotation</span>
-              <span className="sm:hidden">Create</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 sm:w-auto sm:flex-none border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
-              onClick={() => navigate('/billing/sales')}
-            >
-              <FileText className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">Invoice List</span>
-              <span className="sm:hidden">Invoices</span>
-            </Button>
             <ExportMenu
               className="flex-1 sm:w-auto sm:flex-none"
               title="Quotations"
@@ -837,6 +817,15 @@ export default function QuotationsPage() {
               }))}
             />
             <ViewModeToggle view="table" onViewChange={(v) => { if (v === 'split') navigate('/billing/quotations') }} />
+            <Button
+              size="sm"
+              className="flex-1 sm:w-auto sm:flex-none"
+              onClick={() => navigate('/billing/new?type=quotation')}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Create Quotation</span>
+              <span className="sm:hidden">Create</span>
+            </Button>
           </div>
         }
       >
@@ -862,28 +851,30 @@ export default function QuotationsPage() {
             />
           </div>
 
-          {/* Custom date range — only when period is 'custom' */}
+          {/* Custom date range — full width below sm forces its own dedicated row (never squeezed alongside another field) so both pickers stay usable; sm+ reverts to flex-1 so desktop layout is unchanged */}
           {period === 'custom' && (
-            <>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Date From
-                </Label>
-                <DatePicker
-                  value={dateFrom}
-                  onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
-                />
+            <div className="w-full sm:w-auto sm:min-w-40 sm:flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Date From
+                  </Label>
+                  <DatePicker
+                    value={dateFrom}
+                    onChange={(v) => { setDateFrom(v); setCurrentPage(1) }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Date To
+                  </Label>
+                  <DatePicker
+                    value={dateTo}
+                    onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
+                  />
+                </div>
               </div>
-              <div className="min-w-40 flex-1 space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Date To
-                </Label>
-                <DatePicker
-                  value={dateTo}
-                  onChange={(v) => { setDateTo(v); setCurrentPage(1) }}
-                />
-              </div>
-            </>
+            </div>
           )}
         </div>
       </DataTableFilterBar>

@@ -423,13 +423,16 @@ export function ProductDetailContent({ productId }: { productId: string }) {
           activeFilterCount={activeFilterCount}
           onClearFilters={clearFilters}
         >
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-            <DatePicker value={dateFrom} onChange={setDateFrom} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-            <DatePicker value={dateTo} onChange={setDateTo} />
+          {/* Date From + Date To paired together so they always land on the same row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+              <DatePicker value={dateFrom} onChange={setDateFrom} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+              <DatePicker value={dateTo} onChange={setDateTo} />
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</Label>

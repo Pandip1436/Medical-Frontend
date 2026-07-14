@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/select'
 import { cn, formatDate } from '@/lib/utils'
 import { useIsMobile } from '@/hooks/useMediaQuery'
+import { usePageFilter } from '@/hooks/usePageFilter'
 import ReportViewPage from './ReportViewPage'
 
 // ─────────────────────────────────────────────────────────────
@@ -140,8 +141,8 @@ function saveRecentReport(report: ReportDef): RecentReport[] {
 // ─────────────────────────────────────────────────────────────
 
 export default function ReportsHubPage() {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeFilter, setActiveFilter] = useState<CategoryKey>('All')
+  const [searchQuery, setSearchQuery] = usePageFilter<string>('reports.hub', 'search', '')
+  const [activeFilter, setActiveFilter] = usePageFilter<CategoryKey>('reports.hub', 'category', 'All')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [activeReport, setActiveReport] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<ReportDef | null>(null)

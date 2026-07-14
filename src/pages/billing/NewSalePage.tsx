@@ -2302,6 +2302,15 @@ export default function NewSalePage() {
     billingType: 'retail' | 'wholesale'
     invoiceType: 'invoice' | 'quotation'
     deliveryCharge: number
+    enableCourier: boolean
+    linkedLeadId: string | null
+    quotationSource: { id: string; number: string; customerName: string } | null
+    replacementSource: { creditNoteId: string; creditNoteNo: string; customerName: string } | null
+    editingDraftId: string | null
+    editingInvoiceId: string | null
+    editingInvoiceNumber: string | null
+    tableView: TableView
+    mobileStep: 'items' | 'checkout'
     savedAt: string
   }
 
@@ -2389,9 +2398,11 @@ export default function NewSalePage() {
   const [billingType, setBillingType] = useState<'retail' | 'wholesale'>('retail')
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  // ?leadId=… → forward as `leadId` on the create payload so the new
-  // quote/invoice shows up under the lead's Quotations/Invoices tabs.
-  const [linkedLeadId, setLinkedLeadId] = useState<string | null>(null)
+  // Declared here (earlier than the auto-draft snapshot that also needs
+  // them) because the quotation/replacement resolution effect further down
+  // depends on both in its dependency array.
+  const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
+  const [replacementSource, setReplacementSource] = useState<{ creditNoteId: string; creditNoteNo: string; customerName: string } | null>(null)
 
   // Derive salesperson from selected customer's referredBy field
   const selectedSalesperson = useMemo(() => {
@@ -2449,11 +2460,6 @@ export default function NewSalePage() {
       if (dup) setNsPhoneCheckError(`Phone already used by "${dup.name}". Please verify.`)
     } catch { /* ignore */ } finally { setNsPhoneChecking(false) }
   }
-
-  const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
-  // Set when this sale fulfils a REPLACEMENT credit note — on save we link the
-  // new invoice back to the CN and mark it settled.
-  const [replacementSource, setReplacementSource] = useState<{ creditNoteId: string; creditNoteNo: string; customerName: string } | null>(null)
 
   const [items, setItems] = useState<BillingItem[]>(() => {
     // Replacement prefill (from a REPLACEMENT credit note) — same shape as the
@@ -2724,10 +2730,29 @@ export default function NewSalePage() {
   // the user is taken straight to its tracking page after save.
   const [enableCourier, setEnableCourier] = useState(false)
 
+  // Declared here (rather than further down, where each is otherwise used)
+  // so the auto-draft snapshot below can include them without a
+  // temporal-dead-zone reference in its save effect's dependency array.
+  // ?leadId=… → forward as `leadId` on the create payload so the new
+  // quote/invoice shows up under the lead's Quotations/Invoices tabs.
+  const [linkedLeadId, setLinkedLeadId] = useState<string | null>(null)
+  // When resuming a server-side draft (?draftId=…), this holds the id so
+  // saves re-route to PATCH instead of POST and "Save & Print" finalizes.
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null)
+  // When editing an existing UNPAID / PARTIAL invoice (?editId=…), this holds
+  // the id so the save call routes to PATCH /billing/:id/edit-invoice (which
+  // reverses the original stock/ledger and re-applies the new figures)
+  // instead of POSTing a brand-new invoice.
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
+  type TableView = 'products' | 'customer-history' | 'customer-reminders' | 'product-history' | 'quotations'
+  const [tableView, setTableView] = useState<TableView>('customer-history')
+  const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
+
   // ── Auto-draft restore (run once on mount, after state is initialized) ──
   // Skip restoration if the page is opened for an explicit prefill (draftId,
-  // duplicateId, quotation conversion, or re-purchase) — those paths already
-  // populate the cart from their own source of truth.
+  // duplicateId, editId, leadId, quotation conversion, or re-purchase) —
+  // those paths already populate the cart from their own source of truth.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -2735,6 +2760,7 @@ export default function NewSalePage() {
       params.get('draftId') ||
       params.get('duplicateId') ||
       params.get('editId') ||
+      params.get('leadId') ||
       sessionStorage.getItem('quotation_prefill') ||
       sessionStorage.getItem('repurchase_items')
     )
@@ -2744,7 +2770,11 @@ export default function NewSalePage() {
       const stored = localStorage.getItem(AUTO_DRAFT_KEY)
       if (!stored) return
       const snap = JSON.parse(stored) as AutoDraftSnapshot
-      const hasContent = Array.isArray(snap.items) && snap.items.some((i) => i.productId)
+      // Matches the save effect's gate below — a selected customer alone (no
+      // product line yet) still counts as "content" worth restoring. Using a
+      // stricter items-only check here would silently discard exactly that
+      // kind of draft on the very next mount.
+      const hasContent = (Array.isArray(snap.items) && snap.items.some((i) => i.productId)) || !!snap.selectedCustomer
       if (!hasContent) {
         localStorage.removeItem(AUTO_DRAFT_KEY)
         return
@@ -2760,11 +2790,22 @@ export default function NewSalePage() {
       if (snap.billingType) setBillingType(snap.billingType)
       if (snap.invoiceType) setInvoiceType(snap.invoiceType)
       if (typeof snap.deliveryCharge === 'number') setDeliveryCharge(snap.deliveryCharge)
+      if (typeof snap.enableCourier === 'boolean') setEnableCourier(snap.enableCourier)
+      if (snap.linkedLeadId) setLinkedLeadId(snap.linkedLeadId)
+      if (snap.quotationSource) setQuotationSource(snap.quotationSource)
+      if (snap.replacementSource) setReplacementSource(snap.replacementSource)
+      if (snap.editingDraftId) setEditingDraftId(snap.editingDraftId)
+      if (snap.editingInvoiceId) setEditingInvoiceId(snap.editingInvoiceId)
+      if (snap.editingInvoiceNumber) setEditingInvoiceNumber(snap.editingInvoiceNumber)
+      if (snap.tableView) setTableView(snap.tableView)
+      if (snap.mobileStep) setMobileStep(snap.mobileStep)
 
       const itemCount = snap.items.filter((i) => i.productId).length
       const minutesAgo = Math.max(1, Math.round((Date.now() - new Date(snap.savedAt).getTime()) / 60000))
       toast.info(
-        `Restored your in-progress sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${minutesAgo} min ago)`,
+        itemCount > 0
+          ? `Restored your in-progress sale (${itemCount} item${itemCount !== 1 ? 's' : ''}, ${minutesAgo} min ago)`
+          : `Restored your in-progress sale (${minutesAgo} min ago)`,
         { duration: 5000 },
       )
 
@@ -2798,20 +2839,29 @@ export default function NewSalePage() {
       billingType,
       invoiceType,
       deliveryCharge,
+      enableCourier,
+      linkedLeadId,
+      quotationSource,
+      replacementSource,
+      editingDraftId,
+      editingInvoiceId,
+      editingInvoiceNumber,
+      tableView,
+      mobileStep,
       savedAt: new Date().toISOString(),
     }
     try {
       localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(snap))
     } catch { /* localStorage full / unavailable — non-fatal */ }
-  }, [items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge])
+  }, [
+    items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge,
+    enableCourier, linkedLeadId, quotationSource, replacementSource, editingDraftId, editingInvoiceId, editingInvoiceNumber,
+    tableView, mobileStep,
+  ])
 
   // ── Customer last-sale price cache: productId → rate ─────
   const [customerLastRates, setCustomerLastRates] = useState<Record<string, number>>({})
 
-  // ── Table view tabs ───────────────────────────────────────
-  type TableView = 'products' | 'customer-history' | 'customer-reminders' | 'product-history' | 'quotations'
-  const [tableView, setTableView] = useState<TableView>('customer-history')
-  const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
   // Toggle: show inline purchase-history sub-rows under each product row in the
   // Products tab. Off by default — Product History tab provides the same view.
   const [showInlineHistory, setShowInlineHistory] = useState(false)
@@ -3422,15 +3472,6 @@ export default function NewSalePage() {
   // ── Submit Invoice ──────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastSavedInvoice, setLastSavedInvoice] = useState<Invoice | null>(null)
-  // When resuming a server-side draft (?draftId=…), this holds the id so
-  // saves re-route to PATCH instead of POST and "Save & Print" finalizes.
-  const [editingDraftId, setEditingDraftId] = useState<string | null>(null)
-  // When editing an existing UNPAID / PARTIAL invoice (?editId=…), this holds
-  // the id so the save call routes to PATCH /billing/:id/edit-invoice (which
-  // reverses the original stock/ledger and re-applies the new figures)
-  // instead of POSTing a brand-new invoice.
-  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
-  const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
 
   // ── Invoice Preview ────────────────────────────────────────

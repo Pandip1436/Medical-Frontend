@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
+import { useFormDraft } from '@/hooks/useFormDraft'
+import { useBranchStore } from '@/stores/branchStore'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -250,6 +252,42 @@ export default function PurchaseReturnsPage() {
   // Step 3
   const [settlementOption, setSettlementOption] = useState<string>('adjust')
   const [supplierOutstanding, setSupplierOutstanding] = useState<number>(0)
+
+  // ── Form draft — auto-saves so an in-progress return survives navigating
+  // away and back. Skipped when arriving via an intentional prefill (GRN
+  // deep-link, short-supply dialog, or Batch Detail's Create Return) — those
+  // flows populate the wizard from their own source of truth, so restoring a
+  // stale draft over them would be wrong.
+  const activeBranchId = useBranchStore((s) => s.activeBranchId)
+  interface ReturnDraftSnapshot {
+    currentStep: number
+    direction: number
+    selectedGRN: GRNReference | null
+    returnItems: ReturnItemState[]
+    settlementOption: string
+  }
+  const draft = useFormDraft<ReturnDraftSnapshot>(`purchase-return-draft:${activeBranchId ?? 'none'}`, {
+    skip: !!preselectedGrnId || !!shortageParams || !!batchParams,
+  })
+
+  // Restore once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const saved = draft.load()
+    if (!saved?.selectedGRN) return
+    setCurrentStep(saved.currentStep)
+    setDirection(saved.direction)
+    setSelectedGRN(saved.selectedGRN)
+    setReturnItems(saved.returnItems)
+    setSettlementOption(saved.settlementOption)
+    setGrnSearch(saved.selectedGRN.grnNumber)
+    toast.info('Restored your in-progress return')
+  }, [])
+
+  // Save snapshot on every change.
+  useEffect(() => {
+    draft.save({ currentStep, direction, selectedGRN, returnItems, settlementOption })
+  }, [currentStep, direction, selectedGRN, returnItems, settlementOption])
 
   // Fetch supplier outstanding when GRN is selected
   useEffect(() => {
@@ -579,6 +617,7 @@ export default function PurchaseReturnsPage() {
         setReturnItems([])
         setGrnSearch('')
         setSettlementOption('adjust')
+        draft.clear()
         return
       }
       const noteNo = res.data.debitNoteNo ?? debitNoteNumber
@@ -620,6 +659,7 @@ export default function PurchaseReturnsPage() {
       setReturnItems([])
       setGrnSearch('')
       setSettlementOption('adjust')
+      draft.clear()
       navigate('/purchase/debit-notes')
     } catch {
       // api.ts shows an error toast
