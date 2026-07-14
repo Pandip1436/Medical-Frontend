@@ -892,10 +892,13 @@ export function Sidebar({ currentPath }: SidebarProps) {
         onMouseEnter={hoverMode ? () => setHovered(true) : undefined}
         onMouseLeave={hoverMode ? () => setHovered(false) : undefined}
         className={cn(
-          'fixed left-0 top-0 z-40 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground',
+          'fixed left-0 top-0 flex h-screen-z flex-col bg-sidebar text-sidebar-foreground',
           // When the hover rail is expanded it floats over the page — a shadow
-          // lifts it off the content it's covering.
-          hoverMode && hovered && 'shadow-2xl shadow-black/20',
+          // lifts it off the content it's covering, and its z-index jumps above
+          // the popover layer (z-50) so open dropdowns (e.g. the supplier
+          // search) don't render on top of the expanded rail. Collapsed, it
+          // stays at z-40 so those dropdowns layer normally over the page.
+          hoverMode && hovered ? 'z-[60] shadow-2xl shadow-black/20' : 'z-40',
         )}
       >
         {/* Subtle gradient overlay - barely visible */}
