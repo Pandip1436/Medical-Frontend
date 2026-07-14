@@ -7,7 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import api from '@/lib/api'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import {
-  Sheet, SheetContent, SheetHeader, SheetTitle,
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -108,11 +108,11 @@ export function ProductDocumentDrawer({
               <SheetTitle className="truncate font-mono">
                 {doc?.[cfg?.numberField ?? ''] ?? cfg?.label ?? 'Document'}
               </SheetTitle>
-              <p className="text-sm text-muted-foreground mt-0.5 truncate">
+              <SheetDescription className="mt-0.5 truncate text-sm text-muted-foreground">
                 {cfg?.label}
                 {doc?.[cfg?.partyField ?? ''] ? ` · ${doc[cfg!.partyField]}` : ''}
                 {doc?.date ? ` · ${formatDate(doc.date)}` : ''}
-              </p>
+              </SheetDescription>
             </div>
           </div>
         </SheetHeader>
@@ -245,7 +245,51 @@ function DocumentBody({
       )}
 
       {/* Items */}
-      <div className="rounded-xl border border-border/40 overflow-x-auto">
+      {/* Mobile: stacked cards — the full table overflows a phone width. */}
+      <div className="space-y-2 md:hidden">
+        {items.map((it, i) => {
+          const isCurrent = highlightProductId && it.productId === highlightProductId
+          const cells = [
+            { label: 'Batch', value: it.batchNumber || '—' },
+            ...(showExpiry ? [{ label: 'Expiry', value: it.expiryDate ? formatDate(it.expiryDate) : '—' }] : []),
+            { label: 'Qty', value: String(qtyOf(it)) },
+            ...(showMrp ? [{ label: 'MRP', value: num(it.mrp) > 0 ? formatCurrency(num(it.mrp)) : '—' }] : []),
+            { label: 'Rate', value: formatCurrency(rateOf(it)) },
+            ...(showDisc ? [{ label: 'Disc%', value: it.discountPercent != null ? `${num(it.discountPercent)}%` : '—' }] : []),
+            ...(showGst ? [{ label: 'GST%', value: it.gstPercent != null ? `${num(it.gstPercent)}%` : '—' }] : []),
+          ]
+          return (
+            <div key={it.id ?? i} className={cn('rounded-xl border p-3', isCurrent ? 'border-primary/40 bg-primary/5' : 'border-border/40')}>
+              <div className="flex items-start justify-between gap-2">
+                <span className={cn('min-w-0 break-words text-sm font-semibold', isCurrent && 'text-primary')}>
+                  {it.productName ?? it.product?.name ?? '—'}
+                </span>
+                {isCurrent && (
+                  <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">This product</span>
+                )}
+              </div>
+              <div className="mt-2.5 grid grid-cols-3 gap-x-3 gap-y-2">
+                {cells.map((c) => (
+                  <div key={c.label} className="min-w-0">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{c.label}</p>
+                    <p className="mt-0.5 truncate font-mono text-xs">{c.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2.5 flex items-center justify-between border-t border-border/30 pt-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</span>
+                <span className="font-mono text-sm font-semibold">{formatCurrency(amountOf(it))}</span>
+              </div>
+            </div>
+          )
+        })}
+        {items.length === 0 && (
+          <p className="rounded-xl border border-border/40 py-8 text-center text-sm text-muted-foreground">No line items on this document.</p>
+        )}
+      </div>
+
+      {/* Desktop / tablet: full table */}
+      <div className="hidden rounded-xl border border-border/40 overflow-x-auto md:block">
         <Table>
           <TableHeader className="bg-muted/40">
             <TableRow>

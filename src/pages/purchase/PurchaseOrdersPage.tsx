@@ -1535,16 +1535,19 @@ export default function PurchaseOrdersPage() {
                   onClick={() => openDetailPO(po)}
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
-                    <p className="font-mono text-xs font-medium text-primary">{po.poNumber}</p>
-                    <p className="truncate text-[15px] font-bold">{po.supplierName}</p>
+                    {cols.isVisible('po') && <p className="font-mono text-xs font-medium text-primary">{po.poNumber}</p>}
+                    {cols.isVisible('supplier') && <p className="truncate text-[15px] font-bold">{po.supplierName}</p>}
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                      {renderStatusBadge(po.status)}
-                      <span className="text-xs text-muted-foreground">{formatDate(po.date)}</span>
+                      {cols.isVisible('status') && renderStatusBadge(po.status)}
+                      {cols.isVisible('date') && <span className="text-xs text-muted-foreground">{formatDate(po.date)}</span>}
                     </div>
+                    {cols.isVisible('expected') && po.expectedDelivery && (
+                      <p className="text-[10px] text-muted-foreground">Expected {formatDate(po.expectedDelivery)}</p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(po.totalAmount)}</span>
-                    <span className="text-xs text-muted-foreground">{po.items.length} item{po.items.length !== 1 ? 's' : ''}</span>
+                    {cols.isVisible('total') && <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(po.totalAmount)}</span>}
+                    {cols.isVisible('items') && <span className="text-xs text-muted-foreground">{po.items.length} item{po.items.length !== 1 ? 's' : ''}</span>}
                   </div>
                 </div>
               ))}

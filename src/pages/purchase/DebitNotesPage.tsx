@@ -560,13 +560,16 @@ export default function DebitNotesPage() {
     )
   }
 
+  // On mobile the whole page scrolls naturally (cards flow full-length); from
+  // md+ it's a fixed-height "compact shell" whose table body scrolls internally
+  // while the summary / filter / tabs stay pinned.
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex flex-col md:h-content-viewport md:overflow-hidden">
 
       {/* ── Content ── */}
-      <div className="flex-1 overflow-hidden bg-muted/20">
+      <div className="flex-1 bg-muted/20 md:overflow-hidden">
         {/* ── List View ── */}
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col md:h-full">
             {/* Summary cards — click Short-Billing / Settled to drill the list */}
             <div className="grid grid-cols-2 gap-3 border-b border-border/40 bg-background px-4 py-4 sm:px-6 lg:grid-cols-4">
               {([
@@ -750,9 +753,9 @@ export default function DebitNotesPage() {
               counts={tabCounts}
             />
 
-            <div className="flex-1 overflow-auto p-6">
+            <div className="p-3 md:flex-1 md:overflow-auto md:p-6">
               {returnsLoading ? (
-                <div className="flex h-full items-center justify-center">
+                <div className="flex h-64 items-center justify-center md:h-full">
                   <div className="flex flex-col items-center gap-2">
                     <RotateCcw className="h-8 w-8 animate-spin text-primary" />
                     <p className="text-xs text-muted-foreground">Loading debit notes...</p>
@@ -789,7 +792,7 @@ export default function DebitNotesPage() {
                           onClick={() => navigate(`/purchase/debit-notes/detail?id=${pr.id}`)}
                         >
                           <div className="min-w-0 flex-1 space-y-0.5">
-                            <p className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</p>
+                            {cols.isVisible('noteNumber') && <p className="font-mono text-xs font-bold text-primary">{pr.debitNoteNo}</p>}
                             <p
                               role="link"
                               tabIndex={0}
@@ -798,22 +801,39 @@ export default function DebitNotesPage() {
                               onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) }}
                               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${pr.supplierId}`) } }}
                             >{pr.supplierName}</p>
+                            {cols.isVisible('type') && (
+                              <div className="pt-0.5">
+                                {/short.*delivery|short.*supply/i.test(pr.reason ?? '') ? (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-100/70 dark:bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                    Short-Billing
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                    Goods returned
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                              <Badge
-                                variant={pr.status === 'SETTLED' ? 'success' : pr.status === 'SENT' ? 'info' : 'secondary'}
-                                size="sm"
-                                dot
-                              >
-                                {pr.status}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">{formatDate(pr.date)}</span>
+                              {cols.isVisible('status') && (
+                                <Badge
+                                  variant={pr.status === 'SETTLED' ? 'success' : pr.status === 'SENT' ? 'info' : 'secondary'}
+                                  size="sm"
+                                  dot
+                                >
+                                  {pr.status}
+                                </Badge>
+                              )}
+                              {cols.isVisible('date') && <span className="text-xs text-muted-foreground">{formatDate(pr.date)}</span>}
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-0.5 shrink-0">
-                            <span className="font-mono font-semibold text-sm text-rose-600 dark:text-rose-400">
-                              {formatCurrency(pr.totalAmount)}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{pr.grn?.grnNumber ?? 'Direct'}</span>
+                            {cols.isVisible('amount') && (
+                              <span className="font-mono font-semibold text-sm text-rose-600 dark:text-rose-400">
+                                {formatCurrency(pr.totalAmount)}
+                              </span>
+                            )}
+                            {cols.isVisible('pe') && <span className="text-xs text-muted-foreground">{pr.grn?.grnNumber ?? 'Direct'}</span>}
                           </div>
                         </div>
                       ))}

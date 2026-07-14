@@ -1319,29 +1319,54 @@ export default function CustomersPage() {
                             consistent column regardless of name length. The
                             default "Retail" type badge is omitted (only Wholesale
                             / Doctor are worth flagging). */}
+                        {/* Badges honor the same column toggles as the desktop
+                            table so the "Columns" control works on mobile too.
+                            The default "Retail" type badge is omitted (only
+                            Wholesale / Doctor are worth flagging). */}
                         <div className="flex shrink-0 items-center gap-1.5">
-                          {customer.type !== 'RETAIL' && (
+                          {cols.isVisible('type') && customer.type !== 'RETAIL' && (
                             <Badge variant={typeBadgeVariant[customer.type] || 'secondary'} size="sm" dot>
                               {customer.type.charAt(0) + customer.type.slice(1).toLowerCase()}
                             </Badge>
                           )}
-                          {Number(customer.pendingCreditCount ?? 0) > 0 && (
+                          {cols.isVisible('status') && (
+                            customer.isActive === false ? (
+                              <Badge variant="secondary" size="sm" dot className="text-muted-foreground">Inactive</Badge>
+                            ) : (
+                              <Badge variant="success" size="sm" dot>Active</Badge>
+                            )
+                          )}
+                          {cols.isVisible('pending') && Number(customer.pendingCreditCount ?? 0) > 0 && (
                             <Badge variant="warning" size="sm" className="text-[9px] px-1.5">
                               {customer.pendingCreditCount} pending
                             </Badge>
                           )}
                         </div>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
+                      {cols.isVisible('phone') && (
+                        <p className="text-[11px] text-muted-foreground">{customer.phone}</p>
+                      )}
+                      {cols.isVisible('source') && customer.source && (
+                        <p className="text-[10px] text-muted-foreground">Source: {customer.source}</p>
+                      )}
+                      {(cols.isVisible('totalAmount') || cols.isVisible('paidAmount')) && (
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                          {cols.isVisible('totalAmount') && <>Total {formatCurrency(customer.totalAmount ?? 0)}</>}
+                          {cols.isVisible('totalAmount') && cols.isVisible('paidAmount') && ' · '}
+                          {cols.isVisible('paidAmount') && <>Paid {formatCurrency(customer.paidAmount ?? 0)}</>}
+                        </p>
+                      )}
                     </div>
                     {/* Outstanding + actions */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right hidden sm:block">
+                      {cols.isVisible('outstanding') && (
+                      <div className="text-right">
                         <p className={cn('font-mono text-xs font-semibold', outstandingColor(customer.currentOutstanding))}>
                           {formatCurrency(customer.currentOutstanding)}
                         </p>
                         <p className="text-[10px] text-muted-foreground">outstanding</p>
                       </div>
+                      )}
                       <div onClick={(e) => e.stopPropagation()}>
                         <DataTableRowActions
                           onView={() => handleViewDetails(customer)}

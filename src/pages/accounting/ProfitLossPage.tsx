@@ -376,7 +376,7 @@ export default function ProfitLossPage() {
   ]
 
   return (
-    <div className="-m-3 md:-m-4 lg:-m-6 flex h-content-viewport flex-col overflow-hidden">
+    <div className="-m-3 md:-m-4 lg:-m-6 flex flex-col lg:h-content-viewport lg:overflow-hidden">
       {/* ══════════════════════════════════════════════════════════ */}
       {/* KPI STRIP                                                  */}
       {/* ══════════════════════════════════════════════════════════ */}
@@ -582,7 +582,7 @@ export default function ProfitLossPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* responsive: stacks into one vertical scroll on phones (statement then charts);
           two fixed columns at lg+ */}
-      <div className="flex flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+      <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
         {/* ─── LEFT: P&L Statement (55%) ─────────────────────── */}
         <div className="flex w-full flex-col border-border/40 lg:w-[55%] lg:overflow-hidden lg:border-r">
           {/* Statement header */}

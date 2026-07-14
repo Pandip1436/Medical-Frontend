@@ -909,16 +909,43 @@ export default function SuppliersPage() {
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="truncate text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline">{supplier.name}</p>
-                    <p className="text-xs text-muted-foreground">{supplier.contactPerson} · {supplier.phone}</p>
+                    {/* Fields honor the same column toggles as the desktop table
+                        so the "Columns" control works on mobile too. Supplier
+                        name is always shown (required column). */}
+                    {(cols.isVisible('contactPerson') || cols.isVisible('phone')) && (
+                      <p className="text-xs text-muted-foreground">
+                        {cols.isVisible('contactPerson') && supplier.contactPerson}
+                        {cols.isVisible('contactPerson') && supplier.contactPerson && cols.isVisible('phone') && supplier.phone ? ' · ' : ''}
+                        {cols.isVisible('phone') && supplier.phone}
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                      <Badge variant={supplier.isActive ? 'success' : 'destructive'} dot size="sm">
-                        {supplier.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
-                      <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
+                      {cols.isVisible('status') && (
+                        <Badge variant={supplier.isActive ? 'success' : 'destructive'} dot size="sm">
+                          {supplier.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      )}
+                      {cols.isVisible('paymentTerms') && (
+                        <Badge variant="secondary" size="sm">{supplier.paymentTerms}</Badge>
+                      )}
                     </div>
+                    {(cols.isVisible('totalPurchases') || cols.isVisible('paidAmount')) && (
+                      <p className="font-mono text-[10px] text-muted-foreground">
+                        {cols.isVisible('totalPurchases') && <>Total {formatCurrency(Number(supplier.totalPurchases ?? 0))}</>}
+                        {cols.isVisible('totalPurchases') && cols.isVisible('paidAmount') && ' · '}
+                        {cols.isVisible('paidAmount') && <>Paid {formatCurrency(Number(supplier.paidAmount ?? 0))}</>}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    <span className="font-mono text-xs text-muted-foreground">{supplier.gstin}</span>
+                    {cols.isVisible('gstin') && (
+                      <span className="font-mono text-xs text-muted-foreground">{supplier.gstin}</span>
+                    )}
+                    {cols.isVisible('outstanding') && Number(supplier.currentOutstanding ?? 0) > 0 && (
+                      <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+                        {formatCurrency(Number(supplier.currentOutstanding))}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

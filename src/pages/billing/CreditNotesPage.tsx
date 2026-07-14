@@ -986,25 +986,49 @@ export default function CreditNotesPage() {
                   onClick={() => navigate(`/billing/credit-notes/detail?id=${cn.id}`)}
                 >
                   <div className="min-w-0 flex-1">
+                    {/* Each field honors the same column toggles as the desktop
+                        table, so the "Columns" control works on mobile too. */}
+                    {cols.isVisible('creditNote') && (
                     <p className="font-mono text-[11px] font-semibold">{cn.creditNoteNo}</p>
+                    )}
+                    {cols.isVisible('customer') && (
                     <CustomerNameLine
                       name={cn.customerName}
                       phone={cn.customerPhone}
                       onNameClick={cn.customerId ? () => navigate(`/customers/detail?customerId=${cn.customerId}`) : undefined}
                     />
+                    )}
                     <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+                      {cols.isVisible('status') && (
                       <Badge variant={status?.variant ?? 'secondary'} size="sm" dot>
                         {status?.label ?? cn.status}
                       </Badge>
+                      )}
+                      {cols.isVisible('settlement') && (
                       <Badge variant={settlement?.variant ?? 'secondary'} size="sm" dot>
                         {settlement?.label ?? cn.settlementMode}
                       </Badge>
+                      )}
+                      {cols.isVisible('date') && (
                       <span className="text-[10px] text-muted-foreground">{formatDate(cn.date)}</span>
+                      )}
                     </div>
+                    {/* Against Invoice — only render when its column is on */}
+                    {cols.isVisible('invoice') && cn.invoiceNumber && (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        Invoice <span className="font-mono font-medium text-foreground">{cn.invoiceNumber}</span>
+                      </p>
+                    )}
+                    {/* Reason — only render when its column is on */}
+                    {cols.isVisible('reason') && cn.reason && (
+                      <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{cn.reason}</p>
+                    )}
                   </div>
+                  {cols.isVisible('amount') && (
                   <p className="font-mono text-[15px] font-bold text-rose-600 dark:text-rose-400 shrink-0">
                     {formatCurrency(cn.totalAmount)}
                   </p>
+                  )}
                 </div>
               )
             })}

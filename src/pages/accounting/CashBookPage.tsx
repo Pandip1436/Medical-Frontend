@@ -486,7 +486,9 @@ export default function CashBookPage() {
       })()}
 
       {/* ── Transaction Table ── */}
-      <Card className="overflow-x-auto rounded-2xl border-border/60">
+      {/* overflow-x-auto lives on the desktop table wrapper (below), not the
+          whole Card, so the mobile card list scrolls with the page cleanly. */}
+      <Card className="rounded-2xl border-border/60">
         <CardContent className="p-0">
           {/* Mobile card list */}
           <div className="md:hidden">
@@ -566,7 +568,7 @@ export default function CashBookPage() {
             </div>
           </div>
           {/* Desktop table */}
-          <div className="hidden md:block">
+          <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">

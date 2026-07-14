@@ -589,9 +589,11 @@ export default function ExpensesPage() {
         />
       </DataTableFilterBar>
 
-      {/* ── Expenses Table (viewMode === 'table') ── */}
+      {/* ── Expenses Table (viewMode === 'table') ──
+          Note: overflow-x-auto lives on the desktop table wrapper (below), not
+          the whole Card, so the mobile card list scrolls with the page cleanly. */}
       {viewMode === 'table' && (
-      <Card className="overflow-x-auto rounded-2xl border-border/60">
+      <Card className="rounded-2xl border-border/60">
         <CardContent className="p-0">
           {/* Mobile card list */}
           <div className="md:hidden">
@@ -634,17 +636,25 @@ export default function ExpensesPage() {
                       </span>
                     </p>
                     <div className="mt-0.5 flex items-center gap-2">
+                      {cols.isVisible('category') && (
                       <Badge variant={categoryBadgeVariant[expense.category] || 'secondary'} size="sm" dot>
                         {expense.category}
                       </Badge>
+                      )}
+                      {cols.isVisible('paymentMode') && (
                       <span className="text-[10px] text-muted-foreground">{expense.paymentMode}</span>
+                      )}
                     </div>
+                    {cols.isVisible('date') && (
                     <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(expense.date)}</p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
+                    {cols.isVisible('amount') && (
                     <p className="font-mono text-sm font-semibold text-rose-600 dark:text-rose-400">
                       {formatCurrency(expense.amount)}
                     </p>
+                    )}
                     <div onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         customActions={[
@@ -668,7 +678,7 @@ export default function ExpensesPage() {
             </div>
           </div>
           {/* Desktop table */}
-          <div className="hidden md:block">
+          <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">

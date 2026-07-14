@@ -157,7 +157,9 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
+        {/* Mobile: single horizontal row; if the (up to 4) actions don't fit
+            they scroll sideways rather than wrap. Desktop: right-aligned row. */}
+        <div className="flex items-center gap-1.5 overflow-x-auto px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:shrink-0 sm:flex-wrap sm:justify-end sm:gap-2 sm:overflow-visible sm:pb-3">
           {!canMarkSent && !canAccept && !canReject && !canConvert && (
             <p className="text-xs text-muted-foreground italic">
               No further actions for {statusLabel[qt.status].toLowerCase()} quotations.

@@ -595,8 +595,16 @@ export default function OutstandingPage() {
                       phone={row.customerPhone}
                       onNameClick={row.customerId ? () => navigate(`/customers/detail?customerId=${row.customerId}`) : undefined}
                     />
-                    <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
-                    {overdue60 > 0 && (
+                    {cols.isVisible('invoices') && (
+                      <p className="text-[11px] text-muted-foreground">{row.invoiceCount} invoice{row.invoiceCount !== 1 ? 's' : ''}</p>
+                    )}
+                    {cols.isVisible('age0_30') && (
+                      <p className="text-[10px] text-muted-foreground font-mono mt-0.5">0–30 days: {formatCurrency(row.current + row['0-30'])}</p>
+                    )}
+                    {cols.isVisible('age30_60') && (
+                      <p className="text-[10px] text-muted-foreground font-mono mt-0.5">30–60 days: {formatCurrency(row['31-60'])}</p>
+                    )}
+                    {cols.isVisible('age60plus') && overdue60 > 0 && (
                       <p className="text-[10px] text-rose-500 font-mono mt-0.5">60+ days: {formatCurrency(overdue60)}</p>
                     )}
                   </div>

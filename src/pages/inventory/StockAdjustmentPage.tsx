@@ -560,9 +560,14 @@ export default function StockAdjustmentPage() {
             </Button>
           </div>
 
+          {/* Below xl the app shows the fixed bottom tab bar (~5rem), so the
+              shell must shrink by that much or the detail-panel footer renders
+              underneath it and its buttons aren't reachable. */}
           <div className={cn(
             'flex min-h-100 flex-col lg:flex-row',
-            showSubmitFooter ? 'h-[calc(100vh-200px)]' : 'h-[calc(100vh-120px)]',
+            showSubmitFooter
+              ? 'h-[calc(100dvh-280px)] xl:h-[calc(100vh-200px)]'
+              : 'h-[calc(100dvh-200px)] xl:h-[calc(100vh-120px)]',
           )}>
             {/* ── Sidebar: folders ── */}
             <aside className={cn(
@@ -1118,7 +1123,7 @@ function BatchDetailPanel({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/10 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         {isItem ? (
           <>
             <Button
@@ -1135,13 +1140,15 @@ function BatchDetailPanel({
           </>
         ) : (
           <>
-            <span className="text-[11px] text-muted-foreground">
+            {/* Helper hint is desktop-only; on mobile the button goes full-width
+                (its label already says what it does). */}
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
               Set quantity to add this batch
             </span>
             <Button
               size="sm"
               disabled={adjustment === 0}
-              className="gap-1.5"
+              className="w-full gap-1.5 sm:w-auto"
               onClick={() => onAdd(
                 {
                   productId: row.productId,

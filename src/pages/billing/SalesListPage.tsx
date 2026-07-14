@@ -1233,49 +1233,84 @@ export default function SalesListPage() {
                   className="flex flex-col gap-2 p-4 cursor-pointer active:bg-muted/30"
                   onClick={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                 >
-                  {/* Row 1: Invoice # + Status */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  {/* Row 1: Invoice # + Date + Status. Each field honors the
+                      same column toggles as the desktop table, so the "Columns"
+                      control works on mobile too. Invoice # is a required column
+                      (always on). */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-                      <span className="font-mono text-[11px] font-semibold">{formatInvoiceNumber(inv)}</span>
-                      <span className="text-[11px] text-muted-foreground">{formatDate(inv.date)}</span>
+                      {cols.isVisible('invoice') && (
+                        <span className="font-mono text-[11px] font-semibold">{formatInvoiceNumber(inv)}</span>
+                      )}
+                      {cols.isVisible('date') && (
+                        <span className="text-[11px] text-muted-foreground">{formatDate(inv.date)}</span>
+                      )}
                     </div>
-                    {inv.isReplacement ? (
-                      <Badge variant="outline" size="sm" className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400">
-                        Replacement
-                      </Badge>
-                    ) : (
-                      <StatusBadge status={inv.status} />
+                    {cols.isVisible('status') && (
+                      inv.isReplacement ? (
+                        <Badge variant="outline" size="sm" className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400">
+                          Replacement
+                        </Badge>
+                      ) : (
+                        <StatusBadge status={inv.status} />
+                      )
                     )}
                   </div>
                   {/* Row 2: Customer + Doctor */}
-                  <div>
-                    <CustomerNameLine
-                      name={inv.customerName}
-                      phone={inv.customerPhone}
-                      onNameClick={inv.customerId ? () => navigate(`/customers/detail?customerId=${inv.customerId}`) : undefined}
-                    />
-                    {inv.doctorName && (
-                      <p className="text-[11px] text-muted-foreground">{inv.doctorName}</p>
-                    )}
-                  </div>
+                  {cols.isVisible('customer') && (
+                    <div>
+                      <CustomerNameLine
+                        name={inv.customerName}
+                        phone={inv.customerPhone}
+                        onNameClick={inv.customerId ? () => navigate(`/customers/detail?customerId=${inv.customerId}`) : undefined}
+                      />
+                      {inv.doctorName && (
+                        <p className="text-[11px] text-muted-foreground">{inv.doctorName}</p>
+                      )}
+                    </div>
+                  )}
+                  {/* Row: Paid / Due Date — only render when their columns are on */}
+                  {(cols.isVisible('paid') || cols.isVisible('dueDate')) && (
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      {cols.isVisible('paid') ? (
+                        <span className="text-muted-foreground">
+                          Paid <span className="font-mono font-medium text-foreground">{formatCurrency(inv.amountPaid)}</span>
+                        </span>
+                      ) : <span />}
+                      {cols.isVisible('dueDate') && inv.dueDate && (() => {
+                        const overdue = new Date(inv.dueDate) < new Date() && (inv.status === 'UNPAID' || inv.status === 'PARTIAL')
+                        return (
+                          <span className={cn('font-mono', overdue ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-muted-foreground')}>
+                            Due {formatDate(inv.dueDate)}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                  )}
                   {/* Row 3: Items + Payment + Total + Actions */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" size="sm">{inv.items?.length ?? 0} items</Badge>
-                      <Badge
-                        variant={inv.paymentMode === 'CREDIT' ? 'warning' : 'outline'}
-                        size="sm"
-                        dot={inv.paymentMode === 'CREDIT'}
-                        className="capitalize"
-                      >
-                        {paymentModeLabels[inv.paymentMode] || inv.paymentMode}
-                      </Badge>
+                      {cols.isVisible('items') && (
+                        <Badge variant="secondary" size="sm">{inv.items?.length ?? 0} items</Badge>
+                      )}
+                      {cols.isVisible('payment') && (
+                        <Badge
+                          variant={inv.paymentMode === 'CREDIT' ? 'warning' : 'outline'}
+                          size="sm"
+                          dot={inv.paymentMode === 'CREDIT'}
+                          className="capitalize"
+                        >
+                          {paymentModeLabels[inv.paymentMode] || inv.paymentMode}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col items-end leading-tight">
-                        <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(inv.grandTotal)}</span>
-                        {Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0) > 0.01 && (
+                        {cols.isVisible('total') && (
+                          <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(inv.grandTotal)}</span>
+                        )}
+                        {cols.isVisible('balance') && Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0) > 0.01 && (
                           <span className="font-mono text-[11px] font-medium text-rose-600 dark:text-rose-400">
                             Bal {formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0))}
                           </span>

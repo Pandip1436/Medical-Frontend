@@ -542,19 +542,26 @@ export default function SalespersonsPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-medium truncate">{sp.name}</p>
-                        <StatusBadge status={sp.isActive ? 'active' : 'inactive'} />
+                        {cols.isVisible('status') && (
+                          <StatusBadge status={sp.isActive ? 'active' : 'inactive'} />
+                        )}
                       </div>
                       <p className="text-[11px] text-muted-foreground truncate">{sp.email}</p>
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span className="text-[11px] text-muted-foreground truncate">
-                          {sp.phone} · {getBranchName(sp.branchId) || 'No branch'}
+                          {cols.isVisible('phone') && sp.phone}
+                          {cols.isVisible('phone') && cols.isVisible('branch') && ' · '}
+                          {cols.isVisible('branch') && (getBranchName(sp.branchId) || 'No branch')}
                         </span>
-                        {row && (
+                        {cols.isVisible('salesMtd') && row && (
                           <span className="font-mono text-xs font-semibold whitespace-nowrap">
                             {formatCurrency(row.totalSales)}
                           </span>
                         )}
                       </div>
+                      {cols.isVisible('lastLogin') && (
+                        <p className="text-[10px] text-muted-foreground">Last login: {formatLastLogin(sp.lastLogin)}</p>
+                      )}
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </div>

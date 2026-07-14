@@ -1017,31 +1017,56 @@ export default function ProductsPage() {
                     onClick={() => { navigate(`/inventory/product-history?productId=${product.id}`) }}
                   >
                     <div className="min-w-0 flex-1 space-y-0.5">
+                      {/* Product name is always shown (no column). Every other
+                          field honors the same column toggles as the desktop
+                          table so the "Columns" control works on mobile too. */}
                       <p className="truncate font-medium text-sm">{product.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {product.genericName}{product.manufacturer ? ` · ${product.manufacturer}` : ''}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                        {cat && (
-                          <Badge variant="secondary" size="sm">{cat.name}</Badge>
-                        )}
-                      </div>
+                      {(cols.isVisible('generic') || cols.isVisible('manufacturer')) && (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {cols.isVisible('generic') && product.genericName}
+                          {cols.isVisible('generic') && cols.isVisible('manufacturer') && product.manufacturer ? ' · ' : ''}
+                          {cols.isVisible('manufacturer') && product.manufacturer}
+                        </p>
+                      )}
+                      {cols.isVisible('category') && (
+                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                          {cat && (
+                            <Badge variant="secondary" size="sm">{cat.name}</Badge>
+                          )}
+                        </div>
+                      )}
+                      {cols.isVisible('minStock') && (
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          Min stock: <span className="font-mono">{product.minStock}</span>
+                        </p>
+                      )}
+                      {cols.isVisible('rack') && (
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          Rack: <span className="font-mono">{product.rackLocation || '—'}</span>
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="font-mono text-sm font-semibold">{formatCurrency(product.mrp)}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground">Buy {formatCurrency(product.purchaseRate)}</span>
-                      <span className={cn(
-                        'inline-flex items-center gap-1 font-mono text-xs font-semibold',
-                        isOutOfStock && 'text-rose-600 dark:text-rose-400',
-                        isLowStock && 'text-amber-600 dark:text-amber-400',
-                        !isOutOfStock && !isLowStock && 'text-emerald-600 dark:text-emerald-400'
-                      )}>
-                        <span className={cn('h-1.5 w-1.5 rounded-full',
-                          isOutOfStock && 'bg-rose-500', isLowStock && 'bg-amber-500',
-                          !isOutOfStock && !isLowStock && 'bg-emerald-500'
-                        )} />
-                        {product.totalStock} units
-                      </span>
+                      {cols.isVisible('mrp') && (
+                        <span className="font-mono text-sm font-semibold">{formatCurrency(product.mrp)}</span>
+                      )}
+                      {cols.isVisible('purchaseRate') && (
+                        <span className="font-mono text-[11px] text-muted-foreground">Buy {formatCurrency(product.purchaseRate)}</span>
+                      )}
+                      {cols.isVisible('stock') && (
+                        <span className={cn(
+                          'inline-flex items-center gap-1 font-mono text-xs font-semibold',
+                          isOutOfStock && 'text-rose-600 dark:text-rose-400',
+                          isLowStock && 'text-amber-600 dark:text-amber-400',
+                          !isOutOfStock && !isLowStock && 'text-emerald-600 dark:text-emerald-400'
+                        )}>
+                          <span className={cn('h-1.5 w-1.5 rounded-full',
+                            isOutOfStock && 'bg-rose-500', isLowStock && 'bg-amber-500',
+                            !isOutOfStock && !isLowStock && 'bg-emerald-500'
+                          )} />
+                          {product.totalStock} units
+                        </span>
+                      )}
                     </div>
                   </div>
                 )

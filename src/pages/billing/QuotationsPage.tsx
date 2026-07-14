@@ -971,20 +971,33 @@ export default function QuotationsPage() {
                 onClick={() => setDetailQt(qt)}
               >
                 <div className="min-w-0 flex-1">
-                  <p className="font-mono text-[11px] font-medium">{qt.quotationNumber}</p>
-                  <CustomerNameLine
-                    name={qt.customerName}
-                    phone={qt.customerPhone}
-                    onNameClick={qt.customerId ? () => navigate(`/customers/detail?customerId=${qt.customerId}`) : undefined}
-                  />
+                  {cols.isVisible('quotation') && (
+                    <p className="font-mono text-[11px] font-medium">{qt.quotationNumber}</p>
+                  )}
+                  {cols.isVisible('customer') && (
+                    <CustomerNameLine
+                      name={qt.customerName}
+                      phone={qt.customerPhone}
+                      onNameClick={qt.customerId ? () => navigate(`/customers/detail?customerId=${qt.customerId}`) : undefined}
+                    />
+                  )}
                   <div className="mt-0.5 flex items-center gap-2">
-                    <Badge variant={statusBadgeVariant[qt.status]} size="sm" dot>
-                      {statusLabel[qt.status]}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground">{formatDate(qt.date)}</span>
+                    {cols.isVisible('status') && (
+                      <Badge variant={statusBadgeVariant[qt.status]} size="sm" dot>
+                        {statusLabel[qt.status]}
+                      </Badge>
+                    )}
+                    {cols.isVisible('items') && (
+                      <Badge variant="secondary" size="sm">{qt.items.length} items</Badge>
+                    )}
+                    {cols.isVisible('date') && (
+                      <span className="text-[10px] text-muted-foreground">{formatDate(qt.date)}</span>
+                    )}
                   </div>
                 </div>
-                <p className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{formatCurrency(qt.total)}</p>
+                {cols.isVisible('total') && (
+                  <p className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{formatCurrency(qt.total)}</p>
+                )}
               </div>
             ))}
           </div>

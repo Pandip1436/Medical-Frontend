@@ -315,7 +315,10 @@ export default function ApprovalsPage() {
             </div>
           </div>
 
-          <div className="flex h-[calc(100vh-160px)] min-h-100 flex-col lg:flex-row">
+          {/* Below xl the app shows the fixed bottom tab bar, so the shell must
+              shrink by its height (≈5rem) or the detail-panel footer renders
+              underneath it and the Approve/Reject buttons aren't reachable. */}
+          <div className="flex h-[calc(100dvh-15rem)] min-h-100 flex-col lg:flex-row xl:h-[calc(100vh-160px)]">
             {/* ── Sidebar: type folders ── */}
             <aside className={cn(
               'shrink-0 border-b border-border/60 lg:w-56 lg:border-b-0 lg:border-r',
@@ -725,18 +728,18 @@ function ApprovalDetailPanel({
 
       {/* Footer actions */}
       {isAdmin && isPending && (
-        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-muted/10 px-4 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <Button
             size="sm"
             variant="outline"
-            className="gap-1.5 border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
+            className="flex-1 gap-1.5 border-rose-300 text-rose-600 hover:bg-rose-50 sm:flex-none dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
             onClick={onReject}
           >
             <XCircle className="h-3.5 w-3.5" /> Reject
           </Button>
           <Button
             size="sm"
-            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+            className="flex-1 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 sm:flex-none"
             onClick={onApprove}
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Approve
@@ -889,6 +892,9 @@ function ReturnItemsCard({
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">{title}</p>
         <p className="text-xs text-muted-foreground">{items.length} item{items.length !== 1 ? 's' : ''}</p>
       </div>
+      {/* Desktop: full table. Mobile: stacked cards (below) so the 7 columns
+          don't overflow a phone width. */}
+      <div className="hidden md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -929,6 +935,50 @@ function ReturnItemsCard({
           ))}
         </TableBody>
       </Table>
+      </div>
+
+      <div className="divide-y divide-border/40 md:hidden">
+        {items.map((it, i) => (
+          <div key={i} className="px-4 py-3">
+            <div className="flex items-start justify-between gap-2">
+              {it.productId ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/inventory/product-history?productId=${it.productId}`)}
+                  className="text-left text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {it.productName ?? '—'}
+                </button>
+              ) : (
+                <span className="text-sm font-medium">{it.productName ?? '—'}</span>
+              )}
+              <span className="shrink-0 text-sm font-semibold">
+                {it.amount != null ? formatCurrency(it.amount) : '—'}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</p>
+                <p className="font-mono text-xs text-muted-foreground">{it.batchNumber ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</p>
+                <p className="text-sm font-semibold">{it.returnedQty ?? it.quantity ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</p>
+                <p className="text-sm">{it.rate != null ? formatCurrency(it.rate) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">GST%</p>
+                <p className="text-xs text-muted-foreground">
+                  {it.gstPercent != null ? `${Number(it.gstPercent).toFixed(0)}%` : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
       {grandTotal != null && (
         <div className="ml-auto w-full max-w-xs space-y-1 border-t border-border/40 px-4 py-3 text-sm">
           {payload.subtotal != null && <TotalRow label="Subtotal" value={payload.subtotal} />}
@@ -963,6 +1013,8 @@ function AdjustmentItemsCard({ items }: { items: any[] }) {
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Batches to Adjust</p>
         <p className="text-xs text-muted-foreground">{items.length} batch{items.length !== 1 ? 'es' : ''}</p>
       </div>
+      {/* Desktop: full table. Mobile: stacked cards (below). */}
+      <div className="hidden md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -1015,6 +1067,60 @@ function AdjustmentItemsCard({ items }: { items: any[] }) {
           })}
         </TableBody>
       </Table>
+      </div>
+
+      <div className="divide-y divide-border/40 md:hidden">
+        {items.map((it, i) => {
+          const prev = it.previousQty
+          const next = it.adjustedQty
+          const diff = (prev != null && next != null) ? Number(next) - Number(prev) : null
+          return (
+            <div key={i} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                {it.productId ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/inventory/product-history?productId=${it.productId}`)}
+                    className="text-left text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {it.productName ?? '—'}
+                  </button>
+                ) : (
+                  <span className="text-sm font-medium">{it.productName ?? '—'}</span>
+                )}
+                <span className={cn(
+                  'shrink-0 font-mono text-sm font-semibold',
+                  diff != null && diff < 0 && 'text-rose-600 dark:text-rose-400',
+                  diff != null && diff > 0 && 'text-emerald-600 dark:text-emerald-400',
+                )}>
+                  {diff == null ? '—' : diff > 0 ? `+${diff}` : diff}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</p>
+                  <p className="font-mono text-xs text-muted-foreground">{it.batchNumber ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Current</p>
+                  <p className="font-mono text-sm">{prev ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">New</p>
+                  <p className="font-mono text-sm font-semibold">{next ?? '—'}</p>
+                </div>
+              </div>
+              {(it.reason || it.notes) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span className="font-semibold uppercase tracking-wider text-[9px] text-muted-foreground">Reason </span>
+                  {it.reason || '—'}
+                  {it.notes && <span className="block text-[11px] text-muted-foreground/70">{it.notes}</span>}
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

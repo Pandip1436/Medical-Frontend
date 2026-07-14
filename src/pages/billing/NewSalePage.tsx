@@ -5499,10 +5499,11 @@ export default function NewSalePage() {
               <>
             {/* Tab strip — order: Customer History | Products | Reminders */}
             <div className="flex items-center justify-between gap-2 mb-2 border-b border-border/60">
-              {/* responsive: tab row scrolls horizontally on phones so all 5 tabs
-                  (incl. Quotations) stay reachable instead of being clipped off-screen.
-                  Buttons never shrink; on lg+ they all fit with no scroll. */}
-              <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto lg:overflow-visible [&>button]:shrink-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {/* responsive: tab row fills the space left of the toggle and
+                  scrolls horizontally when its 5 tabs (which carry the customer
+                  name, so they get long) don't fit — instead of overflowing and
+                  overlapping the "Show purchase history" control on its right. */}
+              <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [&>button]:shrink-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/* Tab 1: Customer History — always accessible, shown first */}
               <button
                 type="button"
@@ -5518,7 +5519,7 @@ export default function NewSalePage() {
                 )}
               >
                 <History className="h-3.5 w-3.5" />
-                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s History` : 'Customer History'}
+                Purchase History
                 {!selectedCustomer && (
                   <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                 )}
@@ -5601,7 +5602,7 @@ export default function NewSalePage() {
                 )}
               >
                 <CalendarClock className="h-3.5 w-3.5" />
-                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s Reminders` : 'Reminders'}
+                Reminders
                 {customerReminders.length > 0 && tableView !== 'customer-reminders' && (
                   <span className="ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold bg-muted text-muted-foreground tabular-nums">
                     {customerReminders.length}
@@ -5621,7 +5622,7 @@ export default function NewSalePage() {
                 )}
               >
                 <FileText className="h-3.5 w-3.5" />
-                {selectedCustomer ? `${selectedCustomer.name.split(' ')[0]}'s Quotations` : 'Quotations'}
+                Quotations
                 {quotationsList.length > 0 && tableView !== 'quotations' && (
                   <span className="ml-0.5 rounded-full px-1.5 py-px text-[9px] font-bold bg-muted text-muted-foreground tabular-nums">
                     {quotationsList.length}
@@ -7102,10 +7103,11 @@ export default function NewSalePage() {
               {/* Record payment against the selected invoice */}
               <div className="space-y-2.5 rounded-xl border border-border/60 bg-muted/20 p-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Record Payment</p>
-                {/* responsive: mode + amount + Receive wrap; reference gets its own row */}
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Mode + amount on one row; reference on its own row; a
+                    full-width Receive button below — clean on every phone width. */}
+                <div className="flex items-center gap-2">
                   <Select value={collectMode} onValueChange={setCollectMode}>
-                    <SelectTrigger className="h-8 w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-9 w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {['CASH', 'CARD', 'UPI', 'CHEQUE'].map((m) => (
                         <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
@@ -7116,32 +7118,32 @@ export default function NewSalePage() {
                     type="number"
                     min={0}
                     placeholder="Amount"
-                    className="h-8 min-w-28 flex-1 font-mono text-xs"
+                    className="h-9 min-w-0 flex-1 font-mono text-xs"
                     value={collectAmount}
                     onChange={(e) => setCollectAmount(e.target.value)}
                     disabled={!selectedPendingId}
                   />
-                  <Button
-                    size="sm"
-                    className="h-8 shrink-0 gap-1.5"
-                    disabled={!selectedPendingId || payingInvoiceId !== null || !collectAmount}
-                    onClick={handleReceiveSelected}
-                  >
-                    {payingInvoiceId === selectedPendingId
-                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      : <><CreditCard className="h-3.5 w-3.5" /> Receive</>}
-                  </Button>
-                  {/* Reference is mandatory for non-cash modes — the backend
-                      rejects a CARD / UPI / CHEQUE collection without one. */}
-                  {collectMode !== 'CASH' && (
-                    <Input
-                      placeholder={`${collectMode} reference no.`}
-                      className="h-8 w-full font-mono text-xs"
-                      value={collectRef}
-                      onChange={(e) => setCollectRef(e.target.value)}
-                    />
-                  )}
                 </div>
+                {/* Reference is mandatory for non-cash modes — the backend
+                    rejects a CARD / UPI / CHEQUE collection without one. */}
+                {collectMode !== 'CASH' && (
+                  <Input
+                    placeholder={`${collectMode} reference no.`}
+                    className="h-9 w-full font-mono text-xs"
+                    value={collectRef}
+                    onChange={(e) => setCollectRef(e.target.value)}
+                  />
+                )}
+                <Button
+                  size="sm"
+                  className="h-9 w-full gap-1.5"
+                  disabled={!selectedPendingId || payingInvoiceId !== null || !collectAmount}
+                  onClick={handleReceiveSelected}
+                >
+                  {payingInvoiceId === selectedPendingId
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <><CreditCard className="h-3.5 w-3.5" /> Receive</>}
+                </Button>
                 <p className="text-[10px] text-muted-foreground">
                   {selectedPendingId
                     ? `Payment will be recorded against the selected invoice (balance ${formatCurrency(selectedPendingBalance)}).`

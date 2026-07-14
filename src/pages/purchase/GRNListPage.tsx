@@ -757,36 +757,39 @@ export default function GRNListPage() {
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${grn.supplierId}`) } }}
                       >{grn.supplierName}</span>
                       <span className="block font-mono text-[10px] text-muted-foreground/70">
-                        {grn.grnNumber} · {formatDate(grn.date)}
-                        {grn.supplierInvoiceNo ? ` · ${grn.supplierInvoiceNo}` : ''}
+                        {grn.grnNumber}
+                        {cols.isVisible('date') && ` · ${formatDate(grn.date)}`}
+                        {cols.isVisible('invoice') && grn.supplierInvoiceNo && ` · ${grn.supplierInvoiceNo}`}
                       </span>
                     </div>
                     <div className="flex flex-col items-end gap-0.5 shrink-0">
-                      <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
-                        {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount)}
-                      </span>
-                      {grn.isReplacement ? (
+                      {cols.isVisible('value') && (
+                        <span className="font-mono text-[15px] font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(grn.supplierInvoiceAmount || grn.totalAmount)}
+                        </span>
+                      )}
+                      {cols.isVisible('payment') && (grn.isReplacement ? (
                         <Badge variant="outline" size="sm" className="border-sky-200 bg-sky-50 font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400">
                           Replacement
                         </Badge>
                       ) : (
                         <StatusBadge status={status} />
-                      )}
-                      {!grn.isReplacement && bal > 0.01 && (
+                      ))}
+                      {cols.isVisible('payment') && !grn.isReplacement && bal > 0.01 && (
                         <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">{formatCurrency(bal)}</span>
                       )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct'}</Badge>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">{grn.items.length} product{grn.items.length !== 1 ? 's' : ''}</span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 tabular-nums">+{totalRcv} recv</span>
-                    {dmg > 0 && (
+                    {cols.isVisible('source') && <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct'}</Badge>}
+                    {cols.isVisible('products') && <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">{grn.items.length} product{grn.items.length !== 1 ? 's' : ''}</span>}
+                    {cols.isVisible('received') && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 tabular-nums">+{totalRcv} recv</span>}
+                    {cols.isVisible('damaged') && dmg > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
                         <XCircle className="h-2.5 w-2.5" />{dmg} damaged
                       </span>
                     )}
-                    {shortCnt > 0 && (
+                    {cols.isVisible('short') && shortCnt > 0 && (
                       allResolved ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
                           <RotateCcw className="h-2.5 w-2.5" />Resolved
