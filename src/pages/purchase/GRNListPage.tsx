@@ -172,6 +172,39 @@ export default function GRNListPage() {
   // Table-view filters panel — controlled so picking "Custom Range" can auto-open it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
 
+  // Payment-status tabs (table view): this page's <main> scrolls the whole
+  // window rather than an internal panel (see AppLayout's tableViewActive
+  // comment), and CSS `position: sticky` computes against the nearest
+  // ancestor with a non-visible overflow — that's <main> itself here, which
+  // never actually scrolls, so sticky silently never engages. Fall back to a
+  // manual fixed-position pin once a sentinel placed just above the tabs
+  // scrolls under the header (h-14 = 56px). The sidebar can occupy anywhere
+  // from 0 (touch/mobile) to 16rem (expanded desktop) of the left edge, so
+  // rather than guess a breakpoint, capture the bar's own on-screen left/width
+  // right as it un-docks — that already reflects however much room the
+  // sidebar is currently leaving, whatever the viewport.
+  const tabsSentinelRef = useRef<HTMLDivElement>(null)
+  const tabsBarRef = useRef<HTMLDivElement>(null)
+  const [tabsPinned, setTabsPinned] = useState(false)
+  const [tabsMetrics, setTabsMetrics] = useState({ height: 0, left: 0, width: 0 })
+
+  useEffect(() => {
+    const sentinel = tabsSentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting && tabsBarRef.current) {
+          const rect = tabsBarRef.current.getBoundingClientRect()
+          setTabsMetrics({ height: rect.height, left: rect.left, width: rect.width })
+        }
+        setTabsPinned(!entry.isIntersecting)
+      },
+      { rootMargin: '-56px 0px 0px 0px', threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [])
+
   // Selecting "Custom Range" opens the filters panel that holds the date pickers.
   const onPeriodChange = useCallback((val: string) => {
     setPeriod(val)
@@ -609,13 +642,6 @@ export default function GRNListPage() {
         })}
       </div>
 
-      {/* Payment-status tabs — same premium pill control as the split view */}
-      <PaymentTabs
-        tab={payTab}
-        onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
-        counts={tabCounts}
-      />
-
       {/* Search + actions */}
       <DataTableFilterBar
         searchQuery={search}
@@ -722,6 +748,24 @@ export default function GRNListPage() {
           )}
         </div>
       </DataTableFilterBar>
+
+      {/* Payment-status tabs — pinned so they stay visible while the list below scrolls */}
+      <div ref={tabsSentinelRef} />
+      {tabsPinned && <div style={{ height: tabsMetrics.height }} />}
+      <div
+        ref={tabsBarRef}
+        style={tabsPinned ? { left: tabsMetrics.left, width: tabsMetrics.width } : undefined}
+        className={cn(
+          'z-20 bg-background py-1.5',
+          tabsPinned && 'fixed top-14 px-1 shadow-sm',
+        )}
+      >
+        <PaymentTabs
+          tab={payTab}
+          onChange={(t) => { setPayTab(t); setCurrentPage(1) }}
+          counts={tabCounts}
+        />
+      </div>
 
       {/* Table */}
       <Card className="overflow-hidden">

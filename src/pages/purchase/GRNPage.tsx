@@ -138,9 +138,10 @@ function focusVisibleGrnField(dataAttrSelector: string) {
   for (const el of candidates) {
     if (el.offsetParent !== null) {
       el.focus()
-      return
+      return true
     }
   }
+  return false
 }
 
 // Same visible-copy disambiguation as focusVisibleGrnField, but scrolls
@@ -365,6 +366,39 @@ export default function GRNPage() {
     setPanelDirection(step > panelStep ? 1 : -1)
     setPanelStep(step)
   }
+
+  // Mobile-only third axis: which "page" of the wizard the edit view shows —
+  // 'products' (source bar + supplier/product search + item cards) or 'panel'
+  // (the same Invoice+Payment/Summary content panelStep already drives).
+  // Desktop never consults this — products stay always-visible there and the
+  // panel lives in its own separate column. The Review view (showConfirm)
+  // also never consults this — it has no "add more products" step.
+  const [mobileSection, setMobileSectionState] = useState<'products' | 'panel'>('products')
+  const goToMobileSection = (section: 'products' | 'panel') => setMobileSectionState(section)
+  // Set by handleRowEnter when Enter on the last product row's Expiry Date
+  // auto-advances to the panel — focusVisibleGrnField can't run in the same
+  // tick since the panel isn't mounted yet, so this defers it to the effect
+  // below once mobileSection actually flips. Left false for a manual "Next"
+  // click, which shouldn't steal focus.
+  const pendingInvoiceFocusRef = useRef(false)
+  useEffect(() => {
+    if (mobileSection !== 'panel' || !pendingInvoiceFocusRef.current) return
+    // Radix ScrollArea needs a layout pass after mounting before its content
+    // is actually laid out (offsetParent stays null for a tick), so poll
+    // briefly rather than assume one delay is enough. Clear the ref only once
+    // a focus attempt actually lands (not up front) — StrictMode
+    // double-invokes this effect in dev, and clearing eagerly would let the
+    // cancelled first run consume the flag before the surviving run acts.
+    let attempts = 0
+    const timer = setInterval(() => {
+      attempts += 1
+      if (focusVisibleGrnField('[data-field="invoiceNumber"]') || attempts > 20) {
+        pendingInvoiceFocusRef.current = false
+        clearInterval(timer)
+      }
+    }, 50)
+    return () => clearInterval(timer)
+  }, [mobileSection])
 
   // Post-confirm short supply action dialog
   const [shortActionDialog, setShortActionDialog] = useState<{
@@ -740,6 +774,8 @@ export default function GRNPage() {
     if (nextItem) {
       focusGrnField(nextItem.id, GRN_FIELD_ORDER[0])
     } else {
+      pendingInvoiceFocusRef.current = true
+      goToMobileSection('panel')
       focusVisibleGrnField('[data-field="invoiceNumber"]')
     }
   }
@@ -1040,6 +1076,7 @@ export default function GRNPage() {
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
     setPanelStep(1)
+    setMobileSectionState('products')
     draft.clear()
   }
 
@@ -1330,8 +1367,15 @@ export default function GRNPage() {
         )}
 
         {/* Source toggle — segmented control. Locked in edit mode: a received
-            GRN's source (PO vs direct) and supplier can't be re-pointed. */}
-        <div className={cn('flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5', editMode && 'opacity-60')}>
+            GRN's source (PO vs direct) and supplier can't be re-pointed.
+            Below lg, only the Products step needs it (that's where source/
+            supplier/products are chosen) — centered there, hidden on the
+            other mobile steps; always shown at lg+ regardless of step. */}
+        <div className={cn(
+          'items-center rounded-lg border border-border/60 bg-muted/30 p-0.5',
+          mobileSection === 'products' ? 'flex w-full justify-center lg:w-auto lg:justify-start' : 'hidden lg:flex',
+          editMode && 'opacity-60',
+        )}>
           <button
             onClick={() => handleSourceChange('po')}
             disabled={editMode}
@@ -1362,7 +1406,7 @@ export default function GRNPage() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 lg:flex">
           <Badge variant="outline" size="sm" className="font-mono">
             {grnNumber}
           </Badge>
@@ -1642,6 +1686,18 @@ export default function GRNPage() {
           </div>
         ) : (
         <>
+          {/* Products vs Panel: both stay mounted at all times (CSS
+              visibility, not a JS ternary) because desktop must always show
+              Products in this column regardless of mobileSection — its own
+              right-hand column is where Panel content lives at lg+. Below lg,
+              mobileSection toggles which one is visible. (Not animated with
+              AnimatePresence like panelStep is — nesting a mode="wait"
+              AnimatePresence around content that already contains its own
+              (item-card removal, panelStep's own transition) made Framer
+              Motion's exit bookkeeping take 1s+ to settle in practice, which
+              stalled the auto-focus this section drives after the Enter-key
+              chain.) */}
+          <div className={cn(mobileSection === 'products' ? 'flex' : 'hidden', 'lg:flex flex-1 min-h-0 flex-col')}>
           {/* Source bar — PO selector or Direct label */}
           {sourceType === 'po' && (
             <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 dark:bg-muted/5">
@@ -2182,10 +2238,12 @@ export default function GRNPage() {
                   </motion.div>
                 ))}
               </AnimatePresence>
-
-              {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
-                  the desktop right-hand context panel is hidden below lg. */}
-              <div className="lg:hidden mt-3 space-y-5 border-t border-border/40 pt-3 overflow-hidden">
+                  </div>
+                </ScrollArea>
+          </div>
+          <div className={cn(mobileSection === 'panel' ? 'flex' : 'hidden', 'lg:hidden flex-1 min-h-0 flex-col')}>
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="p-4">
                 <AnimatePresence mode="wait" custom={panelDirection}>
                   <motion.div
                     key={panelStep}
@@ -2199,19 +2257,30 @@ export default function GRNPage() {
                     {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
                   </motion.div>
                 </AnimatePresence>
-              </div>
-            </div>
-          </ScrollArea>
+                </div>
+              </ScrollArea>
+          </div>
         </>
         )}
 
         {/* ── Mobile action footer (hidden on lg+, where the right panel shows) ── */}
         <div className="lg:hidden shrink-0 border-t border-border/40 bg-background p-3 space-y-2">
-          {panelStep === 1 ? (
-            <Button className="w-full" onClick={() => goToPanelStep(2)}>
+          {mobileSection === 'products' ? (
+            <Button className="w-full" disabled={!canConfirm} onClick={() => goToMobileSection('panel')}>
               Next
               <ChevronRight className="ml-1.5 h-4 w-4" />
             </Button>
+          ) : panelStep === 1 ? (
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => goToMobileSection('products')}>
+                <ChevronLeft className="mr-1.5 h-4 w-4" />
+                Back
+              </Button>
+              <Button className="flex-1" onClick={() => goToPanelStep(2)}>
+                Next
+                <ChevronRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            </div>
           ) : (
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => goToPanelStep(1)}>
