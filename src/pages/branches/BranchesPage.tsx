@@ -72,6 +72,7 @@ import { isAdminish, userRoles } from '@/types'
 import { useBranchStore, type Branch } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ const branchSchema = z.object({
   name: z.string().min(1, 'Branch name is required'),
   code: z.string().min(1, 'Branch code is required').max(10, 'Code max 10 chars'),
   address: z.string().optional(),
-  phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number').or(z.literal('')).optional(),
+  phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number').or(z.literal('')).optional(),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   gstin: z.string().optional(),
   drugLicense: z.string().optional(),
@@ -142,7 +143,7 @@ export default function BranchesPage() {
   const [statusFilter, setStatusFilter] = usePageFilter<string>('branches.list', 'status', 'all')
   const [activityFilter, setActivityFilter] = usePageFilter<string>('branches.list', 'activity', 'all')
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.branches.pageSize', 10)
 
   // ── UI mode ──
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -178,13 +179,13 @@ export default function BranchesPage() {
   // ── Query builder ──
   const buildQueryParams = useCallback((): URLSearchParams => {
     const params = new URLSearchParams()
-    params.set('skip', String((currentPage - 1) * PAGE_SIZE))
-    params.set('take', String(PAGE_SIZE))
+    params.set('skip', String((currentPage - 1) * pageSize))
+    params.set('take', String(pageSize))
     if (searchQuery.trim()) params.set('q', searchQuery.trim())
     if (statusFilter !== 'all') params.set('isActive', statusFilter === 'active' ? 'true' : 'false')
     if (activityFilter !== 'all') params.set('hasSales', activityFilter === 'has-sales' ? 'true' : 'false')
     return params
-  }, [currentPage, searchQuery, statusFilter, activityFilter])
+  }, [currentPage, pageSize, searchQuery, statusFilter, activityFilter])
 
   // ── Fetch list (debounced on search) ──
   const fetchAbortRef = useRef<AbortController | null>(null)
@@ -234,7 +235,7 @@ export default function BranchesPage() {
   // Reset to page 1 whenever a filter or search changes
   useEffect(() => { setCurrentPage(1) }, [searchQuery, statusFilter, activityFilter])
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const activeFilterCount =
     (statusFilter !== 'all' ? 1 : 0) +
@@ -686,7 +687,9 @@ export default function BranchesPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={total}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>
@@ -798,7 +801,9 @@ export default function BranchesPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={total}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>

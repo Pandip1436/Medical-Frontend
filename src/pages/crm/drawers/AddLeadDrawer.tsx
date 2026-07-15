@@ -76,6 +76,17 @@ const schema = z
     contactEmail: z.string().email().optional().or(z.literal('')),
     contactJobTitle: z.string().optional(),
     contactCompanyId: z.string().optional(),
+    contactCompanyName: z.string().optional(),
+    contactAddress: z.string().optional(),
+    contactCity: z.string().optional(),
+    contactState: z.string().optional(),
+    contactCountry: z.string().optional(),
+    // Requirement details — the "Requirements" card (mirrors IndiaMART payload).
+    reqProduct: z.string().optional(),
+    reqCategory: z.string().optional(),
+    reqCity: z.string().optional(),
+    reqState: z.string().optional(),
+    reqMessage: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     // Either an existing contact OR a fully-populated new-contact block must
@@ -118,6 +129,16 @@ const defaultValues: FormValues = {
   contactEmail: '',
   contactJobTitle: '',
   contactCompanyId: undefined,
+  contactCompanyName: '',
+  contactAddress: '',
+  contactCity: '',
+  contactState: '',
+  contactCountry: '',
+  reqProduct: '',
+  reqCategory: '',
+  reqCity: '',
+  reqState: '',
+  reqMessage: '',
 }
 
 export function AddLeadDrawer({
@@ -162,6 +183,11 @@ export function AddLeadDrawer({
         score: Number(values.score) || 0,
         value: Number(values.value) || 0,
         currency: values.currency,
+        externalProductName: values.reqProduct?.trim() || undefined,
+        externalCategory: values.reqCategory?.trim() || undefined,
+        externalCity: values.reqCity?.trim() || undefined,
+        externalState: values.reqState?.trim() || undefined,
+        externalMessage: values.reqMessage?.trim() || undefined,
       }
       if (contactMode === 'search' && values.contactId) {
         payload.contactId = values.contactId
@@ -173,7 +199,11 @@ export function AddLeadDrawer({
           phone: values.contactPhone,
           email: values.contactEmail?.trim() || undefined,
           jobTitle: values.contactJobTitle?.trim() || undefined,
-          companyId: values.contactCompanyId || undefined,
+          companyName: values.contactCompanyName?.trim() || undefined,
+          address: values.contactAddress?.trim() || undefined,
+          city: values.contactCity?.trim() || undefined,
+          state: values.contactState?.trim() || undefined,
+          country: values.contactCountry?.trim() || undefined,
         }
       }
       if (USE_MOCK_DATA) {
@@ -209,8 +239,8 @@ export function AddLeadDrawer({
           value: Number(values.value) || 0,
           currency: payload.currency as string,
           contact: contactInput,
-          company: selectedCompany
-            ? { id: selectedCompany.id, name: selectedCompany.name }
+          company: values.contactCompanyName?.trim()
+            ? { id: 'new', name: values.contactCompanyName.trim() }
             : undefined,
         })
       } else {
@@ -403,6 +433,40 @@ export function AddLeadDrawer({
                       </div>
                     </>
                   )}
+                />
+              </div>
+            </section>
+
+            {/* ── REQUIREMENTS (optional) — populates the lead's Requirements
+                card, same fields IndiaMART leads carry. ── */}
+            <section className="space-y-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Requirements
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Product</Label>
+                  <Input placeholder="e.g. Renocrit 2000 IU" {...form.register('reqProduct')} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Category</Label>
+                  <Input placeholder="e.g. Erythropoietin Injection" {...form.register('reqCategory')} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>City</Label>
+                  <Input placeholder="City" {...form.register('reqCity')} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>State</Label>
+                  <Input placeholder="State" {...form.register('reqState')} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Buyer's Message</Label>
+                <Textarea
+                  placeholder="Requirement details, quantity, order value…"
+                  rows={3}
+                  {...form.register('reqMessage')}
                 />
               </div>
             </section>
@@ -683,13 +747,25 @@ function NewContactFields({
       </div>
       <div className="space-y-1.5">
         <Label>Company</Label>
-        <CompanySearchField
-          value={selectedCompany}
-          onChange={onCompanyChange}
-        />
-        <p className="text-[10px] text-muted-foreground">
-          Link to an existing company or create new
-        </p>
+        <Input placeholder="Company name" {...form.register('contactCompanyName')} />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Address</Label>
+        <Input placeholder="Street address" {...form.register('contactAddress')} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>City</Label>
+          <Input placeholder="City" {...form.register('contactCity')} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>State</Label>
+          <Input placeholder="State" {...form.register('contactState')} />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Country</Label>
+        <Input placeholder="India" {...form.register('contactCountry')} />
       </div>
     </div>
   )

@@ -158,9 +158,7 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     name: z.string().min(1, 'Name is required'),
     phone: z
       .string()
-      .min(10, 'Phone must be 10 digits')
-      .max(10, 'Phone must be 10 digits')
-      .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
+      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
     email: z.string().email('Invalid email').or(z.literal('')).optional(),
     address: mode === 'invoice' ? z.string().min(1, 'Address is required') : z.string().optional(),
@@ -414,13 +412,18 @@ function BillingRow({
     ).slice(0, 4)
   }, [item.productId, products])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // `batches` MUST be in the deps: on page refresh the row restores with
+  // item.productId set before the store's batches have been re-hydrated (the
+  // /products/:id fetch runs after mount). Without `batches` here the memo
+  // stays stuck on its initial empty result and the dropdown shows
+  // "No batch available" until the row is edited. Recomputing on batches
+  // change fixes the post-refresh empty-batch bug.
   const productBatches = useMemo(() => {
     if (!item.productId) return []
     return batches
       .filter((b) => b.productId === item.productId && b.quantity > 0 && !isExpired(b.expiryDate))
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
-  }, [item.productId])
+  }, [item.productId, batches])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const selectedProduct = useMemo(() => {
@@ -484,14 +487,13 @@ function BillingRow({
       setSelectedIndex(0)
       onUpdate(item.id, updates)
 
-      // Auto-focus next field
+      // Auto-focus quantity right after picking a product. The FEFO batch is
+      // already auto-selected above, so the operator can type the qty
+      // immediately (and Tab to the batch selector on the rare occasion they
+      // need a non-FEFO batch) instead of being stopped on the batch dropdown.
       setTimeout(() => {
-        if (batches.length > 1) {
-          batchRef.current?.focus()
-        } else {
-          qtyRef.current?.focus()
-          qtyRef.current?.select()
-        }
+        qtyRef.current?.focus()
+        qtyRef.current?.select()
       }, 50)
     },
     [billingType, item, onUpdate, batches, customerLastRates, batchesUsedByOthers]
@@ -659,6 +661,7 @@ function BillingRow({
           <div className="flex items-center gap-1.5">
             <input
               ref={inputRef}
+              data-product-search
               value={productSearch}
               onChange={(e) => {
                 setProductSearch(e.target.value)
@@ -1073,6 +1076,21 @@ function BillingRow({
         onChange={(e) =>
           handleQtyChange(parseInt(e.target.value) || 0)
         }
+        onKeyDown={(e) => {
+          // Enter after typing the quantity = "done with this line, add the
+          // next product": move focus to the next row's product search. The
+          // cart auto-grows a fresh empty row once this row has a product, so
+          // there's always a next input to land on.
+          if (e.key === "Enter") {
+            e.preventDefault()
+            const inputs = Array.from(
+              document.querySelectorAll<HTMLInputElement>("[data-product-search]")
+            )
+            const idx = inputs.indexOf(inputRef.current as HTMLInputElement)
+            const next = idx >= 0 ? inputs[idx + 1] : undefined
+            next?.focus()
+          }
+        }}
         disabled={
           invoiceType === "invoice" && !item.productId
         }
@@ -1245,8 +1263,9 @@ function BillingRow({
   })()}
 </TableCell>
 
-      {/* Disc% — helper spacer on top to align with other cells */}
-   <TableCell className="w-16 px-2 py-2.5 align-middle">
+      {/* Disc% — helper spacer on top to align with other cells. w-20 (not
+          w-16) so a 3-digit "100" fits alongside the % suffix without clipping. */}
+   <TableCell className="w-20 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
     {/* Helper Row */}
     <div className="min-h-5 flex items-center justify-center">
@@ -1257,10 +1276,11 @@ function BillingRow({
       )}
     </div>
 
-    {/* Discount Input */}
+    {/* Discount Input. The % is an inline suffix (NOT absolutely positioned)
+        so a 3-digit "100" sits beside it and can never slide underneath it. */}
     <div
       className={cn(
-        "relative flex items-center rounded-xl border transition-all",
+        "flex items-center rounded-xl border transition-all",
         "focus-within:ring-2 focus-within:ring-primary/10",
         item.discountPercent > 0
           ? "border-rose-400 bg-rose-50/30 dark:bg-rose-900/10"
@@ -1283,12 +1303,11 @@ function BillingRow({
           invoiceType === "invoice" && !item.productId
         }
         className={cn(
-          "h-8 w-full bg-transparent border-0",
-          "text-center text-sm font-bold tabular-nums",
+          "h-8 w-10 bg-transparent border-0 pl-1.5",
+          "text-right text-sm font-bold tabular-nums",
           "placeholder:text-muted-foreground/30",
           "focus:outline-none focus:ring-0",
           "disabled:opacity-40",
-          "pr-6",
           "[appearance:textfield]",
           "[&::-webkit-outer-spin-button]:appearance-none",
           "[&::-webkit-inner-spin-button]:appearance-none",
@@ -1300,7 +1319,7 @@ function BillingRow({
 
       <span
         className={cn(
-          "absolute right-2 top-1/2 -translate-y-1/2",
+          "shrink-0 pl-0.5 pr-1.5",
           "text-xs font-semibold pointer-events-none",
           item.discountPercent > 0
             ? "text-rose-500"
@@ -1360,7 +1379,7 @@ function BillingRow({
         }}
         placeholder="0"
         className="
-          h-8 w-10 rounded-xl
+          h-8 w-12 rounded-xl
           border border-border/40
           bg-muted/20
           text-center
@@ -2761,6 +2780,12 @@ export default function NewSalePage() {
       params.get('duplicateId') ||
       params.get('editId') ||
       params.get('leadId') ||
+      // `?from=quotation` (or replacement) conversions: the quotation-restore
+      // effect above removes `quotation_prefill` before this effect runs, so we
+      // can't rely on that key here — the `from` URL param is what persists and
+      // must suppress the auto-draft restore, otherwise the draft overwrites the
+      // just-loaded quotation items.
+      params.get('from') ||
       sessionStorage.getItem('quotation_prefill') ||
       sessionStorage.getItem('repurchase_items')
     )
@@ -3061,9 +3086,33 @@ export default function NewSalePage() {
   // No customer yet → open the customer dropdown (its search input
   // autoFocuses). Customer already set (edit-invoice / draft-restore) →
   // focus the product search so the operator can scan items immediately.
+  //
+  // Prefill flows (quotation convert `?from=…`, edit, duplicate, lead,
+  // repurchase) carry their own customer, but it may resolve asynchronously
+  // (e.g. a 250ms master-store retry) — later than this 100ms tick. Do NOT
+  // pop the customer dropdown for those: it would open on top of the
+  // about-to-be-selected customer. Land on the product search instead.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    // `?from=…` conversions (quotation → invoice / replacement) arrive with the
+    // customer AND the line items already loaded, so just land on the Products
+    // tab as-is: don't focus the product search or open any picker.
+    const isConversion = !!params.get('from')
+    const hasPrefillFlow = isConversion || !!(
+      params.get('editId') ||
+      params.get('draftId') ||
+      params.get('duplicateId') ||
+      params.get('leadId') ||
+      sessionStorage.getItem('quotation_prefill') ||
+      sessionStorage.getItem('repurchase_items')
+    )
+    // A conversion arrives with its cart pre-loaded, so land on the Products
+    // tab (the cart) — not the default Customer History tab — so the operator
+    // sees the items straight away.
+    if (isConversion) setTableView('products')
     setTimeout(() => {
-      if (selectedCustomer) heroSearchRef.current?.focus()
+      if (isConversion) return
+      if (selectedCustomer || hasPrefillFlow) heroSearchRef.current?.focus()
       else setShowCustomerDropdown(true)
     }, 100)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4123,10 +4172,7 @@ export default function NewSalePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'F8') {
-        e.preventDefault()
-        submitInvoice()
-      } else if (e.key === 'F7') {
+      if (e.key === 'F7') {
         e.preventDefault()
         if (items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length > 0 && selectedCustomer) {
           setPreviewOpen(true)
@@ -4140,8 +4186,11 @@ export default function NewSalePage() {
       } else if (e.key === 'F10') {
         e.preventDefault()
         holdCurrentBill()
-      } else if (e.ctrlKey && e.key === 's') {
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        // Ctrl+S (Cmd+S on Mac) = Save & Print. preventDefault stops the
+        // browser's "Save page" dialog.
         e.preventDefault()
+        submitInvoice()
       } else if (e.altKey && e.key === 's') {
         e.preventDefault()
         if (!selectedCustomer) {
@@ -4461,7 +4510,7 @@ export default function NewSalePage() {
           <TooltipContent>Preview invoice (F7)</TooltipContent>
         </Tooltip>
 
-        {/* Save & Print (F8) — primary hero, spans 2 cols */}
+        {/* Save & Print (Ctrl+S) — primary hero, spans 2 cols */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -4496,10 +4545,10 @@ export default function NewSalePage() {
                   }
                 </span>
               </div>
-              <kbd className="hidden lg:inline-flex ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold shrink-0">F8</kbd>
+              <kbd className="hidden lg:inline-flex ml-1 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold shrink-0">Ctrl+S</kbd>
             </button>
           </TooltipTrigger>
-          <TooltipContent>Save and print invoice (F8)</TooltipContent>
+          <TooltipContent>Save and print invoice (Ctrl+S)</TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -4759,16 +4808,6 @@ export default function NewSalePage() {
               </AnimatePresence>
               </div>{/* end search div */}
 
-              {/* Add Item Button — mobile only, row 1 */}
-              <Button
-                type="button"
-                onClick={addItem}
-                disabled={!selectedCustomer}
-                title={!selectedCustomer ? 'Select a customer first' : undefined}
-                className="h-11 px-4 shrink-0 gap-2 font-semibold cursor-pointer md:hidden disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
             </div>{/* end mobile row 1 wrapper */}
 
             {/* Customer Selector — full width on mobile (row 2), flex-1 on desktop */}
@@ -4955,11 +4994,11 @@ export default function NewSalePage() {
           </div>
 
           {/* ═══════════════════════════════════════════════════
-              RIGHT-END ACTIONS (Reminder + Add Item) — desktop only
+              RIGHT-END ACTIONS (Reminder) — desktop only. Items are added via
+              the product search bar or the Alt+N shortcut.
           ═══════════════════════════════════════════════════ */}
-          {/* responsive: tablet (md) shows icon-only Add Item; lg+ adds the "Add Item" label; xl+ adds the kbd hint */}
-          <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
-            {selectedCustomer && (
+          {selectedCustomer && (
+            <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -4970,20 +5009,8 @@ export default function NewSalePage() {
                 <CalendarClock className="h-4 w-4" />
                 <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
               </Button>
-            )}
-
-            <Button
-              type="button"
-              onClick={addItem}
-              disabled={!selectedCustomer}
-              title={!selectedCustomer ? 'Select a customer first to add products' : 'Add Item (Alt+N)'}
-              className="h-11 md:h-11 px-3 lg:px-4 shrink-0 gap-2 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden lg:inline text-sm">Add Item</span>
-              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 text-[9px] font-mono text-primary-foreground/80">Alt+N</kbd>
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* ── Selected Customer Details (verify the right customer) ── */}
@@ -5729,7 +5756,7 @@ export default function NewSalePage() {
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
                               <TableHead className="w-28 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
                               <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
-                              <TableHead className="w-16 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
+                              <TableHead className="w-20 px-2 py-3.5 text-center h-auto whitespace-nowrap">Disc %</TableHead>
                               <TableHead className="w-18 px-1 py-3.5 text-center h-auto whitespace-nowrap">GST</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">Taxable</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">GST ₹</TableHead>
@@ -6778,9 +6805,12 @@ export default function NewSalePage() {
                       card, a left accent bar, and the largest type on the panel. */}
                   <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-linear-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
                     <span className="absolute inset-y-0 left-0 w-1 bg-primary/70" aria-hidden />
-                    <div className="flex items-baseline justify-between pl-1.5">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
-                      <span className="font-mono text-[2rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
+                    {/* Label on top, amount on its own full-width line so large
+                        totals stay fully visible instead of being squeezed next
+                        to the label. Amount shrinks a step at very large values. */}
+                    <div className="pl-1.5">
+                      <span className="block text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
+                      <span className="mt-1 block whitespace-nowrap text-right font-mono text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
                         {formatCurrency(totals.grandTotal)}
                       </span>
                     </div>

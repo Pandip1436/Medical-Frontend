@@ -23,6 +23,7 @@ import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { useRoute, navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency } from '@/lib/utils'
 import {
@@ -147,6 +148,7 @@ export default function ProductHistoryPage() {
   const [purchasesPage, setPurchasesPage] = useState(1)
   const [timelinePage, setTimelinePage] = useState(1)
   const PAGE_SIZE = 50
+  const [pageSize, setPageSize] = usePageSize('pbims.productHistory.pageSize', PAGE_SIZE)
 
   // Document drawer: clicking any history row opens the underlying document
   // (invoice / GRN / credit note / debit note) in-place for verification.
@@ -333,8 +335,8 @@ export default function ProductHistoryPage() {
   const filteredTimeline = useMemo(() => applyFilters(timeline), [timeline, applyFilters])
 
   // ── Paginate ────────────────────────────────────────────────
-  const paginate = <T,>(rows: T[], page: number) => rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalPages = (rows: any[]) => Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const paginate = <T,>(rows: T[], page: number) => rows.slice((page - 1) * pageSize, page * pageSize)
+  const totalPages = (rows: any[]) => Math.max(1, Math.ceil(rows.length / pageSize))
 
   const pagedSales = useMemo(() => paginate(filteredSales, salesPage), [filteredSales, salesPage])
   const pagedPurchases = useMemo(() => paginate(filteredPurchases, purchasesPage), [filteredPurchases, purchasesPage])
@@ -806,7 +808,9 @@ export default function ProductHistoryPage() {
                     totalPages={totalPages(filteredSales)}
                     onPageChange={setSalesPage}
                     totalItems={filteredSales.length}
-                    itemsPerPage={PAGE_SIZE}
+                    itemsPerPage={pageSize}
+                    pageSize={pageSize}
+                    onPageSizeChange={(n) => { setPageSize(n); setSalesPage(1); setPurchasesPage(1); setTimelinePage(1) }}
                     className="border-t border-border/40 px-4"
                   />
                 </>
@@ -1005,7 +1009,9 @@ export default function ProductHistoryPage() {
                     totalPages={totalPages(filteredPurchases)}
                     onPageChange={setPurchasesPage}
                     totalItems={filteredPurchases.length}
-                    itemsPerPage={PAGE_SIZE}
+                    itemsPerPage={pageSize}
+                    pageSize={pageSize}
+                    onPageSizeChange={(n) => { setPageSize(n); setSalesPage(1); setPurchasesPage(1); setTimelinePage(1) }}
                     className="border-t border-border/40 px-4"
                   />
                 </>
@@ -1223,7 +1229,9 @@ export default function ProductHistoryPage() {
                     totalPages={totalPages(filteredTimeline)}
                     onPageChange={setTimelinePage}
                     totalItems={filteredTimeline.length}
-                    itemsPerPage={PAGE_SIZE}
+                    itemsPerPage={pageSize}
+                    pageSize={pageSize}
+                    onPageSizeChange={(n) => { setPageSize(n); setSalesPage(1); setPurchasesPage(1); setTimelinePage(1) }}
                     className="border-t border-border/40 px-4"
                   />
                 </>

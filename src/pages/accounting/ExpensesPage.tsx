@@ -27,6 +27,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
@@ -63,8 +64,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ExportMenu } from '@/components/shared/ExportMenu'
-import { cn, formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
-import api from '@/lib/api'
+import { cn, formatCurrency, formatCurrencyCompact, formatDate, dateWithCurrentTime } from '@/lib/utils'
+import api, { API_SERVER_URL } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { Expense } from '@/types'
 import {
@@ -142,6 +143,13 @@ const expenseCategories = [
 
 const paymentModes = ['CASH', 'BANK_TRANSFER', 'UPI', 'CHEQUE']
 
+// Receipts are usually a full R2 URL, but legacy ones (or a local-storage
+// fallback) are a relative `/uploads/...` path. A bare <a href> would resolve
+// those against the frontend origin (which doesn't serve them); prefix the
+// backend server so the file actually opens.
+const resolveReceiptUrl = (url: string): string =>
+  /^https?:\/\//i.test(url) ? url : `${API_SERVER_URL}${url}`
+
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
@@ -176,7 +184,7 @@ export default function ExpensesPage() {
 
   // Pagination — driven by the server, not by slicing locally.
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.expenses.pageSize', 10)
 
   // Server-driven state
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -193,7 +201,7 @@ export default function ExpensesPage() {
     api.get('/expenses', {
       params: {
         page: currentPage,
-        pageSize: PAGE_SIZE,
+        pageSize: pageSize,
         search: debouncedSearch.trim() || undefined,
         category: categoryFilter !== 'all' ? categoryFilter : undefined,
         paymentMode: paymentModeFilter !== 'all' ? paymentModeFilter : undefined,
@@ -216,7 +224,7 @@ export default function ExpensesPage() {
       })
       .finally(() => { if (!cancelled) setIsLoading(false) })
     return () => { cancelled = true }
-  }, [currentPage, debouncedSearch, categoryFilter, paymentModeFilter])
+  }, [currentPage, pageSize, debouncedSearch, categoryFilter, paymentModeFilter])
 
   // Re-fetch whenever any filter / page / search changes. The debounce on
   // `search` keeps keystrokes from hammering the BE.
@@ -238,7 +246,7 @@ export default function ExpensesPage() {
   const [removeReceipt, setRemoveReceipt] = useState(false)
   const receiptInputRef = useRef<HTMLInputElement>(null)
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   // Sorted, colored, prettified data for the chart view. Sorting desc so the
   // column chart reads as a clear ranking and the donut largest slice starts at top.
@@ -362,7 +370,7 @@ export default function ExpensesPage() {
       const usingFormData = !!receiptFile || removeReceipt
       if (usingFormData) {
         const fd = new FormData()
-        fd.append('date', new Date(values.date).toISOString())
+        fd.append('date', dateWithCurrentTime(values.date))
         fd.append('category', values.category)
         fd.append('description', values.description)
         fd.append('amount', String(values.amount))
@@ -371,11 +379,15 @@ export default function ExpensesPage() {
         // Empty string signals the backend to clear the existing receipt URL
         // (and delete the R2 object). New file overrides this.
         if (removeReceipt && !receiptFile) fd.append('receiptImage', '')
-        if (editingExpense) await api.patch(`/expenses/${editingExpense.id}`, fd)
-        else await api.post('/expenses', fd)
+        // Must set multipart/form-data explicitly — the api instance defaults to
+        // application/json, which would stop the backend's multer from parsing
+        // the file, so the receipt would silently never be saved.
+        const cfg = { headers: { 'Content-Type': 'multipart/form-data' } }
+        if (editingExpense) await api.patch(`/expenses/${editingExpense.id}`, fd, cfg)
+        else await api.post('/expenses', fd, cfg)
       } else {
         const payload = {
-          date: new Date(values.date).toISOString(),
+          date: dateWithCurrentTime(values.date),
           category: values.category,
           description: values.description,
           amount: values.amount,
@@ -623,7 +635,7 @@ export default function ExpensesPage() {
                         {expense.description}
                         {expense.receiptImage && (
                           <a
-                            href={expense.receiptImage}
+                            href={resolveReceiptUrl(expense.receiptImage)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-muted-foreground hover:text-foreground"
@@ -658,6 +670,11 @@ export default function ExpensesPage() {
                     <div onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         customActions={[
+                          ...(expense.receiptImage ? [{
+                            label: 'View Receipt',
+                            icon: <Paperclip className="h-4 w-4" />,
+                            onClick: () => window.open(resolveReceiptUrl(expense.receiptImage!), '_blank', 'noopener,noreferrer'),
+                          }] : []),
                           {
                             label: 'Edit',
                             icon: <Pencil className="h-4 w-4" />,
@@ -746,7 +763,7 @@ export default function ExpensesPage() {
                       {expense.description}
                       {expense.receiptImage && (
                         <a
-                          href={expense.receiptImage}
+                          href={resolveReceiptUrl(expense.receiptImage)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-muted-foreground hover:text-foreground"
@@ -768,6 +785,11 @@ export default function ExpensesPage() {
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <DataTableRowActions
                       customActions={[
+                        ...(expense.receiptImage ? [{
+                          label: 'View Receipt',
+                          icon: <Paperclip className="h-4 w-4" />,
+                          onClick: () => window.open(resolveReceiptUrl(expense.receiptImage!), '_blank', 'noopener,noreferrer'),
+                        }] : []),
                         {
                           label: 'Edit',
                           icon: <Pencil className="h-4 w-4" />,
@@ -813,7 +835,9 @@ export default function ExpensesPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={total}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </CardContent>
@@ -1116,7 +1140,7 @@ export default function ExpensesPage() {
                 ) : existingReceiptUrl && !removeReceipt ? (
                   <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
                     <a
-                      href={existingReceiptUrl}
+                      href={resolveReceiptUrl(existingReceiptUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 flex-1 min-w-0 hover:underline"

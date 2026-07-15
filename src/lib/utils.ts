@@ -126,6 +126,20 @@ export function formatDateTime(date: Date | string | undefined | null): string {
   return `${renderDate(d, fmt)}, ${time}`
 }
 
+// Combine a picked calendar day with the CURRENT wall-clock time. Records that
+// only capture a date (e.g. expenses via a date picker) otherwise store
+// midnight, which surfaces as 05:30 in the Cash Book (IST = UTC+5:30). Uses
+// LOCAL date components so the picked day is preserved in the user's timezone.
+export function dateWithCurrentTime(dateInput: string | Date): string {
+  const picked = new Date(dateInput)
+  if (isNaN(picked.getTime())) return new Date().toISOString()
+  const now = new Date()
+  return new Date(
+    picked.getFullYear(), picked.getMonth(), picked.getDate(),
+    now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds(),
+  ).toISOString()
+}
+
 // "This Week" everywhere in the app means the current Mon→Sun calendar week,
 // NOT a rolling last-7-days window. Returns the Monday of `date`'s week as a
 // YYYY-MM-DD string, matching how the period filters compare against the row's

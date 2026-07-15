@@ -37,10 +37,10 @@ export const customerFormSchema = z
       .string()
       .min(10, 'Phone must be 10 digits')
       .max(10, 'Phone must be 10 digits')
-      .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
+      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
     alternatePhone: z
       .string()
-      .regex(/^\d{10}$/, 'Must be exactly 10 digits')
+      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number')
       .or(z.literal(''))
       .optional(),
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),

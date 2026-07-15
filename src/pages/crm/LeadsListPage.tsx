@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { cn } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 
@@ -43,7 +44,8 @@ import type { Lead } from './types'
  */
 export default function LeadsListPage() {
   const { search } = useRoute()
-  const list = useLeadsList()
+  const [pageSize, setPageSize] = usePageSize('pbims.leads.pageSize', 25)
+  const list = useLeadsList({ pageSize })
   const cols = useVisibleColumns()
 
   const [view, setView] = useState<ViewMode>(() => {
@@ -286,7 +288,7 @@ export default function LeadsListPage() {
                 exit={{ opacity: 0, height: 0 }}
                 className="hidden overflow-hidden md:block"
               >
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                   {[
                     { label: 'Total Leads', value: list.counts.all, subtitle: 'all leads', iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
                     { label: 'Open', value: list.counts.open, subtitle: 'in progress', iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
@@ -422,12 +424,16 @@ export default function LeadsListPage() {
               onChanged={() => list.refetch()}
             />
           </div>
-          {list.totalPages > 1 && (
+          {list.total > 0 && (
             <div className="shrink-0">
               <DataTablePagination
                 currentPage={list.page}
                 totalPages={list.totalPages}
                 onPageChange={list.setPage}
+                totalItems={list.total}
+                itemsPerPage={pageSize}
+                pageSize={pageSize}
+                onPageSizeChange={(n) => { setPageSize(n); list.setPage(1) }}
               />
             </div>
           )}

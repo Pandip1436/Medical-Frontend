@@ -156,7 +156,7 @@ const createSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
     email: z.string().email('Valid email required'),
-    phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
+    phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
     roles: rolesField,
     password: z.string().min(6, 'Password must be at least 6 characters'),
     branchIds: z.array(z.string()),
@@ -167,7 +167,7 @@ const createSchema = z
 const editSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
+    phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
     roles: rolesField,
     newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
     branchIds: z.array(z.string()),

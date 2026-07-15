@@ -35,6 +35,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
@@ -229,14 +230,15 @@ export default function SuppliersPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.suppliers.pageSize', PAGE_SIZE)
 
   // Build query params from current filter + search + pagination state.
   const buildQueryParams = useCallback(
     (opts?: { paginated?: boolean }): URLSearchParams => {
       const params = new URLSearchParams()
       if (opts?.paginated !== false) {
-        params.set('skip', String((currentPage - 1) * PAGE_SIZE))
-        params.set('take', String(PAGE_SIZE))
+        params.set('skip', String((currentPage - 1) * pageSize))
+        params.set('take', String(pageSize))
       }
       if (searchQuery.trim()) params.set('q', searchQuery.trim())
       if (selectedStatus !== 'all') params.set('isActive', selectedStatus === 'ACTIVE' ? 'true' : 'false')
@@ -249,7 +251,7 @@ export default function SuppliersPage() {
       if (payTab !== 'all') params.set('paymentStatus', payTab.toUpperCase())
       return params
     },
-    [currentPage, searchQuery, selectedStatus, selectedPaymentTerms, selectedGstin, outstandingMin, outstandingMax, payTab],
+    [currentPage, pageSize, searchQuery, selectedStatus, selectedPaymentTerms, selectedGstin, outstandingMin, outstandingMax, payTab],
   )
 
   // Fetch suppliers from backend whenever filters/search/page change (debounced for search).
@@ -265,7 +267,7 @@ export default function SuppliersPage() {
         const res = await api.get(`/suppliers?${buildQueryParams().toString()}`, { signal: controller.signal })
         const payload = res.data
         const items = (payload?.data ?? payload ?? []) as Supplier[]
-        const isFirstPage = (currentPage - 1) * PAGE_SIZE === 0
+        const isFirstPage = (currentPage - 1) * pageSize === 0
         setSuppliers(items)
         setAllSuppliers((prev) => (isFirstPage ? items : [...prev, ...items]))
         setTotalSuppliers(typeof payload?.total === 'number' ? payload.total : items.length)
@@ -387,7 +389,7 @@ export default function SuppliersPage() {
   const tabFilteredSuppliers = suppliers
 
   // ── Pagination (server-driven) ──
-  const totalPages = Math.max(1, Math.ceil(totalSuppliers / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(totalSuppliers / pageSize))
   const paginatedSuppliers = tabFilteredSuppliers
 
   // ── Bulk select ──
@@ -498,7 +500,7 @@ export default function SuppliersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: (ms?.totalCount ?? stats.totalCount).toString(), sub: 'suppliers', borderAccent: 'border-l-blue-500' },
                   { label: 'Active', value: (ms?.activeCount ?? stats.activeCount).toString(), sub: 'in directory', borderAccent: 'border-l-emerald-500' },
@@ -1078,7 +1080,9 @@ export default function SuppliersPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={totalSuppliers}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

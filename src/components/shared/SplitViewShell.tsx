@@ -100,7 +100,7 @@ export function SplitViewShell({
             (a single <div> of <button>s) without each page needing its own
             fullWidth flag. */}
         {tabsNode && (
-          <div className="shrink-0 border-b border-border/40 px-3 py-2 [&>div]:flex [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:justify-center">
+          <div className="shrink-0 border-b border-border/40 px-2 py-2 [&>div]:flex [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:justify-center [&_button]:px-2">
             {tabsNode}
           </div>
         )}

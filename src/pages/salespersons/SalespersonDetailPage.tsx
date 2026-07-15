@@ -58,9 +58,8 @@ import { getInitials, getAvatarColor, formatLastLogin } from '@/lib/salespersonU
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminish } from '@/types'
 import { useBranchStore } from '@/stores/branchStore'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { Salesperson, Invoice } from '@/types'
-
-const PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────
 // Period filter — "Today" is the default (like the invoice page).
@@ -155,6 +154,7 @@ export default function SalespersonDetailPage() {
   const [dateTo, setDateTo] = useState('')
   const [cardFilter, setCardFilter] = useState<CardFilter>('all')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.salespersonDetail.sales.pageSize', 10)
 
   // Period-summary (stat cards) + paginated list state.
   const [summary, setSummary] = useState<SummaryData>(EMPTY_SUMMARY)
@@ -212,8 +212,8 @@ export default function SalespersonDetailPage() {
       const params: Record<string, string | number> = {
         salespersonId,
         type: 'INVOICE',
-        skip: (page - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }
       if (range.from) params.from = range.from
       if (range.to) params.to = range.to
@@ -230,7 +230,7 @@ export default function SalespersonDetailPage() {
     } finally {
       setListLoading(false)
     }
-  }, [salespersonId, range.from, range.to, cardFilter, page])
+  }, [salespersonId, range.from, range.to, cardFilter, page, pageSize])
 
   useEffect(() => { void fetchList() }, [fetchList])
 
@@ -239,7 +239,7 @@ export default function SalespersonDetailPage() {
     return branches.find((b) => b.id === salesperson.branchId)?.name ?? '—'
   }, [branches, salesperson])
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   // ── Handlers ──
   const handleToggle = async () => {
@@ -558,14 +558,16 @@ export default function SalespersonDetailPage() {
             </div>
 
             {/* Pagination */}
-            {total > PAGE_SIZE && (
+            {total > 0 && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={page}
                   totalPages={totalPages}
                   onPageChange={setPage}
                   totalItems={total}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={pageSize}
+                  pageSize={pageSize}
+                  onPageSizeChange={(n) => { setPageSize(n); setPage(1) }}
                   className="px-4"
                 />
               </div>

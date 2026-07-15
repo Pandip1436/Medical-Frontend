@@ -18,6 +18,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -140,6 +141,7 @@ export default function OutstandingPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.customerOutstanding.pageSize', PAGE_SIZE)
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -218,10 +220,10 @@ export default function OutstandingPage() {
     return rows
   }, [rows, cardFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
   const paginatedRows = useMemo(
-    () => filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filteredRows, currentPage],
+    () => filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredRows, currentPage, pageSize],
   )
 
   // Summary cards reflect the filtered set so the user understands what's on screen.
@@ -722,7 +724,9 @@ export default function OutstandingPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={filteredRows.length}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>

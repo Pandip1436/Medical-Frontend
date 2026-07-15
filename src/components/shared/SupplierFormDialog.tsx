@@ -34,9 +34,7 @@ export const supplierFormSchema = z.object({
   contactPerson: z.string().min(2, 'Contact person is required'),
   phone: z
     .string()
-    .min(10, 'Phone must be 10 digits')
-    .max(10, 'Phone must be 10 digits')
-    .regex(/^\d+$/, 'Phone must contain only digits'),
+    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   email: z.string().email('Invalid email address'),
   gstin: z
     .string()
@@ -65,8 +63,8 @@ export const supplierFormSchema = z.object({
     .trim()
     .optional()
     .refine(
-      (v) => !v || /^\d{10}$/.test(v),
-      'WhatsApp number must be 10 digits',
+      (v) => !v || /^[6-9]\d{9}$/.test(v),
+      'Enter a valid 10-digit Indian mobile number',
     ),
 })
 

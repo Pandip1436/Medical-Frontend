@@ -26,6 +26,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { SupplierSearchSelect } from '@/components/shared/SupplierSearchSelect'
@@ -174,10 +175,11 @@ export default function DebitNotesPage() {
   const [returnsLoading, setReturnsLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.debitNotes.pageSize', PAGE_SIZE)
 
   // Filters — usePageFilter for persistence across sessions
   const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.debitNotes', 'search', '')
-  const [period, setPeriod] = usePageFilter<string>('purchase.debitNotes', 'period', 'today')
+  const [period, setPeriod] = usePageFilter<string>('purchase.debitNotes', 'period', 'all')
   const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.debitNotes', 'dateFrom', '')
   const [dateTo, setDateTo] = usePageFilter<string>('purchase.debitNotes', 'dateTo', '')
   const [selectedType, setSelectedType] = usePageFilter<string>('purchase.debitNotes', 'type', 'all')
@@ -339,9 +341,9 @@ export default function DebitNotesPage() {
     setCurrentPage(1)
   }, [statsBaseReturns, cardFilter])
 
-  // Active filters count + clear ("today" is the default baseline)
+  // Active filters count + clear ("all" / All Time is the default baseline)
   const activeFilterCount = [
-    period !== 'today' ? period : '',
+    period !== 'all' ? period : '',
     cardFilter !== 'all' ? cardFilter : '',
     dateFrom, dateTo,
     selectedType !== 'all' ? selectedType : '',
@@ -351,7 +353,7 @@ export default function DebitNotesPage() {
   ].filter(Boolean).length
 
   const clearFilters = () => {
-    setPeriod('today')
+    setPeriod('all')
     setCardFilter('all')
     setDateFrom('')
     setDateTo('')
@@ -374,8 +376,8 @@ export default function DebitNotesPage() {
     return pastReturns.filter(r => (r.status || '').toUpperCase() === statusTab)
   }, [pastReturns, statusTab])
 
-  const totalPages = Math.max(1, Math.ceil(tabFilteredReturns.length / PAGE_SIZE))
-  const paginatedReturns = tabFilteredReturns.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(tabFilteredReturns.length / pageSize))
+  const paginatedReturns = tabFilteredReturns.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   // ── Summary stats ── (reflect period + type + status + supplier + search, but
   // NOT the card drill-down — so clicking a card never rewrites its own total)
@@ -410,7 +412,7 @@ export default function DebitNotesPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total Notes', value: stats.totalCount.toString(), borderAccent: 'border-l-blue-500' },
                   { label: 'Total Debit', value: formatCurrency(stats.totalAmount), borderAccent: 'border-l-rose-500' },
@@ -923,7 +925,9 @@ export default function DebitNotesPage() {
                      totalPages={totalPages}
                      onPageChange={setCurrentPage}
                      totalItems={pastReturns.length}
-                     itemsPerPage={PAGE_SIZE}
+                     itemsPerPage={pageSize}
+                     pageSize={pageSize}
+                     onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
                      className="border-t border-border/40 px-4"
                    />
                 </Card>

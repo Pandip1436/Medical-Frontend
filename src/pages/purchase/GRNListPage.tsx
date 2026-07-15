@@ -14,6 +14,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { SupplierSearchSelect } from '@/components/shared/SupplierSearchSelect'
@@ -151,11 +152,12 @@ export default function GRNListPage() {
   const [grns, setGrns] = useState<GRN[]>([])
   const [loading, setLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.grnList.pageSize', PAGE_SIZE)
 
 
   // Filters — persisted to server via usePageFilter
   const [search, setSearch] = usePageFilter<string>('purchase.grnList', 'search', '')
-  const [period, setPeriod] = usePageFilter<string>('purchase.grnList', 'period', 'today')
+  const [period, setPeriod] = usePageFilter<string>('purchase.grnList', 'period', 'all')
   const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.grnList', 'dateFrom', '')
   const [dateTo, setDateTo] = usePageFilter<string>('purchase.grnList', 'dateTo', '')
   const [selectedSupplier, setSelectedSupplier] = usePageFilter<string>('purchase.grnList', 'supplier', 'all')
@@ -322,8 +324,8 @@ export default function GRNListPage() {
     return preTabGrns.filter((g) => grnPayStatus(g) === payTab)
   }, [preTabGrns, payTab])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   // Per-row derived values for the mobile card list (mirrors the table row logic).
   const pagedEnriched = useMemo(() => paged.map((grn) => {
@@ -362,7 +364,7 @@ export default function GRNListPage() {
   }, [statsBaseGrns])
 
   const activeFilterCount = [
-    period !== 'today' ? period : '',
+    period !== 'all' ? period : '',
     cardFilter !== 'all' ? cardFilter : '',
     dateFrom,
     dateTo,
@@ -372,7 +374,7 @@ export default function GRNListPage() {
   ].filter(Boolean).length
 
   const clearFilters = () => {
-    setPeriod('today')
+    setPeriod('all')
     setCardFilter('all')
     setDateFrom('')
     setDateTo('')
@@ -424,7 +426,7 @@ export default function GRNListPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total Entries', value: statsBaseGrns.length.toString(), subtitle: 'purchase entries', icon: ClipboardList, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
                   { label: 'Units Received', value: stats.totalReceived.toString(), subtitle: 'units received', icon: TrendingUp, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-emerald-500/50' },
@@ -1019,7 +1021,9 @@ export default function GRNListPage() {
               totalPages={totalPages}
               onPageChange={setCurrentPage}
               totalItems={filtered.length}
-              itemsPerPage={PAGE_SIZE}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
               className="border-t border-border/40 px-5"
             />
           </>

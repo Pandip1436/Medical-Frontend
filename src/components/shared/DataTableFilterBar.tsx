@@ -193,21 +193,20 @@ export function DataTableFilterBar({
                     </Button>
                   </div>
                 )}
-                {children && (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {/* Filters + the customize-columns control share ONE grid so the
+                    Columns dropdown sits inline with the filter inputs rather
+                    than in a separate divided section below them. */}
+                {(children || columnsNode) && (
+                  <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
                     {children}
-                  </div>
-                )}
-                {/* Customize-columns control lives at the foot of the filters panel. */}
-                {columnsNode && (
-                  <div className={cn(
-                    'flex flex-wrap items-center justify-between gap-3',
-                    children && 'mt-4 border-t border-border/40 pt-3',
-                  )}>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Visible Columns
-                    </span>
-                    {columnsNode}
+                    {columnsNode && (
+                      <div className="flex flex-col justify-end gap-1.5">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Columns
+                        </span>
+                        <div>{columnsNode}</div>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

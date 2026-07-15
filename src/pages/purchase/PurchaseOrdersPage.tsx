@@ -53,6 +53,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -550,7 +551,7 @@ export default function PurchaseOrdersPage() {
 
   // Filters (usePageFilter for persistence)
   const [searchQuery, setSearchQuery] = usePageFilter<string>('purchase.orders', 'search', '')
-  const [period, setPeriod] = usePageFilter<string>('purchase.orders', 'period', 'today')
+  const [period, setPeriod] = usePageFilter<string>('purchase.orders', 'period', 'all')
   const [dateFrom, setDateFrom] = usePageFilter<string>('purchase.orders', 'dateFrom', '')
   const [dateTo, setDateTo] = usePageFilter<string>('purchase.orders', 'dateTo', '')
   const [selectedSupplier, setSelectedSupplier] = usePageFilter<string>('purchase.orders', 'supplier', 'all')
@@ -581,6 +582,7 @@ export default function PurchaseOrdersPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.purchaseOrders.pageSize', PAGE_SIZE)
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -632,7 +634,7 @@ export default function PurchaseOrdersPage() {
   }, [search, purchaseOrders, effectiveView])
 
   const clearFilters = () => {
-    setPeriod('today')
+    setPeriod('all')
     setCardFilter('all')
     setDateFrom('')
     setDateTo('')
@@ -774,10 +776,10 @@ export default function PurchaseOrdersPage() {
 
   // ── Pagination ──
 
-  const totalPages = Math.ceil(filteredPOs.length / PAGE_SIZE)
+  const totalPages = Math.ceil(filteredPOs.length / pageSize)
   const paginatedPOs = filteredPOs.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
   )
 
   // ── Bulk select ──
@@ -804,9 +806,9 @@ export default function PurchaseOrdersPage() {
     setSelectedIds(newSet)
   }
 
-  // ── Active filters count ── ("today" is the default baseline)
+  // ── Active filters count ── ("all" / All Time is the default baseline)
   const activeFilterCount = [
-    period !== 'today' ? period : '',
+    period !== 'all' ? period : '',
     cardFilter !== 'all' ? cardFilter : '',
     dateFrom, dateTo,
     selectedSupplier !== 'all' ? selectedSupplier : '',
@@ -977,7 +979,7 @@ export default function PurchaseOrdersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total Orders', value: formatCurrency(stats.totalAmount), sub: `${stats.totalCount} orders`, borderAccent: 'border-l-blue-500' },
                   { label: 'Received', value: formatCurrency(stats.receivedTotal), sub: `${stats.receivedCount} completed`, borderAccent: 'border-l-emerald-500' },
@@ -1694,7 +1696,9 @@ export default function PurchaseOrdersPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filteredPOs.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

@@ -36,6 +36,7 @@ import { ImportCustomersDrawer } from '@/components/customers/ImportCustomersDra
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -132,7 +133,7 @@ const customerSchema = z.object({
     .string()
     .min(10, 'Phone must be 10 digits')
     .max(10, 'Phone must be 10 digits')
-    .regex(/^\d{10}$/, 'Must be exactly 10 digits'),
+    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   address: z.string().min(1, 'Address is required'),
@@ -400,6 +401,7 @@ export default function CustomersPage() {
   // Filters + pagination
   const [searchQuery, setSearchQuery] = usePageFilter<string>('customers.list', 'search', '')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.customers.pageSize', PAGE_SIZE)
   const [customerTypeFilter, setCustomerTypeFilter] = usePageFilter<string>('customers.list', 'type', 'all')
   const [outstandingFilter, setOutstandingFilter] = usePageFilter<string>('customers.list', 'outstanding', 'all')
   const [gstinFilter, setGstinFilter] = usePageFilter<string>('customers.list', 'gstin', 'all')
@@ -542,8 +544,8 @@ export default function CustomersPage() {
   // ── Server-driven list ──
   const buildQueryParams = useCallback((): URLSearchParams => {
     const params = new URLSearchParams()
-    params.set('skip', String((currentPage - 1) * PAGE_SIZE))
-    params.set('take', String(PAGE_SIZE))
+    params.set('skip', String((currentPage - 1) * pageSize))
+    params.set('take', String(pageSize))
     if (searchQuery.trim()) params.set('q', searchQuery.trim())
     if (customerTypeFilter !== 'all') params.set('customerType', customerTypeFilter)
     if (outstandingFilter !== 'all') params.set('hasOutstanding', outstandingFilter === 'has' ? 'true' : 'false')
@@ -559,7 +561,7 @@ export default function CustomersPage() {
     // agree (was client-side over the loaded pages, so "Paid" showed 0/empty).
     if (payTab !== 'all') params.set('paymentStatus', payTab)
     return params
-  }, [currentPage, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter, payTab])
+  }, [currentPage, pageSize, searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter, payTab])
 
   const fetchAbortRef = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -573,7 +575,7 @@ export default function CustomersPage() {
         const res = await api.get(`/customers?${buildQueryParams().toString()}`, { signal: controller.signal })
         const payload = res.data
         const items = (payload?.data ?? payload ?? []) as Customer[]
-        const isFirstPage = (currentPage - 1) * PAGE_SIZE === 0
+        const isFirstPage = (currentPage - 1) * pageSize === 0
         setPageRows(items)
         setAllCustomers((prev) => (isFirstPage ? items : [...prev, ...items]))
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
@@ -620,7 +622,7 @@ export default function CustomersPage() {
   // Reset page to 1 whenever any filter or search changes
   useEffect(() => { setCurrentPage(1) }, [searchQuery, customerTypeFilter, outstandingFilter, gstinFilter, sourceFilter, monthFilter, customFrom, customTo, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const activeFilterCount =
     (customerTypeFilter !== 'all' ? 1 : 0) +
@@ -878,12 +880,12 @@ export default function CustomersPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: summary.total.toLocaleString(), sub: 'customers', borderAccent: 'border-l-blue-500' },
                   { label: 'With Outstanding', value: summary.withOutstanding.toLocaleString(), sub: 'have balance', borderAccent: 'border-l-rose-500' },
-                  { label: 'Total Billed', value: `₹${(summary.totalAmount / 1000).toFixed(0)}k`, sub: 'all time', borderAccent: 'border-l-emerald-500' },
-                  { label: 'Outstanding', value: `₹${(summary.totalOutstanding / 1000).toFixed(0)}k`, sub: 'pending', borderAccent: 'border-l-amber-500' },
+                  { label: 'Total Billed', value: formatCurrency(summary.totalAmount), sub: 'all time', borderAccent: 'border-l-emerald-500' },
+                  { label: 'Outstanding', value: formatCurrency(summary.totalOutstanding), sub: 'pending', borderAccent: 'border-l-amber-500' },
                 ] as const).map((s) => (
                   <Card key={s.label} className={`border-l-[3px] ${s.borderAccent}`}>
                     <CardContent className="flex items-center gap-2 px-2.5 py-2">
@@ -1547,7 +1549,9 @@ export default function CustomersPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={total}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>

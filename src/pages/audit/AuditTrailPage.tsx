@@ -14,6 +14,7 @@ import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 import { useDebounce } from '@/hooks/useDebounce'
+import { usePageSize } from '@/hooks/usePageSize'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -77,8 +78,6 @@ interface StatsResponse {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
-
-const PAGE_SIZE = 10
 
 // Curated module list — these are the modules the backend actually writes
 // audit rows for. Static list avoids an extra round-trip for an enum that
@@ -277,6 +276,7 @@ export default function AuditTrailPage() {
 
   // Pagination + data
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.auditTrail.pageSize', 10)
   const [rows, setRows] = useState<AuditLogRow[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -307,8 +307,8 @@ export default function AuditTrailPage() {
     try {
       const params = {
         ...requestParams(),
-        skip: String((currentPage - 1) * PAGE_SIZE),
-        take: String(PAGE_SIZE),
+        skip: String((currentPage - 1) * pageSize),
+        take: String(pageSize),
       }
       const res = await api.get('/audit-logs', { params })
       // Backend returns the paginated envelope when skip/take are supplied.
@@ -325,7 +325,7 @@ export default function AuditTrailPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [requestParams, currentPage])
+  }, [requestParams, currentPage, pageSize])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -382,7 +382,7 @@ export default function AuditTrailPage() {
     setPeriodFilter('today')
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   // Common pipeline for all three export formats: pull the full filtered set
   // (server-capped at 5000) so the file reflects the table's current filters
@@ -425,17 +425,6 @@ export default function AuditTrailPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
-      {/* ── Header strip ── */}
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 dark:bg-rose-500/15">
-          <Shield className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-bold leading-tight">Audit Trail</h1>
-          <p className="text-xs text-muted-foreground">Complete log of all system changes (read-only)</p>
-        </div>
-      </div>
-
       {/* ── Summary cards — click Creates / Updates / Deletes to drill the
           server-side Action filter; Total Events clears it. Counts come from
           /audit-logs/stats, which already honours the selected period. ── */}
@@ -718,7 +707,9 @@ export default function AuditTrailPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={total}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

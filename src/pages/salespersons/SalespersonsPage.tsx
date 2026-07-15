@@ -40,6 +40,7 @@ import { isAdminish } from '@/types'
 import { useBranchStore } from '@/stores/branchStore'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency } from '@/lib/utils'
 import { getInitials, getAvatarColor, formatLastLogin } from '@/lib/salespersonUtils'
@@ -106,7 +107,7 @@ export default function SalespersonsPage() {
   const [loginFilter, setLoginFilter] = usePersistedState<string>('filters:salespersons:login', 'all')
   const [perfFilter, setPerfFilter] = usePersistedState<string>('filters:salespersons:perf', 'all')
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.salespersons.pageSize', 10)
 
   // ── Add/Edit dialog state ──
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -195,8 +196,8 @@ export default function SalespersonsPage() {
 
   useEffect(() => { setCurrentPage(1) }, [search, statusFilter, branchFilter, loginFilter, perfFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const activeFilterCount =
     (statusFilter !== 'all' ? 1 : 0) +
@@ -574,7 +575,9 @@ export default function SalespersonsPage() {
               totalPages={totalPages}
               onPageChange={setCurrentPage}
               totalItems={filtered.length}
-              itemsPerPage={PAGE_SIZE}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
               className="border-t border-border/40 px-4"
             />
           </Card>

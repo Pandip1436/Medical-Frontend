@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/table'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, getInitials } from '@/lib/utils'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import api from '@/lib/api'
@@ -141,8 +142,6 @@ function renderPieActiveShape(props: unknown) {
     </g>
   )
 }
-
-const PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────
 // Date utilities
@@ -361,6 +360,7 @@ export default function SalespersonReportPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('table')
   const [search, setSearch] = usePageFilter<string>('salespersons.report', 'search', '')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.salespersonReport.pageSize', 10)
   const [generatedAt, setGeneratedAt] = useState<string>('')
   // Optional drill-down from the Salespersons list page (?salespersonId=...).
   // Read once on mount; cleared via the chip rendered next to the search box.
@@ -426,8 +426,8 @@ export default function SalespersonReportPage() {
     }
   }, [])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   // ── Chart data ──────────────────────────────────────────────
   const chartData = useMemo(
@@ -756,7 +756,9 @@ export default function SalespersonReportPage() {
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
                 totalItems={filtered.length}
-                itemsPerPage={PAGE_SIZE}
+                itemsPerPage={pageSize}
+                pageSize={pageSize}
+                onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
                 className="border-t border-border/40 px-4"
               />
             </Card>

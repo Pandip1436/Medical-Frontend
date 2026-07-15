@@ -10,6 +10,11 @@ interface DataTablePaginationProps {
   onPageChange: (page: number) => void
   totalItems?: number
   itemsPerPage?: number
+  // When provided, renders a "Rows per page" selector. onPageSizeChange should
+  // update the caller's page size (and typically reset to page 1).
+  pageSize?: number
+  onPageSizeChange?: (size: number) => void
+  pageSizeOptions?: number[]
   className?: string
 }
 
@@ -19,6 +24,9 @@ export function DataTablePagination({
   onPageChange,
   totalItems,
   itemsPerPage,
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions = [10, 25, 50, 100],
   className,
 }: DataTablePaginationProps) {
   const [inputValue, setInputValue] = useState(currentPage.toString())
@@ -61,6 +69,23 @@ export function DataTablePagination({
             Showing <span className="font-bold text-foreground">{rangeStart}-{rangeEnd}</span> of <span className="font-bold text-foreground">{totalItems}</span> results
           </span>
         </p>
+      )}
+
+      {/* Rows-per-page selector — configurable page size (opt-in). */}
+      {onPageSizeChange && (
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="hidden text-[11px] text-muted-foreground sm:inline">Rows</span>
+          <select
+            value={pageSize ?? itemsPerPage ?? 10}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            aria-label="Rows per page"
+            className="h-9 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs font-semibold tabular-nums text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 sm:h-8"
+          >
+            {pageSizeOptions.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
       )}
 
       <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">

@@ -121,7 +121,7 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="px-3 pt-4 sm:px-6">
+            <CardContent className="p-0">
               <InvoiceDetailContent
                 invoice={invoice}
                 onClose={goBack}

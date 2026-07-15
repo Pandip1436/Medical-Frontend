@@ -107,7 +107,9 @@ export function DebitNoteSplitView({
           </p>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Bounded flex column (no overflow-y-auto): DebitNoteDetailContent owns
+          its scroll and has a static footer with totals + actions. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DebitNoteDetailContent
           debitNote={detail.debitNote}
           onUpdated={() => {

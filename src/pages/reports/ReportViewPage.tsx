@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
   BarChart,
@@ -157,18 +158,19 @@ function KpiCards({ kpis }: { kpis: { label: string; value: string }[] }) {
 // Table wrapper
 // ─────────────────────────────────────────────────────────────
 
-function ReportTable({ headers, rows, totalItems, onPageChange, currentPage, pageSize }: { 
-  headers: string[]; 
+function ReportTable({ headers, rows, totalItems, onPageChange, currentPage, pageSize, onPageSizeChange }: {
+  headers: string[];
   rows: (string | number)[][];
   totalItems?: number;
   onPageChange?: (page: number) => void;
   currentPage?: number;
   pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
 }) {
   if (!rows.length) return (
     <p className="py-12 text-center text-sm text-muted-foreground">No data for this period</p>
   )
-  
+
   const totalPages = totalItems && pageSize ? Math.ceil(totalItems / pageSize) : 0
 
   return (
@@ -193,11 +195,15 @@ function ReportTable({ headers, rows, totalItems, onPageChange, currentPage, pag
           </TableBody>
         </Table>
       </div>
-      {totalPages > 1 && onPageChange && currentPage && (
+      {onPageChange && currentPage && (totalItems ?? 0) > 0 && (
         <DataTablePagination
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={onPageChange}
+          totalItems={totalItems}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={onPageSizeChange}
         />
       )}
     </div>
@@ -220,24 +226,30 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 20
+  const [pageSize, setPageSize] = usePageSize('pbims.reportView.pageSize', 25)
+
+  const handlePageSizeChange = (n: number) => { setPageSize(n); setCurrentPage(1) }
 
   useEffect(() => { setCurrentPage(1) }, [reportType, liveData])
 
   const paginate = (data: any[]) => {
     if (!data) return []
-    return data.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+    return data.slice((currentPage - 1) * pageSize, currentPage * pageSize)
   }
 
   const renderPagination = (totalItems: number) => {
-    const totalPages = Math.ceil(totalItems / PAGE_SIZE)
-    if (totalPages <= 1) return null
+    const totalPages = Math.ceil(totalItems / pageSize)
+    if (totalItems <= 0) return null
     return (
       <div className="mt-4">
         <DataTablePagination
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={setCurrentPage}
+          totalItems={totalItems}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       </div>
     )
@@ -297,7 +309,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -357,7 +370,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={data.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -384,7 +398,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -428,7 +443,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -455,7 +471,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -550,7 +567,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -587,7 +605,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -616,7 +635,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -695,7 +715,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             totalItems={table.length}
             currentPage={currentPage}
             onPageChange={setCurrentPage}
-            pageSize={PAGE_SIZE}
+            pageSize={pageSize}
+            onPageSizeChange={handlePageSizeChange}
           />
           {totals.taxable !== undefined && (
             <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
@@ -765,7 +786,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
             totalItems={table.length}
             currentPage={currentPage}
             onPageChange={setCurrentPage}
-            pageSize={PAGE_SIZE}
+            pageSize={pageSize}
+            onPageSizeChange={handlePageSizeChange}
           />
           {totals.taxable !== undefined && (
             <div className="mt-4 flex gap-6 rounded-xl border border-border/60 bg-muted/30 px-5 py-3 text-sm">
@@ -860,7 +882,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }
@@ -915,7 +938,8 @@ export default function ReportViewPage({ reportType, onBack }: ReportViewPagePro
           totalItems={table.length}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
-          pageSize={PAGE_SIZE}
+          pageSize={pageSize}
+          onPageSizeChange={handlePageSizeChange}
         />
       )
     }

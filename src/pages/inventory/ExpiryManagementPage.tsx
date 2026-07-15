@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate, timeAgo } from '@/lib/utils'
 import { assignExpiryBucket, daysToExpiry as computeDaysToExpiry, type ExpiryBucket } from '@/lib/inventory'
@@ -141,6 +142,7 @@ export default function ExpiryManagementPage() {
   const [search, setSearch] = usePageFilter<string>('inventory.expiry', 'search', '')
   const [selectedSupplier, setSelectedSupplier] = usePageFilter<SupplierLite | null>('inventory.expiry', 'supplier', null)
   const [viewMode, setViewMode] = useState<ViewMode>('table')
+  const [pageSize, setPageSize] = usePageSize('pbims.expiry.pageSize', PAGE_SIZE)
 
   // Read-only disposal detail shown in a modal (write-offs aren't reachable
   // from notifications, so they don't need the full-page detail route).
@@ -189,8 +191,8 @@ export default function ExpiryManagementPage() {
           // Hide written-off / disposed batches (qty=0) from every active
           // folder — they live in the Write-offs folder now.
           hasStock: true,
-          skip: (batchesPage - 1) * PAGE_SIZE,
-          take: PAGE_SIZE,
+          skip: (batchesPage - 1) * pageSize,
+          take: pageSize,
         },
       })
         .then((res) => {
@@ -204,7 +206,7 @@ export default function ExpiryManagementPage() {
         .finally(() => { if (!cancelled) setFetchingBatches(false) })
     }, search.trim() ? 200 : 0)
     return () => { cancelled = true; clearTimeout(handle) }
-  }, [folder, search, selectedSupplier, bucketParams, batchesPage, refreshKey])
+  }, [folder, search, selectedSupplier, bucketParams, batchesPage, pageSize, refreshKey])
 
   // Disposal-history fetch — runs only on the write-offs folder.
   useEffect(() => {
@@ -214,8 +216,8 @@ export default function ExpiryManagementPage() {
     api.get('/products/disposals', {
       params: {
         reason: 'Expired Removal',
-        skip: (disposalPage - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
+        skip: (disposalPage - 1) * pageSize,
+        take: pageSize,
       },
     })
       .then((res) => {
@@ -233,7 +235,7 @@ export default function ExpiryManagementPage() {
       })
       .finally(() => { if (!cancelled) setFetchingDisposal(false) })
     return () => { cancelled = true }
-  }, [folder, disposalPage, refreshKey])
+  }, [folder, disposalPage, pageSize, refreshKey])
 
   // Stats — refresh on mount, on mutation, and when the supplier filter changes
   // so the KPI cards reflect the selected supplier.
@@ -336,9 +338,9 @@ export default function ExpiryManagementPage() {
     navigate(`/inventory/batches/detail?id=${batchId}`)
   }
 
-  const totalBatchesPages = Math.max(1, Math.ceil(batchesTotal / PAGE_SIZE))
+  const totalBatchesPages = Math.max(1, Math.ceil(batchesTotal / pageSize))
   const currentDisposalTotal = writeOffsTotal ?? 0
-  const totalDisposalPages = Math.max(1, Math.ceil(currentDisposalTotal / PAGE_SIZE))
+  const totalDisposalPages = Math.max(1, Math.ceil(currentDisposalTotal / pageSize))
   const loading = fetchingBatches || fetchingDisposal
 
   return (
@@ -548,7 +550,9 @@ export default function ExpiryManagementPage() {
               totalPages={totalDisposalPages}
               onPageChange={setDisposalPage}
               totalItems={currentDisposalTotal}
-              itemsPerPage={PAGE_SIZE}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setDisposalPage(1) }}
               className="border-t border-border/60 px-3"
             />
           ) : (
@@ -557,7 +561,9 @@ export default function ExpiryManagementPage() {
               totalPages={totalBatchesPages}
               onPageChange={setBatchesPage}
               totalItems={batchesTotal}
-              itemsPerPage={PAGE_SIZE}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setBatchesPage(1) }}
               className="border-t border-border/60 px-3"
             />
           )}

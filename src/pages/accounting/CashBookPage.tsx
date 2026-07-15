@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 
@@ -58,7 +59,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ExportMenu } from '@/components/shared/ExportMenu'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, dateWithCurrentTime } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
 // Zod schema for Add Expense
@@ -180,7 +181,7 @@ export default function CashBookPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
-  const PAGE_SIZE = 15
+  const [pageSize, setPageSize] = usePageSize('pbims.cashbook.pageSize', 15)
 
   // Compute running balance column. Built from the full (search-filtered) set
   // so the running balance stays correct even when a card drill-down hides
@@ -205,10 +206,10 @@ export default function CashBookPage() {
   // Reset pagination on search, date, or card-filter change
   useEffect(() => { setCurrentPage(1) }, [searchQuery, selectedDate, cardFilter])
 
-  const totalPages = Math.ceil(displayedTransactions.length / PAGE_SIZE)
+  const totalPages = Math.ceil(displayedTransactions.length / pageSize)
   const paginatedTransactions = useMemo(() => {
-    return displayedTransactions.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  }, [displayedTransactions, currentPage])
+    return displayedTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  }, [displayedTransactions, currentPage, pageSize])
 
   // ── Export ───────────────────────────────────────────────────
   // Cash book is fully in-memory after the day fetch — we can export directly
@@ -272,16 +273,19 @@ export default function CashBookPage() {
       // FileInterceptor can stream it straight to R2.
       if (receiptFile) {
         const fd = new FormData()
-        fd.append('date', values.date)
+        fd.append('date', dateWithCurrentTime(values.date))
         fd.append('category', values.category)
         fd.append('description', values.description)
         fd.append('amount', String(Number(values.amount)))
         fd.append('paymentMode', String(values.paymentMode ?? 'CASH').toUpperCase())
         fd.append('receipt', receiptFile)
-        await api.post('/expenses', fd)
+        // The api instance defaults to application/json — set multipart
+        // explicitly or the backend's multer won't parse the file and the
+        // receipt is silently dropped.
+        await api.post('/expenses', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       } else {
         await api.post('/expenses', {
-          date: values.date,
+          date: dateWithCurrentTime(values.date),
           category: values.category,
           description: values.description,
           amount: Number(values.amount),
@@ -687,12 +691,16 @@ export default function CashBookPage() {
             </TableBody>
           </Table>
           </div>
-          {totalPages > 1 && (
+          {displayedTransactions.length > 0 && (
             <div className="border-t px-4 py-4">
               <DataTablePagination
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
+                totalItems={displayedTransactions.length}
+                itemsPerPage={pageSize}
+                pageSize={pageSize}
+                onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
               />
             </div>
           )}

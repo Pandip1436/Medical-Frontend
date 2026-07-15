@@ -55,6 +55,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -141,23 +142,16 @@ function StatusTabs({
   tab,
   onChange,
   counts,
-  fullWidth = false,
 }: {
   tab: StatusTabKey
   onChange: (t: StatusTabKey) => void
   counts: Record<string, number>
-  // When true the pill group stretches to fill its container and each tab
-  // splits the width evenly (used in the narrow split-view rail so there's no
-  // dead whitespace on the right). Default keeps the compact inline layout.
-  fullWidth?: boolean
 }) {
+  // Full-width stretch in the split-view rail is applied by SplitViewShell's
+  // tabsNode wrapper (shared with every other page). Here we keep the compact
+  // inline layout with overflow-x-auto so it never clips when space is tight.
   return (
-    <div
-      className={cn(
-        'items-center gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]',
-        fullWidth ? 'flex w-full' : 'inline-flex max-w-full overflow-x-auto',
-      )}
-    >
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
       {STATUS_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -165,8 +159,7 @@ function StatusTabs({
             key={t.key}
             onClick={() => onChange(t.key)}
             className={cn(
-              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
-              fullWidth ? 'flex-1 justify-center' : 'shrink-0',
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
               active
                 // Active pill lifts onto a surface; the semantic colour (emerald/
                 // amber/rose) stays on the text. The border-* in activeClass is a
@@ -259,6 +252,8 @@ export default function SalesListPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  // Configurable rows-per-page, persisted so the operator's choice sticks.
+  const [pageSize, setPageSize] = usePageSize('pbims.invoices.pageSize', PAGE_SIZE)
 
 
   // Real Data State
@@ -568,10 +563,10 @@ export default function SalesListPage() {
 
   // ── Pagination ──
 
-  const totalPages = Math.ceil(filteredInvoices.length / PAGE_SIZE)
+  const totalPages = Math.ceil(filteredInvoices.length / pageSize)
   const paginatedInvoices = filteredInvoices.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
   )
 
 
@@ -699,7 +694,9 @@ export default function SalesListPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {/* p-1 keeps the cards' shadows + active ring-2 from being
+                  clipped by the overflow-hidden collapse container. */}
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total Sales', value: formatCurrency(stats.totalSales), subtitle: `${stats.totalInvoices} invoices`, icon: IndianRupee, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500', filterKey: 'all' as const, activeRing: 'ring-2 ring-blue-500/50' },
                   { label: 'Collected', value: formatCurrency(stats.paidTotal), subtitle: `${stats.paidCount} paid`, icon: CheckCircle2, iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500', filterKey: 'paid' as const, activeRing: 'ring-2 ring-emerald-500/50' },
@@ -896,7 +893,6 @@ export default function SalesListPage() {
                 tab={statusTab}
                 onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
                 counts={tabCounts}
-                fullWidth
               />
             }
           />
@@ -1535,7 +1531,9 @@ export default function SalesListPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filteredInvoices.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

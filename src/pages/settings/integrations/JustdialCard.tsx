@@ -294,13 +294,15 @@ export function JustdialCard() {
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Recent pushes ({jobs.length})
             </Label>
-            <div className="overflow-hidden rounded-lg border border-border/60">
+            {/* Fixed-height scroll region so only the rows scroll inline while
+                the column header stays pinned (sticky th, opaque bg). */}
+            <div className="max-h-80 overflow-y-auto rounded-lg border border-border/60">
               <table className="w-full text-xs">
-                <thead className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left">When</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-left">Notes</th>
+                    <th className="sticky top-0 z-10 bg-muted px-3 py-2 text-left">When</th>
+                    <th className="sticky top-0 z-10 bg-muted px-3 py-2 text-left">Status</th>
+                    <th className="sticky top-0 z-10 bg-muted px-3 py-2 text-left">Notes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">

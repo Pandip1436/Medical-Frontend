@@ -57,19 +57,20 @@ export function LeadCompactCard({ lead, selected, onClick }: LeadCompactCardProp
 
       {/* Body */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex min-w-0 items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-baseline gap-1.5">
-            <span className="truncate text-sm font-semibold leading-tight text-foreground">
-              {fullName}
-            </span>
-            <Badge
-              variant="secondary"
-              size="sm"
-              className="font-mono text-[10px] text-muted-foreground"
-            >
-              {lead.leadNumber}
-            </Badge>
-          </div>
+        {/* Name truncates and fills the row so the lead-number badge is pushed
+            to a fixed position just before the date — that keeps every card's
+            lead number vertically aligned regardless of name length. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground">
+            {fullName}
+          </span>
+          <Badge
+            variant="secondary"
+            size="sm"
+            className="shrink-0 font-mono text-[10px] text-muted-foreground"
+          >
+            {lead.leadNumber}
+          </Badge>
           <span className="shrink-0 text-[10px] text-muted-foreground">
             {formatDate(lead.createdAt)}
           </span>

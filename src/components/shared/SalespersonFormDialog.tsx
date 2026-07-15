@@ -42,7 +42,7 @@ const baseSchema = z.object({
     .string()
     .min(10, 'Phone must be 10 digits')
     .max(10, 'Phone must be 10 digits')
-    .regex(/^\d{10}$/, 'Phone must be exactly 10 digits'),
+    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   branchId: z.string().min(1, 'Branch is required'),
   commissionRate: z
     .number({ error: 'Commission must be a number' })

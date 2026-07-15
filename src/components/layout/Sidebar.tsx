@@ -23,7 +23,6 @@ import {
   TrendingUp,
   PieChart,
   Settings,
-  ChevronLeft,
   ChevronDown,
   MoreHorizontal,
   X,
@@ -628,19 +627,27 @@ export function Sidebar({ currentPath }: SidebarProps) {
         </div>
       )}
 
-      {/* Hover-to-expand toggle — only on a real docked desktop rail. Lets the
-          user turn the "mouse-in opens / mouse-out closes" behavior on or off. */}
+      {/* Hover-to-expand toggle — desktop docked rail only. Compact icon + an
+          ON/OFF pill; the tooltip explains the behavior. (The `[` keyboard
+          shortcut still collapses/expands the rail.) */}
       {!isMobile && !isTabletTouch && (
         <button
           onClick={() => {
-            // Enabling hover-mode while the cursor is already on the rail: keep
-            // it expanded until the mouse actually leaves (mouse-enter won't
-            // re-fire while the pointer is already inside).
-            if (!sidebarHoverExpand) setHovered(true)
+            if (!sidebarHoverExpand) {
+              // Enabling hover-mode while the cursor is already on the rail: keep
+              // it expanded until the mouse actually leaves (mouse-enter won't
+              // re-fire while the pointer is already inside).
+              setHovered(true)
+            } else {
+              // Turning hover-mode OFF: leave the rail fully open. There's no
+              // manual collapse button, so without this the rail could get stuck
+              // collapsed (e.g. after a compact page auto-collapsed it).
+              useAuthStore.setState({ sidebarCollapsed: false })
+            }
             toggleSidebarHoverExpand()
           }}
           className={cn(
-            'mb-1 flex w-full items-center gap-2 rounded-lg p-2 transition-colors',
+            'flex w-full items-center gap-2 rounded-lg p-2 transition-colors',
             collapsed ? 'justify-center' : 'justify-between',
             sidebarHoverExpand
               ? 'text-brand hover:bg-brand/10'
@@ -665,38 +672,6 @@ export function Sidebar({ currentPath }: SidebarProps) {
             </span>
           )}
         </button>
-      )}
-
-      {/* Manual collapse toggle — hidden when hover-expand drives the rail
-          automatically (it would fight the hover state). */}
-      {!hoverMode && (
-      <button
-        onClick={toggleSidebar}
-        className={cn(
-          'flex w-full items-center justify-center gap-2 rounded-lg p-2 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground'
-        )}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        <motion.div
-          animate={{ rotate: collapsed ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </motion.div>
-        {!collapsed && (
-          <motion.span
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex items-center gap-1.5 text-xs text-sidebar-muted"
-          >
-            Collapse
-            <kbd className="inline-flex h-5 items-center rounded border border-sidebar-border bg-sidebar-accent/50 px-1.5 font-mono text-[10px] text-sidebar-muted">
-              [
-            </kbd>
-          </motion.span>
-        )}
-      </button>
       )}
 
       {/* Vendor attribution — only in the expanded rail */}

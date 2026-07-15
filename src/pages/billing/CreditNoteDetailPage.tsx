@@ -100,7 +100,7 @@ export default function CreditNoteDetailPage() {
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="p-0">
               <CreditNoteDetailContent creditNote={cn} onUpdated={(updated) => setCn(updated)} />
             </CardContent>
           </>

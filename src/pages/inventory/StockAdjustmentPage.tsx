@@ -49,6 +49,7 @@ import {
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import api from '@/lib/api'
 import { cn, formatCurrency, generateId } from '@/lib/utils'
 
@@ -164,8 +165,7 @@ const itemVariants: Variants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const } },
 }
 
-const BATCHES_PAGE_SIZE = 10
-const HISTORY_PAGE_SIZE = 10
+const DEFAULT_PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────
 // StockAdjustmentPage
@@ -175,6 +175,7 @@ export default function StockAdjustmentPage() {
   const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
 
   const [search, setSearch] = usePageFilter<string>('inventory.stockAdjustment', 'search', '')
+  const [pageSize, setPageSize] = usePageSize('pbims.stockAdjustment.pageSize', DEFAULT_PAGE_SIZE)
   const [items, setItems] = useState<AdjustmentItem[]>([])
   const [batchesPage, setBatchesPage] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -209,8 +210,8 @@ export default function StockAdjustmentPage() {
         params: {
           q: search.trim() || undefined,
           status: 'active',
-          skip: (batchesPage - 1) * BATCHES_PAGE_SIZE,
-          take: BATCHES_PAGE_SIZE,
+          skip: (batchesPage - 1) * pageSize,
+          take: pageSize,
         },
       })
         .then((res) => {
@@ -224,7 +225,7 @@ export default function StockAdjustmentPage() {
         .finally(() => { if (!cancelled) setFetching(false) })
     }, search.trim() ? 200 : 0)
     return () => { cancelled = true; clearTimeout(handle) }
-  }, [search, batchesPage])
+  }, [search, batchesPage, pageSize])
 
   // Fetch the current page of history when the user is on the History folder
   // or when historyPage changes. We don't bind this to `search` — history list
@@ -236,8 +237,8 @@ export default function StockAdjustmentPage() {
     setFetchingHistory(true)
     api.get('/products/adjustments', {
       params: {
-        skip: (historyPage - 1) * HISTORY_PAGE_SIZE,
-        take: HISTORY_PAGE_SIZE,
+        skip: (historyPage - 1) * pageSize,
+        take: pageSize,
       },
     })
       .then((res) => {
@@ -250,7 +251,7 @@ export default function StockAdjustmentPage() {
       })
       .finally(() => { if (!cancelled) setFetchingHistory(false) })
     return () => { cancelled = true }
-  }, [folder, historyPage])
+  }, [folder, historyPage, pageSize])
 
   // Deep-link from Stock Overview / Expiry Management:
   //   /inventory/adjustment?batchId=…
@@ -518,7 +519,7 @@ export default function StockAdjustmentPage() {
     else setBatchesPage(1)
   }
 
-  const totalBatchesPages = Math.max(1, Math.ceil(availableTotal / BATCHES_PAGE_SIZE))
+  const totalBatchesPages = Math.max(1, Math.ceil(availableTotal / pageSize))
 
   // The submit footer below the Card only renders when there are items in
   // the cart (and we're not on History). When it's hidden, reclaim its slot
@@ -705,10 +706,12 @@ export default function StockAdjustmentPage() {
                 {folder === 'history' ? (
                   <DataTablePagination
                     currentPage={historyPage}
-                    totalPages={Math.max(1, Math.ceil((historyTotal ?? 0) / HISTORY_PAGE_SIZE))}
+                    totalPages={Math.max(1, Math.ceil((historyTotal ?? 0) / pageSize))}
                     onPageChange={setHistoryPage}
                     totalItems={historyTotal ?? 0}
-                    itemsPerPage={HISTORY_PAGE_SIZE}
+                    itemsPerPage={pageSize}
+                    pageSize={pageSize}
+                    onPageSizeChange={(n) => { setPageSize(n); setHistoryPage(1) }}
                     className="shrink-0 border-t border-border/60 px-3"
                   />
                 ) : folder !== 'in-adjustment' && (
@@ -717,7 +720,9 @@ export default function StockAdjustmentPage() {
                     totalPages={totalBatchesPages}
                     onPageChange={setBatchesPage}
                     totalItems={availableTotal}
-                    itemsPerPage={BATCHES_PAGE_SIZE}
+                    itemsPerPage={pageSize}
+                    pageSize={pageSize}
+                    onPageSizeChange={(n) => { setPageSize(n); setBatchesPage(1) }}
                     className="shrink-0 border-t border-border/60 px-3"
                   />
                 )}

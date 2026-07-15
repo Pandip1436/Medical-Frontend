@@ -57,6 +57,11 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   // Tracking module and jumps to the tracking page.
   const [delivery, setDelivery] = useState<{ id: string } | null>(null)
   const [courierToggling, setCourierToggling] = useState(false)
+  // Active detail tab. Payment History lives in its own tab (only offered when
+  // there's at least one payment) so the main details view stays uncluttered.
+  const [activeTab, setActiveTab] = useState<'details' | 'payments'>('details')
+  // Snap back to Details when a different invoice is opened in the split view.
+  useEffect(() => { setActiveTab('details') }, [invoice.id])
 
   // Courier tracking applies only to real invoices (not quotations).
   const isCourierApplicable = invoice.type === 'INVOICE'
@@ -224,7 +229,9 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const refMissing = refRequired && !collectRef.trim()
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scrollable body — everything above the action footer. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
       {/* Customer header — identity + detail chips on the left, quick actions
           (Edit / Repurchase) on the right. */}
       <div className="flex flex-col gap-3 rounded-xl border border-border/40 bg-muted/20 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4">
@@ -314,21 +321,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
               Edit
             </Button>
           )}
-          {amountPaid > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 gap-1.5 sm:flex-none"
-              onClick={() =>
-                document
-                  .getElementById('invoice-payment-history')
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }
-            >
-              <History className="h-3.5 w-3.5" />
-              Payment History
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"
@@ -341,6 +333,34 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         </div>
       </div>
 
+      {/* Tabs — Details vs Payment History. Only shown when there's a payment
+          to separate out; with no payments the details render on their own. */}
+      {amountPaid > 0 && (
+        <div className="flex items-center gap-1 border-b border-border/40">
+          {([
+            { key: 'details', label: 'Details' },
+            { key: 'payments', label: 'Payment History' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              className={cn(
+                '-mb-px border-b-2 px-3 py-2 text-xs font-semibold transition-colors',
+                activeTab === t.key
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Details tab ── (default; always shown when there are no payments) */}
+      {(amountPaid <= 0 || activeTab === 'details') && (
+      <div className="space-y-4">
       {/* Items — mobile card list (below md) */}
       <div className="space-y-2 md:hidden">
         {invoice.items.map((item, idx) => (
@@ -558,21 +578,21 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
           </div>
         )
       })()}
-
-      {/* Payment History — every payment made against this invoice, including
-          the upfront at-counter amount (synthesized by the backend). The id +
-          scroll-margin let the header "Payment History" button jump here. */}
-      {amountPaid > 0 && (
-        <div id="invoice-payment-history" className="scroll-mt-24">
-          <PaymentHistory invoice={invoice} />
-        </div>
+      </div>
       )}
 
-      {/* Actions — sticky toolbar pinned to the bottom of the viewport so it
-          stays reachable while scrolling the invoice. Server actions (WhatsApp
-          / QR / Sync) sit to the left of the document actions (Download /
-          Print). Edit & Repurchase live in the top header. */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+      {/* ── Payment History tab ── every payment made against this invoice,
+          including the upfront at-counter amount (synthesized by the backend). */}
+      {amountPaid > 0 && activeTab === 'payments' && (
+        <PaymentHistory invoice={invoice} />
+      )}
+
+      </div>{/* end scrollable body */}
+
+      {/* Actions — static footer pinned to the panel bottom. Server actions
+          (WhatsApp / QR) sit to the left of the document actions (Preview /
+          Download / Print). Edit & Repurchase live in the top header. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border/40 bg-background px-5 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         {isAutoSendApplicable && (
           <>
             <Button

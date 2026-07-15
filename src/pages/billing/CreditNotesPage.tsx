@@ -38,6 +38,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
@@ -244,6 +245,7 @@ export default function CreditNotesPage() {
   // Table-view filters panel — controlled so picking "Custom Range" auto-opens it.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.creditNotes.pageSize', PAGE_SIZE)
 
   // Selecting "Custom Range" opens the panel(s) that hold the date pickers.
   const onPeriodChange = useCallback((val: string) => {
@@ -538,8 +540,8 @@ export default function CreditNotesPage() {
   }, [periodNotes])
 
   // ── Pagination ──
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.ceil(filtered.length / pageSize)
+  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const activeFilterCount = [
     period !== 'today' ? period : '', // "today" is the default baseline
@@ -573,7 +575,7 @@ export default function CreditNotesPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-5">
                 {([
                   { label: 'Pending Review', value: stats.pendingCount.toString(), iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
                   { label: 'Total Notes', value: stats.count.toString(), iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
@@ -1177,7 +1179,9 @@ export default function CreditNotesPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filtered.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

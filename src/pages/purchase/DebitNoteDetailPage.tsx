@@ -113,7 +113,7 @@ export default function DebitNoteDetailPage() {
                 <Badge variant={badgeVariant} size="lg" dot>{dn.status}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="p-0">
               <DebitNoteDetailContent debitNote={dn} onUpdated={() => { if (id) fetchDn(id) }} />
             </CardContent>
           </>

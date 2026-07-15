@@ -22,6 +22,7 @@ import {
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -48,6 +49,7 @@ export default function CategoriesPage() {
   const [cardFilter, setCardFilter] = usePageFilter<'all' | 'active' | 'withProducts'>('inventory.categories', 'cardFilter', 'all')
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.categories.pageSize', PAGE_SIZE)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Category | null>(null)
   // Category pending deletion — drives the premium confirm dialog.
@@ -198,8 +200,8 @@ export default function CategoriesPage() {
     return { total, active, withProducts, totalProducts }
   }, [statBase])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const activeFilterCount = (selectedStatus !== 'all' ? 1 : 0) + (cardFilter !== 'all' ? 1 : 0)
 
@@ -464,7 +466,9 @@ export default function CategoriesPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filtered.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

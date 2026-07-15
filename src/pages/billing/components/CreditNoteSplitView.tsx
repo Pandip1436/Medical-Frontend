@@ -111,7 +111,9 @@ export function CreditNoteSplitView({
           </p>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Bounded flex column (no overflow-y-auto): CreditNoteDetailContent owns
+          its scroll and has a static footer with totals + actions. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CreditNoteDetailContent
           creditNote={detail.creditNote}
           onUpdated={(updated) => {

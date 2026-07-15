@@ -19,6 +19,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { isSuperAdmin } from '@/types'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -72,8 +73,6 @@ interface ApiUserRow {
 }
 
 // ── Constants ────────────────────────────────────────────────────────
-
-const PAGE_SIZE = 10
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -144,6 +143,7 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = usePageFilter<string>('users.list', 'status', 'all')
   const [branchFilter, setBranchFilter] = usePageFilter<string>('users.list', 'branch', 'all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.users.pageSize', 10)
 
   // Drawer + dialogs
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -232,10 +232,10 @@ export default function UsersPage() {
   }, [users])
 
   // ── Pagination ──
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize))
   const paginatedUsers = filteredUsers.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
   )
 
   // ── Bulk select ──
@@ -790,7 +790,9 @@ export default function UsersPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filteredUsers.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

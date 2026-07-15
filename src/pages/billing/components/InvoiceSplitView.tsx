@@ -112,8 +112,9 @@ export function InvoiceSplitView({
           </p>
         </div>
       </div>
-      {/* Scrollable detail body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Bounded flex column (no overflow-y-auto): InvoiceDetailContent owns
+          its own scroll and has a static action footer. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <InvoiceDetailContent
           invoice={detail.invoice}
           onClose={onExitSplitView}

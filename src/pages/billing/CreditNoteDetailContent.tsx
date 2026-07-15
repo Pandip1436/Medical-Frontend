@@ -237,7 +237,9 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
   const canReview = isPending && isAdmin
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scrollable body */}
+      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
       {/* Customer / Against Invoice / Reason / Settlement — 2×2 grid on mobile
           (so cells are wide enough to not break words), one equal-width row on sm+.
           The gap-px + bg-border trick draws clean 1px grid lines on mobile. */}
@@ -472,8 +474,12 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
         </Table>
       </div>
 
-      {/* Totals — single horizontal strip */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
+      </div>{/* end scrollable body */}
+
+      {/* ── Static footer: totals + actions (pinned to the panel bottom) ── */}
+      <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+        {/* Totals — single horizontal strip */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-5 py-2.5">
         {([
           { label: 'Subtotal', value: creditNote.subtotal },
           { label: 'CGST', value: creditNote.cgst },
@@ -491,8 +497,8 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
         </div>
       </div>
 
-      {/* ── Actions — sticky bar at the bottom of the viewport ── */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+        {/* Actions */}
+        <div className="px-5 py-3">
         {canReview ? (
           <div className="flex flex-wrap items-center justify-end gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
             {/* Reject stays enabled even with an empty note — handleReject toasts
@@ -547,7 +553,8 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             </Button>
           </div>
         )}
-      </div>
+        </div>{/* end actions */}
+      </div>{/* end static footer */}
     </div>
   )
 }

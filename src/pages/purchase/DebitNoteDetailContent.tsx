@@ -95,7 +95,9 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
   ].filter(Boolean) as Array<{ label: string; value: number }>)
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scrollable body */}
+      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
       {/* Supplier / PE Reference / Return Reason / Settlement — 2-col grid on
           phones (labels wrap instead of colliding), single flex row at sm+ */}
       <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
@@ -222,22 +224,26 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
         </Table>
       </div>
 
-      {/* Totals — single horizontal strip */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
-        {totalsRows.map((row) => (
-          <div key={row.label} className="flex items-center gap-1">
-            <span className="text-[11px] text-muted-foreground">{row.label}</span>
-            <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
-          </div>
-        ))}
-        <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Total Debit</span>
-          <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(d.totalAmount)}</span>
-        </div>
-      </div>
+      </div>{/* end scrollable body */}
 
-      {/* ── Actions — sticky bar at the bottom of the viewport ── */}
-      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-col gap-2 rounded-b-2xl border-t border-border/60 bg-background/95 px-5 py-3 backdrop-blur shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+      {/* ── Static footer: totals + actions (pinned to the panel bottom) ── */}
+      <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+        {/* Totals — single horizontal strip */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-5 py-2.5">
+          {totalsRows.map((row) => (
+            <div key={row.label} className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">{row.label}</span>
+              <span className="font-mono text-sm tabular-nums">{formatCurrency(row.value)}</span>
+            </div>
+          ))}
+          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Total Debit</span>
+            <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(d.totalAmount)}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
         {!isSettled && isReplacement && (
           <Button
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -268,7 +274,8 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
           <Download className="h-4 w-4" />
           Download PDF
         </Button>
-      </div>
+        </div>{/* end actions */}
+      </div>{/* end static footer */}
     </div>
   )
 }

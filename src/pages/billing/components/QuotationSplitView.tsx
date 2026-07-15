@@ -121,7 +121,11 @@ export function QuotationSplitView({
           </p>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* No overflow-y-auto here: QuotationDetailContent manages its own scroll
+          (scrollable body + static footer with totals & action buttons).
+          Wrapping it in a second scroll container unbounds its height and the
+          footer stops being sticky — so this is a bounded flex column. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <QuotationDetailContent
           quotation={selectedQuotation}
           onUpdated={() => {

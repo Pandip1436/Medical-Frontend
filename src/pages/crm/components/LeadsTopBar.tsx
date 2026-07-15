@@ -53,7 +53,7 @@ export function LeadsTopBar({
     // strip on the BOTTOM (so the tabs' underline still sits on the container
     // hairline) — the tabs get the full width instead of being squeezed into a
     // sliver next to the actions.
-    <div className="flex min-w-0 flex-col-reverse gap-2 border-b border-border/40 md:flex-row md:flex-nowrap md:items-end md:justify-between md:gap-3">
+    <div className="flex min-w-0 flex-row flex-nowrap items-end justify-between gap-2 border-b border-border/40 md:gap-3">
       {/* Tab strip — each tab's own bottom border IS the indicator, exactly
           like CustomerDetailPage tabs. Transparent when inactive, primary
           when active. overflow-hidden + min-w-0 so trackpad/mouse-wheel
@@ -98,7 +98,7 @@ export function LeadsTopBar({
           On mobile it's its own top row: justify-between spreads the sync
           indicator and controls across the full width. On md+ it shrinks to
           the right and sits on the tabs' baseline (pb-2). */}
-      <div className="flex shrink-0 items-center justify-between gap-1.5 md:justify-normal md:pb-2">
+      <div className="flex shrink-0 items-center gap-1.5 pb-2">
         <IndiamartSyncIndicator />
         <Button
           variant="ghost"

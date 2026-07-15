@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import {
   ChevronRight,
   ChevronLeft,
@@ -184,6 +185,7 @@ export default function PurchaseReturnsPage() {
   const [selectedGRN, setSelectedGRN] = useState<GRNReference | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.purchaseReturns.pageSize', PAGE_SIZE)
 
   // Real data
   const [grns, setGrns] = useState<GRNReference[]>([])
@@ -443,8 +445,8 @@ export default function PurchaseReturnsPage() {
     setCurrentPage(1)
   }, [grnSearch])
 
-  const totalPages = Math.max(1, Math.ceil(matchingGRNs.length / PAGE_SIZE))
-  const paginatedMatchingGRNs = matchingGRNs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(matchingGRNs.length / pageSize))
+  const paginatedMatchingGRNs = matchingGRNs.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   const handleSelectGRN = (grn: GRNReference) => {
     setSelectedGRN(grn)
@@ -837,7 +839,9 @@ export default function PurchaseReturnsPage() {
                         totalPages={totalPages}
                         onPageChange={setCurrentPage}
                         totalItems={matchingGRNs.length}
-                        itemsPerPage={PAGE_SIZE}
+                        itemsPerPage={pageSize}
+                        pageSize={pageSize}
+                        onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
                         className="justify-center! gap-2! py-0! [&>div]:ml-0! [&_button]:h-9! [&_input]:h-9!"
                       />
                     </div>

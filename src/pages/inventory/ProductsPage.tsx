@@ -40,6 +40,7 @@ import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
@@ -199,6 +200,7 @@ export default function ProductsPage() {
   const [returnToSplitId, setReturnToSplitId] = useState<string | null>(null)
 
   const PAGE_SIZE = 10
+  const [pageSize, setPageSize] = usePageSize('pbims.products.pageSize', PAGE_SIZE)
   const [paginatedProducts, setPaginatedProducts] = useState<Product[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -238,8 +240,8 @@ export default function ProductsPage() {
             schedule: selectedSchedule !== 'all' ? selectedSchedule : undefined,
             status: selectedStatus !== 'all' ? selectedStatus : undefined,
             stockFilter: stockTab !== 'all' ? stockTab : undefined,
-            skip: (currentPage - 1) * PAGE_SIZE,
-            take: PAGE_SIZE,
+            skip: (currentPage - 1) * pageSize,
+            take: pageSize,
           },
         })
         if (isSubscribed) {
@@ -252,7 +254,7 @@ export default function ProductsPage() {
     }
     fetchData()
     return () => { isSubscribed = false }
-  }, [search, selectedCategoryId, selectedSchedule, selectedStatus, stockTab, currentPage, refreshKey])
+  }, [search, selectedCategoryId, selectedSchedule, selectedStatus, stockTab, currentPage, pageSize, refreshKey])
 
   // Manufacturer datalist: suppliers + whatever manufacturers appear on the
   // current page of products. Good-enough autocomplete without needing a
@@ -299,7 +301,7 @@ export default function ProductsPage() {
     })
   }, [paginatedProducts, stockTab])
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1
+  const totalPages = Math.ceil(totalCount / pageSize) || 1
 
   // Form
   const form = useForm<ProductFormValues>({
@@ -676,7 +678,7 @@ export default function ProductsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {[
                   { label: 'Total Products', value: summaryStats.total, subtitle: 'in catalog', icon: Package, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
                   { label: 'Low Stock', value: summaryStats.lowStock, subtitle: 'below min level', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
@@ -1168,7 +1170,9 @@ export default function ProductsPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={totalCount}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

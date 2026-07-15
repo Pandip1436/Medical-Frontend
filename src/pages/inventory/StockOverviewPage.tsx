@@ -16,6 +16,7 @@ import {
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageSize } from '@/hooks/usePageSize'
 import { exportToExcel } from '@/lib/excelUtils'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -131,6 +132,7 @@ export default function StockOverviewPage() {
   const storeCategories = useMasterDataStore((s) => s.categories)
   const fetchCategories = useMasterDataStore((s) => s.fetchCategories)
   const PAGE_SIZE = 15
+  const [pageSize, setPageSize] = usePageSize('pbims.stockOverview.pageSize', PAGE_SIZE)
 
   const [viewMode, setViewMode] = usePersistedState<'table' | 'card'>('filters:inventory.stock:view', 'table')
   const [search, setSearch] = usePersistedState('filters:inventory.stock:search', '')
@@ -188,8 +190,8 @@ export default function StockOverviewPage() {
         q: search.trim() || undefined,
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
         ...statusToBatchParams(statusFilter),
-        skip: (currentPage - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
+        skip: (currentPage - 1) * pageSize,
+        take: pageSize,
       },
     })
       .then((res) => {
@@ -199,7 +201,7 @@ export default function StockOverviewPage() {
       })
       .catch(() => { if (!cancelled) { setBatchRows([]); setBatchTotal(0) } })
     return () => { cancelled = true }
-  }, [viewMode, search, categoryFilter, statusFilter, currentPage])
+  }, [viewMode, search, categoryFilter, statusFilter, currentPage, pageSize])
 
   useEffect(() => {
     if (viewMode !== 'card') return
@@ -208,8 +210,8 @@ export default function StockOverviewPage() {
       params: {
         q: search.trim() || undefined,
         categoryId: categoryFilter !== 'all' ? categoryFilter : undefined,
-        skip: (currentPage - 1) * PAGE_SIZE,
-        take: PAGE_SIZE,
+        skip: (currentPage - 1) * pageSize,
+        take: pageSize,
       },
     })
       .then((res) => {
@@ -219,7 +221,7 @@ export default function StockOverviewPage() {
       })
       .catch(() => { if (!cancelled) { setProductRows([]); setProductTotal(0) } })
     return () => { cancelled = true }
-  }, [viewMode, search, categoryFilter, currentPage])
+  }, [viewMode, search, categoryFilter, currentPage, pageSize])
 
   // Reset to page 1 whenever a filter changes (or the view mode flips).
   useEffect(() => { setCurrentPage(1) }, [viewMode, search, categoryFilter, statusFilter])
@@ -304,7 +306,7 @@ export default function StockOverviewPage() {
     }))
   }, [batchRows, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(batchTotal / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(batchTotal / pageSize))
 
   // Cards: derive product-level status from totalStock/minStock and the
   // nested batches (if the /products response carries them — which it does).
@@ -680,7 +682,9 @@ export default function StockOverviewPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={batchTotal}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>
@@ -760,13 +764,15 @@ export default function StockOverviewPage() {
               </div>
             )}
           </div>
-          {productTotal > PAGE_SIZE && (
+          {productTotal > pageSize && (
             <DataTablePagination
               currentPage={currentPage}
-              totalPages={Math.max(1, Math.ceil(productTotal / PAGE_SIZE))}
+              totalPages={Math.max(1, Math.ceil(productTotal / pageSize))}
               onPageChange={setCurrentPage}
               totalItems={productTotal}
-              itemsPerPage={PAGE_SIZE}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
               className="mt-4"
             />
           )}

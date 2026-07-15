@@ -93,7 +93,7 @@ const settingsSections: SettingsSection[] = [
 const businessProfileSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
   address: z.string().min(1, 'Address is required'),
-  phone: z.string().regex(/^\d{10}$/, 'Enter a valid 10-digit phone number'),
+  phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   email: z.string().email('Valid email required'),
   gstin: z.string().min(15, 'Valid GSTIN required').max(15),
   drugLicense: z.string().min(1, 'Drug license is required'),

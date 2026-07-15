@@ -28,6 +28,7 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useDeepLinkParam } from '@/hooks/useDeepLinkHighlight'
@@ -145,6 +146,7 @@ export default function CustomerInvoicesPage() {
   const [fromDate, setFromDate] = usePersistedState('filters:customers.invoices:fromDate', '')
   const [toDate, setToDate] = usePersistedState('filters:customers.invoices:toDate', '')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.customerInvoices.pageSize', PAGE_SIZE)
   // Filters panel — controlled so picking "Custom Range" can auto-open the
   // panel that holds the custom From/To date pickers.
   const [tableFiltersOpen, setTableFiltersOpen] = useState(false)
@@ -193,8 +195,8 @@ export default function CustomerInvoicesPage() {
   const buildQueryParams = useCallback((): URLSearchParams => {
     const params = new URLSearchParams()
     params.set('type', 'INVOICE')
-    params.set('skip', String((currentPage - 1) * PAGE_SIZE))
-    params.set('take', String(PAGE_SIZE))
+    params.set('skip', String((currentPage - 1) * pageSize))
+    params.set('take', String(pageSize))
     if (searchQuery.trim()) params.set('q', searchQuery.trim())
     if (statusFilter !== 'all') params.set('status', statusFilter)
     if (paymentFilter !== 'all') params.set('paymentMode', paymentFilter)
@@ -204,7 +206,7 @@ export default function CustomerInvoicesPage() {
     if (from) params.set('from', from)
     if (to) params.set('to', to)
     return params
-  }, [currentPage, searchQuery, statusFilter, paymentFilter, salespersonFilter, customerFocusId, period, fromDate, toDate])
+  }, [currentPage, pageSize, searchQuery, statusFilter, paymentFilter, salespersonFilter, customerFocusId, period, fromDate, toDate])
 
   // Strip the focus from state + URL so the list returns to all customers.
   const clearCustomerFocus = useCallback(() => {
@@ -376,7 +378,7 @@ export default function CustomerInvoicesPage() {
     setCurrentPage(1)
   }, [searchQuery, statusFilter, paymentFilter, salespersonFilter, customerFocusId, period, fromDate, toDate])
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   // Deep-link entry: when the URL has ?invoiceId=…, open the row's detail
   // Sheet inline instead of bouncing to the old full-page detail. Keep the
@@ -755,14 +757,17 @@ export default function CustomerInvoicesPage() {
               </Table>
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
+            {/* Pagination — kept visible whenever there are results so the
+                rows-per-page selector stays reachable even at a single page. */}
+            {total > 0 && (
               <DataTablePagination
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
                 totalItems={total}
-                itemsPerPage={PAGE_SIZE}
+                itemsPerPage={pageSize}
+                pageSize={pageSize}
+                onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
                 className="border-t border-border/40 px-4"
               />
             )}

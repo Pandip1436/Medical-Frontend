@@ -14,6 +14,7 @@ import {
 
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -117,6 +118,7 @@ export default function SupplierOutstandingPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.supplierOutstanding.pageSize', PAGE_SIZE)
 
   // Drawer
   const [selectedRow, setSelectedRow] = useState<OutstandingRow | null>(null)
@@ -190,10 +192,10 @@ export default function SupplierOutstandingPage() {
     return rows
   }, [rows, cardFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
   const paginatedRows = useMemo(
-    () => filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filteredRows, currentPage],
+    () => filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredRows, currentPage, pageSize],
   )
 
   // Summary cards reflect the filtered set so the user understands what's on screen.
@@ -552,7 +554,9 @@ export default function SupplierOutstandingPage() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             totalItems={filteredRows.length}
-            itemsPerPage={PAGE_SIZE}
+            itemsPerPage={pageSize}
+            pageSize={pageSize}
+            onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
             className="border-t border-border/40 px-4"
           />
         </Card>

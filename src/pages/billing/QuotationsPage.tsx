@@ -46,6 +46,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ColumnDef } from '@/types/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
@@ -253,6 +254,7 @@ export default function QuotationsPage() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.quotations.pageSize', PAGE_SIZE)
 
   // Selecting "Custom Range" opens the panel(s) that hold the date pickers.
   const onPeriodChange = useCallback((val: string) => {
@@ -492,10 +494,10 @@ export default function QuotationsPage() {
 
   // ── Pagination ──
 
-  const totalPages = Math.ceil(filteredQuotations.length / PAGE_SIZE)
+  const totalPages = Math.ceil(filteredQuotations.length / pageSize)
   const paginatedQuotations = filteredQuotations.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
   )
 
 
@@ -550,7 +552,7 @@ export default function QuotationsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {([
                   { label: 'Total', value: formatCurrency(stats.total), sub: `${stats.totalCount} quotations`, borderAccent: 'border-l-blue-500' },
                   { label: 'Converted', value: formatCurrency(stats.convertedTotal), sub: `${stats.convertedCount} converted`, borderAccent: 'border-l-emerald-500' },
@@ -1167,7 +1169,9 @@ export default function QuotationsPage() {
           totalPages={totalPages}
           onPageChange={setCurrentPage}
           totalItems={filteredQuotations.length}
-          itemsPerPage={PAGE_SIZE}
+          itemsPerPage={pageSize}
+          pageSize={pageSize}
+          onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
           className="border-t border-border/40 px-4"
         />
       </Card>

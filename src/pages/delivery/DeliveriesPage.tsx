@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Truck, Search, PackageSearch, ChevronRight, Phone, MapPin, RefreshCw, Loader2, ExternalLink } from 'lucide-react'
+import { Truck, Search, PackageSearch, Package, PackageCheck, ChevronRight, Phone, MapPin, RefreshCw, Loader2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import { PageHeader } from '@/components/shared/PageHeader'
 import { DateRangeFilter, type DateRangeValue } from '@/components/shared/DateRangeFilter'
 import { DeliveryStatusFilter } from '@/components/shared/DeliveryStatusFilter'
 import { DeliveryCourierFilter } from '@/components/shared/DeliveryCourierFilter'
@@ -171,22 +170,21 @@ export default function DeliveriesPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-      <PageHeader title="Delivery Tracking" description="Courier shipments dispatched from invoices." className="!flex-col !items-stretch sm:!flex-row sm:!items-end">
-        <div className="flex w-full flex-wrap items-center gap-1.5 text-xs sm:w-auto sm:gap-2">
-          <Stat label="Total" value={totalCount} className="bg-muted text-foreground"
-            onClick={() => setStatus('ALL')} active={status === 'ALL'} />
-          <Stat label="Booked" value={booked} className="bg-blue-500/10 text-blue-600 dark:text-blue-400"
-            onClick={() => setStatus(status === 'BOOKED' ? 'ALL' : 'BOOKED')} active={status === 'BOOKED'} />
-          <Stat label="In Transit" value={inTransit} className="bg-violet-500/10 text-violet-600 dark:text-violet-400"
-            onClick={() => setStatus(status === 'IN_TRANSIT' ? 'ALL' : 'IN_TRANSIT')} active={status === 'IN_TRANSIT'} />
-          <Stat label="Delivered" value={delivered} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            onClick={() => setStatus(status === 'DELIVERED' ? 'ALL' : 'DELIVERED')} active={status === 'DELIVERED'} />
-          <Button size="sm" onClick={handleCheckAll} disabled={checkingAll} className="ml-auto w-full gap-1.5 sm:ml-1 sm:w-auto">
-            {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {checkingAll ? 'Checking…' : 'Check All Tracking'}
-          </Button>
-        </div>
-      </PageHeader>
+      {/* Clickable summary stat cards — each filters the list by status. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Total" value={totalCount} icon={PackageSearch}
+          accent="border-l-slate-400" iconBg="bg-muted text-foreground"
+          onClick={() => setStatus('ALL')} active={status === 'ALL'} />
+        <StatCard label="Booked" value={booked} icon={Package}
+          accent="border-l-blue-500" iconBg="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+          onClick={() => setStatus(status === 'BOOKED' ? 'ALL' : 'BOOKED')} active={status === 'BOOKED'} />
+        <StatCard label="In Transit" value={inTransit} icon={Truck}
+          accent="border-l-violet-500" iconBg="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+          onClick={() => setStatus(status === 'IN_TRANSIT' ? 'ALL' : 'IN_TRANSIT')} active={status === 'IN_TRANSIT'} />
+        <StatCard label="Delivered" value={delivered} icon={PackageCheck}
+          accent="border-l-emerald-500" iconBg="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+          onClick={() => setStatus(status === 'DELIVERED' ? 'ALL' : 'DELIVERED')} active={status === 'DELIVERED'} />
+      </div>
 
       {/* Filters */}
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -202,6 +200,10 @@ export default function DeliveriesPage() {
         <DeliveryCourierFilter value={courier} onChange={setCourier} counts={courierCounts} className="sm:w-48" />
         <DeliveryStatusFilter value={status} onChange={setStatus} counts={statusCounts} className="sm:w-48" />
         <DateRangeFilter value={dateRange} onChange={setDateRange} className="sm:w-52" />
+        <Button size="sm" onClick={handleCheckAll} disabled={checkingAll} className="h-10 shrink-0 gap-1.5">
+          {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {checkingAll ? 'Checking…' : 'Check All Tracking'}
+        </Button>
       </div>
 
       {/* List */}
@@ -295,26 +297,24 @@ export default function DeliveriesPage() {
   )
 }
 
-function Stat({
+// Clickable summary card — filters the list by status; the active one is ringed.
+function StatCard({
   label,
   value,
-  className,
+  icon: Icon,
+  accent,
+  iconBg,
   onClick,
   active,
 }: {
   label: string
   value: number
-  className?: string
-  onClick?: () => void
+  icon: typeof Truck
+  accent: string
+  iconBg: string
+  onClick: () => void
   active?: boolean
 }) {
-  const base = cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium', className)
-  const content = (
-    <>
-      {value} <span className="opacity-70">{label}</span>
-    </>
-  )
-  if (!onClick) return <span className={base}>{content}</span>
   return (
     <button
       type="button"
@@ -322,14 +322,18 @@ function Stat({
       aria-pressed={active}
       title={active ? `Clear ${label} filter` : `Filter by ${label}`}
       className={cn(
-        base,
-        'cursor-pointer transition hover:brightness-95 dark:hover:brightness-110',
-        active
-          ? 'ring-2 ring-current ring-offset-1 ring-offset-background'
-          : 'opacity-80 hover:opacity-100',
+        'flex items-center gap-3 rounded-xl border border-l-[3px] border-border/60 bg-card p-3 text-left transition-shadow hover:shadow-md sm:gap-4 sm:p-4',
+        accent,
+        active && 'ring-2 ring-primary/50',
       )}
     >
-      {content}
+      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', iconBg)}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="font-mono text-lg font-bold leading-tight">{value}</p>
+      </div>
     </button>
   )
 }

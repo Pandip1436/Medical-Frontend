@@ -51,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
+import { usePageSize } from '@/hooks/usePageSize'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { SupplierFormDialog, type SupplierFormValues } from '@/components/shared/SupplierFormDialog'
 import {
@@ -243,6 +244,11 @@ export default function SupplierDetailPage() {
   const [grnsPage, setGrnsPage] = useState(1)
   const [dnsPage, setDnsPage] = useState(1)
   const [batchPage, setBatchPage] = useState(1)
+  const [ledgerPageSize, setLedgerPageSize] = usePageSize('pbims.supplierDetail.ledger.pageSize', PAGE_SIZE)
+  const [posPageSize, setPosPageSize] = usePageSize('pbims.supplierDetail.pos.pageSize', PAGE_SIZE)
+  const [grnsPageSize, setGrnsPageSize] = usePageSize('pbims.supplierDetail.grns.pageSize', PAGE_SIZE)
+  const [dnsPageSize, setDnsPageSize] = usePageSize('pbims.supplierDetail.dns.pageSize', PAGE_SIZE)
+  const [batchPageSize, setBatchPageSize] = usePageSize('pbims.supplierDetail.batches.pageSize', PAGE_SIZE)
   useEffect(() => { setLedgerPage(1); setPosPage(1); setGrnsPage(1); setDnsPage(1); setBatchPage(1) }, [supplierId])
 
   // Derived/sorted lists (memoised)
@@ -280,11 +286,11 @@ export default function SupplierDetailPage() {
   useEffect(() => { setGrnsPage(1) }, [grnsPeriod])
   useEffect(() => { setDnsPage(1) }, [dnsPeriod])
 
-  const ledgerPaged = ledgerRows.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE)
-  const posPaged = posFiltered.slice((posPage - 1) * PAGE_SIZE, posPage * PAGE_SIZE)
-  const grnsPaged = grnsFiltered.slice((grnsPage - 1) * PAGE_SIZE, grnsPage * PAGE_SIZE)
-  const dnsPaged = dnsFiltered.slice((dnsPage - 1) * PAGE_SIZE, dnsPage * PAGE_SIZE)
-  const batchPaged = sortedBatches.slice((batchPage - 1) * PAGE_SIZE, batchPage * PAGE_SIZE)
+  const ledgerPaged = ledgerRows.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize)
+  const posPaged = posFiltered.slice((posPage - 1) * posPageSize, posPage * posPageSize)
+  const grnsPaged = grnsFiltered.slice((grnsPage - 1) * grnsPageSize, grnsPage * grnsPageSize)
+  const dnsPaged = dnsFiltered.slice((dnsPage - 1) * dnsPageSize, dnsPage * dnsPageSize)
+  const batchPaged = sortedBatches.slice((batchPage - 1) * batchPageSize, batchPage * batchPageSize)
 
   // ── Render guards ──────────────────────────────────────────
   if (!supplierId) {
@@ -739,14 +745,16 @@ export default function SupplierDetailPage() {
               )}
             </div>
 
-            {ledgerRows.length > PAGE_SIZE && (
+            {ledgerRows.length > ledgerPageSize && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={ledgerPage}
-                  totalPages={Math.max(1, Math.ceil(ledgerRows.length / PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(ledgerRows.length / ledgerPageSize))}
                   onPageChange={setLedgerPage}
                   totalItems={ledgerRows.length}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={ledgerPageSize}
+                  pageSize={ledgerPageSize}
+                  onPageSizeChange={(n) => { setLedgerPageSize(n); setLedgerPage(1) }}
                   className="px-4"
                 />
               </div>
@@ -815,14 +823,16 @@ export default function SupplierDetailPage() {
                 columns={['Date', 'PO #', 'Expected', { label: 'Items', center: true }, { label: 'Total', right: true }, 'Status']}
               />
             </div>
-            {posFiltered.length > PAGE_SIZE && (
+            {posFiltered.length > posPageSize && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={posPage}
-                  totalPages={Math.max(1, Math.ceil(posFiltered.length / PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(posFiltered.length / posPageSize))}
                   onPageChange={setPosPage}
                   totalItems={posFiltered.length}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={posPageSize}
+                  pageSize={posPageSize}
+                  onPageSizeChange={(n) => { setPosPageSize(n); setPosPage(1) }}
                   className="px-4"
                 />
               </div>
@@ -873,14 +883,16 @@ export default function SupplierDetailPage() {
                 columns={['Date', 'GRN #', 'Supplier Invoice', { label: 'Items', center: true }, { label: 'Value', right: true }, 'Status']}
               />
             </div>
-            {grnsFiltered.length > PAGE_SIZE && (
+            {grnsFiltered.length > grnsPageSize && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={grnsPage}
-                  totalPages={Math.max(1, Math.ceil(grnsFiltered.length / PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(grnsFiltered.length / grnsPageSize))}
                   onPageChange={setGrnsPage}
                   totalItems={grnsFiltered.length}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={grnsPageSize}
+                  pageSize={grnsPageSize}
+                  onPageSizeChange={(n) => { setGrnsPageSize(n); setGrnsPage(1) }}
                   className="px-4"
                 />
               </div>
@@ -931,14 +943,16 @@ export default function SupplierDetailPage() {
                 columns={['Date', 'DN #', 'Reason', 'Settlement', { label: 'Amount', right: true }, 'Status']}
               />
             </div>
-            {dnsFiltered.length > PAGE_SIZE && (
+            {dnsFiltered.length > dnsPageSize && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={dnsPage}
-                  totalPages={Math.max(1, Math.ceil(dnsFiltered.length / PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(dnsFiltered.length / dnsPageSize))}
                   onPageChange={setDnsPage}
                   totalItems={dnsFiltered.length}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={dnsPageSize}
+                  pageSize={dnsPageSize}
+                  onPageSizeChange={(n) => { setDnsPageSize(n); setDnsPage(1) }}
                   className="px-4"
                 />
               </div>
@@ -1038,14 +1052,16 @@ export default function SupplierDetailPage() {
                 </>
               )}
             </div>
-            {sortedBatches.length > PAGE_SIZE && (
+            {sortedBatches.length > batchPageSize && (
               <div className="shrink-0 border-t border-border/40">
                 <DataTablePagination
                   currentPage={batchPage}
-                  totalPages={Math.max(1, Math.ceil(sortedBatches.length / PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(sortedBatches.length / batchPageSize))}
                   onPageChange={setBatchPage}
                   totalItems={sortedBatches.length}
-                  itemsPerPage={PAGE_SIZE}
+                  itemsPerPage={batchPageSize}
+                  pageSize={batchPageSize}
+                  onPageSizeChange={(n) => { setBatchPageSize(n); setBatchPage(1) }}
                   className="px-4"
                 />
               </div>
