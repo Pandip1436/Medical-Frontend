@@ -133,9 +133,11 @@ export function LeadDetailsTab({
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 p-5 sm:grid-cols-4">
-            <Field label="First Name">{lead.contact.firstName || '-'}</Field>
-            <Field label="Last Name">{lead.contact.lastName || '-'}</Field>
-            <Field label="Email" className="col-span-2 sm:col-span-4">
+            <Field label="First Name" className="sm:col-span-2">{lead.contact.firstName || '-'}</Field>
+            <Field label="Last Name" className="sm:col-span-2">{lead.contact.lastName || '-'}</Field>
+            {/* Email + Phone share one row on desktop (each half the 4-col
+                grid); they stack full-width on mobile where space is tight. */}
+            <Field label="Email" className="col-span-2 sm:col-span-2">
               {lead.contact.email ? (
                 <a
                   href={`mailto:${lead.contact.email}`}
@@ -148,7 +150,7 @@ export function LeadDetailsTab({
                 <span>-</span>
               )}
             </Field>
-            <Field label="Phone" className="col-span-2 sm:col-span-4">
+            <Field label="Phone" className="col-span-2 sm:col-span-2">
               {phone ? (
                 <div className="flex items-center gap-2">
                   <a

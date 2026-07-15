@@ -93,9 +93,14 @@ export function SplitViewShell({
           />
         </div>
 
-        {/* Optional status tabs */}
+        {/* Optional status tabs. In the narrow rail we stretch the pill group
+            to full width (no dead whitespace on the right): force the tabs
+            container to flex/w-full and let each tab button split the width
+            evenly. This targets the shared pill pattern every caller uses
+            (a single <div> of <button>s) without each page needing its own
+            fullWidth flag. */}
         {tabsNode && (
-          <div className="shrink-0 border-b border-border/40">
+          <div className="shrink-0 border-b border-border/40 px-3 py-2 [&>div]:flex [&>div]:w-full [&>div>button]:flex-1 [&>div>button]:justify-center">
             {tabsNode}
           </div>
         )}

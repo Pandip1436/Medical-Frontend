@@ -98,16 +98,16 @@ export function CreditNoteSplitView({
           <Receipt className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="font-mono text-sm font-semibold">{detail.creditNote.creditNoteNo}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.creditNote.creditNoteNo}</p>
             {statusConfig[detail.creditNote.status] && (
-              <Badge variant={statusConfig[detail.creditNote.status].variant} size="sm" dot>
+              <Badge variant={statusConfig[detail.creditNote.status].variant} size="sm" dot className="shrink-0">
                 {statusConfig[detail.creditNote.status].label}
               </Badge>
             )}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatDate(detail.creditNote.date)} · {detail.creditNote.customerName}
+            {formatDate(detail.creditNote.date)}
           </p>
         </div>
       </div>

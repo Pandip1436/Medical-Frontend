@@ -14,7 +14,6 @@ import {
 import { toast } from 'sonner'
 
 import api from '@/lib/api'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -168,6 +167,7 @@ export function LeadsTable({
             {show('customerInfo') && <TableHead>Customer Info</TableHead>}
             {/* Action icons column — always present alongside Customer Info */}
             <TableHead className="w-32" aria-label="Quick actions" />
+            {show('leadNumber') && <TableHead className="whitespace-nowrap">Lead ID</TableHead>}
             {show('contact') && <TableHead>Contact</TableHead>}
             {show('email') && <TableHead>Email</TableHead>}
             {show('phone') && <TableHead>Phone</TableHead>}
@@ -368,16 +368,7 @@ function LeadCard({
 
       {/* Middle: identity + inline editors */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{fullName}</span>
-          <Badge
-            variant="secondary"
-            size="sm"
-            className="font-mono text-[10px] text-muted-foreground"
-          >
-            {lead.leadNumber}
-          </Badge>
-        </div>
+        <span className="text-sm font-semibold">{fullName}</span>
         <div className="text-xs text-muted-foreground">{phone}</div>
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -468,16 +459,7 @@ function LeadRow({
       {show('customerInfo') && (
         <TableCell>
           <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold">{fullName}</span>
-              <Badge
-                variant="secondary"
-                size="sm"
-                className="font-mono text-[10px] text-muted-foreground"
-              >
-                {lead.leadNumber}
-              </Badge>
-            </div>
+            <span className="text-sm font-semibold">{fullName}</span>
             <span className="text-xs text-muted-foreground">{phone}</span>
           </div>
         </TableCell>
@@ -487,6 +469,12 @@ function LeadRow({
       <TableCell onClick={(e) => e.stopPropagation()}>
         <QuickActions lead={lead} onClick={onClick} onDelete={onDelete} />
       </TableCell>
+
+      {show('leadNumber') && (
+        <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+          {lead.leadNumber}
+        </TableCell>
+      )}
 
       {show('contact') && (
         <TableCell className="text-sm">{fullName}</TableCell>

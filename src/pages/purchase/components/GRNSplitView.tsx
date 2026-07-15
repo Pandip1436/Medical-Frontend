@@ -110,14 +110,16 @@ export function GRNSplitView({
           <PackageCheck className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="font-mono text-sm font-semibold">{detail.grn.grnNumber}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.grn.grnNumber}</p>
             {!detail.grn.isReplacement && (
-              <StatusBadge status={grnPayStatus(detail.grn)} />
+              <span className="shrink-0">
+                <StatusBadge status={grnPayStatus(detail.grn)} />
+              </span>
             )}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatDate(detail.grn.date)} · {detail.grn.supplierName}
+            {formatDate(detail.grn.date)}
           </p>
         </div>
       </div>

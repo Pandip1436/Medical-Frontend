@@ -110,14 +110,14 @@ export function QuotationSplitView({
           <FileText className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="font-mono text-sm font-semibold">{selectedQuotation.quotationNumber}</p>
-            <Badge variant={statusBadgeVariant[selectedQuotation.status]} size="sm" dot>
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-semibold">{selectedQuotation.quotationNumber}</p>
+            <Badge variant={statusBadgeVariant[selectedQuotation.status]} size="sm" dot className="shrink-0">
               {statusLabel[selectedQuotation.status]}
             </Badge>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatDate(selectedQuotation.date)} · {selectedQuotation.customerName}
+            {formatDate(selectedQuotation.date)}
           </p>
         </div>
       </div>

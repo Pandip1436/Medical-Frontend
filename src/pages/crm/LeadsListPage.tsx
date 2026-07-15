@@ -310,6 +310,10 @@ export default function LeadsListPage() {
           {/* Toolbar row — desktop split chrome; hidden on mobile so the
               tapped lead's detail owns the screen. */}
           <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 md:flex">
+            <Button variant="ghost" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 h-4 w-4" />
+              <span className="hidden sm:inline">Import</span>
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
               <Download className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Export</span>

@@ -123,6 +123,7 @@ export interface ColumnDef {
 
 export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'customerInfo', label: 'Customer Info', required: true, defaultVisible: true },
+  { id: 'leadNumber', label: 'Lead ID', defaultVisible: true },
   { id: 'description', label: 'Description', defaultVisible: true },
   { id: 'contact', label: 'Contact', defaultVisible: true },
   { id: 'email', label: 'Email', defaultVisible: true },

@@ -141,13 +141,23 @@ function StatusTabs({
   tab,
   onChange,
   counts,
+  fullWidth = false,
 }: {
   tab: StatusTabKey
   onChange: (t: StatusTabKey) => void
   counts: Record<string, number>
+  // When true the pill group stretches to fill its container and each tab
+  // splits the width evenly (used in the narrow split-view rail so there's no
+  // dead whitespace on the right). Default keeps the compact inline layout.
+  fullWidth?: boolean
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div
+      className={cn(
+        'items-center gap-1 rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]',
+        fullWidth ? 'flex w-full' : 'inline-flex max-w-full overflow-x-auto',
+      )}
+    >
       {STATUS_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -155,7 +165,8 @@ function StatusTabs({
             key={t.key}
             onClick={() => onChange(t.key)}
             className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              fullWidth ? 'flex-1 justify-center' : 'shrink-0',
               active
                 // Active pill lifts onto a surface; the semantic colour (emerald/
                 // amber/rose) stays on the text. The border-* in activeClass is a
@@ -885,6 +896,7 @@ export default function SalesListPage() {
                 tab={statusTab}
                 onChange={(t) => { setStatusTab(t); setCurrentPage(1) }}
                 counts={tabCounts}
+                fullWidth
               />
             }
           />

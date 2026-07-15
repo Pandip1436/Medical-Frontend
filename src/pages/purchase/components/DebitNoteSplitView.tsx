@@ -91,18 +91,19 @@ export function DebitNoteSplitView({
           <FileText className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="font-mono text-sm font-semibold">{detail.debitNote.noteNo}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.debitNote.noteNo}</p>
             <Badge
               variant={detail.debitNote.status === 'SETTLED' ? 'success' : detail.debitNote.status === 'SENT' ? 'info' : 'secondary'}
               size="sm"
               dot
+              className="shrink-0"
             >
               {detail.debitNote.status}
             </Badge>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatDate(detail.debitNote.date)} · {detail.debitNote.partyName}
+            {formatDate(detail.debitNote.date)}
           </p>
         </div>
       </div>

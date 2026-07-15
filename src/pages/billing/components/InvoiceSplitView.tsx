@@ -99,9 +99,13 @@ export function InvoiceSplitView({
           <Receipt className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="font-mono text-sm font-semibold">{detail.invoice.invoiceNumber}</p>
-            {!detail.invoice.isReplacement && <StatusBadge status={detail.invoice.status} />}
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.invoice.invoiceNumber}</p>
+            {!detail.invoice.isReplacement && (
+              <span className="shrink-0">
+                <StatusBadge status={detail.invoice.status} />
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground">
             {formatDate(detail.invoice.date)} · {detail.invoice.billingType}

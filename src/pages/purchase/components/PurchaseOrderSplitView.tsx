@@ -108,21 +108,26 @@ export function PurchaseOrderSplitView({
             <ClipboardList className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="font-mono text-sm font-semibold">{selectedPO.poNumber}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 truncate font-mono text-sm font-semibold">{selectedPO.poNumber}</p>
               {cfg && (
-                <Badge variant={cfg.variant} size="sm" dot>
+                <Badge variant={cfg.variant} size="sm" dot className="shrink-0">
                   {cfg.label}
                 </Badge>
               )}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {formatDate(selectedPO.date)} · {selectedPO.supplierName}
+              {formatDate(selectedPO.date)}
             </p>
           </div>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* No overflow-y-auto here: PurchaseOrderDetailContent manages its own
+          scroll (scrollable body + sticky footer with the action buttons).
+          Wrapping it in a second scroll container unbounds its height and
+          pushes the footer buttons off-screen — so this is just a bounded flex
+          column that clips. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {detail.purchaseOrder && (
           <PurchaseOrderDetailContent
             purchaseOrder={detail.purchaseOrder}

@@ -61,7 +61,7 @@ export function LeadsTopBar({
           seeing as "the page shakes when I move the mouse horizontally"). */}
       {/* responsive: touch-scrollable on phones so all tabs are reachable;
           overflow-hidden at md+ keeps the desktop anti-wheel-shake behavior */}
-      <div className="flex min-w-0 flex-1 items-end overflow-x-auto md:overflow-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex min-w-0 flex-1 items-end overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <nav className="flex items-end gap-0">
           {TABS.map((t) => {
             const active = t.value === tab
