@@ -2,22 +2,18 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import type { Category } from '@/types'
 
+/**
+ * Creatable category combobox.
+ * - Type to search existing categories.
+ * - If typed text has no exact match, a "+ Create '[text]'" option appears.
+ * - Clicking it creates the category via API and auto-selects it — no dialog.
+ * - Clear button (×) removes the current selection.
+ */
 export function CategorySearchDropdown({
   value,
   onChange,
@@ -35,20 +31,22 @@ export function CategorySearchDropdown({
 
   const selected = categories.find(c => c.id === value)
 
+  // inputValue is the visible text in the field; syncs with selected name
+  const [inputValue, setInputValue] = useState(selected?.name ?? '')
+  useEffect(() => {
+    setInputValue(selected?.name ?? '')
+  }, [selected?.name])
+
   const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [creating, setCreating] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
-
-  const [addOpen, setAddOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [saving, setSaving] = useState(false)
 
   useLayoutEffect(() => {
     if (!open) return
     const update = () => {
-      const el = triggerRef.current
+      const el = inputRef.current
       if (!el) return
       const r = el.getBoundingClientRect()
       setRect({ top: r.bottom + 4, left: r.left, width: r.width })
@@ -62,84 +60,117 @@ export function CategorySearchDropdown({
     }
   }, [open])
 
+  // Close on outside click
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
       const t = e.target as Node
-      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      if (inputRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      // Revert input to the selected category name if user clicked away without picking
+      setInputValue(selected?.name ?? '')
       setOpen(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+  }, [open, selected?.name])
 
-  useEffect(() => {
-    if (!open) setQuery('')
-  }, [open])
-
-  const filtered = query.trim()
-    ? categories.filter(c => c.name.toLowerCase().includes(query.trim().toLowerCase()))
+  const trimmed = inputValue.trim()
+  const filtered = trimmed
+    ? categories.filter(c => c.name.toLowerCase().includes(trimmed.toLowerCase()))
     : categories
 
-  async function handleSaveCategory() {
-    const name = newName.trim()
-    if (!name) return
-    setSaving(true)
+  const exactMatch = categories.some(c => c.name.toLowerCase() === trimmed.toLowerCase())
+  const showCreate = trimmed.length > 0 && !exactMatch
+
+  async function handleCreate() {
+    if (!trimmed || creating) return
+    setCreating(true)
     try {
-      const res = await api.post<Category>('/categories', { name }, { suppressGlobalToast: true } as never)
+      const res = await api.post<Category>('/categories', { name: trimmed }, { suppressGlobalToast: true } as never)
       const created = res.data
       useMasterDataStore.setState(s => ({
         categories: [...s.categories.filter(c => c.id !== created.id), created]
           .sort((a, b) => a.name.localeCompare(b.name)),
       }))
-      toast.success(`Category "${created.name}" added`)
-      setNewName('')
-      setAddOpen(false)
-      setTimeout(() => onChange(created.id), 0)
+      toast.success(`Category "${created.name}" created`)
+      onChange(created.id)
+      setInputValue(created.name)
+      setOpen(false)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err?.response?.data?.message ?? 'Failed to add category')
+      toast.error(err?.response?.data?.message ?? 'Failed to create category')
     } finally {
-      setSaving(false)
+      setCreating(false)
     }
   }
 
+  function handleSelect(c: Category) {
+    onChange(c.id)
+    setInputValue(c.name)
+    setOpen(false)
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation()
+    onChange('')
+    setInputValue('')
+    inputRef.current?.focus()
+  }
+
   return (
-    <>
-      {/* Trigger button — matches the style of SearchableSelect */}
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className={cn(
-          'flex h-9 w-full items-center gap-2 rounded-md border bg-background px-3 text-sm shadow-sm transition-colors',
-          'hover:border-border/80 focus:outline-none focus-visible:ring-1',
-          hasError
-            ? 'border-rose-500 focus-visible:ring-rose-500'
-            : 'border-input focus-visible:ring-ring',
-        )}
-      >
-        <span className={cn('flex-1 truncate text-left', !selected && 'text-muted-foreground')}>
-          {selected ? selected.name : 'Select category…'}
-        </span>
-        {value && (
-          <span
-            role="button"
-            tabIndex={0}
-            title="Clear"
-            className="rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
-            onClick={e => { e.stopPropagation(); onChange('') }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault(); e.stopPropagation(); onChange('')
+    <div className="relative">
+      {/* Combobox trigger — styled to match other form inputs */}
+      <div className={cn(
+        'flex h-9 items-center rounded-md border bg-background px-3 text-sm shadow-sm transition-colors',
+        'focus-within:ring-1',
+        hasError
+          ? 'border-rose-500 focus-within:ring-rose-500'
+          : 'border-input focus-within:ring-ring',
+      )}>
+        <Search className="mr-2 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+        <input
+          ref={inputRef}
+          value={inputValue}
+          onChange={e => {
+            setInputValue(e.target.value)
+            if (!e.target.value) onChange('') // clear selection when text is cleared
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              if (filtered.length === 1) {
+                handleSelect(filtered[0])
+              } else if (showCreate) {
+                handleCreate()
               }
-            }}
+            }
+            if (e.key === 'Escape') {
+              setInputValue(selected?.name ?? '')
+              setOpen(false)
+            }
+          }}
+          placeholder="Search or create category…"
+          autoComplete="off"
+          className="flex-1 bg-transparent placeholder:text-muted-foreground focus:outline-none min-w-0"
+        />
+        {creating && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/60 ml-1" />}
+        {value && !creating && (
+          <button
+            type="button"
+            tabIndex={-1}
+            title="Clear"
+            onClick={handleClear}
+            className="ml-1 rounded p-0.5 text-muted-foreground/60 hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
-          </span>
+          </button>
         )}
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-      </button>
+        {!value && !creating && (
+          <ChevronDown className="ml-1 h-4 w-4 shrink-0 text-muted-foreground/60" />
+        )}
+      </div>
 
       {/* Portal dropdown */}
       {open && rect && createPortal(
@@ -153,28 +184,14 @@ export function CategorySearchDropdown({
             zIndex: 9999,
           }}
           className="overflow-hidden rounded-md border border-border bg-popover shadow-lg"
+          onMouseDown={e => e.preventDefault()}
         >
-          {/* Search input */}
-          <div className="border-b border-border/60 p-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-              <input
-                autoFocus
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Search categories..."
-                className="h-8 w-full rounded-md bg-muted/40 pl-8 pr-2 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </div>
-          </div>
-
-          {/* Options list */}
           <div className="max-h-52 overflow-y-auto">
             {filtered.map(c => (
               <button
                 key={c.id}
                 type="button"
-                onClick={() => { onChange(c.id); setOpen(false) }}
+                onClick={() => handleSelect(c)}
                 className={cn(
                   'flex w-full items-center px-3 py-2 text-left text-sm hover:bg-accent/60',
                   c.id === value && 'bg-accent/40 font-medium',
@@ -183,65 +200,32 @@ export function CategorySearchDropdown({
                 <span className="truncate">{c.name}</span>
               </button>
             ))}
-            {filtered.length === 0 && (
+            {filtered.length === 0 && !showCreate && (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                No matches for "{query}"
+                No categories found
               </div>
             )}
           </div>
 
-          {/* Add new category */}
-          <div className="border-t border-border/40 p-1">
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setAddOpen(true) }}
-              className="flex w-full items-center gap-1.5 rounded px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add new category
-            </button>
-          </div>
+          {/* Create option — only shown when typed text has no exact match */}
+          {showCreate && (
+            <div className="border-t border-border/40">
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={creating}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+              >
+                {creating
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Plus className="h-3.5 w-3.5" />}
+                <span>Create "{trimmed}"</span>
+              </button>
+            </div>
+          )}
         </div>,
         document.body,
       )}
-
-      {/* Add-category dialog */}
-      <Dialog open={addOpen} onOpenChange={o => { if (!saving) setAddOpen(o) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New Category</DialogTitle>
-            <DialogDescription>
-              Add a new product category. It becomes available for every product immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={e => { e.preventDefault(); e.stopPropagation(); handleSaveCategory() }}
-            className="space-y-3"
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="new-category-name">Category Name *</Label>
-              <Input
-                id="new-category-name"
-                autoFocus
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                placeholder="e.g. Cardiology, Pediatrics, OTC"
-                disabled={saving}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving || !newName.trim()}>
-                {saving
-                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving…</>
-                  : 'Add Category'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+    </div>
   )
 }

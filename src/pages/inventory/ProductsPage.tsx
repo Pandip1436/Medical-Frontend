@@ -38,7 +38,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { SearchableSelect } from '@/components/shared/SearchableSelect'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
@@ -139,6 +139,7 @@ export default function ProductsPage() {
   const cardCols = useColumnVisibility('inventory.products.card', CARD_FIELDS)
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
+  const allProducts = useMasterDataStore(s => s.products)
   const importProducts = useMasterDataStore(s => s.importProducts)
   const importProductsHsn = useMasterDataStore(s => s.importProductsHsn)
   const isLoading = useMasterDataStore(s => s.isLoading)
@@ -257,14 +258,15 @@ export default function ProductsPage() {
     return () => { isSubscribed = false }
   }, [search, selectedCategoryId, selectedSchedule, selectedStatus, stockTab, currentPage, pageSize, refreshKey])
 
-  // Manufacturer datalist: suppliers + whatever manufacturers appear on the
-  // current page of products. Good-enough autocomplete without needing a
-  // full-catalogue load.
+  // Manufacturer suggestions: supplier names + manufacturers from all products
+  // in the master store (fetched once on app load). Falls back to current-page
+  // products if the master store hasn't loaded yet.
   const manufacturers = useMemo(() => {
     const fromSuppliers = suppliers.map(s => s.name)
-    const fromProducts = paginatedProducts.map(p => p.manufacturer)
-    return [...new Set([...fromSuppliers, ...fromProducts])].sort()
-  }, [suppliers, paginatedProducts])
+    const source = allProducts.length > 0 ? allProducts : paginatedProducts
+    const fromProducts = source.map(p => p.manufacturer).filter(Boolean)
+    return [...new Set([...fromSuppliers, ...fromProducts])].filter(Boolean).sort()
+  }, [suppliers, allProducts, paginatedProducts])
 
   // Unfiltered catalog total. Prefer the dashboard summary; fall back to the
   // paginated total only before it loads (correct while the 'all' tab is active).
@@ -363,6 +365,19 @@ export default function ProductsPage() {
     container.addEventListener('scroll', onScroll, { passive: true })
     return () => container.removeEventListener('scroll', onScroll)
   }, [dialogOpen])
+
+  const checkDuplicateName = (name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const existing = allProducts.find(
+      p => p.name.toLowerCase() === trimmed.toLowerCase() && p.id !== editingProduct?.id,
+    )
+    if (existing) {
+      form.setError('name', { type: 'manual', message: `A product named "${existing.name}" already exists` })
+    } else {
+      form.clearErrors('name')
+    }
+  }
 
   const openAddDialog = () => {
     setEditingProduct(null)
@@ -499,17 +514,23 @@ export default function ProductsPage() {
     }
     try {
       if (editingProduct) {
-        await api.patch(`/products/${editingProduct.id}`, payload)
+        await api.patch(`/products/${editingProduct.id}`, payload, { suppressGlobalToast: true } as never)
         toast.success(`Product "${values.name}" updated successfully`)
       } else {
-        await api.post('/products', payload)
+        await api.post('/products', payload, { suppressGlobalToast: true } as never)
         toast.success(`Product "${values.name}" added successfully`)
       }
       setCurrentPage(1)
       refreshPage()
       closeEditDialog()
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Operation failed')
+    } catch (error: unknown) {
+      const msg = (error as any)?.response?.data?.message
+      const text = Array.isArray(msg) ? msg[0] : msg
+      if (typeof text === 'string' && text.toLowerCase().includes('already exists')) {
+        form.setError('name', { type: 'manual', message: text })
+        return
+      }
+      handleApiError(error, 'Operation failed')
     }
   }
 
@@ -1328,7 +1349,16 @@ export default function ProductsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="sm:col-span-2 grid gap-2">
                           <Label htmlFor="name">Product Name <span className="text-rose-500">*</span></Label>
-                          <Input id="name" placeholder="e.g. Torsemide 20mg Tab" {...form.register('name')} />
+                          <Input
+                            id="name"
+                            placeholder="e.g. Torsemide 20mg Tab"
+                            {...form.register('name')}
+                            onBlur={e => {
+                              form.register('name').onBlur(e)
+                              checkDuplicateName(e.target.value)
+                            }}
+                            error={!!form.formState.errors.name}
+                          />
                           {form.formState.errors.name && <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>}
                         </div>
                         <div className="grid gap-2">

@@ -100,6 +100,7 @@ export function ComboboxInput({
           ref={panelRef}
           style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 180), zIndex: 9999 }}
           className="overflow-hidden rounded-md border border-border bg-popover shadow-lg"
+          onMouseDown={e => e.preventDefault()}
         >
           <div className="max-h-52 overflow-y-auto">
             {filtered.map(opt => (
