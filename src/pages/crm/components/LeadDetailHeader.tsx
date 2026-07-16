@@ -1,4 +1,4 @@
-import { Trash2, X } from 'lucide-react'
+import { Pencil, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn, formatDate } from '@/lib/utils'
@@ -15,6 +15,7 @@ const stageStyles: Record<LeadStage, string> = {
 
 interface LeadDetailHeaderProps {
   lead: Lead
+  onEdit: () => void
   onDelete: () => void
   onClose: () => void
 }
@@ -23,7 +24,7 @@ interface LeadDetailHeaderProps {
 // followed by a dot-separated meta line (phone · source · assignee · created
 // · updated). Mirrors screenshot 4 exactly. Sticky inside its parent so it
 // stays visible while tab content scrolls below.
-export function LeadDetailHeader({ lead, onDelete, onClose }: LeadDetailHeaderProps) {
+export function LeadDetailHeader({ lead, onEdit, onDelete, onClose }: LeadDetailHeaderProps) {
   const fullName =
     `${lead.contact.firstName ?? ''} ${lead.contact.lastName ?? ''}`.trim() ||
     'IndiaMART Buyer'
@@ -80,6 +81,15 @@ export function LeadDetailHeader({ lead, onDelete, onClose }: LeadDetailHeaderPr
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onEdit}
+          aria-label="Edit lead"
+          className="text-muted-foreground hover:bg-primary/10 hover:text-primary"
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"

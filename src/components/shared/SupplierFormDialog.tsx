@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { requiredGstin, requiredDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 import { Truck } from 'lucide-react'
 
@@ -36,17 +37,8 @@ export const supplierFormSchema = z.object({
     .string()
     .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   email: z.string().email('Invalid email address'),
-  gstin: z
-    .string()
-    .length(15, 'GSTIN must be 15 characters')
-    .regex(
-      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
-      'Invalid GSTIN format (e.g. 33ABCDE1234F1Z5)',
-    ),
-  drugLicense: z
-    .string()
-    .min(5, 'Drug license number required')
-    .regex(/^[A-Za-z0-9\-/]+$/, 'Drug license can only contain letters, digits, - and /'),
+  gstin: requiredGstin(),
+  drugLicense: requiredDrugLicense(),
   address: z.string().min(10, 'Address is required'),
   paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
     message: 'Select payment terms',
@@ -326,7 +318,10 @@ export function SupplierFormDialog({
                     <Input
                       placeholder="Drug license number"
                       className="font-mono"
+                      maxLength={30}
                       {...register('drugLicense')}
+                      // Validate as the user types so the error shows inline (like GSTIN).
+                      onChange={(e) => setValue('drugLicense', e.target.value, { shouldValidate: true, shouldDirty: true })}
                     />
                     {errors.drugLicense && (
                       <p className="text-xs text-destructive">{errors.drugLicense.message}</p>

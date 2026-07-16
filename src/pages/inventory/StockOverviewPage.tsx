@@ -510,30 +510,36 @@ export default function StockOverviewPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Category"
-          value={categoryFilter}
-          onValueChange={(v) => { setCategoryFilter(v); setCurrentPage(1) }}
-          onClear={() => { setCategoryFilter('all'); setCurrentPage(1) }}
-          options={[
-            { label: 'All Categories', value: 'all' },
-            ...storeCategories.map((c) => ({ label: c.name, value: c.id })),
-          ]}
-        />
-        <EnumSelect
-          label="Status"
-          value={statusFilter}
-          onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1) }}
-          onClear={() => { setStatusFilter('all'); setCurrentPage(1) }}
-          options={[
-            { label: 'All Status', value: 'all' },
-            { label: 'Healthy', value: 'healthy' },
-            { label: 'Low Stock', value: 'low_stock' },
-            { label: 'Out of Stock', value: 'out_of_stock' },
-            { label: 'Near Expiry', value: 'near_expiry' },
-            { label: 'Expired', value: 'expired' },
-          ]}
-        />
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Category"
+              value={categoryFilter}
+              onValueChange={(v) => { setCategoryFilter(v); setCurrentPage(1) }}
+              onClear={() => { setCategoryFilter('all'); setCurrentPage(1) }}
+              options={[
+                { label: 'All Categories', value: 'all' },
+                ...storeCategories.map((c) => ({ label: c.name, value: c.id })),
+              ]}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Status"
+              value={statusFilter}
+              onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1) }}
+              onClear={() => { setStatusFilter('all'); setCurrentPage(1) }}
+              options={[
+                { label: 'All Status', value: 'all' },
+                { label: 'Healthy', value: 'healthy' },
+                { label: 'Low Stock', value: 'low_stock' },
+                { label: 'Out of Stock', value: 'out_of_stock' },
+                { label: 'Near Expiry', value: 'near_expiry' },
+                { label: 'Expired', value: 'expired' },
+              ]}
+            />
+          </div>
+        </div>
       </DataTableFilterBar>
 
       {/* ── Table View ── */}

@@ -182,7 +182,7 @@ export function LeadDetailsTab({
             </Field>
 
             <Field label="Title/Role">{lead.contact.jobTitle || '-'}</Field>
-            <Field label="Company">{lead.company?.name ?? '-'}</Field>
+            <Field label="Company">{lead.contact.company?.name ?? lead.company?.name ?? '-'}</Field>
             <Field label="Country">{lead.contact.country || '-'}</Field>
             <Field label="State">{lead.contact.state || '-'}</Field>
 

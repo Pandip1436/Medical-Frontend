@@ -6,6 +6,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 import {
   Plus,
@@ -137,8 +138,8 @@ const customerSchema = z.object({
   type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   address: z.string().min(1, 'Address is required'),
-  gstin: z.string().optional(),
-  dlNumber: z.string().optional(),
+  gstin: optionalGstin(),
+  dlNumber: optionalDrugLicense(),
   registrationNumber: z.string().optional(),
   referredBy: z.string().optional(),
   source: z.string().optional(),
@@ -1151,7 +1152,6 @@ export default function CustomersPage() {
         open={tableFiltersOpen}
         onOpenChange={setTableFiltersOpen}
         onClearFilters={clearFilters}
-        columnsNode={<ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <ExportMenu
@@ -1241,6 +1241,13 @@ export default function CustomersPage() {
               </div>
             </>
           )}
+          {/* Columns — kept inside this flex row so it sits inline with the
+              filters instead of wrapping to a second line (the shared
+              columnsNode slot would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={CUSTOMER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
         </div>
       </DataTableFilterBar>
 
@@ -1645,7 +1652,13 @@ export default function CustomersPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number *</Label>
-                    <Input {...form.register('dlNumber')} placeholder="Drug License No." error={!!form.formState.errors.dlNumber} />
+                    <Input
+                      {...form.register('dlNumber')}
+                      placeholder="Drug License No."
+                      maxLength={30}
+                      error={!!form.formState.errors.dlNumber}
+                      onChange={(e) => form.setValue('dlNumber', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                    />
                     {form.formState.errors.dlNumber && <p className="text-xs text-rose-500">{form.formState.errors.dlNumber.message}</p>}
                   </div>
                 </div>

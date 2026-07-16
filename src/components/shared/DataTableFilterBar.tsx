@@ -197,7 +197,7 @@ export function DataTableFilterBar({
                     Columns dropdown sits inline with the filter inputs rather
                     than in a separate divided section below them. */}
                 {(children || columnsNode) && (
-                  <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(200px,1fr))]">
+                  <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
                     {children}
                     {columnsNode && (
                       <div className="flex flex-col justify-end gap-1.5">

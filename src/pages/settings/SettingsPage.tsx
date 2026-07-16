@@ -8,6 +8,7 @@ import { motion, type Variants } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { requiredGstin, requiredDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 import {
   Building2,
@@ -95,8 +96,8 @@ const businessProfileSchema = z.object({
   address: z.string().min(1, 'Address is required'),
   phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
   email: z.string().email('Valid email required'),
-  gstin: z.string().min(15, 'Valid GSTIN required').max(15),
-  drugLicense: z.string().min(1, 'Drug license is required'),
+  gstin: requiredGstin(),
+  drugLicense: requiredDrugLicense(),
 })
 
 type BusinessProfileForm = z.infer<typeof businessProfileSchema>
@@ -453,7 +454,9 @@ function BusinessProfileSection() {
                     id="drugLicense"
                     {...register('drugLicense')}
                     className="font-mono text-xs"
+                    maxLength={30}
                     error={!!errors.drugLicense}
+                    onChange={(e) => setValue('drugLicense', e.target.value, { shouldValidate: true, shouldDirty: true })}
                   />
                   {errors.drugLicense && (
                     <p className="text-xs text-destructive">{errors.drugLicense.message}</p>

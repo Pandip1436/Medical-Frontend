@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 import {
   Building2,
@@ -100,8 +101,8 @@ const branchSchema = z.object({
   address: z.string().optional(),
   phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number').or(z.literal('')).optional(),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
-  gstin: z.string().optional(),
-  drugLicense: z.string().optional(),
+  gstin: optionalGstin(),
+  drugLicense: optionalDrugLicense(),
   isActive: z.boolean(),
   isDefault: z.boolean(),
 })
@@ -917,10 +918,18 @@ export default function BranchesPage() {
                       // GSTIN is 15 uppercase alphanumerics — force case, strip the rest, cap at 15.
                       onChange={(e) => setValue('gstin', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 15), { shouldValidate: true, shouldDirty: true })}
                     />
+                    {errors.gstin && <p className="text-xs text-destructive">{errors.gstin.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Drug License No.</Label>
-                    <Input {...register('drugLicense')} placeholder="DL-XXXX" />
+                    <Input
+                      {...register('drugLicense')}
+                      placeholder="DL-XXXX"
+                      maxLength={30}
+                      // Validate as the user types so the error shows inline.
+                      onChange={(e) => setValue('drugLicense', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                    />
+                    {errors.drugLicense && <p className="text-xs text-destructive">{errors.drugLicense.message}</p>}
                   </div>
                 </div>
               </div>

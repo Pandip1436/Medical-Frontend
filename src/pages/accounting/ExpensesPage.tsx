@@ -541,7 +541,6 @@ export default function ExpensesPage() {
           setCategoryFilter('all')
           setPaymentModeFilter('all')
         }}
-        columnsNode={viewMode === 'table' ? <ColumnsToggle columns={EXPENSE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} /> : undefined}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <div className="flex flex-1 items-center rounded-xl border border-border/60 p-1 sm:w-auto sm:flex-none">
@@ -579,26 +578,39 @@ export default function ExpensesPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Category"
-          value={categoryFilter}
-          onValueChange={setCategoryFilter}
-          onClear={() => setCategoryFilter('all')}
-          options={[
-            { label: 'All Categories', value: 'all' },
-            ...expenseCategories.map((cat) => ({ label: cat, value: cat })),
-          ]}
-        />
-        <EnumSelect
-          label="Payment Mode"
-          value={paymentModeFilter}
-          onValueChange={setPaymentModeFilter}
-          onClear={() => setPaymentModeFilter('all')}
-          options={[
-            { label: 'All Modes', value: 'all' },
-            ...paymentModes.map((m) => ({ label: m, value: m })),
-          ]}
-        />
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Category"
+              value={categoryFilter}
+              onValueChange={setCategoryFilter}
+              onClear={() => setCategoryFilter('all')}
+              options={[
+                { label: 'All Categories', value: 'all' },
+                ...expenseCategories.map((cat) => ({ label: cat, value: cat })),
+              ]}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Payment Mode"
+              value={paymentModeFilter}
+              onValueChange={setPaymentModeFilter}
+              onClear={() => setPaymentModeFilter('all')}
+              options={[
+                { label: 'All Modes', value: 'all' },
+                ...paymentModes.map((m) => ({ label: m, value: m })),
+              ]}
+            />
+          </div>
+          {/* Columns — inline with the filters; table view only. */}
+          {viewMode === 'table' && (
+            <div className="flex shrink-0 flex-col justify-end gap-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+              <ColumnsToggle columns={EXPENSE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+            </div>
+          )}
+        </div>
       </DataTableFilterBar>
 
       {/* ── Expenses Table (viewMode === 'table') ──

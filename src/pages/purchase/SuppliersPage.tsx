@@ -750,7 +750,6 @@ export default function SuppliersPage() {
         resultsCount={totalSuppliers}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters(); setCurrentPage(1) }}
-        columnsNode={<ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <ExportMenu
@@ -785,7 +784,8 @@ export default function SuppliersPage() {
         }
       >
         {/* Equal-width filter grid — 4 filters served by the backend */}
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Status"
             value={selectedStatus}
@@ -793,6 +793,8 @@ export default function SuppliersPage() {
             onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
             options={STATUS_OPTIONS}
           />
+          </div>
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Payment Terms"
             value={selectedPaymentTerms}
@@ -800,6 +802,8 @@ export default function SuppliersPage() {
             onClear={() => { setSelectedPaymentTerms('all'); setCurrentPage(1) }}
             options={PAYMENT_TERMS_OPTIONS}
           />
+          </div>
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="GSTIN"
             value={selectedGstin}
@@ -807,8 +811,9 @@ export default function SuppliersPage() {
             onClear={() => { setSelectedGstin('all'); setCurrentPage(1) }}
             options={GSTIN_OPTIONS}
           />
+          </div>
           {/* Outstanding range */}
-          <div className="space-y-1.5">
+          <div className="min-w-40 flex-1 space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Outstanding (₹)
             </Label>
@@ -831,6 +836,13 @@ export default function SuppliersPage() {
                 className="w-full"
               />
             </div>
+          </div>
+          {/* Columns — kept inside this flex row so it sits inline with the
+              filters instead of wrapping to a second line (the shared
+              columnsNode slot would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={SUPPLIER_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
           </div>
         </div>
       </DataTableFilterBar>

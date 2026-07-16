@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { LeadCompactCard } from './LeadCompactCard'
 import { LeadDetailHeader } from './LeadDetailHeader'
 import { LeadTabs, type LeadDetailTab } from './LeadTabs'
+import { EditLeadDrawer } from '../drawers/EditLeadDrawer'
 
 import {
   LeadDetailsTab,
@@ -73,6 +74,7 @@ export function LeadsSplitView({
   const detail = useLeadDetail(selectedLeadId)
   const [activeTab, setActiveTab] = useState<LeadDetailTab>('details')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const pendingLoadRef = useRef(false)
@@ -248,12 +250,13 @@ export function LeadsSplitView({
             <>
               <LeadDetailHeader
                 lead={detail.lead}
+                onEdit={() => setEditOpen(true)}
                 onDelete={handleDelete}
                 onClose={onExitSplitView}
               />
               {/* Call / WhatsApp / Email — moved out of the tab strip to their
                   own row directly under the lead's contact details. */}
-              <div className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-background px-2 py-1.5">
+              <div className="flex shrink-0 items-center justify-end gap-1 border-b border-border/40 bg-background px-2 py-1.5">
                 <LeadCommIcons lead={detail.lead} />
               </div>
               <LeadTabs
@@ -308,6 +311,17 @@ export function LeadsSplitView({
         description={`Delete lead ${detail.lead?.leadNumber} (${detail.lead?.title})? This cannot be undone.`}
         confirmLabel="Delete"
         onConfirm={confirmDelete}
+      />
+
+      <EditLeadDrawer
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        lead={detail.lead}
+        onSaved={() => {
+          // Reflect the edit in both the left rail and the detail panel.
+          list.refetch()
+          detail.refetch()
+        }}
       />
     </>
   )

@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent } from '@/components/ui/card'
@@ -503,7 +504,6 @@ export default function OutstandingPage() {
         resultsCount={filteredRows.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
-        columnsNode={<ColumnsToggle columns={OUTSTANDING_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center justify-end gap-1.5 sm:w-auto">
           <Button
@@ -522,21 +522,32 @@ export default function OutstandingPage() {
           </div>
         }
       >
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <EnumSelect
-            label="Aging Bucket"
-            value={bucketFilter}
-            onValueChange={setBucketFilter}
-            onClear={() => setBucketFilter('all')}
-            options={BUCKET_OPTIONS}
-          />
-          <EnumSelect
-            label="Min Outstanding"
-            value={minOutstandingFilter}
-            onValueChange={setMinOutstandingFilter}
-            onClear={() => setMinOutstandingFilter('all')}
-            options={MIN_OUTSTANDING_OPTIONS}
-          />
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Aging Bucket"
+              value={bucketFilter}
+              onValueChange={setBucketFilter}
+              onClear={() => setBucketFilter('all')}
+              options={BUCKET_OPTIONS}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Min Outstanding"
+              value={minOutstandingFilter}
+              onValueChange={setMinOutstandingFilter}
+              onClear={() => setMinOutstandingFilter('all')}
+              options={MIN_OUTSTANDING_OPTIONS}
+            />
+          </div>
+          {/* Columns — kept inside this flex row so it sits inline with the
+              filters instead of wrapping to a second line (the shared
+              columnsNode slot would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={OUTSTANDING_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
         </div>
       </DataTableFilterBar>
 

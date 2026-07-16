@@ -58,8 +58,22 @@ type FieldKey =
   | 'country'
   | 'source'
   | 'stage'
+  | 'pipeline'
   | 'value'
+  | 'currency'
   | 'score'
+  | 'expectedCloseDate'
+  | 'validUntil'
+  | 'externalProductName'
+  | 'externalCategory'
+  | 'externalCity'
+  | 'externalState'
+  | 'externalMessage'
+
+// Numeric fields are coerced to Number; date fields are normalised to ISO
+// before sending. Everything else goes through as a trimmed string.
+const NUMERIC_FIELDS: FieldKey[] = ['value', 'score']
+const DATE_FIELDS: FieldKey[] = ['expectedCloseDate', 'validUntil']
 
 const FIELD_OPTIONS: { key: FieldKey; label: string; required?: boolean }[] = [
   { key: 'skip', label: 'Skip column' },
@@ -79,8 +93,17 @@ const FIELD_OPTIONS: { key: FieldKey; label: string; required?: boolean }[] = [
   { key: 'country', label: 'Country' },
   { key: 'source', label: 'Source' },
   { key: 'stage', label: 'Stage' },
+  { key: 'pipeline', label: 'Pipeline' },
   { key: 'value', label: 'Value' },
+  { key: 'currency', label: 'Currency' },
   { key: 'score', label: 'Score' },
+  { key: 'expectedCloseDate', label: 'Expected Close Date' },
+  { key: 'validUntil', label: 'Valid Until' },
+  { key: 'externalProductName', label: 'Requirement: Product' },
+  { key: 'externalCategory', label: 'Requirement: Category' },
+  { key: 'externalCity', label: 'Requirement: City' },
+  { key: 'externalState', label: 'Requirement: State' },
+  { key: 'externalMessage', label: "Requirement: Buyer's Message" },
 ]
 
 // Header-name heuristic → FieldKey + confidence. Used for both the auto-mapping
@@ -122,9 +145,26 @@ function detectField(header: string): { field: FieldKey; match: 'High' | 'Medium
     leadsource: 'source',
     stage: 'stage',
     status: 'stage',
+    pipeline: 'pipeline',
     value: 'value',
     amount: 'value',
+    dealvalue: 'value',
+    currency: 'currency',
     score: 'score',
+    expectedclosedate: 'expectedCloseDate',
+    closedate: 'expectedCloseDate',
+    expectedclose: 'expectedCloseDate',
+    validuntil: 'validUntil',
+    validtill: 'validUntil',
+    expiry: 'validUntil',
+    expirydate: 'validUntil',
+    product: 'externalProductName',
+    productname: 'externalProductName',
+    requirement: 'externalMessage',
+    requirements: 'externalMessage',
+    message: 'externalMessage',
+    buyermessage: 'externalMessage',
+    category: 'externalCategory',
   }
   if (exact[h]) return { field: exact[h], match: 'High' }
   for (const [k, v] of Object.entries(exact)) {
@@ -198,11 +238,19 @@ const TEMPLATE_HEADERS = [
   'title',
   'description',
   'source',
+  'stage',
+  'pipeline',
   'value',
+  'currency',
   'score',
+  'expectedCloseDate',
+  'validUntil',
   'city',
   'state',
   'country',
+  'externalProductName',
+  'externalCategory',
+  'externalMessage',
 ]
 const TEMPLATE_SAMPLE_ROW = [
   'John',
@@ -214,11 +262,19 @@ const TEMPLATE_SAMPLE_ROW = [
   'Requirement for X 100 units',
   'Annual contract opportunity',
   'WEBSITE',
+  'LEAD',
+  'SALES',
   '50000',
+  'INR',
   '50',
+  '2026-08-15',
+  '2026-09-15',
   'Hyderabad',
   'Telangana',
   'India',
+  'Renocrit 2000 IU',
+  'Erythropoietin Injection',
+  'Need 100 units per month',
 ]
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -371,9 +427,14 @@ export function ImportLeadsDrawer({
         if (!field || field === 'skip') return
         const cell = (r[i] ?? '').trim()
         if (!cell) return
-        if (field === 'value' || field === 'score') {
+        if (NUMERIC_FIELDS.includes(field)) {
           const n = Number(cell)
           if (!Number.isNaN(n)) obj[field] = n
+        } else if (DATE_FIELDS.includes(field)) {
+          // Normalise to ISO so the backend accepts it; keep the raw string if
+          // it isn't a parseable date (the server drops unparseable dates).
+          const d = new Date(cell)
+          obj[field] = Number.isNaN(d.getTime()) ? cell : d.toISOString()
         } else {
           obj[field] = cell
         }
@@ -420,6 +481,13 @@ export function ImportLeadsDrawer({
                 score: row.score,
                 value: row.value,
                 currency: row.currency,
+                expectedCloseDate: row.expectedCloseDate,
+                validUntil: row.validUntil,
+                externalProductName: row.externalProductName,
+                externalCategory: row.externalCategory,
+                externalCity: row.externalCity,
+                externalState: row.externalState,
+                externalMessage: row.externalMessage,
                 contact: {
                   firstName: row.firstName || 'Imported',
                   lastName: row.lastName,

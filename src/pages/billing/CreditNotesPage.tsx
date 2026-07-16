@@ -852,7 +852,6 @@ export default function CreditNotesPage() {
             />
           </div>
         }
-        columnsNode={<ColumnsToggle columns={CREDIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
             <ExportMenu
@@ -952,6 +951,14 @@ export default function CreditNotesPage() {
               </div>
             </div>
           )}
+
+          {/* Columns — kept inside this flex row so it sits inline with the
+              filters instead of wrapping to a second line (the shared
+              columnsNode slot would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={CREDIT_NOTE_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
         </div>
       </DataTableFilterBar>
 

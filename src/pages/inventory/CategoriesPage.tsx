@@ -328,17 +328,21 @@ export default function CategoriesPage() {
           </div>
         }
       >
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={setSelectedStatus}
-          onClear={() => setSelectedStatus('all')}
-          options={[
-            { value: 'all', label: 'All Statuses' },
-            { value: 'active', label: 'Active' },
-            { value: 'inactive', label: 'Inactive' },
-          ]}
-        />
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Status"
+              value={selectedStatus}
+              onValueChange={setSelectedStatus}
+              onClear={() => setSelectedStatus('all')}
+              options={[
+                { value: 'all', label: 'All Statuses' },
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
+            />
+          </div>
+        </div>
       </DataTableFilterBar>
 
       {/* ── Mobile Cards / Desktop Table ── */}

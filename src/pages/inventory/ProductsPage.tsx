@@ -909,7 +909,6 @@ export default function ProductsPage() {
         resultsCount={totalCount}
         activeFilterCount={activeFilterCount}
         onClearFilters={() => { clearFilters() }}
-        columnsNode={<ColumnsToggle columns={PRODUCT_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-nowrap">
             <ViewModeToggle
@@ -947,39 +946,53 @@ export default function ProductsPage() {
           </div>
         }
       >
-        <SearchableSelect
-          label="Category"
-          value={selectedCategoryId}
-          onValueChange={val => { setSelectedCategoryId(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedCategoryId('all'); setCurrentPage(1) }}
-          options={categoryFilterOptions}
-          placeholder="All Categories"
-          searchPlaceholder="Search categories..."
-        />
-        <EnumSelect
-          label="Schedule"
-          value={selectedSchedule}
-          onValueChange={val => { setSelectedSchedule(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedSchedule('all'); setCurrentPage(1) }}
-          options={[
-            { value: 'all', label: 'All Schedules' },
-            { value: 'NONE', label: 'None' },
-            { value: 'H', label: 'Schedule H' },
-            { value: 'H1', label: 'Schedule H1' },
-            { value: 'X', label: 'Schedule X' },
-          ]}
-        />
-        <EnumSelect
-          label="Status"
-          value={selectedStatus}
-          onValueChange={val => { setSelectedStatus(val); setCurrentPage(1) }}
-          onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
-          options={[
-            { value: 'all', label: 'All Statuses' },
-            { value: 'active', label: 'Active' },
-            { value: 'inactive', label: 'Inactive' },
-          ]}
-        />
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
+            <SearchableSelect
+              label="Category"
+              value={selectedCategoryId}
+              onValueChange={val => { setSelectedCategoryId(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedCategoryId('all'); setCurrentPage(1) }}
+              options={categoryFilterOptions}
+              placeholder="All Categories"
+              searchPlaceholder="Search categories..."
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Schedule"
+              value={selectedSchedule}
+              onValueChange={val => { setSelectedSchedule(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedSchedule('all'); setCurrentPage(1) }}
+              options={[
+                { value: 'all', label: 'All Schedules' },
+                { value: 'NONE', label: 'None' },
+                { value: 'H', label: 'Schedule H' },
+                { value: 'H1', label: 'Schedule H1' },
+                { value: 'X', label: 'Schedule X' },
+              ]}
+            />
+          </div>
+          <div className="min-w-40 flex-1">
+            <EnumSelect
+              label="Status"
+              value={selectedStatus}
+              onValueChange={val => { setSelectedStatus(val); setCurrentPage(1) }}
+              onClear={() => { setSelectedStatus('all'); setCurrentPage(1) }}
+              options={[
+                { value: 'all', label: 'All Statuses' },
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' },
+              ]}
+            />
+          </div>
+          {/* Columns — inline with the filters (not the separate columnsNode
+              slot, which would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={PRODUCT_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
+        </div>
       </DataTableFilterBar>
 
       {/* ── Stock Tabs ── */}

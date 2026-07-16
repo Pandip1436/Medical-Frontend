@@ -59,7 +59,7 @@ interface ExportLeadsDrawerProps {
 interface ExportColumn {
   key: string
   label: string
-  group: 'Lead' | 'Contact' | 'Company' | 'System'
+  group: 'Lead' | 'Contact' | 'Company' | 'Requirements' | 'System'
   defaultChecked?: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   read: (lead: any) => string | number
@@ -93,6 +93,12 @@ const COLUMNS: ExportColumn[] = [
   { key: 'company', label: 'Company', group: 'Company', read: (l) => l.company?.name ?? '' },
   { key: 'industry', label: 'Industry', group: 'Company', read: (l) => l.company?.industry ?? '' },
 
+  { key: 'reqProduct', label: 'Product', group: 'Requirements', read: (l) => l.externalProductName ?? '' },
+  { key: 'reqCategory', label: 'Category', group: 'Requirements', read: (l) => l.externalCategory ?? '' },
+  { key: 'reqCity', label: 'Req. City', group: 'Requirements', read: (l) => l.externalCity ?? '' },
+  { key: 'reqState', label: 'Req. State', group: 'Requirements', read: (l) => l.externalState ?? '' },
+  { key: 'reqMessage', label: "Buyer's Message", group: 'Requirements', read: (l) => l.externalMessage ?? '' },
+
   { key: 'assignedTo', label: 'Assigned To', group: 'System', defaultChecked: true, read: (l) => l.assignedToUser?.name ?? '' },
   { key: 'createdAt', label: 'Created', group: 'System', defaultChecked: true, read: (l) => l.createdAt ? formatDate(l.createdAt) : '' },
   { key: 'updatedAt', label: 'Updated', group: 'System', read: (l) => l.updatedAt ? formatDate(l.updatedAt) : '' },
@@ -102,6 +108,7 @@ const COLUMN_GROUPS: Array<ExportColumn['group']> = [
   'Lead',
   'Contact',
   'Company',
+  'Requirements',
   'System',
 ]
 

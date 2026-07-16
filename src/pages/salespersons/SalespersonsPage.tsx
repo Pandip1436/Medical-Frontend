@@ -14,6 +14,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Table,
@@ -354,7 +355,6 @@ export default function SalespersonsPage() {
         resultsCount={filtered.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
-        columnsNode={<ColumnsToggle columns={SALESPERSON_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />}
         actionNode={
           <div className="flex w-full items-center gap-1.5 sm:w-auto">
             {isAdmin && (
@@ -366,7 +366,8 @@ export default function SalespersonsPage() {
           </div>
         }
       >
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="col-span-full flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Status"
             value={statusFilter}
@@ -374,6 +375,8 @@ export default function SalespersonsPage() {
             onClear={() => setStatusFilter('all')}
             options={STATUS_OPTIONS}
           />
+          </div>
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Branch"
             value={branchFilter}
@@ -381,6 +384,8 @@ export default function SalespersonsPage() {
             onClear={() => setBranchFilter('all')}
             options={branchOptions}
           />
+          </div>
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Last Login"
             value={loginFilter}
@@ -388,6 +393,8 @@ export default function SalespersonsPage() {
             onClear={() => setLoginFilter('all')}
             options={LOGIN_OPTIONS}
           />
+          </div>
+          <div className="min-w-40 flex-1">
           <EnumSelect
             label="Performance (MTD)"
             value={perfFilter}
@@ -395,6 +402,14 @@ export default function SalespersonsPage() {
             onClear={() => setPerfFilter('all')}
             options={PERFORMANCE_OPTIONS}
           />
+          </div>
+          {/* Columns — kept inside this flex row so it sits inline with the
+              filters instead of wrapping to a second line (the shared
+              columnsNode slot would land in a new grid row). */}
+          <div className="flex shrink-0 flex-col justify-end gap-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Columns</Label>
+            <ColumnsToggle columns={SALESPERSON_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
+          </div>
         </div>
       </DataTableFilterBar>
 

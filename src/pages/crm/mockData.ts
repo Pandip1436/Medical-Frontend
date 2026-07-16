@@ -735,6 +735,11 @@ export function mockCreateLead(input: {
   currency?: string
   expectedCloseDate?: string
   validUntil?: string
+  externalProductName?: string
+  externalCategory?: string
+  externalCity?: string
+  externalState?: string
+  externalMessage?: string
   contact: {
     id?: string
     firstName: string
@@ -770,6 +775,11 @@ export function mockCreateLead(input: {
     currency: input.currency ?? 'INR',
     expectedCloseDate: input.expectedCloseDate,
     validUntil: input.validUntil,
+    externalProductName: input.externalProductName,
+    externalCategory: input.externalCategory,
+    externalCity: input.externalCity,
+    externalState: input.externalState,
+    externalMessage: input.externalMessage,
     contact: {
       id: input.contact.id ?? `mock-contact-${id}`,
       firstName: input.contact.firstName,
@@ -794,6 +804,103 @@ export function mockCreateLead(input: {
   // Prepend so newest leads show up first in the default desc-by-createdAt order.
   MOCK_LEADS.unshift(lead)
   return lead
+}
+
+/**
+ * Patch an existing lead's own fields in-memory (mirrors the PATCH /leads/:id
+ * flow used by the Edit Lead drawer). Only the fields the drawer edits are
+ * honoured; contact details are edited elsewhere.
+ */
+export function mockUpdateLead(
+  id: string,
+  patch: {
+    title?: string
+    description?: string | null
+    source?: LeadSource
+    pipeline?: 'SALES' | 'PROCUREMENT' | 'SUPPORT'
+    stage?: LeadStage
+    score?: number
+    value?: number
+    currency?: string
+    expectedCloseDate?: string | null
+    validUntil?: string | null
+    company?: { id: string; name: string } | null
+    assignedToUser?: { id: string; name: string; email?: string | null }
+    // Requirements card (IndiaMART-style payload).
+    externalProductName?: string | null
+    externalCategory?: string | null
+    externalCity?: string | null
+    externalState?: string | null
+    externalMessage?: string | null
+    // Embedded contact fields (edited from the same drawer).
+    contact?: {
+      firstName?: string
+      lastName?: string | null
+      phone?: string
+      phoneCountryCode?: string
+      email?: string | null
+      jobTitle?: string | null
+      city?: string | null
+      state?: string | null
+      country?: string | null
+      company?: { id: string; name: string } | null
+    }
+  },
+): boolean {
+  const lead = MOCK_LEADS.find((l) => l.id === id)
+  if (!lead) return false
+  if (patch.title !== undefined) lead.title = patch.title
+  if (patch.description !== undefined) lead.description = patch.description
+  if (patch.source !== undefined) lead.source = patch.source
+  if (patch.pipeline !== undefined) lead.pipeline = patch.pipeline
+  if (patch.stage !== undefined) {
+    lead.stage = patch.stage
+    lead.status =
+      patch.stage === 'WON' || patch.stage === 'LOST' ? 'CLOSED' : 'OPEN'
+  }
+  if (patch.score !== undefined) lead.score = patch.score
+  if (patch.value !== undefined) lead.value = patch.value
+  if (patch.currency !== undefined) lead.currency = patch.currency
+  if (patch.expectedCloseDate !== undefined)
+    lead.expectedCloseDate = patch.expectedCloseDate
+  if (patch.validUntil !== undefined) lead.validUntil = patch.validUntil
+  if (patch.company !== undefined) {
+    lead.company = patch.company ?? null
+    lead.companyId = patch.company?.id ?? null
+  }
+  if (patch.assignedToUser !== undefined) {
+    lead.assignedToUserId = patch.assignedToUser.id
+    lead.assignedToUser = {
+      id: patch.assignedToUser.id,
+      name: patch.assignedToUser.name,
+      email: patch.assignedToUser.email ?? '',
+    }
+  }
+  if (patch.externalProductName !== undefined)
+    lead.externalProductName = patch.externalProductName
+  if (patch.externalCategory !== undefined)
+    lead.externalCategory = patch.externalCategory
+  if (patch.externalCity !== undefined) lead.externalCity = patch.externalCity
+  if (patch.externalState !== undefined) lead.externalState = patch.externalState
+  if (patch.externalMessage !== undefined)
+    lead.externalMessage = patch.externalMessage
+  if (patch.contact) {
+    const c = patch.contact
+    if (c.firstName !== undefined) lead.contact.firstName = c.firstName
+    if (c.lastName !== undefined) lead.contact.lastName = c.lastName
+    if (c.phone !== undefined) lead.contact.phone = c.phone
+    if (c.phoneCountryCode !== undefined)
+      lead.contact.phoneCountryCode = c.phoneCountryCode
+    if (c.email !== undefined) lead.contact.email = c.email
+    if (c.jobTitle !== undefined) lead.contact.jobTitle = c.jobTitle
+    if (c.city !== undefined) lead.contact.city = c.city
+    if (c.state !== undefined) lead.contact.state = c.state
+    if (c.country !== undefined) lead.contact.country = c.country
+    if (c.company !== undefined) lead.contact.company = c.company
+  }
+  lead.touchStatus = 'TOUCHED'
+  lead.updatedAt = new Date().toISOString()
+  return true
 }
 
 /** Remove a single lead from MOCK_LEADS. Returns true if removed. */

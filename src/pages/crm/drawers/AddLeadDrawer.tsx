@@ -17,6 +17,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { DatePicker } from '@/components/ui/date-picker'
+import { SalesPersonPicker, type SalesPersonOption } from '../components/SalesPersonPicker'
+import { CompanySearchField } from '../components/CompanySearchField'
 import {
   Select,
   SelectContent,
@@ -66,6 +69,10 @@ const schema = z
     value: z.number().min(0).optional(),
     currency: z.string(),
     score: z.number().min(0).max(100),
+    expectedCloseDate: z.string().optional(),
+    validUntil: z.string().optional(),
+    linkedCompanyId: z.string().optional(),
+    assignedToUserId: z.string().optional(),
     // Contact mode A — selected existing contact
     contactId: z.string().optional(),
     // Contact mode B — new-contact fields
@@ -121,6 +128,10 @@ const defaultValues: FormValues = {
   value: 0,
   currency: 'INR',
   score: 50,
+  expectedCloseDate: '',
+  validUntil: '',
+  linkedCompanyId: undefined,
+  assignedToUserId: undefined,
   contactId: undefined,
   contactFirstName: '',
   contactLastName: '',
@@ -155,6 +166,12 @@ export function AddLeadDrawer({
     id: string
     name: string
   } | null>(null)
+  // Lead-level "Linked Company" (separate from the contact's company) + owner.
+  const [selectedLinkedCompany, setSelectedLinkedCompany] = useState<{
+    id: string
+    name: string
+  } | null>(null)
+  const [selectedAssignee, setSelectedAssignee] = useState<SalesPersonOption | null>(null)
   const [keepOpenAfterSave, setKeepOpenAfterSave] = useState(false)
 
   const form = useForm<FormValues>({
@@ -169,6 +186,8 @@ export function AddLeadDrawer({
       setContactMode('search')
       setSelectedContact(null)
       setSelectedCompany(null)
+      setSelectedLinkedCompany(null)
+      setSelectedAssignee(null)
     }
   }, [open, form])
 
@@ -183,6 +202,10 @@ export function AddLeadDrawer({
         score: Number(values.score) || 0,
         value: Number(values.value) || 0,
         currency: values.currency,
+        expectedCloseDate: values.expectedCloseDate ? new Date(values.expectedCloseDate).toISOString() : undefined,
+        validUntil: values.validUntil ? new Date(values.validUntil).toISOString() : undefined,
+        companyId: values.linkedCompanyId || undefined,
+        assignedToUserId: values.assignedToUserId || undefined,
         externalProductName: values.reqProduct?.trim() || undefined,
         externalCategory: values.reqCategory?.trim() || undefined,
         externalCity: values.reqCity?.trim() || undefined,
@@ -433,6 +456,72 @@ export function AddLeadDrawer({
                       </div>
                     </>
                   )}
+                />
+              </div>
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Expected Close Date</Label>
+                  <Controller
+                    control={form.control}
+                    name="expectedCloseDate"
+                    render={({ field }) => (
+                      <DatePicker
+                        value={field.value || ''}
+                        onChange={field.onChange}
+                        placeholder="Select date"
+                      />
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Valid Until</Label>
+                  <Controller
+                    control={form.control}
+                    name="validUntil"
+                    render={({ field }) => (
+                      <DatePicker
+                        value={field.value || ''}
+                        onChange={field.onChange}
+                        placeholder="Select date"
+                      />
+                    )}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Linked Company</Label>
+                <CompanySearchField
+                  value={selectedLinkedCompany}
+                  onChange={(c) => {
+                    setSelectedLinkedCompany(c)
+                    form.setValue('linkedCompanyId', c?.id ?? undefined, {
+                      shouldDirty: true,
+                    })
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Assigned To</Label>
+                <SalesPersonPicker
+                  value={selectedAssignee?.id ?? null}
+                  onChange={(person) => {
+                    setSelectedAssignee(person)
+                    form.setValue('assignedToUserId', person?.id ?? undefined, {
+                      shouldDirty: true,
+                    })
+                  }}
+                  trigger={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start font-normal"
+                    >
+                      <UserIcon className="mr-2 size-4 opacity-60" />
+                      {selectedAssignee?.name ?? (
+                        <span className="text-muted-foreground">Unassigned</span>
+                      )}
+                    </Button>
+                  }
                 />
               </div>
             </section>
@@ -767,142 +856,6 @@ function NewContactFields({
         <Label>Country</Label>
         <Input placeholder="India" {...form.register('contactCountry')} />
       </div>
-    </div>
-  )
-}
-
-// Lightweight company combo — server-paginated like ContactSearchField.
-function CompanySearchField({
-  value,
-  onChange,
-}: {
-  value: { id: string; name: string } | null
-  onChange: (c: { id: string; name: string } | null) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [text, setText] = useState('')
-  const [creating, setCreating] = useState(false)
-  const search = usePaginatedSearch<{ id: string; name: string }>({
-    endpoint: '/companies',
-    pageSize: 20,
-    enabled: open,
-  })
-
-  useEffect(() => {
-    if (open) search.setQuery(text)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text])
-
-  const canCreate = useMemo(
-    () =>
-      text.trim().length > 0 &&
-      !search.items.some((c) => c.name.toLowerCase() === text.trim().toLowerCase()),
-    [text, search.items],
-  )
-
-  const createCompany = async () => {
-    setCreating(true)
-    try {
-      if (USE_MOCK_DATA) {
-        // Mock mode: synthesize an id-name pair without any persistence.
-        // Mock companies aren't a separate store; the parent form just
-        // needs an id to attach to the lead, which we'll create on submit.
-        const fake = {
-          id: `mock-co-${Date.now()}`,
-          name: text.trim(),
-        }
-        onChange(fake)
-        setOpen(false)
-      } else {
-        const res = await api.post('/companies', { name: text.trim() })
-        const created: { id: string; name: string } = res.data
-        onChange({ id: created.id, name: created.name })
-        setOpen(false)
-      }
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to create company')
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left text-sm transition-colors hover:border-border/80',
-          !value && 'text-muted-foreground',
-        )}
-      >
-        <span className="flex items-center gap-2">
-          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="truncate">
-            {value?.name ?? 'Search and select company…'}
-          </span>
-        </span>
-        {value && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onChange(null)
-            }}
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Clear company"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </button>
-
-      {open && (
-        <div
-          className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
-          onScroll={(e) => {
-            const el = e.currentTarget
-            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
-              search.loadMore()
-            }
-          }}
-        >
-          <div className="sticky top-0 border-b border-border/60 bg-popover px-3 py-2">
-            <Input
-              icon={<SearchIcon className="h-3.5 w-3.5" />}
-              placeholder="Type to search or create…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              autoFocus
-            />
-          </div>
-          {search.items.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => {
-                onChange({ id: c.id, name: c.name })
-                setOpen(false)
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-            >
-              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="truncate">{c.name}</span>
-            </button>
-          ))}
-          {canCreate && (
-            <button
-              type="button"
-              disabled={creating}
-              onClick={createCompany}
-              className="sticky bottom-0 w-full border-t border-border/60 bg-popover px-3 py-2 text-left text-sm font-medium text-primary hover:bg-accent disabled:opacity-50"
-            >
-              {creating ? 'Creating…' : `+ Create "${text.trim()}"`}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   )
 }

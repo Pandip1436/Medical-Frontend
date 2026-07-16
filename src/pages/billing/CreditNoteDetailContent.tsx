@@ -394,26 +394,14 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             Awaiting review by an admin. No inventory or balance changes have fired yet.
           </p>
         </div>
-      ) : (
-        <div className={cn(
-          'rounded-xl border px-4 py-3',
-          creditNote.status === 'APPROVED'
-            ? 'border-emerald-300/60 bg-emerald-50/40 dark:border-emerald-700/40 dark:bg-emerald-950/10'
-            : 'border-rose-300/60 bg-rose-50/40 dark:border-rose-700/40 dark:bg-rose-950/10'
-        )}>
+      ) : creditNote.status === 'REJECTED' ? (
+        // Rejected notes keep the banner — it carries the rejection reason.
+        // Approved notes don't get one; the "Approved" status badge up top
+        // already conveys it (no redundant "Approved by …" line).
+        <div className="rounded-xl border border-rose-300/60 bg-rose-50/40 dark:border-rose-700/40 dark:bg-rose-950/10 px-4 py-3">
           <div className="flex items-center gap-2">
-            <StatusIcon className={cn(
-              'h-4 w-4',
-              creditNote.status === 'APPROVED'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'text-rose-600 dark:text-rose-400'
-            )} />
-            <p className={cn(
-              'text-sm font-semibold',
-              creditNote.status === 'APPROVED'
-                ? 'text-emerald-900 dark:text-emerald-200'
-                : 'text-rose-900 dark:text-rose-200'
-            )}>
+            <StatusIcon className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+            <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">
               {status?.label ?? creditNote.status}
               {creditNote.reviewedBy ? ` by ${creditNote.reviewedBy.name}` : ''}
               {creditNote.reviewedAt ? ` · ${formatDate(creditNote.reviewedAt)}` : ''}
@@ -423,7 +411,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             <p className="mt-1 text-[12px] whitespace-pre-wrap">{creditNote.reviewNote}</p>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Items — proper table with sticky header */}
       {/* Items — cards on mobile, table on md+ */}

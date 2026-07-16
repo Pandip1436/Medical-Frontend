@@ -64,6 +64,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -162,8 +163,8 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
     email: z.string().email('Invalid email').or(z.literal('')).optional(),
     address: mode === 'invoice' ? z.string().min(1, 'Address is required') : z.string().optional(),
-    gstin: z.string().optional(),
-    dlNumber: z.string().optional(),
+    gstin: optionalGstin(),
+    dlNumber: optionalDrugLicense(),
     registrationNumber: z.string().optional(),
     referredBy: z.string().optional(),
     source: z.string().optional(),
@@ -945,14 +946,8 @@ function BillingRow({
           read-only reference in invoice mode (auto-filled from batch). */}
   <TableCell className="w-20 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5 items-end">
-    {/* Helper Row */}
-    <div className="min-h-5 flex items-center justify-end w-full">
-      {item.productId && item.mrp > 0 && (
-        <span className="text-[11px] text-muted-foreground font-medium">
-          MRP
-        </span>
-      )}
-    </div>
+    {/* Spacer keeps this column aligned with the other columns' helper rows. */}
+    <div className="min-h-5" />
 
     {invoiceType === "quotation" ? (
       <input
@@ -1342,14 +1337,8 @@ function BillingRow({
       {/* GST — editable in quotation mode (no fixed product GST rate), badge in invoice mode */}
      <TableCell className="w-18 px-1 py-2.5 text-center align-middle">
   <div className="flex flex-col gap-1.5 items-center">
-    {/* Helper Row */}
-    <div className="min-h-5 flex items-center justify-center">
-      {item.gstPercent > 0 && (
-        <span className="text-[11px] text-muted-foreground font-medium">
-          GST
-        </span>
-      )}
-    </div>
+    {/* Spacer keeps this column aligned with the other columns' helper rows. */}
+    <div className="min-h-5" />
 
     {invoiceType === "quotation" ? (
       <input
@@ -3573,6 +3562,44 @@ export default function NewSalePage() {
     createdAt: new Date().toISOString(),
   })
 
+  // ── Start a fresh sale ────────────────────────────────────
+  // "New Sale" never discards work: if the current bill has items it's PARKED
+  // into Held bills first (resume it anytime from "Held"), then the form resets
+  // to a clean sale. Regular function (not useCallback) so it always closes
+  // over the latest state (holdCurrentBill / items / heldBills).
+  const startNewSale = () => {
+    const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
+    if (activeItems.length > 0) {
+      // Parks the bill into Held AND clears items/customer/payment/delivery.
+      holdCurrentBill()
+    } else {
+      setItems([createEmptyItem()])
+      setSelectedCustomer(null)
+      setCustomerSearch('')
+      setPaymentMode('CREDIT')
+      setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
+      setDeliveryCharge(0)
+      toast.success('Started a new sale')
+    }
+    // Reset the remaining sale context regardless of the branch above.
+    setBillingType('retail')
+    setInvoiceType('invoice')
+    setEnableCourier(false)
+    setLinkedLeadId(null)
+    setQuotationSource(null)
+    setReplacementSource(null)
+    setEditingDraftId(null)
+    setEditingInvoiceId(null)
+    setEditingInvoiceNumber(null)
+    setTableView('customer-history')
+    setMobileStep('items')
+    try { localStorage.removeItem(AUTO_DRAFT_KEY) } catch { /* ignore */ }
+    // Drop any ?from=/editId params so a refresh doesn't reload the old context.
+    navigate('/billing/new')
+    // Customer-first: open the picker for the fresh bill.
+    setTimeout(() => setShowCustomerDropdown(true), 50)
+  }
+
   // ── Quick Reminder ────────────────────────────────────────
   const [reminderOpen, setReminderOpen] = useState(false)
   const [reminderDay, setReminderDay] = useState('')
@@ -4082,9 +4109,12 @@ export default function NewSalePage() {
         finalPayload = payload
       }
 
+      // suppressGlobalToast: submitInvoice's own catch surfaces the error (with
+      // a friendlier fallback), so let the global interceptor stay quiet —
+      // otherwise the same backend message toasts twice.
       const res = method === 'patch'
-        ? await api.patch(endpoint, finalPayload)
-        : await api.post(endpoint, finalPayload)
+        ? await api.patch(endpoint, finalPayload, { suppressGlobalToast: true } as any)
+        : await api.post(endpoint, finalPayload, { suppressGlobalToast: true } as any)
       const savedInvoice = res.data
       setLastSavedInvoice(savedInvoice)
 
@@ -4191,6 +4221,11 @@ export default function NewSalePage() {
         // browser's "Save page" dialog.
         e.preventDefault()
         submitInvoice()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N')) {
+        // Ctrl+N (Cmd+N on Mac) = New Sale. preventDefault stops the browser's
+        // "New window" shortcut.
+        e.preventDefault()
+        startNewSale()
       } else if (e.altKey && e.key === 's') {
         e.preventDefault()
         if (!selectedCustomer) {
@@ -4205,7 +4240,8 @@ export default function NewSalePage() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [addItem])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addItem, startNewSale])
 
   const activeItemCount = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length
 
@@ -4994,11 +5030,21 @@ export default function NewSalePage() {
           </div>
 
           {/* ═══════════════════════════════════════════════════
-              RIGHT-END ACTIONS (Reminder) — desktop only. Items are added via
-              the product search bar or the Alt+N shortcut.
+              RIGHT-END ACTIONS (New Sale + Reminder) — desktop only. Items are
+              added via the product search bar or the Alt+N shortcut.
           ═══════════════════════════════════════════════════ */}
-          {selectedCustomer && (
-            <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
+          <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
+            <Button
+              type="button"
+              onClick={startNewSale}
+              className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
+              title="Start a new sale (Ctrl+N) — the current bill is parked in Held"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden lg:inline text-xs font-semibold">New Sale</span>
+              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 text-[9px] font-mono text-primary-foreground/80">Ctrl+N</kbd>
+            </Button>
+            {selectedCustomer && (
               <Button
                 type="button"
                 variant="outline"
@@ -5009,8 +5055,8 @@ export default function NewSalePage() {
                 <CalendarClock className="h-4 w-4" />
                 <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* ── Selected Customer Details (verify the right customer) ── */}
@@ -5238,7 +5284,13 @@ export default function NewSalePage() {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">DL Number *</Label>
-                          <Input {...customerForm.register('dlNumber')} placeholder="Drug License No." error={!!customerForm.formState.errors.dlNumber} />
+                          <Input
+                            {...customerForm.register('dlNumber')}
+                            placeholder="Drug License No."
+                            maxLength={30}
+                            error={!!customerForm.formState.errors.dlNumber}
+                            onChange={(e) => customerForm.setValue('dlNumber', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                          />
                           {customerForm.formState.errors.dlNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.dlNumber.message}</p>}
                         </div>
                       </div>

@@ -46,6 +46,7 @@ export interface LeadContact {
   city?: string | null
   state?: string | null
   country?: string | null
+  company?: LeadCompany | null
 }
 
 export interface LeadAssignee {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
 import { toast } from 'sonner'
 
 import {
@@ -46,8 +47,8 @@ export const customerFormSchema = z
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
     email: z.string().email('Invalid email').or(z.literal('')).optional(),
     address: z.string().min(1, 'Address is required'),
-    gstin: z.string().optional(),
-    dlNumber: z.string().optional(),
+    gstin: optionalGstin(),
+    dlNumber: optionalDrugLicense(),
     registrationNumber: z.string().optional(),
     referredBy: z.string().optional(),
     source: z.string().optional(),
@@ -324,7 +325,13 @@ export function CustomerFormDialog({
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Drug License #
                 </Label>
-                <Input placeholder="Drug license number" className="font-mono" {...register('dlNumber')} />
+                <Input
+                  placeholder="Drug license number"
+                  className="font-mono"
+                  maxLength={30}
+                  {...register('dlNumber')}
+                  onChange={(e) => setValue('dlNumber', e.target.value, { shouldValidate: true, shouldDirty: true })}
+                />
                 {errors.dlNumber && <p className="text-xs text-destructive">{errors.dlNumber.message}</p>}
               </div>
             </div>
