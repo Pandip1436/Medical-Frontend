@@ -67,19 +67,23 @@ export default function InvoiceDetailPage() {
   const goBack = () => routerGoBack('/customers/invoices')
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-      <Button variant="ghost" size="sm" className="gap-1.5 -ml-2" onClick={goBack}>
+    // Bounded "compact shell" so the invoice body scrolls inside the card and
+    // its totals + action footer stay pinned at the bottom (matches the split
+    // view). Without the fixed height the whole page would scroll and the
+    // footer would drift below the fold.
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-content-viewport flex-col gap-4">
+      <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 shrink-0 self-start" onClick={goBack}>
         <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
 
-      <Card>
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {isLoading ? (
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16">
+          <CardContent className="flex flex-1 flex-col items-center justify-center gap-3 py-16">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <p className="text-xs text-muted-foreground">Loading invoice…</p>
           </CardContent>
         ) : error || !invoice ? (
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <CardContent className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
               <FileX2 className="h-5 w-5 text-muted-foreground/50" />
             </div>
@@ -91,7 +95,7 @@ export default function InvoiceDetailPage() {
           </CardContent>
         ) : (
           <>
-            <CardHeader className="border-b border-border/40 px-4 sm:px-6">
+            <CardHeader className="shrink-0 border-b border-border/40 px-4 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
@@ -121,7 +125,7 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="flex min-h-0 flex-1 flex-col p-0">
               <InvoiceDetailContent
                 invoice={invoice}
                 onClose={goBack}

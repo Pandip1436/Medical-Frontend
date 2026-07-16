@@ -123,8 +123,9 @@ export function GRNSplitView({
           </p>
         </div>
       </div>
-      {/* Scrollable detail body */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      {/* Bounded flex column: GRNDetailContent owns its scroll + static totals
+          footer, and provides its own padding. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <GRNDetailContent
           grn={detail.grn}
           allGrns={allGrns}

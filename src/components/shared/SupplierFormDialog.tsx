@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { requiredGstin, requiredDrugLicense } from '@/lib/validators'
+import { requiredGstin, requiredDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 import { Truck } from 'lucide-react'
 
@@ -96,6 +97,8 @@ export function SupplierFormDialog({
     handleSubmit,
     reset,
     setValue,
+    setError,
+    clearErrors,
     watch,
     control,
     formState,
@@ -133,6 +136,24 @@ export function SupplierFormDialog({
 
   const paymentTermsValue = watch('paymentTerms')
 
+  // Live "already used" check — flags a taken GSTIN / drug licence as the user
+  // types (debounced), so they don't have to submit to find out.
+  const gstinValue = watch('gstin') ?? ''
+  const drugLicenseValue = watch('drugLicense') ?? ''
+  const dlTrimmed = drugLicenseValue.trim()
+  useDuplicateFieldCheck({
+    enabled: open,
+    endpoint: '/suppliers/check-duplicate',
+    entity: 'supplier',
+    excludeId: editingSupplier?.id,
+    setError,
+    clearErrors,
+    fields: [
+      { name: 'gstin', param: 'gstin', responseKey: 'gstin', value: gstinValue, valid: GSTIN_REGEX.test(gstinValue.trim()), label: 'GSTIN' },
+      { name: 'drugLicense', param: 'drugLicense', responseKey: 'drugLicense', value: drugLicenseValue, valid: dlTrimmed.length >= 4 && dlTrimmed.length <= DL_MAX && DL_REGEX.test(dlTrimmed), label: 'Drug License' },
+    ],
+  })
+
   async function onSubmit(data: SupplierFormValues) {
     try {
       // Suppress the global axios toast so we can surface the server's specific
@@ -150,11 +171,32 @@ export function SupplierFormDialog({
       }
       onOpenChange(false)
     } catch (err: unknown) {
-      // The backend returns a clear 409 message for duplicate GSTIN/phone and
-      // 400 for validation — show it so the user knows what to fix.
+      // The backend returns a clear 409 message for duplicate GSTIN / Drug
+      // License / phone and 400 for validation.
       const resp = (err as { response?: { data?: { message?: string | string[] } } })?.response
       const raw = resp?.data?.message
       const message = Array.isArray(raw) ? raw[0] : raw
+
+      // Pin field-specific "already used" conflicts to their field so the
+      // message shows inline (like the format errors), not just as a toast.
+      // The inline error clears itself as soon as the user edits that field
+      // (the live-validation onChange re-runs the resolver).
+      if (message) {
+        const lower = message.toLowerCase()
+        if (lower.includes('gstin')) {
+          setError('gstin', { type: 'server', message })
+          return
+        }
+        if (lower.includes('drug license')) {
+          setError('drugLicense', { type: 'server', message })
+          return
+        }
+        if (lower.includes('phone')) {
+          setError('phone', { type: 'server', message })
+          return
+        }
+      }
+
       toast.error(message || 'Failed to save supplier. Please try again.')
     }
   }

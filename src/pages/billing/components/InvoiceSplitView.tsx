@@ -71,9 +71,20 @@ export function InvoiceSplitView({
 
   // When the list changes (filter/tab applied), keep the selection if it's
   // still visible; otherwise snap to the first item in the new list.
+  //
+  // Exception: on the FIRST list load, honor a deep-linked selection even when
+  // it isn't in the current page — the detail panel fetches it by id anyway.
+  // Without this, opening an invoice via a deep link (e.g. "View Invoice" from
+  // a credit note) would immediately snap to the first list item instead of
+  // showing the invoice you actually asked for.
+  const initialSelectionHonored = useRef(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (invoices.length === 0) return
+    if (!initialSelectionHonored.current) {
+      initialSelectionHonored.current = true
+      if (selectedInvoiceId) return
+    }
     if (selectedInvoiceId && invoices.some(inv => inv.id === selectedInvoiceId)) return
     onSelectInvoice(invoices[0].id)
   }, [invoices])

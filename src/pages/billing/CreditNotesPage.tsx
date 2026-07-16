@@ -357,13 +357,20 @@ export default function CreditNotesPage() {
   // `replace: true` so this intermediate list entry doesn't linger in history —
   // otherwise the detail page's Back lands here and bounces forward again
   // instead of returning to the caller (e.g. the notification folder).
-  const { search: routeSearch } = useRoute()
+  const { path: routePath, search: routeSearch } = useRoute()
   const urlParams = useMemo(() => new URLSearchParams(routeSearch), [routeSearch])
 
   useEffect(() => {
+    // Only redirect while this LIST route is actually active. Without the path
+    // guard, this effect fires during a transition to another page that also
+    // carries `?id=` (e.g. clicking "View Invoice" → /customers/invoices/detail
+    // ?id=<invoiceId>) while the lazy target chunk loads and this page is still
+    // mounted — hijacking the invoice id onto /billing/credit-notes/detail and
+    // surfacing a spurious "Credit note not found".
+    if (routePath !== '/billing/credit-notes') return
     const target = urlParams.get('id')
     if (target) navigate(`/billing/credit-notes/detail?id=${target}`, { replace: true })
-  }, [urlParams])
+  }, [urlParams, routePath])
 
   // Split is default; ?view=table → table view
   const effectiveView = resolveListView(urlParams.get('view'))

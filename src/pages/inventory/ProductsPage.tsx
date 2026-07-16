@@ -112,7 +112,7 @@ function StockStatusTabs({ tab, onChange, counts }: {
             key={t.key}
             onClick={() => onChange(t.key)}
             className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
+              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150',
               active
                 ? cn('bg-background shadow-sm', t.activeColor)
                 : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',

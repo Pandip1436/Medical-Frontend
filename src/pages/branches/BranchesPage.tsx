@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 import {
   Building2,
@@ -171,10 +172,31 @@ export default function BranchesPage() {
     control,
     reset,
     setValue,
+    setError,
+    clearErrors,
+    watch,
     formState: { errors },
   } = useForm<BranchFormValues>({
     resolver: zodResolver(branchSchema),
     defaultValues: { isActive: true, isDefault: false },
+  })
+
+  // Live "already used" check for GSTIN / drug licence across branches — flags a
+  // taken value inline as the user types (debounced), not just on submit.
+  const brGstin = watch('gstin') ?? ''
+  const brDl = watch('drugLicense') ?? ''
+  const brDlTrim = brDl.trim()
+  useDuplicateFieldCheck({
+    enabled: formOpen,
+    endpoint: '/branches/check-duplicate',
+    entity: 'branch',
+    excludeId: editing?.id,
+    setError,
+    clearErrors,
+    fields: [
+      { name: 'gstin', param: 'gstin', responseKey: 'gstin', value: brGstin, valid: GSTIN_REGEX.test(brGstin.trim()), label: 'GSTIN' },
+      { name: 'drugLicense', param: 'drugLicense', responseKey: 'drugLicense', value: brDl, valid: brDlTrim.length >= 4 && brDlTrim.length <= DL_MAX && DL_REGEX.test(brDlTrim), label: 'Drug License' },
+    ],
   })
 
   // ── Query builder ──
@@ -299,18 +321,26 @@ export default function BranchesPage() {
   const onSubmit = async (data: BranchFormValues) => {
     setSaving(true)
     try {
+      const opts = { suppressGlobalToast: true } as Record<string, unknown>
       if (editing) {
-        await api.patch(`/branches/${editing.id}`, data)
+        await api.patch(`/branches/${editing.id}`, data, opts)
         toast.success('Branch updated')
       } else {
-        await api.post('/branches', data)
+        await api.post('/branches', data, opts)
         toast.success('Branch created')
       }
       setFormOpen(false)
       await refetchEverything()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save branch'
-      toast.error(msg)
+      const raw = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      const msg = Array.isArray(raw) ? raw[0] : raw
+      // Pin duplicate conflicts to their field so they show inline.
+      if (msg) {
+        const lower = msg.toLowerCase()
+        if (lower.includes('gstin')) { setError('gstin', { type: 'server', message: msg }); return }
+        if (lower.includes('drug license')) { setError('drugLicense', { type: 'server', message: msg }); return }
+      }
+      toast.error(msg ?? 'Failed to save branch')
     } finally {
       setSaving(false)
     }

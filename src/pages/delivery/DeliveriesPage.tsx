@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Truck, Search, PackageSearch, Package, PackageCheck, ChevronRight, Phone, MapPin, RefreshCw, Loader2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
@@ -11,11 +11,16 @@ import { DateRangeFilter, type DateRangeValue } from '@/components/shared/DateRa
 import { DeliveryStatusFilter } from '@/components/shared/DeliveryStatusFilter'
 import { DeliveryCourierFilter } from '@/components/shared/DeliveryCourierFilter'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import api from '@/lib/api'
 import { cn, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { usePageSize } from '@/hooks/usePageSize'
 import { displayDeliveryStatus } from '@/lib/courierOcr'
 import type { DeliveryTracking, DeliveryStatus } from '@/types'
 
@@ -27,18 +32,14 @@ export default function DeliveriesPage() {
   const [items, setItems] = useState<DeliveryTracking[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = usePageSize('pbims.delivery.pageSize', PAGE_SIZE)
   const [q, setQ] = usePageFilter<string>('delivery.list', 'q', '')
   const [status, setStatus] = usePageFilter<DeliveryStatus | 'ALL'>('delivery.list', 'status', 'ALL')
   const [courier, setCourier] = usePageFilter<string>('delivery.list', 'courier', 'ALL')
   const [dateRange, setDateRange] = usePageFilter<DateRangeValue>('delivery.list', 'dateRange', { preset: 'all' })
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   const [courierCounts, setCourierCounts] = useState<Record<string, number>>({})
-
-  // Guards the infinite-scroll observer against firing a second fetch while one
-  // is already in flight (a ref so the observer reads it synchronously).
-  const loadingMoreRef = useRef(false)
-  const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Fetch a single page. `skip` drives pagination; counts come back on every
   // page so the headline chips stay fresh.
@@ -52,17 +53,18 @@ export default function DeliveriesPage() {
           from: dateRange.from,
           to: dateRange.to,
           skip,
-          take: PAGE_SIZE,
+          take: pageSize,
         },
       }),
-    [q, status, courier, dateRange],
+    [q, status, courier, dateRange, pageSize],
   )
 
-  // Reset load — first page. Used on mount, filter change and branch refresh.
+  // Load the current page (server-paginated). Runs on mount, filter change,
+  // page change and branch refresh — always REPLACES the visible rows.
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetchPage(0)
+      const res = await fetchPage((currentPage - 1) * pageSize)
       setItems(res.data.items ?? [])
       setTotal(res.data.total ?? 0)
       setStatusCounts(res.data.statusCounts ?? {})
@@ -75,49 +77,22 @@ export default function DeliveriesPage() {
     } finally {
       setLoading(false)
     }
-  }, [fetchPage])
+  }, [fetchPage, currentPage, pageSize])
 
-  // Append the next page as the user scrolls toward the bottom.
-  const loadMore = useCallback(async () => {
-    if (loadingMoreRef.current) return
-    loadingMoreRef.current = true
-    setLoadingMore(true)
-    try {
-      const res = await fetchPage(items.length)
-      setItems((prev) => [...prev, ...(res.data.items ?? [])])
-      setTotal(res.data.total ?? 0)
-      setStatusCounts(res.data.statusCounts ?? {})
-      setCourierCounts(res.data.courierCounts ?? {})
-    } catch {
-      /* keep what we have; the sentinel will retry on the next scroll */
-    } finally {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
-    }
-  }, [fetchPage, items.length])
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const hasMore = items.length < total
-
-  // Debounce search; reload on filter / branch change.
+  // Debounce search; reload on filter / page / branch change.
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0)
     return () => clearTimeout(t)
   }, [load, q])
   useBranchRefresh(load)
 
-  // Infinite scroll — load the next page when the sentinel scrolls into view.
+  // Snap back to page 1 whenever a filter changes so we never land on an
+  // out-of-range page (e.g. page 3 of a now-1-page result).
   useEffect(() => {
-    const el = sentinelRef.current
-    if (!el || loading || !hasMore) return
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) loadMore()
-      },
-      { rootMargin: '300px' },
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [loadMore, loading, hasMore])
+    setCurrentPage(1)
+  }, [q, status, courier, dateRange])
 
   // Bulk "Check All" — refresh every active shipment's tracking in one click.
   const [checkingAll, setCheckingAll] = useState(false)
@@ -227,6 +202,68 @@ export default function DeliveriesPage() {
         </Card>
       ) : (
         <div className="space-y-2">
+          {/* Desktop: table. Rows click through to the tracking page; the
+              invoice cell opens the invoice without triggering the row nav. */}
+          <div className="hidden overflow-x-auto rounded-xl border border-border/60 md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Courier</TableHead>
+                  <TableHead>Tracking ID</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead className="text-right">Booked</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-8" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((d) => (
+                  <TableRow
+                    key={d.id}
+                    className="group cursor-pointer"
+                    onClick={() => navigate(`/delivery/tracking?id=${d.id}`)}
+                  >
+                    <TableCell>
+                      <span className="block max-w-[14rem] truncate font-medium">{d.customerName}</span>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/billing/sales?view=split&invoiceId=${d.invoiceId}`) }}
+                        className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-foreground hover:text-primary hover:underline"
+                        title="Open invoice"
+                      >
+                        {d.invoiceNumber}
+                        <ExternalLink className="h-3 w-3 opacity-0 transition group-hover:opacity-60" />
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {d.courierName ? <span className="block max-w-[10rem] truncate">{d.courierName}</span> : <span className="text-muted-foreground/50">—</span>}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {d.trackingId ? `#${d.trackingId}` : <span className="font-sans text-muted-foreground/50">—</span>}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {d.mobileNumber || <span className="text-muted-foreground/50">—</span>}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right text-sm text-muted-foreground">
+                      {formatDate(d.createdAt)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={displayDeliveryStatus(d.status)} />
+                    </TableCell>
+                    <TableCell>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: cards */}
+          <div className="space-y-2 md:hidden">
           {items.map((d, idx) => (
             <motion.div
               key={d.id}
@@ -278,18 +315,20 @@ export default function DeliveriesPage() {
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />
             </motion.div>
           ))}
+          </div>
 
-          {/* Infinite-scroll sentinel + status footer */}
-          <div ref={sentinelRef} />
-          {loadingMore && (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading more…
-            </div>
-          )}
-          {!hasMore && items.length > 0 && (
-            <p className="py-4 text-center text-xs text-muted-foreground/70">
-              All {total} {total === 1 ? 'shipment' : 'shipments'} loaded
-            </p>
+          {/* Pagination */}
+          {total > 0 && (
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={total}
+              itemsPerPage={pageSize}
+              pageSize={pageSize}
+              onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}
+              className="border-t border-border/40 px-1 pt-3"
+            />
           )}
         </div>
       )}

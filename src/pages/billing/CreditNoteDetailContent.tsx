@@ -519,7 +519,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
               <Button
                 variant="outline"
                 className="gap-2"
-                onClick={() => navigate(`/billing/sales?view=split&invoiceId=${encodeURIComponent(creditNote.replacementInvoiceId!)}`)}
+                onClick={() => navigate(`/customers/invoices/detail?id=${encodeURIComponent(creditNote.replacementInvoiceId!)}`)}
               >
                 <ExternalLink className="h-4 w-4" />
                 <span className="hidden sm:inline">Replacement Invoice</span>
@@ -529,7 +529,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
             <Button
               variant="outline"
               className="gap-2"
-              onClick={() => navigate(`/billing/sales?view=split&invoiceId=${encodeURIComponent(creditNote.invoiceId)}`)}
+              onClick={() => navigate(`/customers/invoices/detail?id=${encodeURIComponent(creditNote.invoiceId)}`)}
             >
               <ExternalLink className="h-4 w-4" />
               <span className="hidden sm:inline">View Invoice</span>

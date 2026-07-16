@@ -64,7 +64,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -3219,15 +3220,46 @@ export default function NewSalePage() {
       // re-pick the FEFO-first batch, so two rows landed on the same batch and
       // oversold it. Each new row must take a DISTINCT batch.
       let noFreshBatch = false
+      let bumped = false
       setItems((prev) => {
         const nonEmpty = prev.filter((i) => i.productId)
+        // This product's in-stock, non-expired batches, keyed for lookup.
+        const batchById = new Map(productBatches.map((b) => [b.id, b]))
+
+        // 1) If a line for this product already sits on a batch that still has
+        //    headroom (billed qty < batch stock), bump THAT line instead of
+        //    adding a duplicate row. Prefer the FEFO-earliest such line so the
+        //    oldest stock drains first.
+        const bumpTarget = nonEmpty
+          .filter((i) => i.productId === product.id && i.batchId && batchById.has(i.batchId))
+          .sort(
+            (a, b) =>
+              new Date(batchById.get(a.batchId!)!.expiryDate).getTime() -
+              new Date(batchById.get(b.batchId!)!.expiryDate).getTime(),
+          )
+          .find(
+            (i) => (Number(i.quantity) || 0) < (Number(batchById.get(i.batchId!)!.quantity) || 0),
+          )
+
+        if (bumpTarget) {
+          bumped = true
+          return nonEmpty.map((i) => {
+            if (i.id !== bumpTarget.id) return i
+            const updated = { ...i, quantity: (Number(i.quantity) || 0) + 1 }
+            updated.amount = calculateItemAmount(updated)
+            return updated
+          })
+        }
+
+        // 2) No headroom left on any existing line — take the next FEFO batch
+        //    that isn't already on the bill and add it as a fresh row.
         const usedBatchIds = new Set(
           nonEmpty.filter((i) => i.productId === product.id && i.batchId).map((i) => i.batchId)
         )
         const batch = productBatches.find((b) => !usedBatchIds.has(b.id))
         if (!batch) {
-          // Every available batch of this product is already on the bill —
-          // don't add a duplicate row that would oversell the same stock.
+          // Every available batch is on the bill AND billed to its full stock —
+          // adding more would oversell.
           noFreshBatch = true
           return prev
         }
@@ -3249,8 +3281,8 @@ export default function NewSalePage() {
       })
 
       if (noFreshBatch) {
-        toast.warning(`All available batches of ${product.name} are already in the bill`)
-      } else if (lastRate !== undefined) {
+        toast.warning(`All available stock of ${product.name} is already in the bill`)
+      } else if (!bumped && lastRate !== undefined) {
         toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
       }
 
@@ -4306,6 +4338,24 @@ export default function NewSalePage() {
     },
   })
 
+  // Live "already used" check for the quick-add customer's GSTIN / drug licence
+  // (Wholesale only — blank values aren't checked). Mirrors the Customer / New
+  // Supplier dialogs so a taken value shows inline as the user types.
+  const nsGstin = customerForm.watch('gstin') ?? ''
+  const nsDl = customerForm.watch('dlNumber') ?? ''
+  const nsDlTrim = nsDl.trim()
+  useDuplicateFieldCheck({
+    enabled: addCustomerDialogOpen && invoiceType !== 'quotation',
+    endpoint: '/customers/check-duplicate',
+    entity: 'customer',
+    setError: customerForm.setError,
+    clearErrors: customerForm.clearErrors,
+    fields: [
+      { name: 'gstin', param: 'gstin', responseKey: 'gstin', value: nsGstin, valid: GSTIN_REGEX.test(nsGstin.trim()), label: 'GSTIN' },
+      { name: 'dlNumber', param: 'dlNumber', responseKey: 'dlNumber', value: nsDl, valid: nsDlTrim.length >= 4 && nsDlTrim.length <= DL_MAX && DL_REGEX.test(nsDlTrim), label: 'Drug License' },
+    ],
+  })
+
   const handleAddCustomer = async (values: CustomerFormValues) => {
     if (nsPhoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
 
@@ -4340,7 +4390,7 @@ export default function NewSalePage() {
     }
 
     try {
-      const res = await api.post('/customers', values)
+      const res = await api.post('/customers', values, { suppressGlobalToast: true } as Record<string, unknown>)
       toast.success(`Customer "${values.name}" added successfully`)
       const newlyCreated = res.data
       // Upload documents
@@ -4363,7 +4413,16 @@ export default function NewSalePage() {
       setNsPhoneCheckError('')
       setAddCustomerDialogOpen(false)
     } catch (error: unknown) {
-      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add customer')
+      const raw = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      const message = Array.isArray(raw) ? raw[0] : raw
+      // Pin duplicate conflicts to their field so they show inline.
+      if (message) {
+        const lower = message.toLowerCase()
+        if (lower.includes('gstin')) { customerForm.setError('gstin', { type: 'server', message }); return }
+        if (lower.includes('drug license')) { customerForm.setError('dlNumber', { type: 'server', message }); return }
+        if (lower.includes('phone')) { setNsPhoneCheckError(message); return }
+      }
+      toast.error(message || 'Failed to add customer')
     }
   }
 

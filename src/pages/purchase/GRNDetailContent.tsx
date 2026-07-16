@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react'
+import { useState, useCallback, useEffect, Fragment } from 'react'
 import {
   AlertTriangle, Printer, Truck, Calendar, FileText,
   CheckCircle2, XCircle, RotateCcw, Pencil, Wallet, PackageCheck,
@@ -272,7 +272,7 @@ export function GRNDetailContent({
   const [payOpen, setPayOpen] = useState(false)
 
   // View Bill — lazy-loaded sales & returns history for this PE's products.
-  const [billOpen, setBillOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'details' | 'sales'>('details')
   const [bill, setBill] = useState<GRNBill | null>(null)
   const [billLoading, setBillLoading] = useState(false)
   const [billError, setBillError] = useState(false)
@@ -286,22 +286,25 @@ export function GRNDetailContent({
   const toggleRow = (key: string) =>
     setExpandedKey((prev) => (prev === key ? null : key))
 
-  const toggleBill = async () => {
-    const next = !billOpen
-    setBillOpen(next)
-    if (next && !bill && !billLoading) {
-      setBillLoading(true)
-      setBillError(false)
-      try {
-        const res = await api.get(`/grn/${grn.id}/bill`)
-        setBill(res.data)
-      } catch {
-        setBillError(true)
-      } finally {
-        setBillLoading(false)
-      }
+  // Lazy-load the sales/returns history the first time the Sales & Returns tab
+  // is opened (or a retry after an error). Guards against duplicate fetches.
+  const loadBill = useCallback(async () => {
+    if (bill || billLoading) return
+    setBillLoading(true)
+    setBillError(false)
+    try {
+      const res = await api.get(`/grn/${grn.id}/bill`)
+      setBill(res.data)
+    } catch {
+      setBillError(true)
+    } finally {
+      setBillLoading(false)
     }
-  }
+  }, [bill, billLoading, grn.id])
+
+  useEffect(() => {
+    if (activeTab === 'sales') loadBill()
+  }, [activeTab, loadBill])
 
   const paidAmount = Number(grn.amountPaid || 0)
   const balanceDue = grnBalance(grn)
@@ -597,7 +600,9 @@ export function GRNDetailContent({
   const sgstView = gstTotalView / 2
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scrollable body — everything above the static totals footer. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
       {/* ── Top action row: descriptive badges + actions ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -660,6 +665,31 @@ export function GRNDetailContent({
         ))}
       </div>
 
+      {/* Tabs — Details vs Sales & Returns */}
+      <div className="flex items-center gap-1 border-b border-border/40">
+        {([
+          { key: 'details', label: 'Details' },
+          { key: 'sales', label: 'Sales & Returns' },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              '-mb-px border-b-2 px-3 py-2 text-xs font-semibold transition-colors',
+              activeTab === t.key
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Details tab ── */}
+      {activeTab === 'details' && (
+      <div className="space-y-4">
       {/* Payment panel — invoice / paid / balance / status */}
       {grn.isReplacement ? (
         <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
@@ -845,9 +875,12 @@ export function GRNDetailContent({
         })}
       </div>
 
-      {/* Items table */}
+      {/* Items table. The [&_td]/[&_th] rules compact every cell (smaller font,
+          tighter padding) so all 12 columns fit the panel width without a
+          horizontal scrollbar. overflow-x-auto stays as a safety net for very
+          narrow viewports. */}
       <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto [&_td]:px-2 [&_td]:py-2 [&_td]:text-xs [&_th]:px-2">
           <Table>
             <TableHeader className="bg-muted/40">
               <TableRow className="border-b border-border/40 hover:bg-transparent">
@@ -881,11 +914,13 @@ export function GRNDetailContent({
                   )}>
                     <TableCell className="px-2 py-3 text-center text-sm text-muted-foreground font-mono">{i + 1}</TableCell>
                     <TableCell className="px-3 py-3">
-                      {/* Product name → product history page */}
+                      {/* Product name → product history page. nowrap so a long
+                          name stays on one line (the table scrolls sideways)
+                          instead of wrapping into a tall multi-line cell. */}
                       <button
                         type="button"
                         onClick={() => navigate(`/inventory/product-history?productId=${item.productId}`)}
-                        className="text-left text-base font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                        className="whitespace-nowrap text-left text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
                       >
                         {item.productName}
                       </button>
@@ -971,57 +1006,23 @@ export function GRNDetailContent({
         </div>
       )}
 
-      {/* GST / tax breakdown — compact single horizontal row */}
-      <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-muted-foreground">Taxable</span>
-            <span className="font-mono text-sm tabular-nums">{formatCurrency(taxableView)}</span>
-          </div>
-          {gstTotalView > 0 && (
-            <>
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground">CGST</span>
-                <span className="font-mono text-sm tabular-nums">{formatCurrency(cgstView)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground">SGST</span>
-                <span className="font-mono text-sm tabular-nums">{formatCurrency(sgstView)}</span>
-              </div>
-            </>
-          )}
-          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Grand Total</span>
-            <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(grandTotalView)}</span>
-          </div>
-        </div>
       </div>
+      )}
 
-      {/* ── Sales & Returns (View Bill) — what happened to the received stock ── */}
-      <div className="overflow-hidden rounded-xl border border-border/40">
-        <button
-          type="button"
-          onClick={toggleBill}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/30"
-        >
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            <History className="h-4 w-4 text-muted-foreground" />
-            Sales &amp; Returns
-            <span className="text-xs font-normal text-muted-foreground">— how much of this stock was sold / returned</span>
-          </span>
-          <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', billOpen && 'rotate-180')} />
-        </button>
-
-        {billOpen && (
-          <div className="border-t border-border/40 p-4">
-            {billLoading ? (
+      {/* ── Sales & Returns tab ── what happened to the received stock ── */}
+      {activeTab === 'sales' && (
+        <div className="rounded-xl border border-border/40 p-4">
+            {/* `!bill` here covers the first render of this tab — the lazy-load
+                effect fires AFTER render, so treat "not loaded yet" as loading
+                rather than falling through to `bill!.items` (which would crash). */}
+            {billLoading || (!bill && !billError) ? (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                 Loading sales &amp; returns…
               </div>
             ) : billError ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
-                Couldn&apos;t load the sales history. <button type="button" className="font-medium text-primary hover:underline" onClick={toggleBill}>Retry</button>
+                Couldn&apos;t load the sales history. <button type="button" className="font-medium text-primary hover:underline" onClick={loadBill}>Retry</button>
               </div>
             ) : (
               <>
@@ -1289,6 +1290,32 @@ export function GRNDetailContent({
             )}
           </div>
         )}
+      </div>{/* end scrollable body */}
+
+      {/* ── Static footer: totals (always visible on both tabs) ── */}
+      <div className="shrink-0 border-t border-border/40 bg-background px-5 py-2.5 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted-foreground">Taxable</span>
+            <span className="font-mono text-sm tabular-nums">{formatCurrency(taxableView)}</span>
+          </div>
+          {gstTotalView > 0 && (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">CGST</span>
+                <span className="font-mono text-sm tabular-nums">{formatCurrency(cgstView)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground">SGST</span>
+                <span className="font-mono text-sm tabular-nums">{formatCurrency(sgstView)}</span>
+              </div>
+            </>
+          )}
+          <div className="ml-auto flex items-center gap-2 border-l border-border/40 pl-4">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-primary">Grand Total</span>
+            <span className="font-mono text-lg font-black tabular-nums text-primary">{formatCurrency(grandTotalView)}</span>
+          </div>
+        </div>
       </div>
 
       <ShortBillingDialog

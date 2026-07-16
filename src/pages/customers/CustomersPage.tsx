@@ -6,7 +6,8 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 import {
   Plus,
@@ -764,6 +765,24 @@ export default function CustomersPage() {
     },
   })
 
+  // Live "already used" check for GSTIN / drug licence — flags a taken value
+  // inline as the user types (debounced), not just on submit.
+  const cpGstin = form.watch('gstin') ?? ''
+  const cpDl = form.watch('dlNumber') ?? ''
+  const cpDlTrim = cpDl.trim()
+  useDuplicateFieldCheck({
+    enabled: addDialogOpen,
+    endpoint: '/customers/check-duplicate',
+    entity: 'customer',
+    excludeId: editingCustomer?.id,
+    setError: form.setError,
+    clearErrors: form.clearErrors,
+    fields: [
+      { name: 'gstin', param: 'gstin', responseKey: 'gstin', value: cpGstin, valid: GSTIN_REGEX.test(cpGstin.trim()), label: 'GSTIN' },
+      { name: 'dlNumber', param: 'dlNumber', responseKey: 'dlNumber', value: cpDl, valid: cpDlTrim.length >= 4 && cpDlTrim.length <= DL_MAX && DL_REGEX.test(cpDlTrim), label: 'Drug License' },
+    ],
+  })
+
   // Soft-disable / re-enable a customer (replaces hard delete). Reversible, so
   // it runs directly without a destructive confirmation dialog.
   const handleToggleActive = async (customer: Customer) => {
@@ -860,8 +879,18 @@ export default function CustomersPage() {
       setAddDialogOpen(false)
       returnToSplitIfNeeded()
       refetchAll()
-    } catch {
-      toast.error(editingCustomer ? 'Failed to update customer' : 'Failed to add customer')
+    } catch (err: unknown) {
+      // Pin duplicate conflicts (GSTIN / Drug License / phone) to their field so
+      // they show inline; anything else falls back to a toast.
+      const raw = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      const message = Array.isArray(raw) ? raw[0] : raw
+      if (message) {
+        const lower = message.toLowerCase()
+        if (lower.includes('gstin')) { form.setError('gstin', { type: 'server', message }); return }
+        if (lower.includes('drug license')) { form.setError('dlNumber', { type: 'server', message }); return }
+        if (lower.includes('phone')) { setPhoneCheckError(message); return }
+      }
+      toast.error(message || (editingCustomer ? 'Failed to update customer' : 'Failed to add customer'))
     }
   }
 

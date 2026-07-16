@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 
 import {
@@ -144,10 +145,31 @@ export function CustomerFormDialog({
     reset,
     watch,
     setValue,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<CustomerFormValues>({
     resolver: zodResolver(customerFormSchema),
     defaultValues: EMPTY_VALUES,
+  })
+
+  // Live "already used" check for GSTIN / drug licence (both optional here — a
+  // blank value is simply not checked). Flags a taken value inline as the user
+  // types instead of only on submit.
+  const gstinValue = watch('gstin') ?? ''
+  const dlValue = watch('dlNumber') ?? ''
+  const dlTrim = dlValue.trim()
+  useDuplicateFieldCheck({
+    enabled: open,
+    endpoint: '/customers/check-duplicate',
+    entity: 'customer',
+    excludeId: editingCustomer?.id,
+    setError,
+    clearErrors,
+    fields: [
+      { name: 'gstin', param: 'gstin', responseKey: 'gstin', value: gstinValue, valid: GSTIN_REGEX.test(gstinValue.trim()), label: 'GSTIN' },
+      { name: 'dlNumber', param: 'dlNumber', responseKey: 'dlNumber', value: dlValue, valid: dlTrim.length >= 4 && dlTrim.length <= DL_MAX && DL_REGEX.test(dlTrim), label: 'Drug License' },
+    ],
   })
 
   // Load the salesperson list once the dialog opens.
@@ -201,19 +223,31 @@ export function CustomerFormDialog({
     setSubmitting(true)
     try {
       const mode: 'create' | 'update' = editingCustomer ? 'update' : 'create'
+      const opts = { suppressGlobalToast: true } as Record<string, unknown>
       if (submitOverride) {
         await submitOverride(values, mode)
       } else if (editingCustomer) {
-        await api.patch(`/customers/${editingCustomer.id}`, values)
+        await api.patch(`/customers/${editingCustomer.id}`, values, opts)
         toast.success(`Customer "${values.name}" updated successfully`)
       } else {
-        await api.post('/customers', values)
+        await api.post('/customers', values, opts)
         toast.success(`Customer "${values.name}" added successfully`)
       }
       onSaved?.(values, mode)
       onOpenChange(false)
-    } catch {
-      toast.error('Failed to save customer. Please try again.')
+    } catch (err: unknown) {
+      // Pin duplicate-conflict messages (GSTIN / Drug License / phone) to their
+      // field so they show inline; anything else falls back to a toast.
+      const resp = (err as { response?: { data?: { message?: string | string[] } } })?.response
+      const raw = resp?.data?.message
+      const message = Array.isArray(raw) ? raw[0] : raw
+      if (message) {
+        const lower = message.toLowerCase()
+        if (lower.includes('gstin')) { setError('gstin', { type: 'server', message }); return }
+        if (lower.includes('drug license')) { setError('dlNumber', { type: 'server', message }); return }
+        if (lower.includes('phone')) { setError('phone', { type: 'server', message }); return }
+      }
+      toast.error(message || 'Failed to save customer. Please try again.')
     } finally {
       setSubmitting(false)
     }
