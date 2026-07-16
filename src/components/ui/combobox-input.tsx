@@ -98,7 +98,10 @@ export function ComboboxInput({
       {open && rect && filtered.length > 0 && createPortal(
         <div
           ref={panelRef}
-          style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 180), zIndex: 9999 }}
+          // pointerEvents:auto is required because a modal Radix dialog sets
+          // `pointer-events:none` on <body>; a panel portaled to <body> would
+          // inherit it and become un-clickable/un-scrollable otherwise.
+          style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 180), zIndex: 9999, pointerEvents: 'auto' }}
           className="overflow-hidden rounded-md border border-border bg-popover shadow-lg"
           onMouseDown={e => e.preventDefault()}
         >
@@ -123,7 +126,14 @@ export function ComboboxInput({
             ))}
           </div>
         </div>,
-        document.body,
+        // Portal into the enclosing modal dialog (if any) rather than <body>:
+        // Radix's modal Dialog wraps its content in react-remove-scroll, which
+        // preventDefaults wheel/touch events outside that subtree — so a
+        // body-level panel can't scroll. The dialog content has no transform,
+        // so a position:fixed child stays viewport-anchored and isn't clipped
+        // by the dialog's overflow:hidden. Falls back to <body> when not in a
+        // dialog (the panel's original behavior).
+        inputRef.current?.closest('[role="dialog"]') ?? document.body,
       )}
     </div>
   )

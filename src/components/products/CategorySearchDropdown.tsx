@@ -182,6 +182,10 @@ export function CategorySearchDropdown({
             left: rect.left,
             width: Math.max(rect.width, 200),
             zIndex: 9999,
+            // Required inside a modal Radix dialog, which sets
+            // `pointer-events:none` on <body>; without this the portaled panel
+            // inherits it and becomes un-clickable/un-scrollable.
+            pointerEvents: 'auto',
           }}
           className="overflow-hidden rounded-md border border-border bg-popover shadow-lg"
           onMouseDown={e => e.preventDefault()}
@@ -224,7 +228,13 @@ export function CategorySearchDropdown({
             </div>
           )}
         </div>,
-        document.body,
+        // Portal into the enclosing modal dialog (if any) rather than <body>:
+        // Radix's modal Dialog wraps content in react-remove-scroll, which
+        // blocks wheel/touch events outside that subtree — so a body-level
+        // panel can't scroll. The dialog content has no transform, so a
+        // position:fixed child stays viewport-anchored and isn't clipped by the
+        // dialog's overflow:hidden. Falls back to <body> outside a dialog.
+        inputRef.current?.closest('[role="dialog"]') ?? document.body,
       )}
     </div>
   )

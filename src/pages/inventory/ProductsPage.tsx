@@ -366,16 +366,35 @@ export default function ProductsPage() {
     return () => container.removeEventListener('scroll', onScroll)
   }, [dialogOpen])
 
-  const checkDuplicateName = (name: string) => {
+  const checkDuplicateName = async (name: string) => {
     const trimmed = name.trim()
     if (!trimmed) return
-    const existing = allProducts.find(
-      p => p.name.toLowerCase() === trimmed.toLowerCase() && p.id !== editingProduct?.id,
+    // The master `allProducts` list is deliberately never fetched on this page
+    // (heaviest endpoint), so a client-only check almost always sees an empty
+    // array and misses real duplicates. Check the master list if it happens to
+    // be populated, otherwise ask the server (the products list is paginated,
+    // so the current page holds at most ~20 rows — not enough to check against).
+    const localHit = allProducts.find(
+      p => p.name.trim().toLowerCase() === trimmed.toLowerCase() && p.id !== editingProduct?.id,
     )
-    if (existing) {
-      form.setError('name', { type: 'manual', message: `A product named "${existing.name}" already exists` })
-    } else {
-      form.clearErrors('name')
+    if (localHit) {
+      form.setError('name', { type: 'manual', message: `A product named "${localHit.name}" already exists` })
+      return
+    }
+    try {
+      const res = await api.get('/products', { params: { q: trimmed, take: 20 } })
+      const rows: Product[] = res.data?.data ?? []
+      const hit = rows.find(
+        p => p.name.trim().toLowerCase() === trimmed.toLowerCase() && p.id !== editingProduct?.id,
+      )
+      if (hit) {
+        form.setError('name', { type: 'manual', message: `A product named "${hit.name}" already exists` })
+      } else {
+        form.clearErrors('name')
+      }
+    } catch {
+      // Network hiccup — don't block the field on a failed duplicate check;
+      // the backend still enforces uniqueness on submit.
     }
   }
 
@@ -1384,8 +1403,11 @@ export default function ProductsPage() {
                     </div>
                     <div className="border-t border-border/40 pt-5">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">Classification</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="grid gap-2">
+                      {/* Category takes half the row (2/4 cols) so long category
+                          names aren't truncated in the field or its dropdown;
+                          Pack Size and Unit of Measure take a quarter each. */}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div className="grid gap-2 sm:col-span-2">
                           <Label>Category <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
                           <Controller control={form.control} name="categoryId" render={({ field }) => (
                             <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />

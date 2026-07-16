@@ -114,7 +114,11 @@ const navigationGroups: NavGroup[] = [
   {
     title: 'INVENTORY',
     items: [
-      { label: 'Products', icon: Package, href: '/inventory/products', quickAdd: '/inventory/products?add=1' },
+      // The Add Product drawer only renders in the table-view code path, so the
+      // quick-add must route through ?view=table&action=add (matching the page's
+      // own "Add Product" button) — a bare ?add=1 lands on the default split
+      // view where the drawer isn't mounted, so nothing opens.
+      { label: 'Products', icon: Package, href: '/inventory/products', quickAdd: '/inventory/products?view=table&action=add' },
       { label: 'Categories', icon: Tag, href: '/inventory/categories', quickAdd: '/inventory/categories?add=1' },
       { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
       { label: 'Expiry Management', icon: Clock, href: '/inventory/expiry' },

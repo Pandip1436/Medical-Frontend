@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Users } from 'lucide-react'
+import { useRoute } from '@/lib/router'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { CustomerCompactCard } from '@/pages/customers/components/CustomerCompactCard'
@@ -23,6 +24,15 @@ export function LedgerPartySplitView({
   onSelectParty,
   onClearSelection,
 }: LedgerPartySplitViewProps) {
+  // Navigating away from /accounting/ledger (e.g. clicking another sidebar
+  // item) briefly re-renders this still-mounted component with the new
+  // route's empty search string — collapsing selectedPartyId to null exactly
+  // like a fresh "nothing selected yet" load. Without checking the path, the
+  // auto-select effect below "helpfully" re-picks a party and navigates back
+  // to Ledger, making every other page unreachable from here.
+  const { path } = useRoute()
+  const onLedgerPage = path === '/accounting/ledger'
+
   const selectedPartyId = selectedCustomerId ?? selectedSupplierId ?? null
   const selectedPartyType: PartyType | null = selectedCustomerId ? 'customer' : selectedSupplierId ? 'supplier' : null
 
@@ -69,12 +79,13 @@ export function LedgerPartySplitView({
   // tab or typing a search never changed what the detail panel showed until
   // you actually clicked a row.
   useEffect(() => {
+    if (!onLedgerPage) return
     if (justClearedRef.current) return
     if (selectedPartyId) return
     if (activeResults.items.length === 0) return
     onSelectParty(activeResults.items[0].id, browseType)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeResults.items, browseType, selectedPartyId])
+  }, [activeResults.items, browseType, selectedPartyId, onLedgerPage])
 
   const handleClear = () => {
     justClearedRef.current = true
