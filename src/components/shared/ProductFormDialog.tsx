@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { toast } from 'sonner'
 import { PackagePlus } from 'lucide-react'
+import { toast } from 'sonner'
 
 import {
   Sheet,
@@ -23,8 +23,9 @@ import {
 } from '@/components/ui/select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { cn } from '@/lib/utils'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { ComboboxInput } from '@/components/ui/combobox-input'
 import {
   productSchema,
   productFormDefaults,
@@ -98,13 +99,29 @@ export function ProductFormDialog({
         schedule: values.schedule.toUpperCase(),
         categoryId: values.categoryId || undefined,
       }
-      const res = await api.post('/products', payload)
+      const res = await api.post('/products', payload, { suppressGlobalToast: true } as never)
       toast.success(`Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`)
       onSaved?.(res.data as Product)
       onOpenChange(false)
     } catch (error: unknown) {
+      // Check if it's a duplicate name error and surface it inline
       const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err?.response?.data?.message ?? 'Failed to add product')
+      const msg = err?.response?.data?.message ?? ''
+      if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('duplicate')) {
+        form.setError('name', { type: 'manual', message: msg || 'A product with this name already exists' })
+      }
+      handleApiError(error, 'Failed to add product')
+    }
+  }
+
+  function checkDuplicateName(name: string) {
+    const trimmed = name.trim().toLowerCase()
+    if (!trimmed) return
+    const duplicate = products.find(p => p.name.trim().toLowerCase() === trimmed)
+    if (duplicate) {
+      form.setError('name', { type: 'manual', message: 'A product with this name already exists' })
+    } else {
+      form.clearErrors('name')
     }
   }
 
@@ -186,7 +203,16 @@ export function ProductFormDialog({
                 <div className="grid grid-cols-12 gap-2.5">
                   <div className="col-span-12 sm:col-span-5 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product Name *</Label>
-                    <Input className="h-9" {...register('name')} placeholder="e.g. Torsemide 20mg Tab" error={!!errors.name} />
+                    <Input
+                      className="h-9"
+                      {...register('name')}
+                      placeholder="e.g. Torsemide 20mg Tab"
+                      error={!!errors.name}
+                      onBlur={e => {
+                        register('name').onBlur(e)
+                        checkDuplicateName(e.target.value)
+                      }}
+                    />
                     {errors.name && <p className="text-[11px] text-rose-500">{errors.name.message}</p>}
                   </div>
                   <div className="col-span-12 sm:col-span-4 space-y-1">
@@ -196,17 +222,15 @@ export function ProductFormDialog({
                   </div>
                   <div className="col-span-12 sm:col-span-3 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Manufacturer *</Label>
-                    <Input
-                      className="h-9"
-                      {...register('manufacturer')}
-                      list="pfd-manufacturer-list"
-                      placeholder="Select or type..."
-                      autoComplete="off"
-                      error={!!errors.manufacturer}
-                    />
-                    <datalist id="pfd-manufacturer-list">
-                      {manufacturers.map(m => <option key={m} value={m} />)}
-                    </datalist>
+                    <Controller control={control} name="manufacturer" render={({ field }) => (
+                      <ComboboxInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        options={manufacturers}
+                        placeholder="Select or type..."
+                        error={!!errors.manufacturer}
+                      />
+                    )} />
                     {errors.manufacturer && <p className="text-[11px] text-rose-500">{errors.manufacturer.message}</p>}
                   </div>
                   <div className="col-span-12 sm:col-span-5 space-y-1">
@@ -232,16 +256,14 @@ export function ProductFormDialog({
                   </div>
                   <div className="col-span-6 sm:col-span-3 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unit of Measure{OPTIONAL}</Label>
-                    <Input
-                      className="h-9"
-                      {...register('unitOfMeasure')}
-                      list="pfd-uom-list"
-                      placeholder="Select or type..."
-                      autoComplete="off"
-                    />
-                    <datalist id="pfd-uom-list">
-                      {UNIT_OF_MEASURE_OPTIONS.map(u => <option key={u} value={u} />)}
-                    </datalist>
+                    <Controller control={control} name="unitOfMeasure" render={({ field }) => (
+                      <ComboboxInput
+                        value={field.value ?? ''}
+                        onChange={field.onChange}
+                        options={UNIT_OF_MEASURE_OPTIONS}
+                        placeholder="Select or type..."
+                      />
+                    )} />
                   </div>
                   <div className="col-span-6 sm:col-span-3 space-y-1">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">HSN Code *</Label>

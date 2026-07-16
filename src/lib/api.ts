@@ -92,12 +92,25 @@ api.interceptors.response.use(
         // in the request config to skip this.
         const message = error.response.data?.message || 'An unexpected error occurred';
         toast.error(Array.isArray(message) ? message[0] : message);
+        (error as Record<string, unknown>)._globalToastShown = true;
       }
     } else if (!suppress) {
       toast.error('Network error. Please check your connection.');
+      (error as Record<string, unknown>)._globalToastShown = true;
     }
     return Promise.reject(error);
   }
 );
+
+// Use this in catch blocks instead of toast.error() directly.
+// When the global interceptor already showed a toast for this error, this is
+// a no-op — preventing the double-toast that occurs when both the interceptor
+// and a page-level catch block fire toast.error for the same request.
+export function handleApiError(error: unknown, fallback = 'An unexpected error occurred') {
+  if ((error as Record<string, unknown>)?._globalToastShown) return;
+  const err = error as { response?: { data?: { message?: string | string[] } } };
+  const message = err?.response?.data?.message ?? fallback;
+  toast.error(Array.isArray(message) ? message[0] : message);
+}
 
 export default api;

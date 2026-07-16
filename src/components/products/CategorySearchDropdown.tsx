@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Plus, Loader2 } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronDown, Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -13,14 +13,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import type { Category } from '@/types'
-
-// Internal sentinel value used only on the "+ Add new category" row. The
-// onValueChange handler intercepts it and opens the create-dialog instead of
-// applying it as a real selection.
-const ADD_NEW_SENTINEL = '__add_new_category__'
 
 export function CategorySearchDropdown({
   value,
@@ -31,48 +27,74 @@ export function CategorySearchDropdown({
   onChange: (v: string) => void
   hasError?: boolean
 }) {
-  // Subscribe to the store directly (rather than taking categories as a prop):
-  // this guarantees the dropdown re-renders the instant a category is added,
-  // independent of whether the parent (a react-hook-form Controller) re-renders,
-  // and gives every consumer (ProductsPage, NewSale, ProductFormDialog) one
-  // shared, always-fresh list.
   const categories = useMasterDataStore(s => s.categories)
   const fetchCategories = useMasterDataStore(s => s.fetchCategories)
-  // Some hosts (e.g. ProductsPage) keep their own local category list and never
-  // populate the store, so load it here if it's empty — otherwise the dropdown
-  // would render blank for them.
   useEffect(() => {
     if (categories.length === 0) fetchCategories()
   }, [categories.length, fetchCategories])
+
   const selected = categories.find(c => c.id === value)
+
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
+
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const update = () => {
+      const el = triggerRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      setRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e: MouseEvent) {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
+
+  const filtered = query.trim()
+    ? categories.filter(c => c.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : categories
 
   async function handleSaveCategory() {
     const name = newName.trim()
     if (!name) return
     setSaving(true)
     try {
-      const res = await api.post<Category>('/categories', { name })
+      const res = await api.post<Category>('/categories', { name }, { suppressGlobalToast: true } as never)
       const created = res.data
-      // Insert into the shared store immediately so this dropdown — and every
-      // other category consumer on the page — shows it right away. We add it
-      // directly (like addCustomer) instead of refetching: a refetch races with
-      // fetchCategories' in-flight dedup and silently fails on any hiccup, which
-      // is why the new row sometimes didn't appear until a page reload. Sorted
-      // by name to match the server's ordering; deduped in case it already exists.
-      useMasterDataStore.setState((s) => ({
-        categories: [...s.categories.filter((c) => c.id !== created.id), created]
+      useMasterDataStore.setState(s => ({
+        categories: [...s.categories.filter(c => c.id !== created.id), created]
           .sort((a, b) => a.name.localeCompare(b.name)),
       }))
       toast.success(`Category "${created.name}" added`)
       setNewName('')
       setAddOpen(false)
-      // Auto-select AFTER the dialog has closed and the new <SelectItem> is
-      // mounted. Doing it inline races with the dialog's focus-restore and the
-      // freshly-added option, which left the field unselected. A tick later the
-      // option exists and focus has settled, so the value reliably sticks.
       setTimeout(() => onChange(created.id), 0)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -84,39 +106,107 @@ export function CategorySearchDropdown({
 
   return (
     <>
-      <Select
-        value={value || '__placeholder__'}
-        onValueChange={v => {
-          if (v === ADD_NEW_SENTINEL) {
-            setAddOpen(true)
-            return
-          }
-          onChange(v === '__placeholder__' ? '' : v)
-        }}
+      {/* Trigger button — matches the style of SearchableSelect */}
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'flex h-9 w-full items-center gap-2 rounded-md border bg-background px-3 text-sm shadow-sm transition-colors',
+          'hover:border-border/80 focus:outline-none focus-visible:ring-1',
+          hasError
+            ? 'border-rose-500 focus-visible:ring-rose-500'
+            : 'border-input focus-visible:ring-ring',
+        )}
       >
-        <SelectTrigger className={hasError ? 'border-rose-500 focus:ring-rose-500' : ''}>
-          {selected ? selected.name : <span className="text-muted-foreground">Select category…</span>}
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__placeholder__" disabled className="hidden">
-            Select category…
-          </SelectItem>
-          {categories.map(c => (
-            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-          ))}
-          <SelectItem
-            value={ADD_NEW_SENTINEL}
-            className="text-primary font-semibold border-t border-border/40 mt-1 pt-2"
+        <span className={cn('flex-1 truncate text-left', !selected && 'text-muted-foreground')}>
+          {selected ? selected.name : 'Select category…'}
+        </span>
+        {value && (
+          <span
+            role="button"
+            tabIndex={0}
+            title="Clear"
+            className="rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+            onClick={e => { e.stopPropagation(); onChange('') }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault(); e.stopPropagation(); onChange('')
+              }
+            }}
           >
-            <span className="flex items-center gap-1.5">
+            <X className="h-3.5 w-3.5" />
+          </span>
+        )}
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      </button>
+
+      {/* Portal dropdown */}
+      {open && rect && createPortal(
+        <div
+          ref={panelRef}
+          style={{
+            position: 'fixed',
+            top: rect.top,
+            left: rect.left,
+            width: Math.max(rect.width, 200),
+            zIndex: 9999,
+          }}
+          className="overflow-hidden rounded-md border border-border bg-popover shadow-lg"
+        >
+          {/* Search input */}
+          <div className="border-b border-border/60 p-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+              <input
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search categories..."
+                className="h-8 w-full rounded-md bg-muted/40 pl-8 pr-2 text-xs placeholder:text-muted-foreground/50 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+          </div>
+
+          {/* Options list */}
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { onChange(c.id); setOpen(false) }}
+                className={cn(
+                  'flex w-full items-center px-3 py-2 text-left text-sm hover:bg-accent/60',
+                  c.id === value && 'bg-accent/40 font-medium',
+                )}
+              >
+                <span className="truncate">{c.name}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                No matches for "{query}"
+              </div>
+            )}
+          </div>
+
+          {/* Add new category */}
+          <div className="border-t border-border/40 p-1">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setAddOpen(true) }}
+              className="flex w-full items-center gap-1.5 rounded px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+            >
               <Plus className="h-3.5 w-3.5" />
               Add new category
-            </span>
-          </SelectItem>
-        </SelectContent>
-      </Select>
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
 
-      <Dialog open={addOpen} onOpenChange={(o) => { if (!saving) setAddOpen(o) }}>
+      {/* Add-category dialog */}
+      <Dialog open={addOpen} onOpenChange={o => { if (!saving) setAddOpen(o) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>New Category</DialogTitle>
@@ -125,13 +215,7 @@ export function CategorySearchDropdown({
             </DialogDescription>
           </DialogHeader>
           <form
-            // stopPropagation is essential: this dialog renders inside the
-            // product form's React tree (Radix portals the DOM but React events
-            // still bubble through the component tree). Without it, clicking
-            // "Add Category" bubbles a submit up to the outer product <form>,
-            // firing its validation ("Product name required") and aborting the
-            // category add.
-            onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleSaveCategory() }}
+            onSubmit={e => { e.preventDefault(); e.stopPropagation(); handleSaveCategory() }}
             className="space-y-3"
           >
             <div className="space-y-1.5">
@@ -140,7 +224,7 @@ export function CategorySearchDropdown({
                 id="new-category-name"
                 autoFocus
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={e => setNewName(e.target.value)}
                 placeholder="e.g. Cardiology, Pediatrics, OTC"
                 disabled={saving}
               />
@@ -150,7 +234,9 @@ export function CategorySearchDropdown({
                 Cancel
               </Button>
               <Button type="submit" disabled={saving || !newName.trim()}>
-                {saving ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving…</> : 'Add Category'}
+                {saving
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving…</>
+                  : 'Add Category'}
               </Button>
             </DialogFooter>
           </form>

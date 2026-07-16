@@ -65,6 +65,7 @@ import {
 } from '@/components/products/productFormSchema'
 import { CategorySearchDropdown } from '@/components/products/CategorySearchDropdown'
 import { UNIT_OF_MEASURE_OPTIONS } from '@/lib/unitOfMeasureOptions'
+import { ComboboxInput } from '@/components/ui/combobox-input'
 
 // ─── Main Page ─────────────────────────────────────────────────
 const PRODUCT_COLUMNS: ColumnDef[] = [
@@ -103,7 +104,7 @@ function StockStatusTabs({ tab, onChange, counts }: {
   counts: Record<StockTabKey, number>
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {STOCK_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -121,7 +122,7 @@ function StockStatusTabs({ tab, onChange, counts }: {
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.badgeColor : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.badgeColor : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}
@@ -370,12 +371,12 @@ export default function ProductsPage() {
     setDialogOpen(true)
   }
 
-  // Auto-open the Add Product dialog when the page is arrived at with
-  // `?add=1` (used by the lead detail "Add Product" quick action). Only
-  // fires once on mount and then strips the query param so a refresh
-  // doesn't keep re-triggering the dialog.
+  // Auto-open the Add Product dialog when the URL contains ?add=1.
+  // Depends on routeSearch so it also fires when the user is already on this
+  // page and clicks the sidebar "+" button (which navigates to ?add=1 without
+  // remounting the component).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(routeSearch)
     if (params.get('add') === '1') {
       openAddDialog()
       params.delete('add')
@@ -387,7 +388,7 @@ export default function ProductsPage() {
       )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [routeSearch])
 
   const openEditDialog = (product: Product) => {
     setEditingProduct(product)
@@ -1337,10 +1338,16 @@ export default function ProductsPage() {
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="manufacturer">Manufacturer <span className="text-rose-500">*</span></Label>
-                          <div className="relative">
-                            <Input id="manufacturer" list="manufacturer-list" placeholder="Select or type..." autoComplete="off" {...form.register('manufacturer')} error={!!form.formState.errors.manufacturer} />
-                            <datalist id="manufacturer-list">{manufacturers.map(m => <option key={m} value={m} />)}</datalist>
-                          </div>
+                          <Controller control={form.control} name="manufacturer" render={({ field }) => (
+                            <ComboboxInput
+                              id="manufacturer"
+                              value={field.value ?? ''}
+                              onChange={field.onChange}
+                              options={manufacturers}
+                              placeholder="Select or type..."
+                              error={!!form.formState.errors.manufacturer}
+                            />
+                          )} />
                           {form.formState.errors.manufacturer && <p className="text-xs text-rose-500">{form.formState.errors.manufacturer.message}</p>}
                         </div>
                       </div>
@@ -1360,16 +1367,15 @@ export default function ProductsPage() {
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="unitOfMeasure">Unit of Measure <span className="text-muted-foreground/60 font-normal normal-case text-xs">(optional)</span></Label>
-                          <Input
-                            id="unitOfMeasure"
-                            list="pp-uom-list"
-                            placeholder="Select or type..."
-                            autoComplete="off"
-                            {...form.register('unitOfMeasure')}
-                          />
-                          <datalist id="pp-uom-list">
-                            {UNIT_OF_MEASURE_OPTIONS.map(u => <option key={u} value={u} />)}
-                          </datalist>
+                          <Controller control={form.control} name="unitOfMeasure" render={({ field }) => (
+                            <ComboboxInput
+                              id="unitOfMeasure"
+                              value={field.value ?? ''}
+                              onChange={field.onChange}
+                              options={UNIT_OF_MEASURE_OPTIONS}
+                              placeholder="Select or type..."
+                            />
+                          )} />
                         </div>
                       </div>
                     </div>
