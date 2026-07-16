@@ -42,8 +42,7 @@ export function CustomerCompactCard({ customer, selected, onClick, isFieldVisibl
       <div
         className={cn(
           'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white',
-          selected ? 'opacity-90' : '',
-          typeAvatarColor[customer.type] ?? 'bg-muted',
+          selected ? 'bg-primary' : (typeAvatarColor[customer.type] ?? 'bg-muted'),
         )}
       >
         {initial}

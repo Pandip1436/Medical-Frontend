@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -151,6 +152,7 @@ export function SupplierActivityDialog({
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -235,7 +237,13 @@ export function SupplierActivityDialog({
                 <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Due At
                 </Label>
-                <Input type="datetime-local" {...register('dueAt')} />
+                <Controller
+                  control={control}
+                  name="dueAt"
+                  render={({ field }) => (
+                    <DateTimeInput value={field.value} onChange={field.onChange} />
+                  )}
+                />
                 {errors.dueAt && (
                   <p className="text-xs text-destructive">{errors.dueAt.message}</p>
                 )}
@@ -261,7 +269,13 @@ export function SupplierActivityDialog({
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Occurred At
                     </Label>
-                    <Input type="datetime-local" {...register('occurredAt')} />
+                    <Controller
+                      control={control}
+                      name="occurredAt"
+                      render={({ field }) => (
+                        <DateTimeInput value={field.value} onChange={field.onChange} />
+                      )}
+                    />
                   </div>
                 </div>
               )}

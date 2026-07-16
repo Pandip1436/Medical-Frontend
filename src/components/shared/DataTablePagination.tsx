@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 interface DataTablePaginationProps {
@@ -75,16 +76,22 @@ export function DataTablePagination({
       {onPageSizeChange && (
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="hidden text-[11px] text-muted-foreground sm:inline">Rows</span>
-          <select
-            value={pageSize ?? itemsPerPage ?? 10}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            aria-label="Rows per page"
-            className="h-9 cursor-pointer rounded-md border border-border bg-background px-1.5 text-xs font-semibold tabular-nums text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 sm:h-8"
+          <Select
+            value={String(pageSize ?? itemsPerPage ?? 10)}
+            onValueChange={(v) => onPageSizeChange(Number(v))}
           >
-            {pageSizeOptions.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+            <SelectTrigger
+              aria-label="Rows per page"
+              className="h-9 w-16.5 gap-1 px-2 text-xs font-semibold tabular-nums sm:h-8"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {pageSizeOptions.map((n) => (
+                <SelectItem key={n} value={String(n)} className="text-xs tabular-nums">{n}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 

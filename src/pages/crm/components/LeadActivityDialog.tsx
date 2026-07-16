@@ -20,11 +20,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { DatePicker } from '@/components/ui/date-picker'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { TimePicker } from '@/components/ui/time-picker'
 
 export type LeadActivityType = 'CALL' | 'WHATSAPP' | 'EMAIL' | 'NOTE' | 'REMINDER'
 export type LeadActivityStatus = 'PENDING' | 'DONE' | 'CANCELLED'
@@ -359,54 +358,3 @@ export function LeadActivityDialog({
 }
 
 export { TYPE_META }
-
-// DatePicker + native time input pair, kept in sync with a single
-// "YYYY-MM-DDTHH:mm" string so it slots into the existing form schema
-// without rewriting the submit pipeline. Native time fields render
-// consistently across browsers — the chrome we wanted to avoid was the
-// big calendar pop-out attached to datetime-local.
-function DateTimeInput({
-  value,
-  onChange,
-}: {
-  value?: string
-  onChange: (next: string) => void
-}) {
-  const [datePart, timePart] = splitDatetimeLocal(value)
-  const handleDateChange = (next: string) => {
-    if (!next) {
-      onChange('')
-      return
-    }
-    onChange(`${next}T${timePart || '09:00'}`)
-  }
-  const handleTimeChange = (t: string) => {
-    if (!datePart) {
-      // No date yet — default to today so the value is still parseable.
-      const today = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const iso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(
-        today.getDate(),
-      )}`
-      onChange(t ? `${iso}T${t}` : '')
-      return
-    }
-    onChange(t ? `${datePart}T${t}` : '')
-  }
-  return (
-    <div className="flex w-full min-w-0 gap-2">
-      <div className="min-w-0 flex-1">
-        <DatePicker value={datePart} onChange={handleDateChange} />
-      </div>
-      <div className="w-[120px] shrink-0">
-        <TimePicker value={timePart} onChange={handleTimeChange} />
-      </div>
-    </div>
-  )
-}
-
-function splitDatetimeLocal(val?: string): [string, string] {
-  if (!val) return ['', '']
-  const [d = '', t = ''] = val.split('T')
-  return [d, t.slice(0, 5)]
-}

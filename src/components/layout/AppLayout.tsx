@@ -138,7 +138,15 @@ export default function AppLayout({
     '/inventory/products',
     '/crm/leads',
   ]
-  const isCompactPage = !tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath)
+  // Routes with no table-view fallback at all (split view is the only
+  // layout) can't be gated on tableViewActive like SPLIT_DEFAULT_PAGES above —
+  // that guard falls back to 'table' on narrow viewports even with no ?view=
+  // param (see resolveListView), which would leave a table-view-less page
+  // without the fixed-height shell its split view needs, on mobile specifically.
+  const ALWAYS_COMPACT_PAGES = ['/accounting/ledger']
+  const isCompactPage =
+    (!tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath)) ||
+    ALWAYS_COMPACT_PAGES.includes(currentPath)
 
   // Tight-scroll routes use the normal scrollable main, but with the same
   // minimal horizontal padding as compact pages — for long dashboards that

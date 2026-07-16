@@ -2079,19 +2079,23 @@ function PaymentPanel({
         <div className="space-y-2">
           {details.splits.map((split, idx) => (
             <div key={split.id} className="flex items-center gap-1.5">
-              <select
+              <Select
                 value={split.mode}
-                onChange={(e) => {
+                onValueChange={(v) => {
                   const newSplits = [...details.splits]
-                  newSplits[idx] = { ...split, mode: e.target.value as 'CASH' | 'CARD' | 'UPI' }
+                  newSplits[idx] = { ...split, mode: v as 'CASH' | 'CARD' | 'UPI' }
                   onDetailsChange({ splits: newSplits })
                 }}
-                className="h-9 rounded-md border border-input bg-background px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="CASH">Cash</option>
-                <option value="CARD">Card</option>
-                <option value="UPI">UPI</option>
-              </select>
+                <SelectTrigger className="h-9 w-24 shrink-0 gap-1 px-2 text-xs font-semibold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH" className="text-xs">Cash</SelectItem>
+                  <SelectItem value="CARD" className="text-xs">Card</SelectItem>
+                  <SelectItem value="UPI" className="text-xs">UPI</SelectItem>
+                </SelectContent>
+              </Select>
               <Input
                 type="number"
                 min={0}
