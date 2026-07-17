@@ -805,16 +805,45 @@ function BackupDataSection() {
 // ─────────────────────────────────────────────────────────────
 
 function IntegrationsSection() {
+  const [tab, setTab] = useState<'indiamart' | 'justdial'>('indiamart')
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-semibold">Integrations</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Connect external lead sources. New leads land in /crm/leads automatically.
-        </p>
+      {/* Static header — title + source tabs stay pinned to the top of the
+          scroll area while the selected integration's panel scrolls. The
+          negative margins + padding let its background span the full width and
+          cover the scroll container's own padding so nothing peeks above it. */}
+      <div className="sticky top-0 z-10 -mx-3 -mt-3 space-y-3 bg-background px-3 pb-3 pt-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
+        <div>
+          <h2 className="text-base font-semibold">Integrations</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Connect external lead sources. New leads land in /crm/leads automatically.
+          </p>
+        </div>
+
+        {/* Source tabs — one integration panel at a time. */}
+        <div className="flex items-center gap-1 border-b border-border/40">
+          {([
+            { key: 'indiamart', label: 'IndiaMART' },
+            { key: 'justdial', label: 'Justdial' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={cn(
+                '-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
+                tab === t.key
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <IndiamartCard />
-      <JustdialCard />
+
+      {tab === 'indiamart' ? <IndiamartCard /> : <JustdialCard />}
     </div>
   )
 }

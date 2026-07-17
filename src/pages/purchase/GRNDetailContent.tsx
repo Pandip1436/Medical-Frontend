@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -308,6 +309,10 @@ export function GRNDetailContent({
 
   const paidAmount = Number(grn.amountPaid || 0)
   const balanceDue = grnBalance(grn)
+  // Payment status derived from the live balance (drives the header badge that
+  // used to live in the host panel/page header).
+  const paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID' =
+    balanceDue <= 0.01 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'
   const totalOrdered   = grn.items.reduce((s, i) => s + i.orderedQty, 0)
   const totalReceived  = grn.items.reduce((s, i) => s + i.receivedQty, 0)
   const totalFree      = grn.items.reduce((s, i) => s + (i.freeQty ?? 0), 0)
@@ -601,16 +606,25 @@ export function GRNDetailContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Scrollable body — everything above the static totals footer. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-      {/* ── Top action row: descriptive badges + actions ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={hasPO ? 'info' : 'secondary'} size="sm">{hasPO ? 'Against PO' : 'Direct Entry'}</Badge>
-          {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
-          {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
-          {totalShort > 0 && resolvedShortages.length < shortItems.length && <Badge variant="warning" size="sm">{totalShort} Short</Badge>}
-          {resolvedShortages.length > 0 && resolvedShortages.length === shortItems.length && <Badge variant="success" size="sm">Resolved</Badge>}
+      {/* ── Header: PE identity + status + descriptive badges (left) and the
+          document actions (right). Pinned above the scrollable body so the
+          buttons sit in the same row as the PE number. ── */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/40 px-5 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <PackageCheck className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-mono text-sm font-semibold">{grn.grnNumber}</p>
+              {!grn.isReplacement && <StatusBadge status={paymentStatus} />}
+              {isSupplementary && <Badge variant="purple" size="sm">Supplementary</Badge>}
+              {totalDamaged > 0 && <Badge variant="destructive" size="sm">{totalDamaged} Damaged</Badge>}
+              {totalShort > 0 && resolvedShortages.length < shortItems.length && <Badge variant="warning" size="sm">{totalShort} Short</Badge>}
+              {resolvedShortages.length > 0 && resolvedShortages.length === shortItems.length && <Badge variant="success" size="sm">Resolved</Badge>}
+            </div>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDate(grn.date)}</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!grn.isReplacement && balanceDue > 0.01 && (
@@ -639,6 +653,8 @@ export function GRNDetailContent({
         </div>
       </div>
 
+      {/* Scrollable body — everything above the static totals footer. */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
       {/* Info row — Supplier / PE Date / Invoice # / Invoice Date / Invoice Amount */}
       {/* responsive: 2-col grid on phones (labels wrap instead of colliding), flex row at sm+ */}
       <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
@@ -646,6 +662,7 @@ export function GRNDetailContent({
           { label: 'Supplier', value: grn.supplierName, icon: <Truck className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'PE Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'Invoice #', value: grn.supplierInvoiceNo || '—', icon: <FileText className="h-3 w-3 text-muted-foreground/60" /> },
+          { label: 'Invoice Type', value: grn.isReplacement ? 'Replacement' : isSupplementary ? 'Supplementary' : hasPO ? 'Against PO' : 'Direct Entry' },
           { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
           { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
         ].map((c, i) => (
@@ -654,7 +671,6 @@ export function GRNDetailContent({
             i > 0 && 'sm:border-l',
             i % 2 !== 0 && 'border-l sm:border-l-0',
             i >= 2 && 'border-t sm:border-t-0',
-            i === 4 && 'col-span-2 sm:col-span-1',
           )}>
             <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {c.icon}
@@ -879,23 +895,23 @@ export function GRNDetailContent({
           tighter padding) so all 12 columns fit the panel width without a
           horizontal scrollbar. overflow-x-auto stays as a safety net for very
           narrow viewports. */}
-      <div className="hidden overflow-hidden rounded-xl border border-border/40 md:block">
-        <div className="overflow-x-auto [&_td]:px-2 [&_td]:py-2 [&_td]:text-xs [&_th]:px-2">
-          <Table>
+      <div className="hidden overflow-hidden rounded-lg border border-border/40 md:block">
+        <div className="[&_td]:px-2 [&_td]:py-2 [&_td]:text-xs [&_th]:px-2">
+          <Table className="w-full">
             <TableHeader className="bg-muted/40">
-              <TableRow className="border-b border-border/40 hover:bg-transparent">
-                <TableHead className="h-10 w-10 px-2 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
-                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
-                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Ordered</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Received</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Free</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Damaged</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Short</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">MRP</TableHead>
-                <TableHead className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Line Value</TableHead>
-                <TableHead className="h-10 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-9 w-10 px-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">#</TableHead>
+                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
+                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Ordered</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Received</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Free</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Damaged</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Short</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Rate</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">MRP</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Line Value</TableHead>
+                <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -920,7 +936,8 @@ export function GRNDetailContent({
                       <button
                         type="button"
                         onClick={() => navigate(`/inventory/product-history?productId=${item.productId}`)}
-                        className="whitespace-nowrap text-left text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                        title={item.productName}
+                        className="block max-w-[13rem] truncate text-left text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400"
                       >
                         {item.productName}
                       </button>
@@ -1011,7 +1028,7 @@ export function GRNDetailContent({
 
       {/* ── Sales & Returns tab ── what happened to the received stock ── */}
       {activeTab === 'sales' && (
-        <div className="rounded-xl border border-border/40 p-4">
+        <div>
             {/* `!bill` here covers the first render of this tab — the lazy-load
                 effect fires AFTER render, so treat "not loaded yet" as loading
                 rather than falling through to `bill!.items` (which would crash). */}
@@ -1149,10 +1166,10 @@ export function GRNDetailContent({
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Product</TableHead>
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</TableHead>
                       <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Expiry</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Received</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Sold</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Returned</TableHead>
-                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">In Stock</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Received</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Sold</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Returned</TableHead>
+                      <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">In Stock</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

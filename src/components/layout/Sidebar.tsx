@@ -33,7 +33,6 @@ import {
   CalendarClock,
   ShieldCheck,
   Sparkles,
-  MousePointer2,
   type LucideIcon,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
@@ -201,12 +200,12 @@ interface SidebarProps {
 import { useSettingsStore } from '@/stores/settingsStore'
 
 export function Sidebar({ currentPath }: SidebarProps) {
-  const { user, sidebarCollapsed, toggleSidebar, sidebarHoverExpand, toggleSidebarHoverExpand, expandedSection, toggleSection, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
+  const { user, sidebarCollapsed, toggleSidebar, expandedSection, toggleSection, mobileSidebarOpen, setMobileSidebarOpen } = useAuthStore()
   const unreadCount = useNotificationStore((s) => s.unreadCount())
   const businessProfile = useSettingsStore((s) => s.businessProfile)
   const [pendingApprovals, setPendingApprovals] = useState(0)
   // Hover-to-expand (desktop only): the slim rail widens on mouse-enter and
-  // shrinks on mouse-leave when `sidebarHoverExpand` is on.
+  // shrinks on mouse-leave — always on for the docked desktop rail.
   const [hovered, setHovered] = useState(false)
 
   // Persist nav scroll position across renders. Without this, clicking any
@@ -271,9 +270,10 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
-  // Hover-to-expand only applies to a real docked desktop rail — never the
+  // Hover-to-expand is always on for a real docked desktop rail — the rail
+  // stays collapsed and expands on mouse-over. It never applies to the
   // touch/tablet bottom-bar shell or the narrow-window click overlay.
-  const hoverMode = sidebarHoverExpand && !isMobile && !isTabletTouch
+  const hoverMode = !isMobile && !isTabletTouch
 
   // Keyboard shortcut: [ to toggle sidebar
   useEffect(() => {
@@ -629,53 +629,6 @@ export function Sidebar({ currentPath }: SidebarProps) {
             </motion.div>
           )}
         </div>
-      )}
-
-      {/* Hover-to-expand toggle — desktop docked rail only. Compact icon + an
-          ON/OFF pill; the tooltip explains the behavior. (The `[` keyboard
-          shortcut still collapses/expands the rail.) */}
-      {!isMobile && !isTabletTouch && (
-        <button
-          onClick={() => {
-            if (!sidebarHoverExpand) {
-              // Enabling hover-mode while the cursor is already on the rail: keep
-              // it expanded until the mouse actually leaves (mouse-enter won't
-              // re-fire while the pointer is already inside).
-              setHovered(true)
-            } else {
-              // Turning hover-mode OFF: leave the rail fully open. There's no
-              // manual collapse button, so without this the rail could get stuck
-              // collapsed (e.g. after a compact page auto-collapsed it).
-              useAuthStore.setState({ sidebarCollapsed: false })
-            }
-            toggleSidebarHoverExpand()
-          }}
-          className={cn(
-            'flex w-full items-center gap-2 rounded-lg p-2 transition-colors',
-            collapsed ? 'justify-center' : 'justify-between',
-            sidebarHoverExpand
-              ? 'text-brand hover:bg-brand/10'
-              : 'text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-          )}
-          aria-label="Toggle hover to expand"
-          aria-pressed={sidebarHoverExpand}
-          title={sidebarHoverExpand
-            ? 'Hover-to-expand is ON — the rail opens on mouse-over. Click to turn off.'
-            : 'Hover-to-expand is OFF — click to turn on (rail opens on mouse-over).'}
-        >
-          <span className="flex items-center gap-2">
-            <MousePointer2 className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="text-xs">Hover to expand</span>}
-          </span>
-          {!collapsed && (
-            <span className={cn(
-              'rounded px-1.5 py-0.5 text-[10px] font-bold',
-              sidebarHoverExpand ? 'bg-brand/15 text-brand' : 'bg-sidebar-accent text-sidebar-muted',
-            )}>
-              {sidebarHoverExpand ? 'ON' : 'OFF'}
-            </span>
-          )}
-        </button>
       )}
 
       {/* Vendor attribution — only in the expanded rail */}

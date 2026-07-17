@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowLeft, PackageCheck, FileX2 } from 'lucide-react'
+import { ArrowLeft, FileX2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { StatusBadge } from '@/components/shared/StatusBadge'
+import { Card, CardContent } from '@/components/ui/card'
 import api from '@/lib/api'
 import { goBack as routerGoBack, useRoute } from '@/lib/router'
-import { formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { GRN } from '@/types'
 import { GRNDetailContent } from './GRNDetailContent'
@@ -56,17 +54,8 @@ export default function GRNDetailPage() {
 
   const goBack = () => routerGoBack('/purchase/grn-list')
 
-  // Derive display status from the live balance so a settled PE never shows
-  // "Unpaid" on legacy rows that pre-date the paymentStatus column.
-  const balance = grn
-    ? Math.max(0, Number(grn.supplierInvoiceAmount || 0) - Number(grn.amountPaid || 0))
-    : 0
-  const paymentStatus = grn
-    ? (balance <= 0.01 ? 'PAID' : Number(grn.amountPaid || 0) > 0 ? 'PARTIAL' : 'UNPAID')
-    : 'UNPAID'
-
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-content-viewport flex-col gap-4">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-full min-h-0 flex-col gap-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 shrink-0 self-start" onClick={goBack}>
         <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
@@ -89,29 +78,15 @@ export default function GRNDetailPage() {
             <Button size="sm" variant="outline" onClick={goBack}>Back to Purchase Entry</Button>
           </CardContent>
         ) : (
-          <>
-            <CardHeader className="shrink-0 border-b border-border/40">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                    <PackageCheck className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-mono text-base font-semibold">{grn.grnNumber}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(grn.date)}</p>
-                  </div>
-                </div>
-                {!grn.isReplacement && <StatusBadge status={paymentStatus} />}
-              </div>
-            </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-              <GRNDetailContent
-                grn={grn}
-                allGrns={allGrns}
-                onRefresh={() => { if (id) fetchGrn(id) }}
-              />
-            </CardContent>
-          </>
+          // GRNDetailContent renders its own header (PE number + status +
+          // actions), so the page just hosts it inside the card.
+          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+            <GRNDetailContent
+              grn={grn}
+              allGrns={allGrns}
+              onRefresh={() => { if (id) fetchGrn(id) }}
+            />
+          </CardContent>
         )}
       </Card>
     </motion.div>

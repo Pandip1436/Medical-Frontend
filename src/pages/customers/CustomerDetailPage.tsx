@@ -465,7 +465,10 @@ export default function CustomerDetailPage() {
                 same actions live inside ActivityTabContent instead, icon-only and
                 pinned to the bottom of the tab (see that component for why). */}
             {activeTab === 'activity' && (
-              <div className="hidden items-center gap-1.5 xl:flex">
+              // flex-1 group + flex-1 buttons: the log buttons stretch to fill
+              // the full width, leaving the Type/Period filters compact on the
+              // right.
+              <div className="hidden min-w-0 flex-1 items-center gap-1.5 xl:flex">
                 {(['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'REMINDER'] as SAType[]).map((t) => {
                   const meta = ACTIVITY_META[t]
                   const Icon = meta.icon
@@ -474,10 +477,10 @@ export default function CustomerDetailPage() {
                       key={t}
                       size="sm"
                       variant="outline"
-                      className={cn('h-8 shrink-0 gap-1.5 text-xs my-1.5', meta.btnTone)}
+                      className={cn('h-8 min-w-0 flex-1 gap-1.5 text-xs my-1.5', meta.btnTone)}
                       onClick={() => setActivityDialog({ open: true, type: t, editing: null })}
                     >
-                      <Icon className="h-3.5 w-3.5" />
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
                       {t === 'REMINDER' ? 'Reminder' : `Log ${meta.label}`}
                     </Button>
                   )
@@ -1756,7 +1759,11 @@ function RxTabContent({
             {/* Mobile: prescription cards */}
             <div className="space-y-2 p-3 md:hidden">
               {rows.map((rx) => {
-                const url = rx.imageUrl ? `${API_SERVER_URL}${rx.imageUrl}` : null
+                // New uploads store an absolute R2 URL; legacy records store a
+                // relative /uploads/… path that still needs the API host prefix.
+                const url = rx.imageUrl
+                  ? (/^https?:\/\//i.test(rx.imageUrl) ? rx.imageUrl : `${API_SERVER_URL}${rx.imageUrl}`)
+                  : null
                 return (
                   <div key={rx.id} className="rounded-xl border border-border/40 p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -1809,7 +1816,11 @@ function RxTabContent({
             </TableHeader>
             <TableBody>
               {rows.map((rx) => {
-                const url = rx.imageUrl ? `${API_SERVER_URL}${rx.imageUrl}` : null
+                // New uploads store an absolute R2 URL; legacy records store a
+                // relative /uploads/… path that still needs the API host prefix.
+                const url = rx.imageUrl
+                  ? (/^https?:\/\//i.test(rx.imageUrl) ? rx.imageUrl : `${API_SERVER_URL}${rx.imageUrl}`)
+                  : null
                 return (
                   <TableRow key={rx.id} className="hover:bg-muted/20">
                     <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</TableCell>

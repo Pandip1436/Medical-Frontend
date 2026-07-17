@@ -69,9 +69,10 @@ export default function InvoiceDetailPage() {
   return (
     // Bounded "compact shell" so the invoice body scrolls inside the card and
     // its totals + action footer stay pinned at the bottom (matches the split
-    // view). Without the fixed height the whole page would scroll and the
-    // footer would drift below the fold.
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-content-viewport flex-col gap-4">
+    // view). `h-full` fills the compact main AppLayout gives this route (see
+    // ALWAYS_COMPACT_PAGES) — using h-content-viewport here instead would
+    // overflow by the page padding and push the footer below the fold.
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-full min-h-0 flex-col gap-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 shrink-0 self-start" onClick={goBack}>
         <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>

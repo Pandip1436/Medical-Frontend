@@ -1,19 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PackageCheck } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
-import { StatusBadge } from '@/components/shared/StatusBadge'
 import { GRNCompactCard } from './GRNCompactCard'
 import { GRNDetailContent } from '../GRNDetailContent'
 import { useGRNDetail } from '../hooks/useGRNDetail'
-import { formatDate } from '@/lib/utils'
 import type { GRN } from '@/types'
-
-function grnPayStatus(grn: GRN): 'PAID' | 'PARTIAL' | 'UNPAID' {
-  const balance = Math.max(0, Number(grn.supplierInvoiceAmount || 0) - Number(grn.amountPaid || 0))
-  if (balance <= 0.01) return 'PAID'
-  if (Number(grn.amountPaid || 0) > 0) return 'PARTIAL'
-  return 'UNPAID'
-}
 
 interface GRNSplitViewProps {
   /** Already filtered list from the parent page */
@@ -103,38 +94,17 @@ export function GRNSplitView({
   }, [grns, localSearch])
 
   const rightContent = detail.grn ? (
+    // GRNDetailContent now owns the header (PE number + status + actions), its
+    // own scroll, and the static totals footer.
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Panel header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/40 px-4 py-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
-          <PackageCheck className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.grn.grnNumber}</p>
-            {!detail.grn.isReplacement && (
-              <span className="shrink-0">
-                <StatusBadge status={grnPayStatus(detail.grn)} />
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {formatDate(detail.grn.date)}
-          </p>
-        </div>
-      </div>
-      {/* Bounded flex column: GRNDetailContent owns its scroll + static totals
-          footer, and provides its own padding. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <GRNDetailContent
-          grn={detail.grn}
-          allGrns={allGrns}
-          onRefresh={() => {
-            detail.refetch()
-            onRefresh()
-          }}
-        />
-      </div>
+      <GRNDetailContent
+        grn={detail.grn}
+        allGrns={allGrns}
+        onRefresh={() => {
+          detail.refetch()
+          onRefresh()
+        }}
+      />
     </div>
   ) : null
 

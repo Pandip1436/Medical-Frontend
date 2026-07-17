@@ -423,21 +423,20 @@ export function ProductDetailContent({ productId }: { productId: string }) {
           activeFilterCount={activeFilterCount}
           onClearFilters={clearFilters}
         >
-          {/* Date From + Date To paired together so they always land on the same row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
-              <DatePicker value={dateFrom} onChange={setDateFrom} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
-              <DatePicker value={dateTo} onChange={setDateTo} />
-            </div>
+          {/* Each filter is its own cell so the shared filter-bar grid stretches
+              them across the full panel width (Date From / Date To / Batch). */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date From</Label>
+            <DatePicker value={dateFrom} onChange={setDateFrom} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Date To</Label>
+            <DatePicker value={dateTo} onChange={setDateTo} />
           </div>
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch</Label>
             <Select value={batchFilter} onValueChange={setBatchFilter} disabled={availableBatches.length === 0}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="All batches" />
               </SelectTrigger>
               <SelectContent>

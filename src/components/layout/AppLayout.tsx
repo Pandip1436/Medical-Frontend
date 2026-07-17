@@ -45,7 +45,7 @@ export default function AppLayout({
   title,
   currentPath,
 }: AppLayoutProps) {
-  const { isAuthenticated, sidebarCollapsed, sidebarHoverExpand, theme, resolvedTheme } = useAuthStore()
+  const { isAuthenticated, sidebarCollapsed, theme, resolvedTheme } = useAuthStore()
   // Any touch device up to tablet width (phone OR tablet) — mirrors
   // Sidebar.tsx's own branch exactly. A narrow desktop/laptop window (whether
   // from display scaling or just a small restored window) never matches
@@ -108,10 +108,10 @@ export default function AppLayout({
 
   // rem (not px) so the sidebar scales with the display-scale font-size.
   const sidebarWidth = sidebarCollapsed ? '4rem' : '16rem'
-  // Hover-to-expand (desktop only): the docked rail stays slim and the expanded
-  // state overlays the page, so the content margin must stay pinned at the rail
-  // width — never widen with the hover expansion.
-  const hoverPinned = sidebarHoverExpand && !isMobile && !isTabletTouch
+  // Hover-to-expand (desktop only, always on): the docked rail stays slim and
+  // the expanded state overlays the page, so the content margin must stay pinned
+  // at the rail width — never widen with the hover expansion.
+  const hoverPinned = !isMobile && !isTabletTouch
 
   // POS-style routes use full viewport with no global header/padding
   const isFullViewport = currentPath === '/billing/new'
@@ -143,7 +143,17 @@ export default function AppLayout({
   // that guard falls back to 'table' on narrow viewports even with no ?view=
   // param (see resolveListView), which would leave a table-view-less page
   // without the fixed-height shell its split view needs, on mobile specifically.
-  const ALWAYS_COMPACT_PAGES = ['/accounting/ledger']
+  // Standalone detail pages that own a fixed-height shell with a pinned footer
+  // (scrollable body + static totals/action footer). They need the compact
+  // main (bounded height, minimal padding, overflow-hidden) so the footer
+  // pins at the viewport bottom instead of overflowing past it.
+  const ALWAYS_COMPACT_PAGES = [
+    '/accounting/ledger',
+    '/customers/invoices/detail',
+    '/purchase/grn/detail',
+    '/billing/credit-notes/detail',
+    '/purchase/debit-notes/detail',
+  ]
   const isCompactPage =
     (!tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath)) ||
     ALWAYS_COMPACT_PAGES.includes(currentPath)

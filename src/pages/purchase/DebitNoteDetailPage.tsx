@@ -75,7 +75,7 @@ export default function DebitNoteDetailPage() {
     : 'secondary'
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-content-viewport flex-col gap-4">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-full min-h-0 flex-col gap-4">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 shrink-0 self-start" onClick={goBack}>
         <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>

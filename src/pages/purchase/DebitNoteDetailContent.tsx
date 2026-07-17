@@ -118,9 +118,6 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
           {d.supplierPhone && (
             <p className="font-mono text-[11px] text-muted-foreground truncate">{d.supplierPhone}</p>
           )}
-          {d.supplierAddress && (
-            <p className="text-[11px] text-muted-foreground truncate" title={d.supplierAddress}>{d.supplierAddress}</p>
-          )}
         </div>
         <div className="flex min-w-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:flex-1 sm:basis-0 sm:px-4">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">PE Reference</p>
