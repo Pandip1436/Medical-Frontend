@@ -144,6 +144,10 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
     y += 5
     doc.text(`Customer GSTIN: ${invoice.customerGstin}`, leftX, y)
   }
+  if (invoice.salespersonName) {
+    y += 5
+    doc.text(`Salesperson: ${invoice.salespersonName}`, leftX, y)
+  }
   y += 3
 
   autoTable(doc, {

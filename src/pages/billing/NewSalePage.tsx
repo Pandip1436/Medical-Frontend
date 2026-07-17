@@ -336,6 +336,8 @@ function BillingRow({
   showInlineHistory = true,
   onRequestAddProduct,
   batchesUsedByOthers,
+  editStockCredit,
+  onMergeProduct,
 }: {
   item: BillingItem
   index: number
@@ -351,6 +353,12 @@ function BillingRow({
   onRequestAddProduct?: (rowId: string, prefillName?: string) => void
   // batchIds already selected on other rows of the same product — disabled here.
   batchesUsedByOthers?: Set<string>
+  // Edit mode: qty this invoice already holds per batch (batchId → qty), added
+  // back onto batch availability so its own stock counts as sellable here.
+  editStockCredit?: Record<string, number>
+  // Bump an existing line for `product` if it has batch headroom; returns true
+  // if it merged. Lets a row's search reuse the top search's merge behavior.
+  onMergeProduct?: (product: Product) => boolean
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
@@ -422,10 +430,39 @@ function BillingRow({
   // change fixes the post-refresh empty-batch bug.
   const productBatches = useMemo(() => {
     if (!item.productId) return []
-    return batches
-      .filter((b) => b.productId === item.productId && b.quantity > 0 && !isExpired(b.expiryDate))
-      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
-  }, [item.productId, batches])
+    // Availability = live stock + whatever this invoice already holds on the
+    // batch (edit mode). So a batch drawn down to 0 by the invoice being edited
+    // still qualifies as sellable here.
+    const usable = batches.filter(
+      (b) =>
+        b.productId === item.productId &&
+        b.quantity + (editStockCredit?.[b.id] ?? 0) > 0 &&
+        !isExpired(b.expiryDate),
+    )
+    // Guarantee the line's own current batch is always in its own picker — even
+    // if it's depleted or has since expired — so an edited line never loses its
+    // batch selection.
+    if (item.batchId && !usable.some((b) => b.id === item.batchId)) {
+      const own = batches.find((b) => b.id === item.batchId)
+      if (own) {
+        usable.push(own)
+      } else if (item.batchNumber) {
+        // The batch isn't in the store (a fully-depleted batch the API no longer
+        // returns). Reconstruct it from the line's own saved fields so it still
+        // renders and stays selectable; its availability comes from the edit
+        // credit (what this invoice holds on it).
+        usable.push({
+          id: item.batchId,
+          productId: item.productId,
+          batchNumber: item.batchNumber,
+          expiryDate: item.expiryDate,
+          quantity: 0,
+          mrp: item.mrp,
+        } as (typeof batches)[number])
+      }
+    }
+    return usable.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+  }, [item.productId, item.batchId, item.batchNumber, item.expiryDate, item.mrp, batches, editStockCredit])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const selectedProduct = useMemo(() => {
@@ -448,6 +485,18 @@ function BillingRow({
 
   const handleProductSelect = useCallback(
     (product: Product) => {
+      // Picking a product in an EMPTY row behaves like the top search: if that
+      // product is already on the bill with batch headroom, bump that line's
+      // quantity instead of adding a duplicate line on a different batch. Only
+      // when it can't merge (new product, or all its batches are already full)
+      // does it fall through and occupy this row. Skipped when the row already
+      // has a product (that's a deliberate product-change, not an add).
+      if (!item.productId && onMergeProduct?.(product)) {
+        setProductSearch('')
+        setShowProductDropdown(false)
+        setSelectedIndex(0)
+        return
+      }
       // Ensure the selected product's batches and full record are in the
       // store before we read FEFO/MRP from them.
       syncProductBatchesIntoStore(product)
@@ -478,7 +527,9 @@ function BillingRow({
         batchId: firstBatch?.id ?? '',
         batchNumber: firstBatch?.batchNumber ?? '',
         expiryDate: firstBatch?.expiryDate ?? '',
-        quantity: item.quantity || 1,
+        // No sellable batch → start at 0 (qty is locked until a batch is picked,
+        // see the stepper's disabled guard). With a batch, keep/seed qty 1.
+        quantity: firstBatch ? (item.quantity || 1) : 0,
         discountPercent: item.discountPercent,
       }
       const tempItem = { ...item, ...updates }
@@ -498,7 +549,7 @@ function BillingRow({
         qtyRef.current?.select()
       }, 50)
     },
-    [billingType, item, onUpdate, batches, customerLastRates, batchesUsedByOthers]
+    [billingType, item, onUpdate, batches, customerLastRates, batchesUsedByOthers, onMergeProduct]
   )
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -524,6 +575,9 @@ function BillingRow({
         batchNumber: batch.batchNumber,
         expiryDate: batch.expiryDate,
         mrp: Number(batch.mrp || selectedProduct?.mrp) || 0,
+        // Picking a batch unlocks quantity — seed it to 1 if the line was sitting
+        // at 0 (e.g. the product was added while it had no available batch).
+        ...(item.quantity <= 0 ? { quantity: 1 } : {}),
       }
       const tempItem = { ...item, ...updates }
       updates.amount = calculateItemAmount(tempItem)
@@ -542,7 +596,11 @@ function BillingRow({
         nextQty = Math.max(0, qty)
       } else {
         const selectedBatch = batches.find((b) => b.id === item.batchId)
-        const maxQty = selectedBatch?.quantity ?? 9999
+        // Clamp to live stock + this invoice's own held qty on the batch (edit
+        // mode). Fall back to just the held qty if the batch isn't in the store.
+        const maxQty = item.batchId
+          ? (selectedBatch?.quantity ?? 0) + (editStockCredit?.[item.batchId] ?? 0)
+          : 9999
         nextQty = Math.min(Math.max(0, qty), maxQty)
       }
       const updates: Partial<BillingItem> = { quantity: nextQty }
@@ -550,7 +608,7 @@ function BillingRow({
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
     },
-    [item, onUpdate, invoiceType]
+    [item, onUpdate, invoiceType, batches, editStockCredit]
   )
 
   const handleDiscountChange = useCallback(
@@ -615,8 +673,14 @@ function BillingRow({
   }
 
   const selectedBatch = batches.find((b) => b.id === item.batchId)
+  // Sellable qty = live stock + this invoice's own held qty on the batch (edit
+  // mode; 0 credit otherwise) — so an edited line's already-consumed stock counts.
+  // Falls back to just the held qty when the batch isn't in the store at all (a
+  // fully-depleted batch the API dropped, shown via the synthesized picker entry).
+  const selectedBatchAvail =
+    (selectedBatch?.quantity ?? 0) + (item.batchId ? (editStockCredit?.[item.batchId] ?? 0) : 0)
   // Quotation mode: no batch tie, so we never flag qty as exceeding stock.
-  const qtyExceeds = invoiceType === 'invoice' && selectedBatch ? item.quantity > selectedBatch.quantity : false
+  const qtyExceeds = invoiceType === 'invoice' && item.batchId ? item.quantity > selectedBatchAvail : false
 
   return (
     <>
@@ -932,6 +996,10 @@ function BillingRow({
                       ) : idx === 0 && (
                         <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
                       )}
+                      {/* Current physical stock in the batch — NOT credit-adjusted,
+                          so editing an invoice shows real stock (e.g. 1328), not
+                          1328 + the qty this invoice is holding. The "N left"
+                          helper above the stepper reflects the sellable amount. */}
                       <span className="text-[10px] opacity-60 whitespace-nowrap">Qty: {b.quantity}</span>
                     </div>
                   </div>
@@ -1017,22 +1085,28 @@ function BillingRow({
       {/* Qty — helper on top, stepper below */}
      <TableCell className="w-28 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
-    {/* Stock Available */}
+    {/* Batch stock left — counts down live as the quantity goes up so the
+        operator sees how much of the batch remains after this line. Shown even
+        at qty 0 (so it reads e.g. "1328 left" the moment a batch is picked).
+        Turns amber at zero (batch fully consumed), red if the qty exceeds stock. */}
     <div className="min-h-5 flex items-center justify-center">
-      {selectedBatch && item.quantity > 0 && (
-        <span
-          className={cn(
-            "text-[11px] font-medium tabular-nums",
-            qtyExceeds
-              ? "text-rose-600 dark:text-rose-400"
-              : "text-muted-foreground"
-          )}
-        >
-          {qtyExceeds
-            ? `Max ${selectedBatch.quantity}`
-            : `of ${selectedBatch.quantity}`}
-        </span>
-      )}
+      {item.batchId && (() => {
+        const remaining = selectedBatchAvail - item.quantity
+        return (
+          <span
+            className={cn(
+              "text-[11px] font-medium tabular-nums",
+              qtyExceeds
+                ? "text-rose-600 dark:text-rose-400"
+                : remaining === 0
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-muted-foreground",
+            )}
+          >
+            {qtyExceeds ? `Max ${selectedBatchAvail}` : `${remaining} left`}
+          </span>
+        )
+      })()}
     </div>
 
     {/* Quantity Stepper */}
@@ -1050,7 +1124,9 @@ function BillingRow({
         type="button"
         onClick={() => handleQtyChange(item.quantity - 1)}
         disabled={
-          (invoiceType === "invoice" && !item.productId) ||
+          // Invoice lines can't carry a quantity until a stock batch is chosen —
+          // you can't sell what isn't drawn from a batch. Quotations are exempt.
+          (invoiceType === "invoice" && (!item.productId || !item.batchId)) ||
           item.quantity <= 0
         }
         className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
@@ -1066,9 +1142,10 @@ function BillingRow({
         max={
           invoiceType === "quotation"
             ? undefined
-            : selectedBatch?.quantity ?? 9999
+            : item.batchId ? selectedBatchAvail : 9999
         }
         value={item.quantity || ""}
+        placeholder="0"
         onChange={(e) =>
           handleQtyChange(parseInt(e.target.value) || 0)
         }
@@ -1088,7 +1165,7 @@ function BillingRow({
           }
         }}
         disabled={
-          invoiceType === "invoice" && !item.productId
+          invoiceType === "invoice" && (!item.productId || !item.batchId)
         }
         className={cn(
           "h-8 w-10 flex-1 border-0 bg-transparent",
@@ -1107,7 +1184,7 @@ function BillingRow({
         type="button"
         onClick={() => handleQtyChange(item.quantity + 1)}
         disabled={
-          invoiceType === "invoice" && !item.productId
+          invoiceType === "invoice" && (!item.productId || !item.batchId)
         }
         className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
       >
@@ -1559,27 +1636,56 @@ function MobileBillingCard({
   item,
   index,
   billingType,
+  invoiceType,
   onUpdate,
   onRemove,
+  editStockCredit,
 }: {
   item: BillingItem
   index: number
   billingType: 'retail' | 'wholesale'
+  invoiceType: 'invoice' | 'quotation'
   onUpdate: (id: string, updates: Partial<BillingItem>) => void
   onRemove: (id: string) => void
+  // Edit mode: qty this invoice already holds per batch (batchId → qty), added
+  // back onto batch availability so its own stock counts as sellable here.
+  editStockCredit?: Record<string, number>
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
-  
+
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
 
   const productBatches = useMemo(() => {
     if (!item.productId) return []
-    return batches
-      .filter((b) => b.productId === item.productId && b.quantity > 0 && !isExpired(b.expiryDate))
-      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
-  }, [item.productId, batches])
+    // Availability = live stock + whatever this invoice already holds on the
+    // batch (edit mode), and the line's own batch is always kept in the picker.
+    const usable = batches.filter(
+      (b) =>
+        b.productId === item.productId &&
+        b.quantity + (editStockCredit?.[b.id] ?? 0) > 0 &&
+        !isExpired(b.expiryDate),
+    )
+    if (item.batchId && !usable.some((b) => b.id === item.batchId)) {
+      const own = batches.find((b) => b.id === item.batchId)
+      if (own) {
+        usable.push(own)
+      } else if (item.batchNumber) {
+        // Depleted batch the API no longer returns — rebuild it from the line's
+        // own saved fields so it still shows (availability = edit credit).
+        usable.push({
+          id: item.batchId,
+          productId: item.productId,
+          batchNumber: item.batchNumber,
+          expiryDate: item.expiryDate,
+          quantity: 0,
+          mrp: item.mrp,
+        } as (typeof batches)[number])
+      }
+    }
+    return usable.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+  }, [item.productId, item.batchId, item.batchNumber, item.expiryDate, item.mrp, batches, editStockCredit])
 
   const selectedProduct = useMemo(() => {
     return products.find((p) => p.id === item.productId)
@@ -1774,15 +1880,17 @@ function MobileBillingCard({
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quantity</Label>
             <div className="flex items-center gap-1">
-              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
+              {/* Qty locked until a batch is chosen (invoice mode) — matches the desktop row. */}
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId) || item.quantity <= 0} onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
               <input
                 type="number"
                 min={0}
                 value={item.quantity}
+                disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId)}
                 onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
-                className="w-full h-9 text-center bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                className="w-full h-9 text-center bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md disabled:opacity-40"
               />
-              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId)} onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
             </div>
           </div>
         </div>
@@ -1847,6 +1955,7 @@ function PaymentPanel({
   details,
   onDetailsChange,
   customer,
+  isEditing = false,
 }: {
   mode: PaymentMode
   onModeChange: (m: PaymentMode) => void
@@ -1854,6 +1963,9 @@ function PaymentPanel({
   details: PaymentDetails
   onDetailsChange: (d: Partial<PaymentDetails>) => void
   customer: Customer | null
+  // Editing an existing invoice — the pending-credit block doesn't apply (it
+  // guards NEW credit sales), so its warning is suppressed here.
+  isEditing?: boolean
 }) {
   const splitTotal = useMemo(() => {
     return details.splits.reduce((sum, s) => sum + s.amount, 0)
@@ -1884,18 +1996,23 @@ function PaymentPanel({
 
   return (
     <div className="space-y-3">
-      {/* Mode segmented control */}
+      {/* Mode segmented control. Locked while editing: an edit never collects a
+          new payment (amountPaid is preserved server-side), so switching to
+          Cash/UPI would only surface a dead amount field and rewrite the stored
+          mode. The remaining balance is credit, so it stays on Credit. */}
       <div className="grid grid-cols-3 gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5">
         {paymentModes.map((pm) => (
           <button
             key={pm.value}
             type="button"
             onClick={() => onModeChange(pm.value)}
+            disabled={isEditing}
             className={cn(
               'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors',
               mode === pm.value
                 ? 'bg-background text-foreground shadow-sm ring-1 ring-border/40'
-                : 'text-muted-foreground hover:text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+              isEditing && 'cursor-not-allowed opacity-40'
             )}
           >
             {pm.icon}
@@ -1903,6 +2020,11 @@ function PaymentPanel({
           </button>
         ))}
       </div>
+      {isEditing && (
+        <p className="text-[10px] text-muted-foreground">
+          Payments already collected are preserved. To take another payment, use “Collect Payment” on the invoice.
+        </p>
+      )}
 
       {/* Cash */}
       {mode === 'CASH' && (
@@ -1987,12 +2109,12 @@ function PaymentPanel({
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              UPI Reference #
+              UPI Reference # <span className="text-rose-500">*</span>
             </label>
             <Input
               value={details.upiRef}
               onChange={(e) => onDetailsChange({ upiRef: e.target.value })}
-              className="h-9 text-xs"
+              className={cn('h-9 text-xs', (details.amountReceived || 0) > 0 && !details.upiRef.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
               placeholder="UPI transaction ID"
             />
           </div>
@@ -2030,7 +2152,7 @@ function PaymentPanel({
                     This credit will auto-apply to the unpaid balance on save.
                   </p>
                 )}
-                {(customer.pendingCreditCount ?? 0) >= 3 && (
+                {!isEditing && (customer.pendingCreditCount ?? 0) >= 3 && (
                   <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center gap-1.5">
                     <ShieldAlert className="h-3 w-3" />
                     Credit blocked — clear pending invoices first
@@ -2039,27 +2161,10 @@ function PaymentPanel({
               </div>
             )
           })()}
-          {/* Optional cash advance (down payment) on a credit sale. The rest
-              becomes the customer's outstanding credit. */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cash Received <span className="normal-case text-muted-foreground/70">(advance — optional)</span>
-            </label>
-            <Input
-              type="number"
-              min={0}
-              value={details.amountReceived || ''}
-              onChange={(e) => onDetailsChange({ amountReceived: Math.min(Math.max(0, parseFloat(e.target.value) || 0), grandTotal) })}
-              className="h-9 font-mono text-sm tabular-nums"
-              placeholder="0.00"
-              max={grandTotal}
-            />
-            {details.amountReceived > 0 && (
-              <p className="text-[10px] text-muted-foreground">
-                {formatCurrency(details.amountReceived)} cash now · {formatCurrency(Math.max(0, grandTotal - details.amountReceived))} to credit
-              </p>
-            )}
-          </div>
+          {/* Pure credit sale — nothing collected now, the whole amount goes to
+              the customer's outstanding with a due date. To collect a part-payment
+              up front, use Cash/UPI mode with a partial amount (that records the
+              collection method in history and marks the invoice credit). */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date <span className="text-rose-500">*</span>
@@ -2072,6 +2177,30 @@ function PaymentPanel({
               className="h-9 text-xs"
             />
           </div>
+        </div>
+      )}
+
+      {/* Any at-counter payment short of the total leaves a credit balance, so
+          capture a due date for it — same rule as a pure credit sale. Only
+          shows once a partial amount has actually been entered (a full payment
+          leaves no balance). Reuses details.creditDueDate. */}
+      {(mode === 'CASH' || mode === 'UPI' || mode === 'CARD') &&
+        (details.amountReceived || 0) > 0 &&
+        grandTotal - (details.amountReceived || 0) > 0.01 && (
+        <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5">
+          <p className="text-[10px] text-amber-700 dark:text-amber-400">
+            {formatCurrency(Math.max(0, grandTotal - details.amountReceived))} will be added to credit — set a due date.
+          </p>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Due Date <span className="text-rose-500">*</span>
+          </label>
+          <DatePicker
+            value={details.creditDueDate}
+            onChange={(v) => onDetailsChange({ creditDueDate: v })}
+            min={new Date().toISOString().slice(0, 10)}
+            error={!details.creditDueDate}
+            className="h-9 text-xs"
+          />
         </div>
       )}
 
@@ -2262,6 +2391,19 @@ export default function NewSalePage() {
             amount: Number(it.amount ?? it.total ?? 0),
             schedule: it.schedule ?? '',
           })))
+          // Load each item's product batches into the store so the batch
+          // dropdowns have data — the prefill only carries the *chosen* batch id,
+          // not the product's full batch list. Without this the pickers show
+          // "No batch available" on an edited/duplicated invoice. One background
+          // fetch per unique product.
+          const uniquePids = Array.from(
+            new Set(inv.items.map((it: any) => it.productId).filter(Boolean)),
+          )
+          uniquePids.forEach((pid) => {
+            api.get(`/products/${pid}`)
+              .then((r) => syncProductBatchesIntoStore(r.data))
+              .catch(() => { /* product may have been deleted — keep the prefilled row */ })
+          })
         }
         // Drafts and existing-invoice edits restore the customer + payment
         // intent so the user returns to exactly where they left off.
@@ -2270,10 +2412,36 @@ export default function NewSalePage() {
           if (editId) {
             setEditingInvoiceId(editId)
             setEditingInvoiceNumber(inv.invoiceNumber ?? null)
+            // Credit back the stock this invoice currently holds, per batch, so
+            // the edit screen treats those quantities as available (they are —
+            // the backend restores the original items before re-applying).
+            // Without this, a line whose batch was drawn down to 0 shows
+            // "Insufficient Stock / Max 0" and its batch vanishes from the picker.
+            const credit: Record<string, number> = {}
+            if (Array.isArray(inv.items)) {
+              for (const it of inv.items) {
+                const bid = it.batchId as string | undefined
+                if (bid) credit[bid] = (credit[bid] ?? 0) + Number(it.quantity ?? 0)
+              }
+            }
+            setEditStockCredit(credit)
           }
           if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
-          if (inv.paymentMode) setPaymentMode(inv.paymentMode as PaymentMode)
           if (inv.deliveryCharge !== undefined) setDeliveryCharge(Number(inv.deliveryCharge) || 0)
+          // An invoice reaching edit is UNPAID or PARTIAL — i.e. it still has a
+          // balance owed, so the remainder is on credit. Edit it in CREDIT mode
+          // regardless of the stored paymentMode (which for a PARTIAL invoice can
+          // be CASH/UPI from a part-payment, and would otherwise hide the due-date
+          // field and change the method under the user). Repopulate the due date
+          // when the invoice carries one. Drafts/duplicates keep their own mode.
+          if (editId) {
+            setPaymentMode('CREDIT')
+            if (inv.dueDate) {
+              setPaymentDetails((prev) => ({ ...prev, creditDueDate: String(inv.dueDate).slice(0, 10) }))
+            }
+          } else if (inv.paymentMode) {
+            setPaymentMode(inv.paymentMode as PaymentMode)
+          }
           if (inv.customerId) {
             // Try local cache first (works whether or not master data has loaded);
             // fall back to a direct /customers/:id fetch so this works when the
@@ -2322,6 +2490,7 @@ export default function NewSalePage() {
     editingDraftId: string | null
     editingInvoiceId: string | null
     editingInvoiceNumber: string | null
+    editStockCredit: Record<string, number>
     tableView: TableView
     mobileStep: 'items' | 'checkout'
     savedAt: string
@@ -2367,13 +2536,18 @@ export default function NewSalePage() {
       snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails, deliveryCharge },
     }
     saveHeldBills([...heldBills, bill])
-    // Clear current bill
+    // Clear current bill. Default the fresh blank bill to CREDIT (the standard
+    // wholesale flow) — matching startNewSale/cancelEdit and the initial state.
     setItems([createEmptyItem()])
     setSelectedCustomer(null)
     setCustomerSearch('')
-    setPaymentMode('CASH')
+    setPaymentMode('CREDIT')
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
     setDeliveryCharge(0)
+    // A held bill is a plain new bill — never an in-flight invoice edit.
+    setEditingInvoiceId(null)
+    setEditingInvoiceNumber(null)
+    setEditStockCredit({})
     toast.success('Bill held — you can resume it anytime')
   }
 
@@ -2387,6 +2561,11 @@ export default function NewSalePage() {
     setPaymentMode(s.paymentMode)
     setPaymentDetails(s.paymentDetails)
     setDeliveryCharge(Number(s.deliveryCharge) || 0)
+    // Resumed bills are new sales, not invoice edits — clear any edit context
+    // (and its stock credit) so batch availability reflects real stock.
+    setEditingInvoiceId(null)
+    setEditingInvoiceNumber(null)
+    setEditStockCredit({})
     saveHeldBills(heldBills.filter((b) => b.id !== bill.id))
     setHeldBillsOpen(false)
     toast.success(`Resumed bill for ${bill.customerName}`)
@@ -2508,15 +2687,35 @@ export default function NewSalePage() {
     return [createEmptyItem()]
   })
 
+  // Always-current mirror of `items` for event handlers that must read the
+  // latest cart synchronously (e.g. deciding a merge before a state update runs).
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
   // Explicit user-driven customer selection starts a fresh bill: switching to
   // (or creating) a customer clears the cart so the previous customer's items
   // don't carry over. Restore flows (edit / repurchase / quotation / snapshot)
   // set the customer + items together and must NOT clear — they call
   // setSelectedCustomer directly instead of this helper.
-  const selectCustomerFresh = useCallback((c: Customer) => {
+  // Regular function (not useCallback) so it always closes over the latest
+  // editingInvoiceId at call time — a useCallback deps reference would hit a
+  // temporal-dead-zone error, since the edit state is declared further down.
+  const selectCustomerFresh = (c: Customer) => {
+    // Picking a customer starts a fresh bill for THAT customer. If we were
+    // editing an existing invoice, that edit is cancelled here — an invoice
+    // can't be retargeted to a different customer via edit (that's a new sale),
+    // and the edit's stock credit must be dropped so batch availability reverts
+    // to real stock. The edit prefill sets the customer directly (not via this),
+    // so this only fires on a manual pick.
+    if (editingInvoiceId) {
+      setEditingInvoiceId(null)
+      setEditingInvoiceNumber(null)
+      setEditStockCredit({})
+      toast.info('Edit cancelled — starting a new sale for this customer')
+    }
     setSelectedCustomer(c)
     setItems([createEmptyItem()])
-  }, [])
+  }
 
   // Clear prefill data after loaded, set customer name from quotation
   useEffect(() => {
@@ -2758,9 +2957,19 @@ export default function NewSalePage() {
   // instead of POSTing a brand-new invoice.
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
   const [editingInvoiceNumber, setEditingInvoiceNumber] = useState<string | null>(null)
+  // When editing an existing invoice, the stock it currently holds per batch
+  // (batchId → qty). Credited back onto batch availability in the item rows so
+  // a batch the invoice already drew down (even to 0) still shows as available
+  // — the backend restores exactly this stock on save before re-applying the
+  // new lines. Empty for new sales / drafts / quotations (no behavior change).
+  const [editStockCredit, setEditStockCredit] = useState<Record<string, number>>({})
   type TableView = 'products' | 'customer-history' | 'customer-reminders' | 'product-history' | 'quotations'
   const [tableView, setTableView] = useState<TableView>('customer-history')
   const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
+  // Right-panel 2-step flow: review the order summary, then continue to payment.
+  // 'summary' shows totals + a Continue button; 'payment' shows the payment
+  // panel + a Back button. Quotations skip payment, so they stay on 'summary'.
+  const [checkoutStep, setCheckoutStep] = useState<'summary' | 'payment'>('summary')
 
   // ── Auto-draft restore (run once on mount, after state is initialized) ──
   // Skip restoration if the page is opened for an explicit prefill (draftId,
@@ -2816,6 +3025,7 @@ export default function NewSalePage() {
       if (snap.editingDraftId) setEditingDraftId(snap.editingDraftId)
       if (snap.editingInvoiceId) setEditingInvoiceId(snap.editingInvoiceId)
       if (snap.editingInvoiceNumber) setEditingInvoiceNumber(snap.editingInvoiceNumber)
+      if (snap.editStockCredit) setEditStockCredit(snap.editStockCredit)
       if (snap.tableView) setTableView(snap.tableView)
       if (snap.mobileStep) setMobileStep(snap.mobileStep)
 
@@ -2865,6 +3075,7 @@ export default function NewSalePage() {
       editingDraftId,
       editingInvoiceId,
       editingInvoiceNumber,
+      editStockCredit,
       tableView,
       mobileStep,
       savedAt: new Date().toISOString(),
@@ -2875,7 +3086,7 @@ export default function NewSalePage() {
   }, [
     items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge,
     enableCourier, linkedLeadId, quotationSource, replacementSource, editingDraftId, editingInvoiceId, editingInvoiceNumber,
-    tableView, mobileStep,
+    editStockCredit, tableView, mobileStep,
   ])
 
   // ── Customer last-sale price cache: productId → rate ─────
@@ -3185,6 +3396,39 @@ export default function NewSalePage() {
 
   const filteredCustomers = customerSearchResults.items
 
+  // Bump the quantity of an existing cart line for this product if one of its
+  // batches still has headroom (billed qty < available). Returns true when it
+  // merged. Used by a table row's own search so adding an already-carted product
+  // there increments it (matching the top search) rather than spawning a
+  // duplicate line on the next batch. Availability includes any edit-mode credit.
+  const mergeIntoCart = useCallback((product: Product): boolean => {
+    syncProductBatchesIntoStore(product)
+    const productBatches = useMasterDataStore.getState().batches
+      .filter((b) => b.productId === product.id && b.quantity + (editStockCredit[b.id] ?? 0) > 0 && !isExpired(b.expiryDate))
+    const batchById = new Map(productBatches.map((b) => [b.id, b]))
+    // Decide synchronously from the live cart (itemsRef) — reading a flag set
+    // inside a setItems updater would be stale, since React runs it later.
+    const bumpTarget = itemsRef.current
+      .filter((i) => i.productId === product.id && i.batchId && batchById.has(i.batchId))
+      .sort((a, b) =>
+        new Date(batchById.get(a.batchId!)!.expiryDate).getTime() -
+        new Date(batchById.get(b.batchId!)!.expiryDate).getTime(),
+      )
+      .find((i) => {
+        const cap = (Number(batchById.get(i.batchId!)!.quantity) || 0) + (editStockCredit[i.batchId!] ?? 0)
+        return (Number(i.quantity) || 0) < cap
+      })
+    if (!bumpTarget) return false
+    setItems((prev) => prev.map((i) => {
+      if (i.id !== bumpTarget.id) return i
+      const updated = { ...i, quantity: (Number(i.quantity) || 0) + 1 }
+      updated.amount = calculateItemAmount(updated)
+      return updated
+    }))
+    toast.success(`Increased ${product.name} quantity`)
+    return true
+  }, [editStockCredit])
+
   // ── Hero product add ──────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const addProductFromSearch = useCallback(
@@ -3450,8 +3694,11 @@ export default function NewSalePage() {
   }, [items, deliveryCharge, invoiceType])
 
   // ── Pending credit check (max 3 open UNPAID/PARTIAL invoices) ──
+  // The block guards against taking on NEW credit debt. Editing an existing
+  // invoice isn't a new sale — its credit is already counted — so the block
+  // (banner + save gate) is suppressed while editing.
   const pendingCreditCount = selectedCustomer?.pendingCreditCount ?? 0
-  const isCreditBlocked = pendingCreditCount >= 3
+  const isCreditBlocked = pendingCreditCount >= 3 && !editingInvoiceId
 
   // State for the pay-pending-credits dialog
   const [creditPayDialogOpen, setCreditPayDialogOpen] = useState(false)
@@ -3552,7 +3799,16 @@ export default function NewSalePage() {
   const [previewOpen, setPreviewOpen] = useState(false)
 
   // Build a local Invoice object from current form state for preview (no save)
-  const buildPreviewInvoice = (): Invoice => ({
+  const buildPreviewInvoice = (): Invoice => {
+    // Mirror the save-time payment logic so the preview matches the real invoice:
+    // a partial cash/UPI/card collection is booked as CREDIT (the collected part
+    // still shows as "received"); a full payment keeps its method.
+    const collectMethod = ['CASH', 'UPI', 'CARD'].includes(paymentMode) ? paymentMode : null
+    const previewApplied = collectMethod ? Math.min(Number(paymentDetails.amountReceived) || 0, totals.grandTotal) : 0
+    const previewFullyPaid = totals.grandTotal > 0 && previewApplied + 0.01 >= totals.grandTotal
+    const previewMode = collectMethod && !previewFullyPaid ? 'CREDIT' : paymentMode
+    const previewStatus: Invoice['status'] = previewFullyPaid ? 'PAID' : previewApplied > 0 ? 'PARTIAL' : 'UNPAID'
+    return {
     id: '__preview__',
     invoiceNumber: invoiceNumber,
     date: new Date().toISOString(),
@@ -3563,7 +3819,7 @@ export default function NewSalePage() {
     customerPhone: selectedCustomer?.phone ?? null,
     customerAddress: selectedCustomer?.address ?? null,
     customerGstin: selectedCustomer?.gstin ?? null,
-    dueDate: paymentMode === 'CREDIT' ? (paymentDetails.creditDueDate || null) : null,
+    dueDate: previewMode === 'CREDIT' ? (paymentDetails.creditDueDate || null) : null,
     items: items
       .filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
       .map((i) => ({
@@ -3589,14 +3845,15 @@ export default function NewSalePage() {
     deliveryCharge: totals.deliveryCharge,
     roundOff: totals.roundOff,
     grandTotal: totals.grandTotal,
-    paymentMode: paymentMode as Invoice['paymentMode'],
-    status: paymentMode === 'CREDIT' ? 'UNPAID' : 'PAID',
-    amountPaid: paymentMode === 'CASH' ? (paymentDetails.amountReceived || totals.grandTotal) : totals.grandTotal,
-    changeReturned: paymentMode === 'CASH' ? Math.max(0, paymentDetails.amountReceived - totals.grandTotal) : 0,
+    paymentMode: previewMode as Invoice['paymentMode'],
+    status: previewStatus,
+    amountPaid: previewApplied,
+    changeReturned: paymentMode === 'CASH' ? Math.max(0, (Number(paymentDetails.amountReceived) || 0) - totals.grandTotal) : 0,
     salespersonName: selectedSalesperson?.name,
     createdBy: 'Preview',
     createdAt: new Date().toISOString(),
-  })
+  }
+  }
 
   // ── Start a fresh sale ────────────────────────────────────
   // "New Sale" never discards work: if the current bill has items it's PARKED
@@ -3605,7 +3862,10 @@ export default function NewSalePage() {
   // over the latest state (holdCurrentBill / items / heldBills).
   const startNewSale = () => {
     const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
-    if (activeItems.length > 0) {
+    // While editing an existing invoice, "New Sale" DISCARDS the edit — it must
+    // not park the invoice's items into Held (they're an existing invoice, not a
+    // new bill to resume). Only a genuine in-progress new bill gets parked.
+    if (activeItems.length > 0 && !editingInvoiceId) {
       // Parks the bill into Held AND clears items/customer/payment/delivery.
       holdCurrentBill()
     } else {
@@ -3615,7 +3875,7 @@ export default function NewSalePage() {
       setPaymentMode('CREDIT')
       setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
       setDeliveryCharge(0)
-      toast.success('Started a new sale')
+      toast.success(editingInvoiceId ? 'Edit cancelled — started a new sale' : 'Started a new sale')
     }
     // Reset the remaining sale context regardless of the branch above.
     setBillingType('retail')
@@ -3627,13 +3887,37 @@ export default function NewSalePage() {
     setEditingDraftId(null)
     setEditingInvoiceId(null)
     setEditingInvoiceNumber(null)
+    // Critical: drop the edit stock-credit, else the batch availability of the
+    // NEXT (brand-new) sale would still be inflated by the edited invoice's held
+    // quantities — showing e.g. "1331" available when only 1328 physically exist.
+    setEditStockCredit({})
     setTableView('customer-history')
     setMobileStep('items')
+    setCheckoutStep('summary')
     try { localStorage.removeItem(AUTO_DRAFT_KEY) } catch { /* ignore */ }
     // Drop any ?from=/editId params so a refresh doesn't reload the old context.
     navigate('/billing/new')
     // Customer-first: open the picker for the fresh bill.
     setTimeout(() => setShowCustomerDropdown(true), 50)
+  }
+
+  // "Cancel Edit" — discard the in-progress edit (no changes are saved; the
+  // backend only recalculates stock/ledger on UPDATE & PRINT) and return to the
+  // invoice list. Clears the edit context including the stock credit.
+  const cancelEdit = () => {
+    setItems([createEmptyItem()])
+    setSelectedCustomer(null)
+    setCustomerSearch('')
+    setPaymentMode('CREDIT')
+    setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
+    setDeliveryCharge(0)
+    setEnableCourier(false)
+    setEditingInvoiceId(null)
+    setEditingInvoiceNumber(null)
+    setEditStockCredit({})
+    try { localStorage.removeItem(AUTO_DRAFT_KEY) } catch { /* ignore */ }
+    toast.info('Edit cancelled — no changes were saved')
+    navigate('/billing/sales')
   }
 
   // ── Quick Reminder ────────────────────────────────────────
@@ -3928,6 +4212,16 @@ export default function NewSalePage() {
   const submitInvoice = async (forcePaymentMode?: string) => {
     const activeItems = items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0)
     const effectivePaymentMode = forcePaymentMode ?? paymentMode
+    // A product was picked but left at quantity 0 — don't silently omit it from
+    // the bill; make the user set a quantity (or remove the row). Quotations are
+    // exempt (a zero-qty placeholder line is legitimate there).
+    if (invoiceType !== 'quotation') {
+      const zeroQtyItem = items.find((i) => i.productId && i.quantity <= 0)
+      if (zeroQtyItem) {
+        toast.error(`Set a quantity for "${zeroQtyItem.productName}" — or remove that line`)
+        return;
+      }
+    }
     if (activeItems.length === 0) {
       toast.error('Please add items to the bill')
       return;
@@ -3967,12 +4261,27 @@ export default function NewSalePage() {
       return
     }
 
-    // Credit sales must carry a payment due date — it drives the WhatsApp
-    // payment reminder and the receivables follow-up. Quotations are exempt
-    // (no money is owed yet).
-    if (invoiceType !== 'quotation' && effectivePaymentMode === 'CREDIT' && !paymentDetails.creditDueDate) {
-      toast.error('Select a due date for this credit sale')
-      setPaymentMode('CREDIT')
+    // Any unpaid balance — a pure credit sale (0 paid) OR a partial cash/UPI/card
+    // collection (paid < total) — must carry a due date. It drives the WhatsApp
+    // payment reminder and the receivables follow-up. Computed from what's
+    // actually applied to the bill (a cash overpayment is change, not credit),
+    // mirroring the backend's status derivation. Quotations are exempt.
+    const gtDue = Number(totals.grandTotal) || 0
+    const paidNow = effectivePaymentMode === 'SPLIT'
+      ? paymentDetails.splits.reduce((a, s) => a + (Number(s.amount) || 0), 0)
+      : (Number(paymentDetails.amountReceived) || 0)
+    const balanceDue = gtDue - Math.min(paidNow, gtDue)
+    if (invoiceType !== 'quotation' && gtDue > 0 && balanceDue > 0.01 && !paymentDetails.creditDueDate) {
+      toast.error('Set a due date for the balance going to credit')
+      setPaymentMode(effectivePaymentMode as PaymentMode)
+      return
+    }
+
+    // A UPI collection must carry its transaction reference (full or partial).
+    const upiAmountPresent = effectivePaymentMode === 'UPI' && paidNow > 0
+    if (invoiceType !== 'quotation' && upiAmountPresent && !paymentDetails.upiRef.trim()) {
+      toast.error('Enter the UPI reference number')
+      setPaymentMode(effectivePaymentMode as PaymentMode)
       return
     }
 
@@ -3993,11 +4302,16 @@ export default function NewSalePage() {
 
     // Validate qty against batch stock — skipped for quotations because the
     // product may not be in inventory yet (the whole point of quoting first).
+    // Availability includes the edit-mode credit (the stock this invoice already
+    // holds, which the backend restores on save) so an edited line on a batch
+    // it drew down to 0 isn't wrongly rejected.
     if (invoiceType !== 'quotation') {
       for (const item of activeItems) {
+        if (!item.batchId) continue
         const batch = batches.find((b) => b.id === item.batchId)
-        if (batch && item.quantity > batch.quantity) {
-          toast.error(`"${item.productName}" qty (${item.quantity}) exceeds available stock (${batch.quantity})`)
+        const available = (batch?.quantity ?? 0) + (editStockCredit[item.batchId] ?? 0)
+        if (item.quantity > available) {
+          toast.error(`"${item.productName}" qty (${item.quantity}) exceeds available stock (${available})`)
           return
         }
       }
@@ -4039,12 +4353,35 @@ export default function NewSalePage() {
         : netApplied + 0.01 >= grandTotalNum ? 'PAID'
           : netApplied > 0 ? 'PARTIAL'
             : 'UNPAID'
+      // How the collected money actually came in — the method stamped on the
+      // payment-history row. Only CASH/UPI/CARD route a collection; CREDIT (pay
+      // later) and SPLIT don't go through this single-method field.
+      const collectionMethod =
+        (effectivePaymentMode === 'CASH' || effectivePaymentMode === 'UPI' || effectivePaymentMode === 'CARD')
+          ? effectivePaymentMode
+          : null
+      // Reference for that collection: UPI txn id / card ref. Cash needs none.
+      const paymentReference =
+        collectionMethod === 'UPI' ? paymentDetails.upiRef.trim()
+          : collectionMethod === 'CARD' ? paymentDetails.cardRef.trim()
+            : ''
+      // The INVOICE's own payment mode. A cash/UPI/card sale that isn't fully paid
+      // leaves a balance on credit, so the invoice itself is CREDIT — while the
+      // amount collected still posts to history under its real method above. A
+      // fully-paid sale keeps its method; pure CREDIT / SPLIT pass through as-is.
+      const isFullyPaid = netApplied + 0.01 >= grandTotalNum
+      const invoicePaymentMode =
+        invoiceType === 'quotation'
+          ? effectivePaymentMode.toUpperCase()
+          : collectionMethod && !isFullyPaid
+            ? 'CREDIT'
+            : effectivePaymentMode.toUpperCase()
       const payload: Record<string, unknown> = {
         type: invoiceType.toUpperCase(),
         billingType: billingType.toUpperCase(),
         customerName: selectedCustomer!.name,
         customerId: selectedCustomer!.id,
-        paymentMode: effectivePaymentMode.toUpperCase(),
+        paymentMode: invoicePaymentMode,
         // No-charge replacement — backend gives it its own REPL number series.
         ...(replacementSource && { isReplacement: true }),
 
@@ -4061,9 +4398,17 @@ export default function NewSalePage() {
         changeReturned: computedChange,
         status: computedStatus,
 
-        // Credit-sale payment due date (yyyy-MM-dd from the DatePicker). Only
-        // sent for CREDIT sales; the backend stores it on Invoice.dueDate.
-        ...(effectivePaymentMode === 'CREDIT' && paymentDetails.creditDueDate && { dueDate: paymentDetails.creditDueDate }),
+        // Payment due date (yyyy-MM-dd). Sent whenever the sale leaves an unpaid
+        // balance — a pure credit sale OR a partial cash/UPI/card collection —
+        // so the backend stores it on Invoice.dueDate for follow-up reminders.
+        ...(paymentDetails.creditDueDate && balanceDue > 0.01 && { dueDate: paymentDetails.creditDueDate }),
+
+        // How the collected money came in + its digital reference, so the backend
+        // records an accurate Payment row even when the invoice mode is CREDIT (a
+        // partial cash/UPI collection): the history keeps the real method, the
+        // invoice reads as credit. Sent only when money was actually collected.
+        ...(collectionMethod && computedAmountPaid > 0 && { collectionMethod }),
+        ...(paymentReference && { paymentReference }),
 
         ...(activeBranchId && { branchId: activeBranchId }),
         ...(selectedSalesperson && { salespersonId: selectedSalesperson.id, salespersonName: selectedSalesperson.name }),
@@ -4190,14 +4535,18 @@ export default function NewSalePage() {
           } catch { /* non-critical — invoice still saved */ }
         }
         const autoPrint = useSettingsStore.getState().generalSettings.autoPrint
-        if (autoPrint) printInvoicePdf({
+        const wasEditing = !!editingInvoiceId
+        const courierWanted = enableCourier
+        // Snapshot the data the print job reads before we leave the page.
+        const printData = {
           ...savedInvoice,
           customerPhone: selectedCustomer?.phone ?? savedInvoice.customerPhone,
           customerAddress: selectedCustomer?.address ?? null,
           customerGstin: selectedCustomer?.gstin ?? null,
-        })
+        }
+
         toast.success(
-          editingInvoiceId
+          wasEditing
             ? (autoPrint ? 'Invoice updated and sent to printer' : 'Invoice updated')
             : (autoPrint ? 'Invoice saved and sent to printer' : 'Invoice saved'),
         )
@@ -4208,7 +4557,7 @@ export default function NewSalePage() {
         // module. Best-effort: the record is created in the background but we
         // stay on the billing flow and return to the Sales list rather than
         // jumping to the tracking page.
-        if (enableCourier && savedInvoice?.id) {
+        if (courierWanted && savedInvoice?.id) {
           try {
             await api.post('/delivery', { invoiceId: savedInvoice.id })
             toast.success('Added to Delivery Tracking')
@@ -4216,7 +4565,20 @@ export default function NewSalePage() {
             toast.error('Invoice saved, but enabling courier tracking failed. Open the invoice to retry.')
           }
         }
+
+        // Leave the New Sale page for the invoice list, THEN open the print. The
+        // print preview is a full-screen browser overlay, so closing it lands the
+        // user straight on the list — no extra step and no fragile "dialog
+        // closed" detection (Chrome's PDF print preview fires no reliable event
+        // we could navigate on). The print is deferred a tick so the route has
+        // re-rendered before the print iframe is created (creating it on the
+        // settled list page keeps the preview from being disturbed).
         navigate('/billing/sales')
+        if (autoPrint) {
+          setTimeout(() => {
+            try { printInvoicePdf(printData) } catch { /* invoice already saved */ }
+          }, 150)
+        }
       }
 
     } catch (error: unknown) {
@@ -4714,6 +5076,13 @@ export default function NewSalePage() {
             <span>
               Editing invoice <span className="font-semibold font-mono">{editingInvoiceNumber ?? '…'}</span>. Stock and customer outstanding will be re-calculated on save. Already-collected payments are preserved.
             </span>
+            <button
+              onClick={cancelEdit}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/30 bg-background/60 px-2 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:bg-amber-500/10 dark:text-amber-400"
+            >
+              <X className="h-3 w-3" />
+              Cancel edit
+            </button>
           </div>
         )}
 
@@ -5905,6 +6274,8 @@ export default function NewSalePage() {
                                       .filter((o) => o.id !== item.id && o.batchId)
                                       .map((o) => o.batchId)
                                   )}
+                                  editStockCredit={editStockCredit}
+                                  onMergeProduct={mergeIntoCart}
                                 />
                               ))}
                             </AnimatePresence>
@@ -5921,8 +6292,10 @@ export default function NewSalePage() {
                               item={item}
                               index={idx}
                               billingType={billingType}
+                              invoiceType={invoiceType}
                               onUpdate={updateItem}
                               onRemove={removeItem}
+                              editStockCredit={editStockCredit}
                             />
                           ))}
                         </AnimatePresence>
@@ -6791,17 +7164,24 @@ export default function NewSalePage() {
               </Button>
             </div>
 
-            {/* Credit mode indicator — shown above payment when applicable.
-                Never for quotations (no payment/credit concept). */}
-            {paymentMode === 'CREDIT' && invoiceType !== 'quotation' && (
-              <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
-                <span className="flex items-center gap-1.5 font-semibold">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-                  Credit Sale
-                </span>
-                <span className="font-mono font-bold tabular-nums">{formatCurrency(totals.grandTotal)} due</span>
-              </div>
-            )}
+            {/* Credit indicator — shown above payment whenever the sale leaves a
+                balance: a pure credit sale OR a partial cash/UPI/card collection
+                (which is booked as credit for the unpaid remainder). Never for
+                quotations or SPLIT (its own tender breakdown). */}
+            {invoiceType !== 'quotation' && paymentMode !== 'SPLIT' && (() => {
+              const applied = Math.min(Number(paymentDetails.amountReceived) || 0, totals.grandTotal)
+              const dueAmt = totals.grandTotal - applied
+              if (dueAmt <= 0.01) return null
+              return (
+                <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-amber-700 dark:text-amber-400 text-[11px] shrink-0">
+                  <span className="flex items-center gap-1.5 font-semibold">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    Credit Sale
+                  </span>
+                  <span className="font-mono font-bold tabular-nums">{formatCurrency(dueAmt)} due</span>
+                </div>
+              )
+            })()}
 
             {/* ═══════════════════════════════════════════════════
                 UNIFIED CHECKOUT PANEL — Payment + Actions in one card
@@ -6809,6 +7189,11 @@ export default function NewSalePage() {
             <Card className="flex-1 flex flex-col min-h-0 shadow-md shadow-black/5 border-border/60 ring-1 ring-border/30  [zoom:0.9]">
               {/* Single scroll region: Order Summary + Payment scroll together so credit-mode content (Outstanding card + Due Date) is always reachable on short laptop screens. Net Payable also shown on the F8 Save & Print button so it isn't lost when scrolled. */}
               <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
+                {/* STEP 1 — Order Summary. For invoices this is step one of a
+                    two-step flow (summary → payment); quotations have no payment
+                    step, so the summary always renders for them. */}
+                {(invoiceType === 'quotation' || checkoutStep === 'summary') && (
+                <div className="flex min-h-full flex-col">
                 {/* Invoice Summary Section — moved from footer */}
                 <div className="p-3 border-b border-border/60 bg-linear-to-b from-muted/25 to-transparent">
                   <div className="flex items-center justify-between mb-3">
@@ -6931,14 +7316,39 @@ export default function NewSalePage() {
                     </div>
                   </div>
                 </div>
-
-                {/* Payment Section — now second. No inner scroll: the parent CardContent is the single scroll region.
-                    Extra bottom padding (pb-6) leaves breathing room above the Save & Print bar so the
-                    last fields (e.g. credit-mode Due Date) are easy to reach and aren't jammed against it.
-                    Hidden for quotations — a quote is a price estimate, not a sale, so it has no payment
-                    mode, cash received, or due date. */}
+                {/* Continue to Payment — advances to step 2. Invoices only (a
+                    quotation has no payment step); disabled with an empty cart.
+                    mt-auto anchors it to the bottom of the card so the leftover
+                    height reads as breathing room above it, not a gap below. */}
                 {invoiceType !== 'quotation' && (
+                  <div className="mt-auto p-3">
+                    <Button
+                      className="w-full gap-1.5"
+                      onClick={() => setCheckoutStep('payment')}
+                      disabled={activeItemCount === 0}
+                    >
+                      Continue to Payment
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                </div>
+                )}
+
+                {/* STEP 2 — Payment. Reached via Continue; carries a Back button
+                    to return to the summary. Hidden for quotations and while the
+                    summary step is showing. No inner scroll: the parent
+                    CardContent is the single scroll region; the extra bottom
+                    padding keeps the last field clear of the Save & Print bar. */}
+                {invoiceType !== 'quotation' && checkoutStep === 'payment' && (
                 <div className="p-3 pb-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <Button variant="ghost" size="sm" className="-ml-2 gap-1.5 text-xs" onClick={() => setCheckoutStep('summary')}>
+                      <ChevronLeft className="h-4 w-4" />
+                      Back
+                    </Button>
+                    <span className="font-mono text-sm font-bold tabular-nums text-muted-foreground">{formatCurrency(totals.grandTotal)}</span>
+                  </div>
                   <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
                     <CreditCard className="h-3.5 w-3.5" />
                     Payment
@@ -6952,6 +7362,7 @@ export default function NewSalePage() {
                       setPaymentDetails((prev) => ({ ...prev, ...d }))
                     }
                     customer={selectedCustomer}
+                    isEditing={!!editingInvoiceId}
                   />
                 </div>
                 )}
@@ -7035,32 +7446,44 @@ export default function NewSalePage() {
                     {/* Bill To */}
                     <div className="sm:col-span-2 px-4 sm:px-6 py-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">Bill To</p>
-                      <p className="text-lg font-black text-zinc-900 dark:text-zinc-50 leading-snug">{prev.customerName}</p>
+                      {/* Name with the billing-type tag beside it; payment-mode tag
+                          moved up by the invoice number. */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-lg font-black text-zinc-900 dark:text-zinc-50 leading-snug">{prev.customerName}</p>
+                        <Badge variant={billingType === 'wholesale' ? 'purple' : 'info'} size="sm">{billingType.toUpperCase()}</Badge>
+                      </div>
                       <div className="flex flex-wrap items-start gap-x-4 gap-y-0.5 mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
                         {selectedCustomer?.phone && selectedCustomer.phone !== '0000000000' && <span>{selectedCustomer.phone}</span>}
                         {selectedCustomer?.address && <span className="leading-relaxed">{selectedCustomer.address}</span>}
                         {selectedCustomer?.gstin && <span className="font-mono text-xs">GSTIN: {selectedCustomer.gstin}</span>}
                       </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant={billingType === 'wholesale' ? 'purple' : 'info'} size="sm">{billingType.toUpperCase()}</Badge>
-                        <Badge variant={paymentMode === 'CREDIT' ? 'warning' : 'success'} size="sm">{paymentMode}</Badge>
-                      </div>
+                      {prev.salespersonName && (
+                        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Salesperson: </span>
+                          <span className="text-zinc-700 dark:text-zinc-300">{prev.salespersonName}</span>
+                        </p>
+                      )}
                     </div>
                     {/* Invoice Meta */}
                     {/* responsive: left-aligned on mobile (when stacked), right-aligned at sm+ */}
                     <div className="px-4 sm:px-6 py-4 space-y-3 text-left sm:text-right">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Invoice No</p>
-                        <p className="text-xl font-black font-mono text-primary break-all">{prev.invoiceNumber}</p>
+                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                          {prev.type !== 'QUOTATION' && (
+                            <Badge variant={prev.paymentMode === 'CREDIT' ? 'warning' : 'success'} size="sm">{prev.paymentMode}</Badge>
+                          )}
+                          <p className="text-xl font-black font-mono text-primary break-all">{prev.invoiceNumber}</p>
+                        </div>
                       </div>
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Date</p>
                         <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                       </div>
-                      {prev.salespersonName && (
+                      {prev.dueDate && (
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Salesperson</p>
-                          <p className="text-sm text-zinc-600 dark:text-zinc-300">{prev.salespersonName}</p>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-0.5">Due Date</p>
+                          <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{new Date(prev.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                         </div>
                       )}
                     </div>
@@ -7121,8 +7544,8 @@ export default function NewSalePage() {
                       <div className="flex-1 px-6 py-4 flex flex-col justify-between gap-3">
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Payment Terms</p>
-                          <p className="text-sm text-zinc-500">Mode: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{paymentMode}</span></p>
-                          {paymentMode === 'CASH' && paymentDetails.amountReceived > 0 && (
+                          <p className="text-sm text-zinc-500">Mode: <span className="font-semibold text-zinc-700 dark:text-zinc-300">{prev.paymentMode}</span></p>
+                          {(paymentMode === 'CASH' || paymentMode === 'UPI') && paymentDetails.amountReceived > 0 && (
                             <div className="flex gap-6 mt-1 text-sm">
                               <span className="text-emerald-600 font-semibold">Received: {formatCurrency(paymentDetails.amountReceived)}</span>
                               {paymentDetails.amountReceived > prev.grandTotal && (

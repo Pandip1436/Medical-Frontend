@@ -728,7 +728,6 @@ export default function CustomerDetailPage() {
                           <Row label="Total Returns" value={pickKpi(kpis, 'Total Returns')} mono />
                           <Row label="Active Quotations" value={pickKpi(kpis, 'Active Quotations')} mono />
                           {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
-                          {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
                         </OverviewSection>
 
                         {cust.notes && (

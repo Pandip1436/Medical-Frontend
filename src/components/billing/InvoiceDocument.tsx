@@ -75,21 +75,33 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
       <div className="grid grid-cols-1 divide-y divide-border/40 border-b border-border/30 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <div className="px-4 py-4 sm:col-span-2 sm:px-6">
           <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">Bill To</p>
-          <p className="text-lg font-black leading-snug text-zinc-900 dark:text-zinc-50">{invoice.customerName}</p>
+          {/* Customer name with the billing-type (RETAIL/WHOLESALE) tag beside it.
+              The payment-mode (CREDIT/…) tag now lives up by the invoice number. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-lg font-black leading-snug text-zinc-900 dark:text-zinc-50">{invoice.customerName}</p>
+            <Badge variant={invoice.billingType === 'WHOLESALE' ? 'purple' : 'info'} size="sm">{invoice.billingType}</Badge>
+          </div>
           <div className="mt-1.5 flex flex-wrap items-start gap-x-4 gap-y-0.5 text-sm text-zinc-500 dark:text-zinc-400">
             {phone && <span>{phone}</span>}
             {invoice.customerAddress && <span className="leading-relaxed">{invoice.customerAddress}</span>}
             {invoice.customerGstin && <span className="font-mono text-xs">GSTIN: {invoice.customerGstin}</span>}
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <Badge variant={invoice.billingType === 'WHOLESALE' ? 'purple' : 'info'} size="sm">{invoice.billingType}</Badge>
-            <Badge variant={invoice.paymentMode === 'CREDIT' ? 'warning' : 'success'} size="sm">{invoice.paymentMode}</Badge>
-          </div>
+          {invoice.salespersonName && (
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Salesperson: </span>
+              <span className="text-zinc-700 dark:text-zinc-300">{invoice.salespersonName}</span>
+            </p>
+          )}
         </div>
         <div className="space-y-3 px-4 py-4 text-left sm:px-6 sm:text-right">
           <div>
             <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">{isQuotation ? 'Quotation No' : 'Invoice No'}</p>
-            <p className="break-all font-mono text-xl font-black text-primary">{invoice.invoiceNumber}</p>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {!isQuotation && invoice.paymentMode && (
+                <Badge variant={invoice.paymentMode === 'CREDIT' ? 'warning' : 'success'} size="sm">{invoice.paymentMode}</Badge>
+              )}
+              <p className="break-all font-mono text-xl font-black text-primary">{invoice.invoiceNumber}</p>
+            </div>
           </div>
           <div>
             <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">Date</p>
@@ -97,10 +109,12 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
               {new Date(invoice.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
             </p>
           </div>
-          {invoice.salespersonName && (
+          {invoice.dueDate && (
             <div>
-              <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">Salesperson</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-300">{invoice.salespersonName}</p>
+              <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">Due Date</p>
+              <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                {new Date(invoice.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </p>
             </div>
           )}
         </div>

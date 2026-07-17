@@ -12,6 +12,7 @@ import { formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { InvoiceDetailContent } from './InvoiceDetailContent'
+import { CourierToggle } from '@/pages/billing/components/CourierToggle'
 
 // Standalone invoice detail page — reached from notification deep-links
 // (/customers/invoices/detail?id=…) or any "Open Invoice" navigation. Renders
@@ -103,7 +104,20 @@ export default function InvoiceDetailPage() {
                     <Receipt className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-base font-semibold">{invoice.invoiceNumber}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-mono text-base font-semibold">{invoice.invoiceNumber}</p>
+                      {/* Payment mode tag beside the invoice number — CREDIT
+                          (incl. a part-paid sale) vs CASH/UPI/CARD. */}
+                      {!invoice.isReplacement && invoice.paymentMode && (
+                        <Badge
+                          variant={invoice.paymentMode === 'CREDIT' ? 'warning' : 'success'}
+                          size="sm"
+                          className="shrink-0"
+                        >
+                          {invoice.paymentMode}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {formatDate(invoice.date)}
                       {invoice.isReplacement && invoice.replacementForCreditNote && (
@@ -112,18 +126,23 @@ export default function InvoiceDetailPage() {
                     </p>
                   </div>
                 </div>
-                {/* Replacement invoices are no-charge, so the PAID status is
-                    meaningless — show a "Replacement" badge in its place. */}
-                {invoice.isReplacement ? (
-                  <Badge
-                    variant="outline"
-                    className="border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400"
-                  >
-                    Replacement
-                  </Badge>
-                ) : (
-                  <StatusBadge status={invoice.status} className="px-3 py-1 text-sm" />
-                )}
+                {/* Courier toggle beside the status tag (moved out of the detail
+                    body so its position is stable). Replacement invoices are
+                    no-charge, so the PAID status is meaningless — show a
+                    "Replacement" badge in its place. */}
+                <div className="flex shrink-0 items-center gap-2">
+                  <CourierToggle invoice={invoice} />
+                  {invoice.isReplacement ? (
+                    <Badge
+                      variant="outline"
+                      className="border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-400"
+                    >
+                      Replacement
+                    </Badge>
+                  ) : (
+                    <StatusBadge status={invoice.status} className="px-3 py-1 text-sm" />
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex min-h-0 flex-1 flex-col p-0">

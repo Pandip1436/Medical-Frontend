@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Receipt } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { Badge } from '@/components/ui/badge'
 import { InvoiceCompactCard } from './InvoiceCompactCard'
+import { CourierToggle } from './CourierToggle'
 import { InvoiceDetailContent } from '@/pages/customers/InvoiceDetailContent'
 import { useInvoiceDetail } from '../hooks/useInvoiceDetail'
 import { formatDate } from '@/lib/utils'
@@ -111,15 +113,31 @@ export function InvoiceSplitView({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.invoice.invoiceNumber}</p>
-            {!detail.invoice.isReplacement && (
-              <span className="shrink-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate font-mono text-sm font-semibold">{detail.invoice.invoiceNumber}</p>
+              {/* Payment mode tag beside the invoice number — CREDIT (incl. a
+                  part-paid sale, which books as credit) vs CASH/UPI/CARD. */}
+              {!detail.invoice.isReplacement && detail.invoice.paymentMode && (
+                <Badge
+                  variant={detail.invoice.paymentMode === 'CREDIT' ? 'warning' : 'success'}
+                  size="sm"
+                  className="shrink-0"
+                >
+                  {detail.invoice.paymentMode}
+                </Badge>
+              )}
+            </div>
+            {/* Courier toggle sits up here beside the status tag (moved out of the
+                detail body) so it's always in the same spot regardless of content. */}
+            <div className="flex shrink-0 items-center gap-2">
+              <CourierToggle invoice={detail.invoice} />
+              {!detail.invoice.isReplacement && (
                 <StatusBadge status={detail.invoice.status} />
-              </span>
-            )}
+              )}
+            </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {formatDate(detail.invoice.date)} · {detail.invoice.billingType}
+            {formatDate(detail.invoice.date)}
           </p>
         </div>
       </div>

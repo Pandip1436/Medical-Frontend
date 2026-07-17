@@ -21,8 +21,8 @@ export function printPdfInPage(blobUrl: string) {
     try {
       iframe.contentWindow?.focus()
       iframe.contentWindow?.print()
-      // Clean up as soon as the print dialog closes — works in Chrome/Firefox.
-      // Safari doesn't fire afterprint reliably, so we keep a 60s safety net.
+      // Clean up when the dialog closes (Chrome/Firefox). Safari + the PDF
+      // viewer don't always fire afterprint, so the 60s timer is the backstop.
       iframe.contentWindow?.addEventListener('afterprint', cleanup, { once: true })
     } catch {
       // Fallback: open in same tab if iframe print fails (e.g. strict CSP)

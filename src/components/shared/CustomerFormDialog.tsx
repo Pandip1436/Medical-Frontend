@@ -53,7 +53,6 @@ export const customerFormSchema = z
     registrationNumber: z.string().optional(),
     referredBy: z.string().optional(),
     source: z.string().optional(),
-    doctorRef: z.string().optional(),
     creditLimit: z.coerce.number().min(0, 'Credit limit must be ≥ 0').optional(),
     notes: z.string().optional(),
     // Toggle whether this customer receives transactional WhatsApp messages
@@ -91,7 +90,6 @@ const EMPTY_VALUES: CustomerFormValues = {
   registrationNumber: '',
   referredBy: '',
   source: '',
-  doctorRef: '',
   creditLimit: 0,
   notes: '',
   whatsappOptIn: true,
@@ -204,7 +202,6 @@ export function CustomerFormDialog({
         registrationNumber: (editingCustomer as any).registrationNumber ?? '',
         referredBy: editingCustomer.referredBy ?? '',
         source: (editingCustomer as any).source ?? '',
-        doctorRef: editingCustomer.doctorRef ?? '',
         creditLimit: editingCustomer.creditLimit ?? 0,
         notes: editingCustomer.notes ?? '',
         // Pre-fill with the existing customer's value. Older customer records
@@ -372,20 +369,12 @@ export function CustomerFormDialog({
           )}
 
           {typeValue === 'DOCTOR' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Medical Reg. #
-                </Label>
-                <Input placeholder="MCI / State Council Reg. No." className="font-mono" {...register('registrationNumber')} />
-                {errors.registrationNumber && <p className="text-xs text-destructive">{errors.registrationNumber.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Doctor Reference
-                </Label>
-                <Input placeholder="Referring doctor (if any)" {...register('doctorRef')} />
-              </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Medical Reg. #
+              </Label>
+              <Input placeholder="MCI / State Council Reg. No." className="font-mono" {...register('registrationNumber')} />
+              {errors.registrationNumber && <p className="text-xs text-destructive">{errors.registrationNumber.message}</p>}
             </div>
           )}
 

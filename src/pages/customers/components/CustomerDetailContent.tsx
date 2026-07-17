@@ -557,7 +557,6 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
                             }
                           />
                           {cust.referredBy && <Row label="Referred By" value={cust.referredBy} />}
-                          {cust.doctorRef && <Row label="Doctor Ref" value={cust.doctorRef} />}
                         </OverviewSection>
 
                         {kpis.length > 0 && (

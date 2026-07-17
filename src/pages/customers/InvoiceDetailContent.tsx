@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   Printer, Download, ShoppingCart, Wallet,
-  Stethoscope, CalendarDays, CalendarClock, Pencil,
+  Stethoscope, CalendarClock, Pencil,
   Send, QrCode, History, Eye, Phone, MapPin,
-  Truck, Loader2, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -17,7 +16,6 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -52,51 +50,11 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const [regeneratingQr, setRegeneratingQr] = useState(false)
   // On-screen invoice preview — the same styled document the New Sale page shows.
   const [previewOpen, setPreviewOpen] = useState(false)
-  // Courier toggle — reflects whether a delivery tracking record exists for
-  // this invoice. Turning it on snapshots the invoice into the Delivery
-  // Tracking module and jumps to the tracking page.
-  const [delivery, setDelivery] = useState<{ id: string } | null>(null)
-  const [courierToggling, setCourierToggling] = useState(false)
   // Active detail tab. Payment History lives in its own tab (only offered when
   // there's at least one payment) so the main details view stays uncluttered.
   const [activeTab, setActiveTab] = useState<'details' | 'payments'>('details')
   // Snap back to Details when a different invoice is opened in the split view.
   useEffect(() => { setActiveTab('details') }, [invoice.id])
-
-  // Courier tracking applies only to real invoices (not quotations).
-  const isCourierApplicable = invoice.type === 'INVOICE'
-
-  useEffect(() => {
-    if (!isCourierApplicable) return
-    let active = true
-    api
-      // Optional feature + not every role can read delivery (e.g. SALESPERSON),
-      // so suppress the global error toast — a 403/empty here is non-fatal.
-      .get(`/delivery/invoice/${invoice.id}`, { suppressGlobalToast: true } as any)
-      .then((r) => { if (active) setDelivery(r.data ?? null) })
-      .catch(() => { /* tracking is optional — ignore */ })
-    return () => { active = false }
-  }, [invoice.id, isCourierApplicable])
-
-  const handleCourierToggle = async (on: boolean) => {
-    setCourierToggling(true)
-    try {
-      if (on) {
-        const res = await api.post('/delivery', { invoiceId: invoice.id })
-        setDelivery(res.data)
-        toast.success('Courier tracking enabled')
-        navigate(`/delivery/tracking?id=${res.data.id}`)
-      } else if (delivery) {
-        await api.delete(`/delivery/${delivery.id}`)
-        setDelivery(null)
-        toast.success('Courier tracking disabled')
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to update courier tracking')
-    } finally {
-      setCourierToggling(false)
-    }
-  }
 
   // Auto-send / QR flow only applies to real invoices that aren't draft or
   // cancelled. Quotations are billed-out differently and have no payment QR.
@@ -232,40 +190,30 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Scrollable body — everything above the action footer. */}
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-      {/* Customer header — identity + detail chips on the left, quick actions
-          (Edit / Repurchase) on the right. */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border/40 bg-muted/20 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
-            {invoice.customerName?.trim()?.[0]?.toUpperCase() ?? '?'}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-lg font-bold leading-tight">{invoice.customerName}</p>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {/* Customer header — name + type tag and the Edit/Repurchase actions share
+          the top row (actions pinned right); phone/due and the address sit on
+          their own rows below. Courier tracking now lives up in the panel header
+          strip (see InvoiceSplitView / InvoiceDetailPage), not here. */}
+      <div className="flex gap-3 rounded-xl border border-border/40 bg-muted/20 p-3 sm:p-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
+          {invoice.customerName?.trim()?.[0]?.toUpperCase() ?? '?'}
+        </div>
+        <div className="min-w-0 flex-1">
+          {/* Top row: name + type tag on the left, Edit / Repurchase on the right. */}
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="truncate text-lg font-bold leading-tight">{invoice.customerName}</p>
+              <Badge variant="secondary" size="sm" className="shrink-0 font-normal">
+                <span className="capitalize">{invoice.billingType.toLowerCase()}</span>
+              </Badge>
               {invoice.customerPhone && (
-                <Badge variant="secondary" size="sm" className="gap-1 font-medium tabular-nums">
+                <Badge variant="secondary" size="sm" className="shrink-0 gap-1 font-medium tabular-nums">
                   <Phone className="h-3 w-3" />
                   <span>{invoice.customerPhone}</span>
                 </Badge>
               )}
-              {invoice.customerAddress && (
-                <Badge variant="secondary" size="sm" className="max-w-64 gap-1 font-normal">
-                  <MapPin className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{invoice.customerAddress}</span>
-                </Badge>
-              )}
-              <Badge variant="secondary" size="sm" className="gap-1 font-normal">
-                <CalendarDays className="h-3 w-3" />
-                <span className="capitalize">{invoice.billingType.toLowerCase()}</span>
-              </Badge>
-              {invoice.doctorName && (
-                <Badge variant="secondary" size="sm" className="max-w-44 gap-1 font-normal">
-                  <Stethoscope className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{invoice.doctorName}</span>
-                </Badge>
-              )}
               {invoice.dueDate && (() => {
-                // Highlight in red when the due date has passed and money is still owed.
+                // Red when the due date has passed and money is still owed.
                 const overdue =
                   new Date(invoice.dueDate) < new Date() &&
                   (invoice.status === 'UNPAID' || invoice.status === 'PARTIAL')
@@ -274,7 +222,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                     variant="secondary"
                     size="sm"
                     className={cn(
-                      'gap-1 font-medium',
+                      'shrink-0 gap-1 font-medium',
                       overdue && 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400',
                     )}
                   >
@@ -284,52 +232,48 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                 )
               })()}
             </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:ml-auto">
-          {isCourierApplicable && (
-            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
-              <Truck className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium">Courier</span>
-              {courierToggling ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-              ) : (
-                <Switch
-                  checked={!!delivery}
-                  onCheckedChange={handleCourierToggle}
-                  aria-label="Enable courier tracking"
-                />
-              )}
-              {delivery && !courierToggling && (
-                <button
-                  onClick={() => navigate(`/delivery/tracking?id=${delivery.id}`)}
-                  className="ml-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            <div className="flex shrink-0 items-center gap-2">
+              {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                  onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
                 >
-                  Track <ExternalLink className="h-3 w-3" />
-                </button>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40"
+                onClick={handleRepurchase}
+              >
+                <ShoppingCart className="h-3.5 w-3.5" />
+                Repurchase
+              </Button>
+            </div>
+          </div>
+          {/* Doctor (doctor-type bills only) on its own line — phone & due moved
+              up beside the name/type. */}
+          {invoice.doctorName && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge variant="secondary" size="sm" className="max-w-44 gap-1 font-normal">
+                <Stethoscope className="h-3 w-3 shrink-0" />
+                <span className="truncate">{invoice.doctorName}</span>
+              </Badge>
             </div>
           )}
-          {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40 sm:flex-none"
-              onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
+          {/* Address on its own line — wraps fully instead of truncating/hiding. */}
+          {invoice.customerAddress && (
+            <div className="mt-1.5">
+              <Badge variant="secondary" size="sm" className="max-w-full items-start gap-1 whitespace-normal text-left font-normal leading-snug">
+                <MapPin className="mt-px h-3 w-3 shrink-0" />
+                <span>{invoice.customerAddress}</span>
+              </Badge>
+            </div>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40 sm:flex-none"
-            onClick={handleRepurchase}
-          >
-            <ShoppingCart className="h-3.5 w-3.5" />
-            Repurchase
-          </Button>
         </div>
       </div>
 
