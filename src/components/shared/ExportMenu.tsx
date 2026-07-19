@@ -106,7 +106,7 @@ export function ExportMenu({
         exportToPdf(resolved, title, filename)
         toast.success(`Exported ${plural(resolved.length)} to PDF`)
       } else if (kind === 'excel') {
-        exportToExcel(resolved, filename)
+        exportToExcel(resolved, filename, title)
         toast.success(`Exported ${plural(resolved.length)} to Excel`)
       } else {
         printReport(resolved, title)
