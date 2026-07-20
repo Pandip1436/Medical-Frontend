@@ -580,9 +580,32 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               </section>
 
               {/* Transaction summary from history */}
-              {history && (
+              {history && (() => {
+                // Opening stock = the balance the ledger must have started with
+                // for the running total to land on today's current stock:
+                //   opening + netPurchased − netSold = currentStock
+                // This surfaces stock that entered WITHOUT a GRN (e.g. imported
+                // opening balances), so Purchased/Sold visibly reconcile.
+                const sm = history.summary
+                const netPurchased = (sm.totalPurchasedQty ?? 0) - (sm.totalPurchaseReturnQty ?? 0)
+                const netSold = (sm.totalSoldQty ?? 0) - (sm.totalSalesReturnQty ?? 0)
+                const currentStock = sm.currentStock ?? 0
+                const openingStock = currentStock - netPurchased + netSold
+                return (
                 <section>
                   <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Transaction Summary</p>
+                  {/* Opening-stock reconciliation line — full width above the tiles. */}
+                  <div className="mb-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Stock</p>
+                        <p className="mt-0.5 text-base font-mono font-bold">{openingStock}</p>
+                      </div>
+                      <p className="text-[10px] tabular-nums text-muted-foreground">
+                        {openingStock} opening + {netPurchased} purchased − {netSold} sold = <span className="font-semibold text-foreground">{currentStock}</span> in stock
+                      </p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { label: 'Sold Qty', value: String(history.summary.totalSoldQty), sub: `${history.summary.totalSalesReturnQty ?? 0} returned`, color: 'text-rose-600 dark:text-rose-400' },
@@ -598,7 +621,8 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                     ))}
                   </div>
                 </section>
-              )}
+                )
+              })()}
 
               {/* Active batches */}
               {detail.batches.length > 0 && (

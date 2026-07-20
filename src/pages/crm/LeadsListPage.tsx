@@ -247,77 +247,50 @@ export default function LeadsListPage() {
         </>
       )}
 
-      {/* Tabs + view toggles — moved directly above the list body they filter.
-          Hidden on mobile while a lead's detail is open (the detail takes the
-          full screen there); still shown from md up where the split view keeps
-          the left rail that these tabs filter. */}
-      <div className={cn(selectedLeadId && 'hidden md:block')}>
-        <LeadsTopBar
-          tab={list.tab}
-          counts={list.counts}
-          onTabChange={list.setTab}
-          view={effectiveView}
-          onViewChange={(v) => {
-            setView(v)
-            // Switching out of split clears the selected-lead so the new
-            // view actually appears (split is implied by ?leadId in the URL).
-            if (v !== 'split' && selectedLeadId) selectLead(null)
-          }}
-        />
-      </div>
+      {/* Split-view stats + actions — FIRST row (above the tabs). Stats cards
+          fill the left columns; the action toolbar sits on the right. */}
+      {effectiveView === 'split' && (
+        <div className="hidden shrink-0 items-center gap-3 md:flex">
+          {splitShowStats ? (
+            <div className="grid min-w-0 flex-1 grid-cols-4 gap-2 p-0.5">
+              {[
+                { label: 'Total Leads', value: list.counts.all, borderAccent: 'border-l-blue-500' },
+                { label: 'Qualified', value: list.counts.qualified, borderAccent: 'border-l-emerald-500' },
+                { label: 'Won', value: list.counts.won, borderAccent: 'border-l-purple-500' },
+                { label: 'Lost', value: list.counts.lost, borderAccent: 'border-l-rose-500' },
+              ].map((stat) => (
+                <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
+                  <CardContent className="flex items-center gap-3 px-2.5 py-1.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+                      <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
 
-      {/* Error banner */}
-      {list.error && (
-        <div className="rounded-md border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">
-          {list.error}
-        </div>
-      )}
-
-      {/* Body — list / kanban / split. flex-1 min-h-0 makes this the
-          scrollable region so the top bar / filters / pagination stay
-          pinned and only the body scrolls. */}
-      {effectiveView === 'split' ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          {/* Collapsible stats cards — desktop split-view chrome only; on mobile
-              a tapped lead's detail takes the whole screen, so hide it there. */}
-          <AnimatePresence>
-            {splitShowStats && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="hidden overflow-hidden md:block"
-              >
-                <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
-                  {[
-                    { label: 'Total Leads', value: list.counts.all, subtitle: 'all leads', iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
-                    { label: 'Open', value: list.counts.open, subtitle: 'in progress', iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
-                    { label: 'Qualified', value: list.counts.qualified, subtitle: 'qualified leads', iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', borderAccent: 'border-l-emerald-500' },
-                    { label: 'Won', value: list.counts.won, subtitle: 'closed won', iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
-                  ].map((stat) => (
-                    <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
-                      <CardContent className="flex items-center gap-3 px-2.5 py-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-                          <p className="text-sm font-bold font-mono leading-tight">{stat.value}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Toolbar row — desktop split chrome; hidden on mobile so the
-              tapped lead's detail owns the screen. */}
-          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 md:flex">
-            <Button variant="ghost" size="sm" onClick={() => setImportOpen(true)}>
-              <Upload className="mr-1.5 h-4 w-4" />
+          {/* Action toolbar — right */}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-400 dark:border-sky-800/60 dark:text-sky-400 dark:hover:bg-sky-950/40 dark:hover:text-sky-300 dark:hover:border-sky-700"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="h-4 w-4" />
               <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
-              <Download className="mr-1.5 h-4 w-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 dark:border-emerald-800/60 dark:text-emerald-400 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 dark:hover:border-emerald-700"
+              onClick={() => setExportOpen(true)}
+            >
+              <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
             </Button>
             <Button
@@ -348,7 +321,40 @@ export default function LeadsListPage() {
               <span className="hidden sm:inline">Add Lead</span>
             </Button>
           </div>
+        </div>
+      )}
 
+      {/* Tabs + view toggles — SECOND row, directly above the list body they
+          filter. Hidden on mobile while a lead's detail is open (the detail
+          takes the full screen there); still shown from md up where the split
+          view keeps the left rail that these tabs filter. */}
+      <div className={cn(selectedLeadId && 'hidden md:block')}>
+        <LeadsTopBar
+          tab={list.tab}
+          counts={list.counts}
+          onTabChange={list.setTab}
+          view={effectiveView}
+          onViewChange={(v) => {
+            setView(v)
+            // Switching out of split clears the selected-lead so the new
+            // view actually appears (split is implied by ?leadId in the URL).
+            if (v !== 'split' && selectedLeadId) selectLead(null)
+          }}
+        />
+      </div>
+
+      {/* Error banner */}
+      {list.error && (
+        <div className="rounded-md border border-rose-300/40 bg-rose-500/5 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">
+          {list.error}
+        </div>
+      )}
+
+      {/* Body — list / kanban / split. flex-1 min-h-0 makes this the
+          scrollable region so the top bar / filters / pagination stay
+          pinned and only the body scrolls. */}
+      {effectiveView === 'split' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
           {/* Collapsible filter panel */}
           <AnimatePresence>
             {splitShowFilters && (
