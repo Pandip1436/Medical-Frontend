@@ -88,11 +88,13 @@ export function LeadsSplitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  // When the list changes (filter/tab applied), keep the selection if it's
-  // still visible; otherwise snap to the first item in the new list.
+  // Auto-select the first row ONLY when nothing is selected yet. Never snap
+  // away from a set selection just because it isn't on the current page — the
+  // detail panel fetches it by id, and snapping broke deep links (opening a
+  // lead whose row lives on a later page would jump to the first item).
   useEffect(() => {
     if (list.data.length === 0) return
-    if (selectedLeadId && list.data.some(l => l.id === selectedLeadId)) return
+    if (selectedLeadId) return
     onSelectLead(list.data[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.data])

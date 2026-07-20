@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -524,10 +524,27 @@ export default function SalesListPage() {
   // list/stat-cards are displaying (e.g. list says "0 invoices today" while
   // the panel still shows one from three days ago). Re-point the selection
   // at the new list once it's settled, same fallback enterSplitView uses.
+  // Distinguishes "a filter/tab just removed the open invoice" (snap to first)
+  // from "deep-linked to an invoice that lives on a later page / different
+  // filter" (keep it — the detail panel fetches it by id). We only snap once
+  // the selection has actually been seen in the list and THEN dropped out.
+  const selectionSeenInListRef = useRef(false)
+  // A brand-new selection (deep link / user click) resets the "seen" flag so a
+  // deep-linked invoice that isn't on the current page is never snapped away.
+  useEffect(() => {
+    selectionSeenInListRef.current = false
+  }, [selectedInvoiceId])
   useEffect(() => {
     if (effectiveView !== 'split' || isLoading || !selectedInvoiceId) return
-    if (filteredInvoices.some((inv) => inv.id === selectedInvoiceId)) return
-    selectInvoice(filteredInvoices[0]?.id ?? null)
+    if (filteredInvoices.some((inv) => inv.id === selectedInvoiceId)) {
+      selectionSeenInListRef.current = true
+      return
+    }
+    // Not in the current list. Only re-point if it USED to be here (a filter
+    // change dropped it); a deep link to a not-yet-loaded row is left alone.
+    if (selectionSeenInListRef.current) {
+      selectInvoice(filteredInvoices[0]?.id ?? null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredInvoices, isLoading])
 

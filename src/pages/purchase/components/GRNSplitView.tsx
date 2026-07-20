@@ -73,12 +73,14 @@ export function GRNSplitView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, onLoadMore])
 
-  // When the list changes (filter/tab applied), keep the selection if it's
-  // still visible; otherwise snap to the first item in the new list.
+  // Auto-select the first row ONLY when nothing is selected yet. Never snap
+  // away from a set selection just because it isn't on the current page — the
+  // detail panel fetches it by id, and snapping broke deep links (opening a PE
+  // via a notification whose row lives on a later page would jump to the first).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (grns.length === 0) return
-    if (selectedGrnId && grns.some(g => g.id === selectedGrnId)) return
+    if (selectedGrnId) return
     onSelectGrn(grns[0].id)
   }, [grns])
 
