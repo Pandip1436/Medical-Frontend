@@ -42,9 +42,11 @@ export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
 
 /**
  * Pre-configured global shortcuts for the app.
- * F1 = New Sale, F2 = New Purchase, Ctrl+K = Command Palette, etc.
+ * Ctrl+N / F1 = New Sale, F2 = New Purchase, Ctrl+K = Command Palette, etc.
+ * (Ctrl covers Cmd on Mac — see the handler above.)
  */
 const GLOBAL_SHORTCUTS: ShortcutMap = {
+  'ctrl+n': () => navigate('/billing/new'),
   f1: () => navigate('/billing/new'),
   f2: () => navigate('/purchase/orders'),
 }

@@ -543,6 +543,24 @@ export default function CustomersPage() {
     }
   }
 
+  // Email duplicate check — same soft-warning UX as the phone check above.
+  // Email is optional, so a blank field is never flagged.
+  const [emailCheckError, setEmailCheckError] = useState('')
+  const checkEmailDuplicate = async (emailRaw: string) => {
+    const email = emailRaw.trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailCheckError(''); return }
+    if ((editingCustomer?.email ?? '').trim().toLowerCase() === email) { setEmailCheckError(''); return }
+    setEmailCheckError('')
+    try {
+      const res = await api.get(`/customers?q=${encodeURIComponent(email)}`)
+      const list = Array.isArray(res.data) ? res.data : []
+      const dup = list.find((c: Customer) => (c.email ?? '').trim().toLowerCase() === email && c.id !== editingCustomer?.id)
+      if (dup) {
+        setEmailCheckError(`Email already used by "${dup.name}". Please verify.`)
+      }
+    } catch { /* ignore */ }
+  }
+
   // ── Server-driven list ──
   const buildQueryParams = useCallback((): URLSearchParams => {
     const params = new URLSearchParams()
@@ -821,6 +839,7 @@ export default function CustomersPage() {
     setRxFiles([])
     setRxPreviews([])
     setPhoneCheckError('')
+    setEmailCheckError('')
     setAddDialogOpen(true)
   }
 
@@ -842,6 +861,7 @@ export default function CustomersPage() {
           setRxFiles([])
           setRxPreviews([])
           setPhoneCheckError('')
+          setEmailCheckError('')
           setEditingCustomer(null)
           setAddDialogOpen(false)
           returnToSplitIfNeeded()
@@ -1595,7 +1615,7 @@ export default function CustomersPage() {
 
       {/* ─── Add / Edit Customer Drawer ─── */}
       <Sheet open={addDialogOpen} onOpenChange={(open) => {
-        if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError('') }
+        if (!open) { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setEmailCheckError('') }
         setAddDialogOpen(open)
         if (!open) returnToSplitIfNeeded()
       }}>
@@ -1658,8 +1678,16 @@ export default function CustomersPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
-                  <Input {...form.register('email')} placeholder="email@example.com" type="email" error={!!form.formState.errors.email} />
+                  <Input
+                    {...form.register('email')}
+                    placeholder="email@example.com"
+                    type="email"
+                    error={!!form.formState.errors.email || !!emailCheckError}
+                    onChange={(e) => { form.setValue('email', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailCheckError) setEmailCheckError('') }}
+                    onBlur={(e) => checkEmailDuplicate(e.target.value)}
+                  />
                   {form.formState.errors.email && <p className="text-xs text-rose-500">{form.formState.errors.email.message}</p>}
+                  {!form.formState.errors.email && emailCheckError && <p className="text-xs text-rose-500">{emailCheckError}</p>}
                 </div>
               </div>
 
@@ -1898,7 +1926,7 @@ export default function CustomersPage() {
 
             </div>
             <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
-              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setAddDialogOpen(false); returnToSplitIfNeeded() }}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setEmailCheckError(''); setAddDialogOpen(false); returnToSplitIfNeeded() }}>Cancel</Button>
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}

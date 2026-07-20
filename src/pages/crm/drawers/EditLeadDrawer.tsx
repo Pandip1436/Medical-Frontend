@@ -114,6 +114,35 @@ export function EditLeadDrawer({
   } | null>(null)
   const [selectedAssignee, setSelectedAssignee] = useState<SalesPersonOption | null>(null)
 
+  // Live "already used" soft warnings for the contact's phone + email, checked
+  // against existing contacts on blur. The lead's own contact is excluded.
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+  const [emailDupWarning, setEmailDupWarning] = useState('')
+
+  const checkContactPhoneDup = async (raw: string) => {
+    const phone = (raw || '').replace(/\D/g, '')
+    if (phone.length < 10) { setPhoneDupWarning(''); return }
+    if ((lead?.contact.phone ?? '').replace(/\D/g, '').slice(-10) === phone.slice(-10)) { setPhoneDupWarning(''); return }
+    try {
+      const res = await api.get(`/contacts?q=${phone}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((c: { id: string; firstName?: string; lastName?: string | null; phone?: string }) => (c.phone ?? '').replace(/\D/g, '').slice(-10) === phone.slice(-10) && c.id !== lead?.contactId)
+      if (dup) setPhoneDupWarning(`Phone already used by "${`${dup.firstName ?? ''} ${dup.lastName ?? ''}`.trim() || 'a contact'}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
+  const checkContactEmailDup = async (raw: string) => {
+    const email = (raw || '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailDupWarning(''); return }
+    if ((lead?.contact.email ?? '').trim().toLowerCase() === email) { setEmailDupWarning(''); return }
+    try {
+      const res = await api.get(`/contacts?q=${encodeURIComponent(email)}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((c: { id: string; firstName?: string; lastName?: string | null; email?: string | null }) => (c.email ?? '').trim().toLowerCase() === email && c.id !== lead?.contactId)
+      if (dup) setEmailDupWarning(`Email already used by "${`${dup.firstName ?? ''} ${dup.lastName ?? ''}`.trim() || 'a contact'}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -151,6 +180,8 @@ export function EditLeadDrawer({
   // lead changes). ISO datetimes are trimmed to yyyy-MM-dd for the DatePicker.
   useEffect(() => {
     if (!open || !lead) return
+    setPhoneDupWarning('')
+    setEmailDupWarning('')
     form.reset({
       title: lead.title ?? '',
       description: lead.description ?? '',
@@ -572,19 +603,25 @@ export function EditLeadDrawer({
                     inputMode="numeric"
                     maxLength={10}
                     {...form.register('contactPhone')}
-                    onChange={(e) =>
+                    error={!!errors.contactPhone || !!phoneDupWarning}
+                    onChange={(e) => {
                       form.setValue(
                         'contactPhone',
                         e.target.value.replace(/\D/g, '').slice(0, 10),
                         { shouldValidate: true, shouldDirty: true },
                       )
-                    }
+                      if (phoneDupWarning) setPhoneDupWarning('')
+                    }}
+                    onBlur={(e) => checkContactPhoneDup(e.target.value)}
                   />
                 </div>
                 {errors.contactPhone && (
                   <p className="text-xs text-destructive">
                     {errors.contactPhone.message}
                   </p>
+                )}
+                {!errors.contactPhone && phoneDupWarning && (
+                  <p className="text-xs text-rose-500">{phoneDupWarning}</p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -593,11 +630,17 @@ export function EditLeadDrawer({
                   type="email"
                   placeholder="john@example.com"
                   {...form.register('contactEmail')}
+                  error={!!errors.contactEmail || !!emailDupWarning}
+                  onChange={(e) => { form.setValue('contactEmail', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailDupWarning) setEmailDupWarning('') }}
+                  onBlur={(e) => checkContactEmailDup(e.target.value)}
                 />
                 {errors.contactEmail && (
                   <p className="text-xs text-destructive">
                     {errors.contactEmail.message}
                   </p>
+                )}
+                {!errors.contactEmail && emailDupWarning && (
+                  <p className="text-xs text-rose-500">{emailDupWarning}</p>
                 )}
               </div>
               <div className="space-y-1.5">

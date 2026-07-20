@@ -43,6 +43,9 @@ interface UserFormDrawerProps {
   // Whether the signed-in admin may grant the Super Admin role. Branch Admins
   // can't (and only see the branches they manage in `branches`).
   allowSuperAdmin?: boolean
+  // Full user list already loaded by the page — used for live client-side
+  // "already used" duplicate warnings on email/phone (no extra API call).
+  allUsers?: UserDrawerRow[]
   onSaved: (saved: UserDrawerRow, mode: 'create' | 'update') => void
 }
 
@@ -215,6 +218,7 @@ export function UserFormDrawer({
   editing,
   branches,
   allowSuperAdmin = true,
+  allUsers = [],
   onSaved,
 }: UserFormDrawerProps) {
   const isEdit = !!editing
@@ -228,17 +232,21 @@ export function UserFormDrawer({
         {isEdit ? (
           <EditUserBody
             key={editing!.id}
+            open={open}
             user={editing!}
             branches={branches}
             allowSuperAdmin={allowSuperAdmin}
+            allUsers={allUsers}
             onClose={() => onOpenChange(false)}
             onSaved={(u) => onSaved(u, 'update')}
           />
         ) : (
           <CreateUserBody
             key="create"
+            open={open}
             branches={branches}
             allowSuperAdmin={allowSuperAdmin}
+            allUsers={allUsers}
             onClose={() => onOpenChange(false)}
             onSaved={(u) => onSaved(u, 'create')}
           />
@@ -346,17 +354,46 @@ function RoleBranchFields({
 // ── Create body ─────────────────────────────────────────────────────
 
 function CreateUserBody({
+  open,
   branches,
   allowSuperAdmin = true,
+  allUsers,
   onClose,
   onSaved,
 }: {
+  open: boolean
   branches: UserFormDrawerProps['branches']
   allowSuperAdmin?: boolean
+  allUsers: UserDrawerRow[]
   onClose: () => void
   onSaved: (saved: UserDrawerRow) => void
 }) {
   const [showPassword, setShowPassword] = useState(false)
+  // Live "already used" soft warnings, checked client-side against the
+  // already-loaded user list. Email is also enforced unique on the backend
+  // (409 blocks save); phone is advisory only. Neither blocks submit here.
+  const [emailDupWarning, setEmailDupWarning] = useState('')
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+
+  const checkEmailDup = (raw: string) => {
+    const email = raw.trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailDupWarning(''); return }
+    const dup = allUsers.find((u) => (u.email ?? '').trim().toLowerCase() === email)
+    setEmailDupWarning(dup ? `Email already used by "${dup.name}". Please verify.` : '')
+  }
+
+  const checkPhoneDup = (raw: string) => {
+    const digits = raw.replace(/\D/g, '')
+    if (!digits) { setPhoneDupWarning(''); return }
+    const dup = allUsers.find((u) => (u.phone ?? '').replace(/\D/g, '') === digits)
+    setPhoneDupWarning(dup ? `Phone already used by "${dup.name}". Please verify.` : '')
+  }
+
+  // Clear both warnings whenever the drawer opens or closes.
+  useEffect(() => {
+    setEmailDupWarning('')
+    setPhoneDupWarning('')
+  }, [open])
   // Branch Admins who manage a single branch get it pre-selected (the picker is
   // shown read-only); everyone else starts with an empty branch selection.
   const activeBranches = branches.filter((b) => b.isActive)
@@ -445,12 +482,15 @@ function CreateUserBody({
                 maxLength={10}
                 placeholder="9876543210"
                 {...register('phone')}
+                error={!!errors.phone || !!phoneDupWarning}
                 // Accept digits only, capped at 10 (overrides register's onChange).
-                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                onChange={(e) => { setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true }); if (phoneDupWarning) setPhoneDupWarning('') }}
+                onBlur={(e) => checkPhoneDup(e.target.value)}
               />
               {errors.phone && (
                 <p className="text-xs text-destructive">{errors.phone.message}</p>
               )}
+              {!errors.phone && phoneDupWarning && <p className="text-xs text-rose-500">{phoneDupWarning}</p>}
             </div>
           </div>
 
@@ -459,10 +499,19 @@ function CreateUserBody({
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Email *
             </Label>
-            <Input type="email" placeholder="user@company.com" autoComplete="off" {...register('email')} />
+            <Input
+              type="email"
+              placeholder="user@company.com"
+              autoComplete="off"
+              {...register('email')}
+              error={!!errors.email || !!emailDupWarning}
+              onChange={(e) => { setValue('email', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailDupWarning) setEmailDupWarning('') }}
+              onBlur={(e) => checkEmailDup(e.target.value)}
+            />
             {errors.email && (
               <p className="text-xs text-destructive">{errors.email.message}</p>
             )}
+            {!errors.email && emailDupWarning && <p className="text-xs text-rose-500">{emailDupWarning}</p>}
           </div>
 
           {/* Password */}
@@ -543,19 +592,38 @@ function CreateUserBody({
 // ── Edit body ───────────────────────────────────────────────────────
 
 function EditUserBody({
+  open,
   user,
   branches,
   allowSuperAdmin = true,
+  allUsers,
   onClose,
   onSaved,
 }: {
+  open: boolean
   user: UserDrawerRow
   branches: UserFormDrawerProps['branches']
   allowSuperAdmin?: boolean
+  allUsers: UserDrawerRow[]
   onClose: () => void
   onSaved: (saved: UserDrawerRow) => void
 }) {
   const [showPassword, setShowPassword] = useState(false)
+  // Live "already used" soft warning for phone (email is read-only on edit).
+  // Checked client-side against the loaded list, excluding this user.
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+
+  const checkPhoneDup = (raw: string) => {
+    const digits = raw.replace(/\D/g, '')
+    if (!digits) { setPhoneDupWarning(''); return }
+    const dup = allUsers.find((u) => u.id !== user.id && (u.phone ?? '').replace(/\D/g, '') === digits)
+    setPhoneDupWarning(dup ? `Phone already used by "${dup.name}". Please verify.` : '')
+  }
+
+  // Clear the warning whenever the drawer opens or closes.
+  useEffect(() => {
+    setPhoneDupWarning('')
+  }, [open])
   const {
     register,
     control,
@@ -637,12 +705,15 @@ function EditUserBody({
                 maxLength={10}
                 placeholder="9876543210"
                 {...register('phone')}
+                error={!!errors.phone || !!phoneDupWarning}
                 // Accept digits only, capped at 10 (overrides register's onChange).
-                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                onChange={(e) => { setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true }); if (phoneDupWarning) setPhoneDupWarning('') }}
+                onBlur={(e) => checkPhoneDup(e.target.value)}
               />
               {errors.phone && (
                 <p className="text-xs text-destructive">{errors.phone.message}</p>
               )}
+              {!errors.phone && phoneDupWarning && <p className="text-xs text-rose-500">{phoneDupWarning}</p>}
             </div>
           </div>
 

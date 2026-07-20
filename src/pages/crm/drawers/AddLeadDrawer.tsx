@@ -771,6 +771,34 @@ function NewContactFields({
   onCompanyChange: (c: { id: string; name: string } | null) => void
 }) {
   const errors = form.formState.errors
+
+  // Live "already used" soft warnings for the new contact's phone + email,
+  // checked against existing contacts on blur.
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+  const [emailDupWarning, setEmailDupWarning] = useState('')
+
+  const checkContactPhoneDup = async (raw: string) => {
+    const phone = (raw || '').replace(/\D/g, '')
+    if (phone.length < 10) { setPhoneDupWarning(''); return }
+    try {
+      const res = await api.get(`/contacts?q=${phone}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((c: { firstName?: string; lastName?: string | null; phone?: string }) => (c.phone ?? '').replace(/\D/g, '').slice(-10) === phone.slice(-10))
+      if (dup) setPhoneDupWarning(`Phone already used by "${`${dup.firstName ?? ''} ${dup.lastName ?? ''}`.trim() || 'a contact'}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
+  const checkContactEmailDup = async (raw: string) => {
+    const email = (raw || '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailDupWarning(''); return }
+    try {
+      const res = await api.get(`/contacts?q=${encodeURIComponent(email)}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((c: { firstName?: string; lastName?: string | null; email?: string | null }) => (c.email ?? '').trim().toLowerCase() === email)
+      if (dup) setEmailDupWarning(`Email already used by "${`${dup.firstName ?? ''} ${dup.lastName ?? ''}`.trim() || 'a contact'}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
   return (
     <div className="space-y-3 rounded-lg border border-border/60 bg-muted/15 p-3">
       <div className="flex items-baseline justify-between">
@@ -806,12 +834,18 @@ function NewContactFields({
             placeholder="9999999999"
             inputMode="numeric"
             {...form.register('contactPhone')}
+            error={!!errors.contactPhone || !!phoneDupWarning}
+            onChange={(e) => { form.setValue('contactPhone', e.target.value, { shouldValidate: true, shouldDirty: true }); if (phoneDupWarning) setPhoneDupWarning('') }}
+            onBlur={(e) => checkContactPhoneDup(e.target.value)}
           />
         </div>
         {errors.contactPhone && (
           <p className="text-xs text-destructive">
             {errors.contactPhone.message}
           </p>
+        )}
+        {!errors.contactPhone && phoneDupWarning && (
+          <p className="text-xs text-rose-500">{phoneDupWarning}</p>
         )}
       </div>
       <div className="space-y-1.5">
@@ -820,11 +854,17 @@ function NewContactFields({
           type="email"
           placeholder="john@example.com"
           {...form.register('contactEmail')}
+          error={!!errors.contactEmail || !!emailDupWarning}
+          onChange={(e) => { form.setValue('contactEmail', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailDupWarning) setEmailDupWarning('') }}
+          onBlur={(e) => checkContactEmailDup(e.target.value)}
         />
         {errors.contactEmail && (
           <p className="text-xs text-destructive">
             {errors.contactEmail.message}
           </p>
+        )}
+        {!errors.contactEmail && emailDupWarning && (
+          <p className="text-xs text-rose-500">{emailDupWarning}</p>
         )}
       </div>
       <div className="space-y-1.5">

@@ -164,6 +164,9 @@ export default function BranchesPage() {
   const [editing, setEditing] = useState<Branch | null>(null)
   const [deleting, setDeleting] = useState<Branch | null>(null)
   const [saving, setSaving] = useState(false)
+  // Live "already used" soft warnings for phone + email, surfaced on blur.
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+  const [emailDupWarning, setEmailDupWarning] = useState('')
 
   // ── Form ──
   const {
@@ -198,6 +201,34 @@ export default function BranchesPage() {
       { name: 'drugLicense', param: 'drugLicense', responseKey: 'drugLicense', value: brDl, valid: brDlTrim.length >= 4 && brDlTrim.length <= DL_MAX && DL_REGEX.test(brDlTrim), label: 'Drug License' },
     ],
   })
+
+  // Live "already used" check for phone + email — soft warnings surfaced on
+  // blur. Branches are global master data (no branch scoping), so the lookup
+  // matches across all rows.
+  const checkBranchPhoneDup = async (raw: string) => {
+    const phone = (raw ?? '').replace(/\D/g, '')
+    // Branch phone may not be a strict 10-digit Indian mobile — gate on ~7+ digits.
+    if (phone.length < 7) { setPhoneDupWarning(''); return }
+    if ((editing?.phone ?? '').replace(/\D/g, '') === phone) { setPhoneDupWarning(''); return }
+    try {
+      const res = await api.get(`/branches?q=${phone}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list: Branch[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((b) => (b.phone ?? '').replace(/\D/g, '') === phone && b.id !== editing?.id)
+      if (dup) setPhoneDupWarning(`Phone already used by "${dup.name}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
+  const checkBranchEmailDup = async (raw: string) => {
+    const email = (raw ?? '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailDupWarning(''); return }
+    if ((editing?.email ?? '').trim().toLowerCase() === email) { setEmailDupWarning(''); return }
+    try {
+      const res = await api.get(`/branches?q=${encodeURIComponent(email)}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list: Branch[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((b) => (b.email ?? '').trim().toLowerCase() === email && b.id !== editing?.id)
+      if (dup) setEmailDupWarning(`Email already used by "${dup.name}". Please verify.`)
+    } catch { /* ignore */ }
+  }
 
   // ── Query builder ──
   const buildQueryParams = useCallback((): URLSearchParams => {
@@ -277,6 +308,8 @@ export default function BranchesPage() {
   // ── Dialog handlers ──
   const openAdd = () => {
     setEditing(null)
+    setPhoneDupWarning('')
+    setEmailDupWarning('')
     reset({
       name: '', code: '', address: '', phone: '', email: '',
       gstin: '', drugLicense: '', isActive: true, isDefault: false,
@@ -286,6 +319,8 @@ export default function BranchesPage() {
 
   const openEdit = (b: Branch) => {
     setEditing(b)
+    setPhoneDupWarning('')
+    setEmailDupWarning('')
     reset({
       name: b.name,
       code: b.code,
@@ -863,7 +898,7 @@ export default function BranchesPage() {
 
       {/* ── Add/Edit drawer ── */}
       {isAdmin && (
-        <Sheet open={formOpen} onOpenChange={setFormOpen}>
+        <Sheet open={formOpen} onOpenChange={(o) => { setFormOpen(o); if (!o) { setPhoneDupWarning(''); setEmailDupWarning('') } }}>
           <SheetContent
             side="right"
             className="w-full sm:max-w-140 p-0 gap-0 flex flex-col"
@@ -926,15 +961,25 @@ export default function BranchesPage() {
                       maxLength={10}
                       placeholder="9876543210"
                       {...register('phone')}
+                      error={!!errors.phone || !!phoneDupWarning}
                       // Accept digits only, capped at 10 (overrides register's onChange).
-                      onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                      onChange={(e) => { setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true }); if (phoneDupWarning) setPhoneDupWarning('') }}
+                      onBlur={(e) => checkBranchPhoneDup(e.target.value)}
                     />
                     {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+                    {!errors.phone && phoneDupWarning && <p className="text-xs text-rose-500">{phoneDupWarning}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Email</Label>
-                    <Input {...register('email')} placeholder="branch@pharmacy.com" />
+                    <Input
+                      {...register('email')}
+                      placeholder="branch@pharmacy.com"
+                      error={!!errors.email || !!emailDupWarning}
+                      onChange={(e) => { setValue('email', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailDupWarning) setEmailDupWarning('') }}
+                      onBlur={(e) => checkBranchEmailDup(e.target.value)}
+                    />
                     {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+                    {!errors.email && emailDupWarning && <p className="text-xs text-rose-500">{emailDupWarning}</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -964,7 +1009,7 @@ export default function BranchesPage() {
                 </div>
               </div>
               <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
-                <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => { setFormOpen(false); setPhoneDupWarning(''); setEmailDupWarning('') }}>Cancel</Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? 'Saving...' : editing ? 'Update' : 'Create Branch'}
                 </Button>

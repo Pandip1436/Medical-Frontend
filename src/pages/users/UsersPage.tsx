@@ -807,6 +807,7 @@ export default function UsersPage() {
         editing={editing}
         branches={assignableBranches}
         allowSuperAdmin={canAssignSuperAdmin}
+        allUsers={users}
         onSaved={handleSaved}
       />
 

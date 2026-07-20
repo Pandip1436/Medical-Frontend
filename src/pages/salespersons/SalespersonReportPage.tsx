@@ -554,27 +554,27 @@ export default function SalespersonReportPage() {
             <div className="col-span-full">
               <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
                 {/* From */}
-                <div className="flex w-44 flex-col gap-1">
+                <div className="flex w-full flex-col gap-1 sm:w-44 sm:shrink-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">From</p>
                   <DatePicker
                     value={from}
                     onChange={(v) => handleManualChange('from', v)}
-                    className="h-9 text-sm"
+                    className="h-9 w-full text-sm"
                     placeholder="Start date"
                   />
                 </div>
                 {/* To */}
-                <div className="flex w-44 flex-col gap-1">
+                <div className="flex w-full flex-col gap-1 sm:w-44 sm:shrink-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">To</p>
                   <DatePicker
                     value={to}
                     onChange={(v) => handleManualChange('to', v)}
-                    className="h-9 text-sm"
+                    className="h-9 w-full text-sm"
                     placeholder="End date"
                   />
                 </div>
-                {/* Preset chips fill remaining width */}
-                <div className="flex min-w-70 flex-1 flex-col gap-1">
+                {/* Preset chips — full width on mobile, share the row with From/To on sm+ */}
+                <div className="flex w-full flex-col gap-1 sm:min-w-56 sm:flex-1">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quick Range</p>
                   <div className="flex flex-wrap gap-1.5">
                     {PRESETS.map((p) => (
@@ -582,7 +582,7 @@ export default function SalespersonReportPage() {
                         key={p.value}
                         onClick={() => handlePreset(p.value)}
                         className={cn(
-                          'rounded-lg border px-2.5 py-1 text-xs font-medium transition-all',
+                          'min-w-16 flex-1 rounded-lg border px-2.5 py-1 text-center text-xs font-medium transition-all',
                           activePreset === p.value
                             ? 'border-primary/30 bg-primary/10 text-primary'
                             : 'border-border/60 bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground',

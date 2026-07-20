@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -112,6 +112,8 @@ export function SupplierFormDialog({
   // with the right values. Keeps create- and edit-modes from leaking state.
   useEffect(() => {
     if (!open) return
+    setPhoneDupWarning('')
+    setEmailDupWarning('')
     if (editingSupplier) {
       reset({
         name: editingSupplier.name,
@@ -153,6 +155,36 @@ export function SupplierFormDialog({
       { name: 'drugLicense', param: 'drugLicense', responseKey: 'drugLicense', value: drugLicenseValue, valid: dlTrimmed.length >= 4 && dlTrimmed.length <= DL_MAX && DL_REGEX.test(dlTrimmed), label: 'Drug License' },
     ],
   })
+
+  // Live "already used" check for phone + email — soft warnings surfaced on
+  // blur. Phone dup is also hard-blocked by the backend on save (unique key);
+  // email isn't a uniqueness key, so its warning is informational only.
+  const [phoneDupWarning, setPhoneDupWarning] = useState('')
+  const [emailDupWarning, setEmailDupWarning] = useState('')
+
+  const checkSupplierPhoneDup = async (raw: string) => {
+    const phone = raw.replace(/\D/g, '')
+    if (!/^[6-9]\d{9}$/.test(phone)) { setPhoneDupWarning(''); return }
+    if ((editingSupplier?.phone ?? '').replace(/\D/g, '').slice(-10) === phone) { setPhoneDupWarning(''); return }
+    try {
+      const res = await api.get(`/suppliers?q=${phone}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list: Supplier[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((s) => (s.phone ?? '').replace(/\D/g, '').slice(-10) === phone && s.id !== editingSupplier?.id)
+      if (dup) setPhoneDupWarning(`Phone already used by "${dup.name}". Please verify.`)
+    } catch { /* ignore */ }
+  }
+
+  const checkSupplierEmailDup = async (raw: string) => {
+    const email = raw.trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setEmailDupWarning(''); return }
+    if ((editingSupplier?.email ?? '').trim().toLowerCase() === email) { setEmailDupWarning(''); return }
+    try {
+      const res = await api.get(`/suppliers?q=${encodeURIComponent(email)}`, { suppressGlobalToast: true } as Record<string, unknown>)
+      const list: Supplier[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      const dup = list.find((s) => (s.email ?? '').trim().toLowerCase() === email && s.id !== editingSupplier?.id)
+      if (dup) setEmailDupWarning(`Email already used by "${dup.name}". Please verify.`)
+    } catch { /* ignore */ }
+  }
 
   async function onSubmit(data: SupplierFormValues) {
     try {
@@ -305,17 +337,28 @@ export function SupplierFormDialog({
                       maxLength={10}
                       placeholder="10-digit phone number"
                       {...register('phone')}
+                      error={!!errors.phone || !!phoneDupWarning}
                       // Accept digits only, capped at 10 (overrides register's onChange).
-                      onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                      onChange={(e) => { setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true }); if (phoneDupWarning) setPhoneDupWarning('') }}
+                      onBlur={(e) => checkSupplierPhoneDup(e.target.value)}
                     />
                     {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
+                    {!errors.phone && phoneDupWarning && <p className="text-xs text-rose-500">{phoneDupWarning}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Email <span className="text-rose-500">*</span>
                     </Label>
-                    <Input type="email" placeholder="supplier@company.com" {...register('email')} />
+                    <Input
+                      type="email"
+                      placeholder="supplier@company.com"
+                      {...register('email')}
+                      error={!!errors.email || !!emailDupWarning}
+                      onChange={(e) => { setValue('email', e.target.value, { shouldValidate: true, shouldDirty: true }); if (emailDupWarning) setEmailDupWarning('') }}
+                      onBlur={(e) => checkSupplierEmailDup(e.target.value)}
+                    />
                     {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+                    {!errors.email && emailDupWarning && <p className="text-xs text-rose-500">{emailDupWarning}</p>}
                   </div>
                 </div>
 
