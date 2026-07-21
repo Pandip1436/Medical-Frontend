@@ -186,10 +186,13 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const refRequired = collectMode !== 'CASH'
   const refMissing = refRequired && !collectRef.trim()
 
+  // On phones this is a normal, fully-scrolling page: the body flows and the
+  // totals/action footers sit at the end of the content. From md+ it becomes a
+  // bounded column whose body scrolls internally with those footers pinned.
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Scrollable body — everything above the action footer. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+    <div className="flex flex-col md:min-h-0 md:flex-1">
+      {/* Body — scrolls internally only on md+ (natural flow on phones). */}
+      <div className="space-y-4 px-5 py-4 md:flex-1 md:overflow-y-auto">
       {/* Customer header — name + type tag and the Edit/Repurchase actions share
           the top row (actions pinned right); phone/due and the address sit on
           their own rows below. Courier tracking now lives up in the panel header
@@ -505,7 +508,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
 
       {/* Totals — static footer row pinned above the action buttons so the
           amounts stay visible while the details/payments body scrolls. */}
-      <div className="shrink-0 border-t border-border/40 bg-muted/20 px-5 py-2.5 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+      <div className="shrink-0 border-t border-border/40 bg-muted/20 px-5 py-2.5 md:shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:md:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
           {([
             { label: 'Subtotal', value: Number(invoice.subtotal) },

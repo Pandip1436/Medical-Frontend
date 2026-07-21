@@ -35,7 +35,7 @@ const pageVariants = {
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useColumnPrefsStore } from '@/stores/useColumnPrefsStore'
 import { useIdleTimeout } from '@/hooks/useIdleTimeout'
-import { useIsTouchCompact, useIsCompactChrome } from '@/hooks/useMediaQuery'
+import { useIsTouchCompact, useIsCompactChrome, useMediaQuery } from '@/hooks/useMediaQuery'
 import { useRoute } from '@/lib/router'
 import { ImportProgressPill } from '@/components/shared/ImportProgressPill'
 
@@ -147,16 +147,22 @@ export default function AppLayout({
   // (scrollable body + static totals/action footer). They need the compact
   // main (bounded height, minimal padding, overflow-hidden) so the footer
   // pins at the viewport bottom instead of overflowing past it.
-  const ALWAYS_COMPACT_PAGES = [
-    '/accounting/ledger',
+  const ALWAYS_COMPACT_PAGES = ['/accounting/ledger']
+  // Document detail pages that use the compact shell (scrollable body + pinned
+  // totals/action footer) on desktop, but must fall back to a NORMAL full-page
+  // scroll on phones — a pinned footer plus the bottom tab bar swallows most of
+  // a small screen, leaving the document itself squeezed into a sliver.
+  const DESKTOP_COMPACT_PAGES = [
     '/customers/invoices/detail',
     '/purchase/grn/detail',
     '/billing/credit-notes/detail',
     '/purchase/debit-notes/detail',
   ]
+  const isPhone = useMediaQuery('(max-width: 767px)')
   const isCompactPage =
     (!tableViewActive && SPLIT_DEFAULT_PAGES.includes(currentPath)) ||
-    ALWAYS_COMPACT_PAGES.includes(currentPath)
+    ALWAYS_COMPACT_PAGES.includes(currentPath) ||
+    (DESKTOP_COMPACT_PAGES.includes(currentPath) && !isPhone)
 
   // Tight-scroll routes use the normal scrollable main, but with the same
   // minimal horizontal padding as compact pages — for long dashboards that

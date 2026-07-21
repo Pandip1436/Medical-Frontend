@@ -112,9 +112,12 @@ const SNOOZE_PRESETS: { label: string; hours: number }[] = [
 // resolve to a working destination today.
 const URL_REWRITES: Record<string, string> = {
   // Old detail-page / list routes → new Sheet/inline-panel destinations.
-  // PAYMENT_DUE goes to SalesListPage because it has a working Sheet
-  // (CustomerInvoicesPage's deep-link redirects to the old full-page detail).
-  '/customers/invoices/detail':  '/billing/sales',
+  // NOTE: `/customers/invoices/detail` is deliberately NOT rewritten. Sending
+  // PAYMENT_DUE alerts to the sales LIST only worked on desktop (its split
+  // view honours ?invoiceId); on mobile the list falls back to the table view
+  // and the id is ignored, dumping the user on the invoice list instead of the
+  // invoice they tapped. The standalone detail page works on every screen size.
+  // Only the bare list path (no id to deep-link with) still maps to the list.
   '/customers/invoices':         '/billing/sales',
   // Expiry alerts open the full-page batch detail so that pressing Back returns
   // to wherever the user came from (the notifications page) in one step. The
@@ -145,6 +148,10 @@ const URL_REWRITES: Record<string, string> = {
 const MARKER_FOR_PATH: Record<string, { marker: string; param: string }> = {
   '/inventory/product-history':  { marker: 'productId',  param: 'productId' },
   '/inventory/batches/detail':   { marker: 'batchId',    param: 'id' },
+  // PAYMENT_DUE → the standalone invoice detail page (reads ?id=). Works on
+  // mobile and desktop, unlike the sales list whose ?invoiceId only opens a
+  // detail in the desktop split view.
+  '/customers/invoices/detail':  { marker: 'invoiceId',  param: 'id' },
   '/billing/sales':              { marker: 'invoiceId',  param: 'invoiceId' },
   // Reminder / Approval list pages deep-link via ?reminderId / ?requestId
   // (their useDeepLinkParam hooks open the inline detail panel). The marker
@@ -171,6 +178,16 @@ function extractIdFromQuery(query: string): string | null {
   return null
 }
 
+// Desktop opens an invoice in the sales SPLIT view (list + detail side by
+// side); narrow screens have no split view — the sales list falls back to the
+// table and would ignore ?invoiceId — so they open the standalone detail page
+// instead. Breakpoint matches `resolveListView` so we only ever send the user
+// somewhere the page can actually render.
+function prefersSplitView(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
+  return !window.matchMedia('(max-width: 1023px)').matches
+}
+
 function resolveActionUrl(n: Notification): string | null {
   if (!n.actionUrl) return null
   const [basePath, existingQuery] = n.actionUrl.split('?')
@@ -182,6 +199,13 @@ function resolveActionUrl(n: Notification): string | null {
   let id: string | null = null
   if (existingQuery) id = extractIdFromQuery(existingQuery)
   if (!id && spec) id = extractMarker(n.message, spec.marker)
+
+  // Invoice alerts (PAYMENT_DUE): viewport decides the destination.
+  if (rewrittenPath === '/customers/invoices/detail' && id) {
+    return prefersSplitView()
+      ? `/billing/sales?view=split&invoiceId=${id}`
+      : `/customers/invoices/detail?id=${id}`
+  }
 
   if (id && spec) return `${rewrittenPath}?${spec.param}=${id}`
   // A batch-detail link with no id is useless (renders "Batch not found"), so

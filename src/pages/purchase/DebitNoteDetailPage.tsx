@@ -75,12 +75,12 @@ export default function DebitNoteDetailPage() {
     : 'secondary'
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex h-full min-h-0 flex-col gap-4">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4 md:h-full md:min-h-0">
       <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 shrink-0 self-start" onClick={goBack}>
         <ArrowLeft className="h-3.5 w-3.5" /> Back
       </Button>
 
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Card className="flex flex-col md:min-h-0 md:flex-1 md:overflow-hidden">
         {isLoading ? (
           <CardContent className="flex flex-1 flex-col items-center justify-center gap-3 py-16">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -113,7 +113,7 @@ export default function DebitNoteDetailPage() {
                 <Badge variant={badgeVariant} size="lg" dot>{dn.status}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+            <CardContent className="flex flex-col p-0 md:min-h-0 md:flex-1">
               <DebitNoteDetailContent debitNote={dn} onUpdated={() => { if (id) fetchDn(id) }} />
             </CardContent>
           </>

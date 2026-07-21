@@ -94,10 +94,13 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
     d.sgst != null ? { label: 'SGST', value: Number(d.sgst) } : null,
   ].filter(Boolean) as Array<{ label: string; value: number }>)
 
+  // On phones this is a normal, fully-scrolling page: the body flows and the
+  // totals/action footer sits at the end of the content. From md+ it becomes a
+  // bounded column whose body scrolls internally with that footer pinned.
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Scrollable body */}
-      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+    <div className="flex flex-col md:min-h-0 md:flex-1">
+      {/* Body — scrolls internally only on md+ (natural flow on phones). */}
+      <div className="space-y-5 px-5 py-4 md:flex-1 md:overflow-y-auto">
       {/* Supplier / PE Reference / Return Reason / Settlement — 2-col grid on
           phones (labels wrap instead of colliding), single flex row at sm+ */}
       <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
@@ -224,7 +227,7 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
       </div>{/* end scrollable body */}
 
       {/* ── Static footer: totals + actions (pinned to the panel bottom) ── */}
-      <div className="shrink-0 border-t border-border/40 bg-background shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+      <div className="shrink-0 border-t border-border/40 bg-background md:shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:md:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         {/* Totals — single horizontal strip */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-5 py-2.5">
           {totalsRows.map((row) => (

@@ -604,8 +604,11 @@ export function GRNDetailContent({
   const cgstView = gstTotalView / 2
   const sgstView = gstTotalView / 2
 
+  // On phones this is a normal, fully-scrolling page: the body flows and the
+  // totals footer sits at the end of the content. From md+ it becomes a bounded
+  // column whose body scrolls internally with the footer pinned.
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col md:min-h-0 md:flex-1">
       {/* ── Header: PE identity + status + descriptive badges (left) and the
           document actions (right). Pinned above the scrollable body so the
           buttons sit in the same row as the PE number. ── */}
@@ -653,8 +656,8 @@ export function GRNDetailContent({
         </div>
       </div>
 
-      {/* Scrollable body — everything above the static totals footer. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+      {/* Body — scrolls internally only on md+ (natural flow on phones). */}
+      <div className="space-y-4 px-5 py-4 md:flex-1 md:overflow-y-auto">
       {/* Info row — Supplier / PE Date / Invoice # / Invoice Date / Invoice Amount */}
       {/* responsive: 2-col grid on phones (labels wrap instead of colliding), flex row at sm+ */}
       <div className="grid grid-cols-2 items-stretch rounded-xl border border-border/40 bg-muted/20 sm:flex sm:overflow-x-auto">
@@ -1310,7 +1313,7 @@ export function GRNDetailContent({
       </div>{/* end scrollable body */}
 
       {/* ── Static footer: totals (always visible on both tabs) ── */}
-      <div className="shrink-0 border-t border-border/40 bg-background px-5 py-2.5 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+      <div className="shrink-0 border-t border-border/40 bg-background px-5 py-2.5 md:shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:md:shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
           <div className="flex items-center gap-1">
             <span className="text-[11px] text-muted-foreground">Taxable</span>
