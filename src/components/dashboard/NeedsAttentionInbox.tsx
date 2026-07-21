@@ -103,10 +103,27 @@ function buildRows({
       icon: IndianRupee,
       title: cust.customerName,
       titleSub: phone,
-      meta: `${formatCurrencyCompact(cust.overdueAmount)} · ${cust.daysOverdue} ${cust.daysOverdue === 1 ? 'day' : 'days'} overdue · ${cust.invoiceCount} ${cust.invoiceCount === 1 ? 'invoice' : 'invoices'}`,
-      actionLabel: 'Remind',
-      onAction: () =>
-        navigate(cust.customerId ? `/customers/${cust.customerId}` : '/customers/outstanding'),
+      // With a single overdue invoice, name it — the row opens that invoice, so
+      // the number is more use than the count it replaces.
+      meta: `${formatCurrencyCompact(cust.overdueAmount)} · ${cust.daysOverdue} ${cust.daysOverdue === 1 ? 'day' : 'days'} overdue · ${
+        cust.invoiceCount === 1 && cust.oldestInvoiceNumber
+          ? cust.oldestInvoiceNumber
+          : `${cust.invoiceCount} ${cust.invoiceCount === 1 ? 'invoice' : 'invoices'}`
+      }`,
+      actionLabel: cust.invoiceCount === 1 ? 'View invoice' : 'View invoices',
+      // One overdue invoice → open it directly. Several → the customer's detail
+      // page, where the Invoices tab lists them all; there's no single invoice
+      // to land on. Falls back to the outstanding report if the row has neither
+      // (an invoice whose customerId is null).
+      onAction: () => {
+        if (cust.invoiceCount === 1 && cust.oldestInvoiceId) {
+          navigate(`/customers/invoices/detail?id=${encodeURIComponent(cust.oldestInvoiceId)}`)
+        } else if (cust.customerId) {
+          navigate(`/customers/detail?customerId=${encodeURIComponent(cust.customerId)}`)
+        } else {
+          navigate('/customers/outstanding')
+        }
+      },
       sortKey: -cust.daysOverdue,
     })
   })

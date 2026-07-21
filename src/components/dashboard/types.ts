@@ -8,6 +8,10 @@ export interface OverdueCustomer {
   customerPhone?: string | null
   overdueAmount: number
   daysOverdue: number
+  // The invoice that fell due first — where the Due row navigates when this
+  // customer has a single overdue invoice.
+  oldestInvoiceId?: string
+  oldestInvoiceNumber?: string
   invoiceCount: number
 }
 
