@@ -160,6 +160,7 @@ export interface Batch {
   purchaseRate: number
   supplierId: string
   productName?: string
+  grnItemId?: string
 }
 
 export interface InvoiceItem {
