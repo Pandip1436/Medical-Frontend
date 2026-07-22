@@ -109,11 +109,14 @@ interface ReturnItemState {
   selected: boolean
   returnQty: number
   maxQty: number
+  purchasedQty: number
+  availableQty: number
   damagedQty: number
   reason: ReturnReason | ''
   customReason: string
   productName: string
   rate: number
+  batchNumber: string
 }
 
 const reasonIcons: Record<string, typeof AlertCircle> = {
@@ -280,7 +283,13 @@ export default function PurchaseReturnsPage() {
     setCurrentStep(saved.currentStep)
     setDirection(saved.direction)
     setSelectedGRN(saved.selectedGRN)
-    setReturnItems(saved.returnItems)
+    setReturnItems(saved.returnItems.map(ri => ({
+      ...ri,
+      // Defensive: drafts saved before the stock-cap change won't have these fields
+      purchasedQty: ri.purchasedQty ?? ri.maxQty,
+      availableQty: ri.availableQty ?? ri.maxQty,
+      batchNumber: ri.batchNumber ?? '',
+    })))
     setSettlementOption(saved.settlementOption)
     setGrnSearch(saved.selectedGRN.grnNumber)
     toast.info('Restored your in-progress return')
@@ -369,11 +378,14 @@ export default function PurchaseReturnsPage() {
         selected: true,
         returnQty: item.purchasedQty,
         maxQty: item.purchasedQty,
+        purchasedQty: item.purchasedQty,
+        availableQty: item.purchasedQty, // short delivery — no physical stock involved
         damagedQty: 0,
         reason: 'Short delivery' as ReturnReason,
         customReason: '',
         productName: item.productName,
         rate: item.rate,
+        batchNumber: item.batchNumber,
       }))
     )
     goToStep(2)
@@ -405,17 +417,25 @@ export default function PurchaseReturnsPage() {
       match.items.map((item) => {
         const isTarget = item.batchNumber === batchParams.batchNumber
         const damaged = item.damagedQty > 0
+        const batch = batches.find(
+          (b) => b.productId === item.productId && b.batchNumber === item.batchNumber,
+        )
+        const availableQty = batch?.quantity ?? 0
+        const maxQty = Math.min(item.purchasedQty, availableQty)
         return {
           productId: item.productId,
           // Pre-tick the batch we came in for; keep damaged-item auto-select too.
-          selected: isTarget || damaged,
-          returnQty: isTarget ? item.purchasedQty : damaged ? item.damagedQty : 0,
-          maxQty: item.purchasedQty,
+          selected: (isTarget || damaged) && maxQty > 0,
+          returnQty: isTarget ? maxQty : damaged ? Math.min(item.damagedQty, maxQty) : 0,
+          maxQty,
+          purchasedQty: item.purchasedQty,
+          availableQty,
           damagedQty: item.damagedQty,
           reason: damaged ? ('Damaged in transit' as ReturnReason) : '',
           customReason: '',
           productName: item.productName,
           rate: item.rate,
+          batchNumber: item.batchNumber,
         }
       }),
     )
@@ -451,18 +471,29 @@ export default function PurchaseReturnsPage() {
   const handleSelectGRN = (grn: GRNReference) => {
     setSelectedGRN(grn)
     setReturnItems(
-      grn.items.map((item) => ({
-        productId: item.productId,
-        // Auto-select and pre-fill qty/reason for damaged items
-        selected: item.damagedQty > 0,
-        returnQty: item.damagedQty > 0 ? item.damagedQty : 0,
-        maxQty: item.purchasedQty,
-        damagedQty: item.damagedQty,
-        reason: item.damagedQty > 0 ? 'Damaged in transit' as ReturnReason : '',
-        customReason: '',
-        productName: item.productName,
-        rate: item.rate,
-      }))
+      grn.items.map((item) => {
+        const batch = batches.find(
+          (b) => b.productId === item.productId && b.batchNumber === item.batchNumber,
+        )
+        const availableQty = batch?.quantity ?? 0
+        const maxQty = Math.min(item.purchasedQty, availableQty)
+        const dmgReturn = Math.min(item.damagedQty, maxQty)
+        return {
+          productId: item.productId,
+          // Auto-select and pre-fill qty/reason for damaged items
+          selected: item.damagedQty > 0 && maxQty > 0,
+          returnQty: item.damagedQty > 0 ? dmgReturn : 0,
+          maxQty,
+          purchasedQty: item.purchasedQty,
+          availableQty,
+          damagedQty: item.damagedQty,
+          reason: item.damagedQty > 0 ? 'Damaged in transit' as ReturnReason : '',
+          customReason: '',
+          productName: item.productName,
+          rate: item.rate,
+          batchNumber: item.batchNumber,
+        }
+      })
     )
   }
 
@@ -969,16 +1000,18 @@ export default function PurchaseReturnsPage() {
                     <div className="lg:hidden">
                       {returnItems.map((ri) => {
                         const totalRefund = ri.rate * ri.returnQty
+                        const outOfStock = ri.maxQty <= 0
                         return (
                           <div
                             key={ri.productId}
                             className={cn(
                               'border-b border-border/40 p-3 space-y-2.5',
+                              outOfStock ? 'opacity-50' : '',
                               ri.selected ? 'bg-primary/3' : ''
                             )}
                           >
                             <div className="flex items-start gap-3">
-                              <Checkbox checked={ri.selected} onCheckedChange={() => toggleReturnItem(ri.productId)} />
+                              <Checkbox checked={ri.selected} onCheckedChange={() => toggleReturnItem(ri.productId)} disabled={outOfStock} />
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-bold leading-none">{ri.productName}</p>
@@ -990,7 +1023,15 @@ export default function PurchaseReturnsPage() {
                                 </div>
                                 <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                                   <span>Rate: {formatCurrency(ri.rate)}</span>
-                                  <span>Purchased: {ri.maxQty}</span>
+                                  <span>Purchased: {ri.purchasedQty}</span>
+                                  {ri.availableQty < ri.purchasedQty && (
+                                    <span className={cn(
+                                      'font-semibold',
+                                      ri.availableQty === 0 ? 'text-rose-500' : 'text-amber-500'
+                                    )}>
+                                      {ri.availableQty} avail
+                                    </span>
+                                  )}
                                   {ri.damagedQty > 0 && (
                                     <span className="text-rose-500 font-semibold">{ri.damagedQty} dmg</span>
                                   )}
@@ -1003,7 +1044,9 @@ export default function PurchaseReturnsPage() {
                                 {totalRefund > 0 ? formatCurrency(totalRefund) : '₹0.00'}
                               </span>
                             </div>
-                            {ri.selected ? (
+                            {outOfStock ? (
+                              <div className="pl-8 text-[11px] text-rose-500 font-medium">Out of stock — cannot return</div>
+                            ) : ri.selected ? (
                               <div className="flex items-center gap-3 pl-8">
                                 <div className="flex items-center gap-1 justify-center">
                                   <Button variant="outline" size="icon-sm" className="h-6 w-6 rounded-md"
@@ -1064,13 +1107,13 @@ export default function PurchaseReturnsPage() {
                         <TableRow className="border-b border-border/40 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:bg-transparent">
                           <TableHead className="w-12 px-4 py-3 text-center">
                             <Checkbox
-                              checked={returnItems.length > 0 && returnItems.every(ri => ri.selected)}
+                              checked={returnItems.length > 0 && returnItems.filter(ri => ri.maxQty > 0).every(ri => ri.selected)}
                               onCheckedChange={(checked) => {
                                 setReturnItems(prev => prev.map(ri => ({
                                   ...ri,
-                                  selected: !!checked,
-                                  returnQty: checked ? ri.maxQty : 0,
-                                  reason: checked ? ri.reason || 'Other' : ''
+                                  selected: ri.maxQty > 0 ? !!checked : false,
+                                  returnQty: checked && ri.maxQty > 0 ? ri.maxQty : 0,
+                                  reason: checked && ri.maxQty > 0 ? ri.reason || 'Other' : ''
                                 })))
                               }}
                             />
@@ -1085,11 +1128,13 @@ export default function PurchaseReturnsPage() {
                       <TableBody>
                         {returnItems.map((ri) => {
                           const totalRefund = ri.rate * ri.returnQty
+                          const outOfStock = ri.maxQty <= 0
                           return (
                             <TableRow
                               key={ri.productId}
                               className={cn(
                                 'group transition-colors',
+                                outOfStock ? 'opacity-50' : '',
                                 ri.selected ? 'bg-primary/3 hover:bg-primary/5' : 'hover:bg-muted/30'
                               )}
                             >
@@ -1097,6 +1142,7 @@ export default function PurchaseReturnsPage() {
                                 <Checkbox
                                   checked={ri.selected}
                                   onCheckedChange={() => toggleReturnItem(ri.productId)}
+                                  disabled={outOfStock}
                                 />
                               </TableCell>
                               <TableCell className="px-4 py-3">
@@ -1116,14 +1162,24 @@ export default function PurchaseReturnsPage() {
                               </TableCell>
                               <TableCell className="px-2 py-3 text-center">
                                 <div className="flex flex-col items-center gap-0.5">
-                                  <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.maxQty}</span>
+                                  <span className="text-xs font-bold tabular-nums text-muted-foreground/40">{ri.purchasedQty}</span>
+                                  {ri.availableQty < ri.purchasedQty && (
+                                    <span className={cn(
+                                      'text-[9px] font-semibold',
+                                      ri.availableQty === 0 ? 'text-rose-500' : 'text-amber-500'
+                                    )}>
+                                      {ri.availableQty} available
+                                    </span>
+                                  )}
                                   {ri.damagedQty > 0 && (
                                     <span className="text-[9px] text-rose-500 font-semibold">{ri.damagedQty} dmg</span>
                                   )}
                                 </div>
                               </TableCell>
                               <TableCell className="px-2 py-3">
-                                {ri.selected ? (
+                                {outOfStock ? (
+                                  <div className="text-center text-[10px] text-rose-500 font-medium">Out of stock</div>
+                                ) : ri.selected ? (
                                   <div className="flex items-center gap-1 justify-center">
                                     <Button variant="outline" size="icon-sm" className="h-6 w-6 rounded-md"
                                       onClick={() => updateReturnQty(ri.productId, ri.returnQty - 1)}

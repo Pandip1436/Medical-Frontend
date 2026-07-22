@@ -235,12 +235,16 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
                 )
               })()}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            {/* On mobile the actions drop to their own full-width row with
+                equal-width buttons (a wrapped justify-between line otherwise
+                clings to the left and looks unaligned). From sm+ they pin
+                inline to the right of the name. */}
+            <div className="mt-1 flex w-full shrink-0 items-center gap-2 sm:mt-0 sm:w-auto">
               {(invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40"
+                  className="flex-1 gap-1.5 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/40 sm:flex-none"
                   onClick={() => navigate(`/billing/new?editId=${invoice.id}`)}
                 >
                   <Pencil className="h-3.5 w-3.5" />
@@ -250,7 +254,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40"
+                className="flex-1 gap-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/40 sm:flex-none"
                 onClick={handleRepurchase}
               >
                 <ShoppingCart className="h-3.5 w-3.5" />
