@@ -151,7 +151,7 @@ export default function NumberingPage() {
             <div>
               <CardTitle>Document Numbering</CardTitle>
               <CardDescription>
-                Configure how invoice, quotation, credit-note, debit-note, PO and Purchase Entry (PE) numbers are generated.
+                Configure how invoice, payment-receipt, quotation, credit-note, debit-note, PO and Purchase Entry (PE) numbers are generated.
                 Existing documents keep their numbers — changes only affect newly issued ones.
               </CardDescription>
             </div>

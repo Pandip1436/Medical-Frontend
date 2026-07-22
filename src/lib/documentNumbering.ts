@@ -8,11 +8,12 @@ export type FyFormat = 'YY-YY' | 'YYYY-YY' | 'YY' | 'YYYY'
 
 export const FY_FORMATS: readonly FyFormat[] = ['YY-YY', 'YYYY-YY', 'YY', 'YYYY']
 
-export const DOC_TYPES = ['INV', 'QTN', 'CN', 'DN', 'PO', 'GRN'] as const
+export const DOC_TYPES = ['INV', 'RCPT', 'QTN', 'CN', 'DN', 'PO', 'GRN'] as const
 export type ConfigurableDocType = (typeof DOC_TYPES)[number]
 
 export const DOC_TYPE_LABELS: Record<ConfigurableDocType, string> = {
   INV: 'Invoice',
+  RCPT: 'Payment Receipt',
   QTN: 'Quotation',
   CN: 'Credit Note',
   DN: 'Debit Note',
@@ -24,6 +25,7 @@ export const DOC_TYPE_LABELS: Record<ConfigurableDocType, string> = {
 // number prefix (PE/26-27/00001 for Purchase Entry).
 export const DOC_TYPE_BADGES: Record<ConfigurableDocType, string> = {
   INV: 'INV',
+  RCPT: 'RCPT',
   QTN: 'QTN',
   CN: 'CN',
   DN: 'DN',
