@@ -37,7 +37,7 @@ export function useProductDetail(id: string | null): UseProductDetailResult {
     try {
       const [prodRes, batchRes] = await Promise.all([
         api.get(`/products/${id}`, { signal: ctrl.signal }),
-        api.get('/inventory/batches', { params: { productId: id }, signal: ctrl.signal }).catch(() => ({ data: [] })),
+        api.get('/batches', { params: { productId: id }, signal: ctrl.signal }).catch(() => ({ data: [] })),
       ])
       setProduct(prodRes.data ?? null)
       const rows = Array.isArray(batchRes.data) ? batchRes.data : (batchRes.data?.data ?? [])

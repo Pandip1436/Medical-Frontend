@@ -710,19 +710,8 @@ function BillingRow({
         </div>
       </TableCell>
 
-      {/* Product + Schedule + Generic */}
+      {/* Product + Schedule */}
       <TableCell className="min-w-32 px-3 py-2.5 align-middle" ref={productRef}>
-        <div className="flex flex-col gap-0.5">
-          {/* Helper row (top) — manufacturer · generic */}
-          <div className="h-3.5 flex items-center">
-            {selectedProduct && (selectedProduct.manufacturer || selectedProduct.genericName) && (
-              <div className="px-2 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground truncate">
-                {selectedProduct.manufacturer && <span className="truncate">{selectedProduct.manufacturer}</span>}
-                {selectedProduct.manufacturer && selectedProduct.genericName && <span className="opacity-40">·</span>}
-                {selectedProduct.genericName && <span className="truncate">{selectedProduct.genericName}</span>}
-              </div>
-            )}
-          </div>
         <div className="relative group/search">
           <div className="flex items-center gap-1.5">
             <input
@@ -931,7 +920,6 @@ function BillingRow({
             </div>,
             document.body
           )}
-        </div>
         </div>
       </TableCell>
 
@@ -4794,6 +4782,12 @@ export default function NewSalePage() {
     setDocPreviews([])
     setNsPhoneCheckError('')
     setAddCustomerDialogOpen(false)
+    setTableView('customer-history')
+    if (!selectedCustomer) {
+      setItems([createEmptyItem()])
+    }
+    // Re-open customer picker so the user can select a customer
+    setTimeout(() => setShowCustomerDropdown(true), 50)
   }
 
   // ── Product Form ───────────────────────────────────────
@@ -5025,41 +5019,6 @@ export default function NewSalePage() {
           header and order-summary stay put instead of the whole page scrolling. */}
       <div className="h-screen-z w-full overflow-x-auto overflow-y-hidden bg-background">
       <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6">
-        {/* ═══════════════════════════════════════════════════
-            HEADER BAR — compact POS-style title strip
-        ═══════════════════════════════════════════════════ */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }}
-          className="flex items-center justify-between gap-2 mb-3 shrink-0"
-        >
-          {/* responsive: title block can truncate, gap-2.5 stays, icon shrinks at xs */}
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
-              <Receipt className="h-4 w-4" />
-            </div>
-            <div className="flex flex-col leading-tight min-w-0">
-              <h1 className="text-sm sm:text-base font-semibold tracking-tight truncate">
-                {editingInvoiceId ? 'Edit Invoice' : 'New Sale'}
-              </h1>
-              <span className="hidden sm:inline-block font-mono text-[10px] text-muted-foreground tracking-wider truncate">
-                {editingInvoiceId ? (editingInvoiceNumber ?? invoiceNumber) : invoiceNumber}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <PillToggle
-              options={[
-                { label: 'Invoice', value: 'invoice' as const },
-                { label: 'Quotation', value: 'quotation' as const },
-              ]}
-              value={invoiceType}
-              onChange={setInvoiceType}
-            />
-          </div>
-        </motion.div>
-
         {/* Quotation source banner */}
         {quotationSource && (
           <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -5422,6 +5381,9 @@ export default function NewSalePage() {
                       <button
                         type="button"
                         onClick={() => {
+                          setSelectedCustomer(null)
+                          setCustomerSearch('')
+                          setItems([createEmptyItem()])
                           setAddCustomerDialogOpen(true)
                           setShowCustomerDropdown(false)
                         }}
@@ -5462,32 +5424,44 @@ export default function NewSalePage() {
           </div>
 
           {/* ═══════════════════════════════════════════════════
-              RIGHT-END ACTIONS (New Sale + Reminder) — desktop only. Items are
-              added via the product search bar or the Alt+N shortcut.
+              RIGHT-END ACTIONS — Invoice/Quotation toggle (always visible) +
+              New Sale / Reminder (desktop only). Items are added via the
+              product search bar or the Alt+N shortcut.
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
-            <Button
-              type="button"
-              onClick={startNewSale}
-              className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
-              title="Start a new sale (Ctrl+N) — the current bill is parked in Held"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden lg:inline text-xs font-semibold">New Sale</span>
-              <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 text-[9px] font-mono text-primary-foreground/80">Ctrl+N</kbd>
-            </Button>
-            {selectedCustomer && (
+          <div className="flex shrink-0 items-stretch gap-1.5 lg:gap-2">
+            {/* Invoice ↔ Quotation mode toggle (moved out of the old title strip). */}
+            <PillToggle
+              options={[
+                { label: 'Invoice', value: 'invoice' as const },
+                { label: 'Quotation', value: 'quotation' as const },
+              ]}
+              value={invoiceType}
+              onChange={setInvoiceType}
+            />
+            <div className="hidden md:flex shrink-0 items-stretch gap-1.5 lg:gap-2">
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
+                onClick={startNewSale}
                 className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
-                title="Set monthly reminder for this customer"
+                title="Start a new sale (Ctrl+N) — the current bill is parked in Held"
               >
-                <CalendarClock className="h-4 w-4" />
-                <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
+                <Plus className="h-4 w-4" />
+                <span className="hidden lg:inline text-xs font-semibold">New Sale</span>
+                <kbd className="ml-0.5 hidden xl:inline-flex rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 text-[9px] font-mono text-primary-foreground/80">Ctrl+N</kbd>
               </Button>
-            )}
+              {selectedCustomer && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
+                  className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
+                  title="Set monthly reminder for this customer"
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  <span className="hidden lg:inline text-xs font-semibold">Reminder</span>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -7192,180 +7166,146 @@ export default function NewSalePage() {
                 {/* STEP 1 — Order Summary. For invoices this is step one of a
                     two-step flow (summary → payment); quotations have no payment
                     step, so the summary always renders for them. */}
-                {(invoiceType === 'quotation' || checkoutStep === 'summary') && (
-                <div className="flex min-h-full flex-col">
-                {/* Invoice Summary Section — moved from footer */}
-                <div className="p-3 border-b border-border/60 bg-linear-to-b from-muted/25 to-transparent">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-                      <Receipt className="h-3.5 w-3.5" />
-                      Order Summary
-                    </h3>
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground tabular-nums">
-                      <Package className="h-3 w-3" />
-                      {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1.5 text-sm">
-                    {/* Subtotal */}
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
-                    </div>
-
-                    {/* Discount — only when > 0 */}
-                    {totals.productDiscount > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          Discount
-                          {totals.subtotal > 0 && (
-                            <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 tabular-nums">
-                              −{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
-                            </span>
-                          )}
-                        </span>
-                        <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
-                      </div>
-                    )}
-
-                    {/* Taxable */}
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Taxable</span>
-                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
-                    </div>
-
-                    {/* GST */}
-                    {totals.cgst > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">CGST + SGST</span>
-                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
-                      </div>
-                    )}
-                    {totals.igst > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">IGST</span>
-                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
-                      </div>
-                    )}
-
-                    {/* Delivery / Packaging — editable, non-taxable add-on */}
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Delivery / Packaging</span>
-                      <div className="flex items-center gap-1">
-                        <span className="text-[11px] text-muted-foreground">₹</span>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step="0.01"
-                          value={deliveryCharge === 0 ? '' : deliveryCharge}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            const n = v === '' ? 0 : parseFloat(v)
-                            setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
-                          }}
-                          placeholder="0.00"
-                          className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Courier toggle — invoices only. On save, snapshots the
-                        invoice into the Delivery Tracking module. */}
-                    {invoiceType !== 'quotation' && (
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <Truck className="h-3.5 w-3.5" /> Courier delivery
-                        </span>
-                        <Switch
-                          checked={enableCourier}
-                          onCheckedChange={setEnableCourier}
-                          aria-label="Send to courier tracking after save"
-                        />
-                      </div>
-                    )}
-
-                    {/* Round Off — only when non-zero */}
-                    {totals.roundOff !== 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Round Off</span>
-                        <span className={cn(
-                          'font-mono font-medium tabular-nums',
-                          totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                        )}>
-                          {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Net Payable — premium accent hero block. This is the number
-                      the salesman reads out loud, so it gets a tinted gradient
-                      card, a left accent bar, and the largest type on the panel. */}
-                  <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-linear-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
-                    <span className="absolute inset-y-0 left-0 w-1 bg-primary/70" aria-hidden />
-                    {/* Label on top, amount on its own full-width line so large
-                        totals stay fully visible instead of being squeezed next
-                        to the label. Amount shrinks a step at very large values. */}
-                    <div className="pl-1.5">
-                      <span className="block text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
-                      <span className="mt-1 block whitespace-nowrap text-right font-mono text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
-                        {formatCurrency(totals.grandTotal)}
+                <div className="flex flex-col">
+                  {/* Invoice Summary Section */}
+                  <div className="p-3 border-b border-border/60 bg-linear-to-b from-muted/25 to-transparent">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                        <Receipt className="h-3.5 w-3.5" />
+                        Order Summary
+                      </h3>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-muted-foreground tabular-nums">
+                        <Package className="h-3 w-3" />
+                        {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
                       </span>
                     </div>
-                  </div>
-                </div>
-                {/* Continue to Payment — advances to step 2. Invoices only (a
-                    quotation has no payment step); disabled with an empty cart.
-                    mt-auto anchors it to the bottom of the card so the leftover
-                    height reads as breathing room above it, not a gap below. */}
-                {invoiceType !== 'quotation' && (
-                  <div className="mt-auto p-3">
-                    <Button
-                      className="w-full gap-1.5"
-                      onClick={() => setCheckoutStep('payment')}
-                      disabled={activeItemCount === 0}
-                    >
-                      Continue to Payment
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-                </div>
-                )}
 
-                {/* STEP 2 — Payment. Reached via Continue; carries a Back button
-                    to return to the summary. Hidden for quotations and while the
-                    summary step is showing. No inner scroll: the parent
-                    CardContent is the single scroll region; the extra bottom
-                    padding keeps the last field clear of the Save & Print bar. */}
-                {invoiceType !== 'quotation' && checkoutStep === 'payment' && (
-                <div className="p-3 pb-6">
-                  <div className="mb-3 flex items-center justify-between">
-                    <Button variant="ghost" size="sm" className="-ml-2 gap-1.5 text-xs" onClick={() => setCheckoutStep('summary')}>
-                      <ChevronLeft className="h-4 w-4" />
-                      Back
-                    </Button>
-                    <span className="font-mono text-sm font-bold tabular-nums text-muted-foreground">{formatCurrency(totals.grandTotal)}</span>
+                    <div className="space-y-1.5 text-sm">
+                      {/* Subtotal */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Subtotal</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
+                      </div>
+
+                      {/* Discount — only when > 0 */}
+                      {totals.productDiscount > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="flex items-center gap-1.5 text-muted-foreground">
+                            Discount
+                            {totals.subtotal > 0 && (
+                              <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 tabular-nums">
+                                −{((totals.productDiscount / totals.subtotal) * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
+                        </div>
+                      )}
+
+                      {/* Taxable */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Taxable</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
+                      </div>
+
+                      {/* GST */}
+                      {totals.cgst > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">CGST + SGST</span>
+                          <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                        </div>
+                      )}
+                      {totals.igst > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">IGST</span>
+                          <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
+                        </div>
+                      )}
+
+                      {/* Delivery / Packaging — editable, non-taxable add-on */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Delivery / Packaging</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-muted-foreground">₹</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.01"
+                            value={deliveryCharge === 0 ? '' : deliveryCharge}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              const n = v === '' ? 0 : parseFloat(v)
+                              setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
+                            }}
+                            placeholder="0.00"
+                            className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Courier toggle — invoices only. On save, snapshots the
+                          invoice into the Delivery Tracking module. */}
+                      {invoiceType !== 'quotation' && (
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 text-muted-foreground">
+                            <Truck className="h-3.5 w-3.5" /> Courier delivery
+                          </span>
+                          <Switch
+                            checked={enableCourier}
+                            onCheckedChange={setEnableCourier}
+                            aria-label="Send to courier tracking after save"
+                          />
+                        </div>
+                      )}
+
+                      {/* Round Off — only when non-zero */}
+                      {totals.roundOff !== 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Round Off</span>
+                          <span className={cn(
+                            'font-mono font-medium tabular-nums',
+                            totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                          )}>
+                            {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Net Payable — premium accent hero block */}
+                    <div className="relative mt-4 overflow-hidden rounded-xl border border-primary/25 bg-linear-to-br from-primary/12 via-primary/5 to-transparent p-3.5 shadow-sm">
+                      <span className="absolute inset-y-0 left-0 w-1 bg-primary/70" aria-hidden />
+                      <div className="pl-1.5">
+                        <span className="block text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
+                        <span className="mt-1 block whitespace-nowrap text-right font-mono text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
+                          {formatCurrency(totals.grandTotal)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
-                    <CreditCard className="h-3.5 w-3.5" />
-                    Payment
-                  </h3>
-                  <PaymentPanel
-                    mode={paymentMode}
-                    onModeChange={setPaymentMode}
-                    grandTotal={totals.grandTotal}
-                    details={paymentDetails}
-                    onDetailsChange={(d) =>
-                      setPaymentDetails((prev) => ({ ...prev, ...d }))
-                    }
-                    customer={selectedCustomer}
-                    isEditing={!!editingInvoiceId}
-                  />
+
+                  {/* Payment Section — directly under Net Payable (Invoices only) */}
+                  {invoiceType !== 'quotation' && (
+                    <div className="p-3 pb-6">
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3 flex items-center gap-1.5">
+                        <CreditCard className="h-3.5 w-3.5" />
+                        Payment
+                      </h3>
+                      <PaymentPanel
+                        mode={paymentMode}
+                        onModeChange={setPaymentMode}
+                        grandTotal={totals.grandTotal}
+                        details={paymentDetails}
+                        onDetailsChange={(d) =>
+                          setPaymentDetails((prev) => ({ ...prev, ...d }))
+                        }
+                        customer={selectedCustomer}
+                        isEditing={!!editingInvoiceId}
+                      />
+                    </div>
+                  )}
                 </div>
-                )}
               </CardContent>
             </Card>
           </div>

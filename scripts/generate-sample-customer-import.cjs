@@ -19,7 +19,7 @@ const CUSTOMER_COLUMNS = [
   'whatsapp_number', 'notes',
 ]
 const INVOICE_COLUMNS = [
-  'customer_code', 'invoice_ref', 'invoice_number', 'date', 'billing_type',
+  'customer_code', 'invoice_ref', 'invoice_number', 'date', 'due_date', 'billing_type',
   'subtotal', 'product_discount', 'taxable_amount', 'cgst', 'sgst', 'igst',
   'delivery_charge', 'round_off', 'grand_total', 'amount_paid', 'payment_mode',
   'status', 'notes',

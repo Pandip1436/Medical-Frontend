@@ -579,7 +579,7 @@ function UploadStage({
           </li>
         </ul>
         <p className="text-muted-foreground">
-          <span className="font-medium text-foreground">Stock batches</span> are NOT imported here — they come via GRN. Set <code className="px-1 bg-muted rounded">total_stock</code> as a starting number if you want, but it'll drift from real batch quantities once GRNs land.
+          <span className="font-medium text-foreground">Stock batches</span> are NOT imported here — they come via GRN. The <code className="px-1 bg-muted rounded">total_stock</code> column in exports is for reference only and is ignored during import.
         </p>
         <p className="text-muted-foreground">
           <span className="font-medium text-foreground">MARG ERP exports</span> are also supported — upload the MARG <code className="px-1 bg-muted rounded">.xls</code>/<code className="px-1 bg-muted rounded">.xlsx</code> directly. We auto-detect both the <span className="font-medium text-foreground">price list</span> (name, pack, purchase, MRP, GST) and the <span className="font-medium text-foreground">HSN/SAC master</span> (name, pack, GST, HSN code).
@@ -657,9 +657,6 @@ function PreviewStage({
               ? `, skip ${summary.products.skipped}`
               : ''}
             , and {summary.categories.created} new categor{summary.categories.created === 1 ? 'y' : 'ies'} will be auto-created.
-            {summary.openingStockApplied > 0
-              ? ` Total opening stock: ${formatCurrency(summary.openingStockApplied)} units.`
-              : ''}
           </p>
         </div>
       ) : null}
@@ -841,7 +838,6 @@ function DoneStage({ result }: { result: ImportResult }) {
         <StatCard label="Skipped" value={s.products.skipped} tone="amber" />
         <StatCard label="New categories" value={s.categories.created} tone="purple" />
         <StatCard label="Reused categories" value={s.categories.reused} tone="slate" />
-        <StatCard label="Opening stock units" value={s.openingStockApplied} tone="rose" />
       </div>
 
       {result.errors.length > 0 ? (

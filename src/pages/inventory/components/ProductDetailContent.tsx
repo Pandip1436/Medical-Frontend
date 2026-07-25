@@ -3,7 +3,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronRight, ChevronUp,
   BarChart3, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX,
+  RotateCcw, PackageX, Layers,
 } from 'lucide-react'
 import { useProductDetail } from '../hooks/useProductDetail'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import {
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
+import { ProductBatchesTab } from './ProductBatchesTab'
 import api from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
@@ -29,7 +30,7 @@ import {
 } from '../productHistoryExport'
 
 // ─── Types ────────────────────────────────────────────────────
-type ActiveTab = 'overview' | 'sales' | 'purchases' | 'timeline'
+type ActiveTab = 'overview' | 'batches' | 'sales' | 'purchases' | 'timeline'
 
 type PartyKind = 'customer' | 'supplier'
 
@@ -342,7 +343,8 @@ export function ProductDetailContent({ productId }: { productId: string }) {
 
   // Sentinel IntersectionObserver — loads more rows when bottom enters view
   useEffect(() => {
-    if (activeTab === 'overview') return
+    // Overview and Batches render their full list (no infinite scroll / sentinel).
+    if (activeTab === 'overview' || activeTab === 'batches') return
     if (!tabSentinelRef.current || !contentScrollRef.current) return
     const totalInTab = activeTab === 'sales' ? filteredSales.length
       : activeTab === 'purchases' ? filteredPurchases.length
@@ -390,7 +392,9 @@ export function ProductDetailContent({ productId }: { productId: string }) {
           )}
         </div>
         <StockStatusBadge product={selectedProduct ?? detail.product ?? { totalStock: 0, minStock: 0 }} />
-        {activeTab !== 'overview' && (
+        {/* Sort + export apply only to the transaction-history tabs. Overview and
+            Batches read from the product record, not the history feed. */}
+        {activeTab !== 'overview' && activeTab !== 'batches' && (
           <>
             <Button size="sm" variant="outline" className="gap-1 h-7" onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}>
               {sortOrder === 'desc' ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />}
@@ -413,8 +417,8 @@ export function ProductDetailContent({ productId }: { productId: string }) {
         </Button>
       </div>
 
-      {/* Filter bar — hidden on overview tab */}
-      {activeTab !== 'overview' && <div className="shrink-0">
+      {/* Filter bar — history tabs only (Overview and Batches don't filter). */}
+      {activeTab !== 'overview' && activeTab !== 'batches' && <div className="shrink-0">
         <DataTableFilterBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -458,6 +462,14 @@ export function ProductDetailContent({ productId }: { productId: string }) {
           icon={Package}
           label="Overview"
           color="text-blue-600 dark:text-blue-400"
+        />
+        <TabButton
+          active={activeTab === 'batches'}
+          onClick={() => setActiveTab('batches')}
+          icon={Layers}
+          label="Batches"
+          count={detail.batches.length}
+          color="text-indigo-600 dark:text-indigo-400"
         />
         <TabButton
           active={activeTab === 'timeline'}
@@ -580,32 +592,9 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               </section>
 
               {/* Transaction summary from history */}
-              {history && (() => {
-                // Opening stock = the balance the ledger must have started with
-                // for the running total to land on today's current stock:
-                //   opening + netPurchased − netSold = currentStock
-                // This surfaces stock that entered WITHOUT a GRN (e.g. imported
-                // opening balances), so Purchased/Sold visibly reconcile.
-                const sm = history.summary
-                const netPurchased = (sm.totalPurchasedQty ?? 0) - (sm.totalPurchaseReturnQty ?? 0)
-                const netSold = (sm.totalSoldQty ?? 0) - (sm.totalSalesReturnQty ?? 0)
-                const currentStock = sm.currentStock ?? 0
-                const openingStock = currentStock - netPurchased + netSold
-                return (
+              {history && (
                 <section>
                   <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Transaction Summary</p>
-                  {/* Opening-stock reconciliation line — full width above the tiles. */}
-                  <div className="mb-2 rounded-lg border border-border/40 bg-muted/20 p-3">
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Stock</p>
-                        <p className="mt-0.5 text-base font-mono font-bold">{openingStock}</p>
-                      </div>
-                      <p className="text-[10px] tabular-nums text-muted-foreground">
-                        {openingStock} opening + {netPurchased} purchased − {netSold} sold = <span className="font-semibold text-foreground">{currentStock}</span> in stock
-                      </p>
-                    </div>
-                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { label: 'Sold Qty', value: String(history.summary.totalSoldQty), sub: `${history.summary.totalSalesReturnQty ?? 0} returned`, color: 'text-rose-600 dark:text-rose-400' },
@@ -621,8 +610,7 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                     ))}
                   </div>
                 </section>
-                )
-              })()}
+              )}
 
               {/* Active batches */}
               {detail.batches.length > 0 && (
@@ -667,6 +655,14 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               <p className="text-sm text-muted-foreground">Product not found</p>
             </div>
           )
+        ) : activeTab === 'batches' ? (
+          // ── Batches tab — reads the product record (detail.batches), so it
+          //    stands apart from the history loading / empty gates below.
+          <ProductBatchesTab
+            batches={detail.batches}
+            loading={detail.loading}
+            onAfterAction={detail.refetch}
+          />
         ) : loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />

@@ -142,6 +142,7 @@ export interface ParsedInvoice {
   sourceRow: number
   invoiceNumber?: string
   date?: string
+  dueDate?: string
   notes?: string
   subtotal?: number
   productDiscount?: number
@@ -293,6 +294,7 @@ const INVOICE_COLUMNS = [
   'invoice_ref',
   'invoice_number',
   'date',
+  'due_date',
   'billing_type',
   'subtotal',
   'product_discount',
@@ -452,6 +454,7 @@ const SAMPLE_INVOICE_ROW: Record<string, string | number> = {
   // Include the time (HH:mm:ss) so transactions keep their exact order in the
   // ledger. Date-only ("2026-04-12") also works — same-day rows just group.
   date: '2026-04-12T10:30:00',
+  due_date: '2026-05-12T10:30:00',
   billing_type: 'WHOLESALE',
   subtotal: 10000,
   product_discount: 0,
@@ -600,7 +603,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Sheet: Customers  (mandatory)', 'REQUIRED: name, phone.  Recommended: customer_code (needed to attach any invoices/payments below), type, opening_balance (sets the current outstanding). `doctor_ref` applies only when type = DOCTOR.'],
   ['   ↳ read-only columns', 'total_billed, total_paid, outstanding, pending_invoices are REFERENCE ONLY — auto-filled on export and IGNORED on import. Leave them blank; the real balance comes from opening_balance + the Invoices / Payments sheets.'],
   ['', ''],
-  ['Sheet: Invoices', 'REQUIRED: customer_code.  Recommended: invoice_number (original bill no.), grand_total, date. `invoice_ref` links its line items. If invoice_number is blank a number is auto-generated (will NOT match the physical bill).'],
+  ['Sheet: Invoices', 'REQUIRED: customer_code.  Recommended: invoice_number (original bill no.), grand_total, date, due_date. `invoice_ref` links its line items. If invoice_number is blank a number is auto-generated (will NOT match the physical bill).'],
   ['Sheet: Invoice Items', 'Optional. REQUIRED per row: invoice_ref, product_name, quantity. Header-only invoices are accepted if line detail is gone.'],
   ['', ''],
   ['Sheet: Payments', 'REQUIRED: customer_code, amount (greater than 0).  Recommended: invoice_number (the bill this receipt paid — keeps it attributed correctly), date, payment_mode, receipt_number.'],
@@ -915,6 +918,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       sourceRow: rowNum,
       invoiceNumber: toOptionalStr(raw.invoice_number),
       date: toISODate(raw.date),
+      dueDate: toISODate(raw.due_date),
       notes: toOptionalStr(raw.notes),
       billingType: toOptionalStr(raw.billing_type),
       subtotal: toOptionalNumber(raw.subtotal),
@@ -1476,6 +1480,7 @@ interface ExportInvoiceInput {
   id: string
   invoiceNumber: string
   date: string | Date
+  dueDate?: string | Date | null
   customerId: string | null
   billingType?: string
   subtotal?: number | string
@@ -1733,6 +1738,7 @@ export function exportCustomersToWorkbook(
     invoice_ref: invRefFor.get(inv.invoiceNumber) ?? '',
     invoice_number: inv.invoiceNumber,
     date: isoDateTime(inv.date),
+    due_date: isoDateTime(inv.dueDate),
     billing_type: inv.billingType ?? '',
     subtotal: num(inv.subtotal),
     product_discount: num(inv.productDiscount),

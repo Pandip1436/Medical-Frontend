@@ -179,12 +179,16 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
         'flex-1 overflow-y-auto bg-muted/30 px-6 py-4',
         // Page: the four lower cards sit in one row on wide screens (xl:4-up) so
         // the whole view is just 2 rows and fits without scrolling; medium
-        // screens fall back to 2-up. Panel: single-column stack for the sheet.
-        isPage ? 'grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-4 lg:content-start' : 'space-y-5',
+        // screens fall back to 2-up. Panel: the sheet is wide (~760px), so pair
+        // the detail cards 2-up from sm+ too — a single column buried Supplier /
+        // Purchase / PE No below the fold. Phones (full-width sheet) stay 1-col.
+        isPage
+          ? 'grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-4 lg:content-start'
+          : 'grid items-start gap-4 sm:grid-cols-2',
       )}>
         {/* Expiry — the headline of an expiry view, so it's the hero block:
             large date + countdown, colour-coded by status. Spans full width. */}
-        <div className={cn('space-y-2', isPage && 'lg:col-span-full')}>
+        <div className={cn('space-y-2', isPage ? 'lg:col-span-full' : 'sm:col-span-2')}>
           <SectionLabel>Expiry Date</SectionLabel>
           <div className={cn(
             'flex flex-wrap items-center justify-between gap-3 rounded-xl border px-6 py-3',

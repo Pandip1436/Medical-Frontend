@@ -173,7 +173,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Booleans', 'TRUE / FALSE'],
   ['Money / rates', 'Plain numbers — no ₹ symbols or commas. gst_rate is a percent (12, not 0.12).'],
   ['', ''],
-  ['total_stock', 'OPTIONAL opening stock. NOTE: the canonical source of stock is Batches (created via GRN). If you load real GRNs after this import, the totals will drift apart. Recommended: leave blank and load opening stock via the supplier import (GRN sheet).'],
+  ['total_stock', 'READ-ONLY reference column on export (auto-filled). IGNORED on import — stock enters only via GRNs / Purchases.'],
   ['category_id vs category_name', 'Either one. If both present, category_id wins. If you only have a name, we auto-create the category in your active branch.'],
   ['Defaults for missing fields', 'generic_name → "Unknown" · manufacturer → "Unknown" · pack_size → "1" · unit_of_measure → "NOS" · hsn_code → "" · rack_location → "GENERAL" · schedule → NONE · storage_condition → ROOM_TEMP'],
   ['', ''],
@@ -689,7 +689,7 @@ export function exportProductsToWorkbook(
     ['Field', 'Notes'],
     ...buildExportMetadataRows(meta),
     ['Sheet: Categories', 'One row per category. Edit description / colour / active flag.'],
-    ['Sheet: Products', 'One row per product. Edit any field; on re-import "Update existing" rewrites them. Don\'t rename columns. total_stock is denormalised — don\'t expect editing it to change live stock.'],
+    ['Sheet: Products', 'One row per product. Edit any field; on re-import "Update existing" rewrites them. Don\'t rename columns. total_stock is reference-only on export and ignored on import.'],
   ])
   applyInstructionsFormatting(instructionsWs, SHEET_COLORS.instructions)
   XLSX.utils.book_append_sheet(wb, instructionsWs, 'Instructions')

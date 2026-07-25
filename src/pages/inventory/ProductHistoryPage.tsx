@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX, PackagePlus, SquarePen, AlertTriangle,
+  RotateCcw, PackageX, PackagePlus, SquarePen, AlertTriangle, Layers,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -21,6 +21,8 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
+import { ProductBatchesTab } from './components/ProductBatchesTab'
+import { useProductBatches } from './hooks/useProductBatches'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
@@ -33,7 +35,7 @@ import {
 } from './productHistoryExport'
 
 // ─── Types ────────────────────────────────────────────────────
-type ActiveTab = 'sales' | 'purchases' | 'timeline'
+type ActiveTab = 'sales' | 'purchases' | 'timeline' | 'batches'
 
 type PartyKind = 'customer' | 'supplier'
 
@@ -135,6 +137,10 @@ export default function ProductHistoryPage() {
   const [history, setHistory] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = usePageFilter<ActiveTab>('inventory.productHistory', 'activeTab', 'timeline')
+
+  // In-stock batches for the Batches tab — independent of the history feed
+  // (own endpoint), so this tab works even while history is still loading.
+  const { batches, loading: batchesLoading, refetch: refetchBatches } = useProductBatches(selectedProductId)
 
   // Shared search/date filters
   const [searchQuery, setSearchQuery] = usePageFilter<string>('inventory.productHistory', 'search', '')
@@ -420,26 +426,32 @@ export default function ProductHistoryPage() {
               <PackagePlus className="h-3.5 w-3.5" />
               Create PO
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
-            >
-              {sortOrder === 'desc'
-                ? <><ArrowDown className="h-3.5 w-3.5" /> New to Old</>
-                : <><ArrowUp className="h-3.5 w-3.5" /> Old to New</>
-              }
-            </Button>
-            <ExportMenu
-              title={productHistoryExportTitle(activeTab, exportProductName)}
-              filename={productHistoryExportFilename(activeTab, exportProductName)}
-              noun="record"
-              rows={() => buildProductHistoryExportRows(activeTab, filteredSales, filteredPurchases, filteredTimeline)}
-              disabled={activeCount === 0}
-              size="sm"
-              variant="outline"
-            />
+            {/* Sort + export drive the transaction-history tabs; the Batches
+                tab has its own ordering and isn't part of the history export. */}
+            {activeTab !== 'batches' && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
+                >
+                  {sortOrder === 'desc'
+                    ? <><ArrowDown className="h-3.5 w-3.5" /> New to Old</>
+                    : <><ArrowUp className="h-3.5 w-3.5" /> Old to New</>
+                  }
+                </Button>
+                <ExportMenu
+                  title={productHistoryExportTitle(activeTab, exportProductName)}
+                  filename={productHistoryExportFilename(activeTab, exportProductName)}
+                  noun="record"
+                  rows={() => buildProductHistoryExportRows(activeTab, filteredSales, filteredPurchases, filteredTimeline)}
+                  disabled={activeCount === 0}
+                  size="sm"
+                  variant="outline"
+                />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -514,7 +526,9 @@ export default function ProductHistoryPage() {
         </div>
       )}
 
-      {/* Filter bar */}
+      {/* Filter bar — history tabs only; the Batches tab carries its own
+          search + status filter (rendered inside ProductBatchesTab). */}
+      {activeTab !== 'batches' && (
       <DataTableFilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -549,6 +563,7 @@ export default function ProductHistoryPage() {
           </Select>
         </div>
       </DataTableFilterBar>
+      )}
 
       {/* Content area */}
       {!selectedProductId ? (
@@ -567,7 +582,7 @@ export default function ProductHistoryPage() {
             </Button>
           </CardContent>
         </Card>
-      ) : loading ? (
+      ) : loading && activeTab !== 'batches' ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="h-8 w-8 rounded-full border-b-2 border-primary animate-spin" />
@@ -603,10 +618,25 @@ export default function ProductHistoryPage() {
               count={filteredTimeline.length}
               color="text-primary"
             />
+            <TabButton
+              active={activeTab === 'batches'}
+              onClick={() => setActiveTab('batches')}
+              icon={Layers}
+              label="Batches"
+              count={batches.length}
+              color="text-indigo-600 dark:text-indigo-400"
+            />
           </div>
 
-          {/* Empty state (no data at all) */}
-          {!hasData ? (
+          {/* Batches tab — reads the batch endpoint, so it stands apart from
+              the history empty/no-match gates below. */}
+          {activeTab === 'batches' ? (
+            <ProductBatchesTab
+              batches={batches}
+              loading={batchesLoading}
+              onAfterAction={refetchBatches}
+            />
+          ) : !hasData ? (
             <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50">
                 <BarChart3 className="h-7 w-7 text-muted-foreground/50" />
