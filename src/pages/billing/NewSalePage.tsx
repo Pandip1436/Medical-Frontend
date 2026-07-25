@@ -1004,7 +1004,7 @@ function BillingRow({
   <TableCell className="w-20 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5 items-end">
     {/* Spacer keeps this column aligned with the other columns' helper rows. */}
-    <div className="min-h-5" />
+    <div className="min-h-4" />
 
     {invoiceType === "quotation" ? (
       <input
@@ -1077,7 +1077,7 @@ function BillingRow({
         operator sees how much of the batch remains after this line. Shown even
         at qty 0 (so it reads e.g. "1328 left" the moment a batch is picked).
         Turns amber at zero (batch fully consumed), red if the qty exceeds stock. */}
-    <div className="min-h-5 flex items-center justify-center">
+    <div className="min-h-4 flex items-center justify-center">
       {item.batchId && (() => {
         const remaining = selectedBatchAvail - item.quantity
         return (
@@ -1211,7 +1211,7 @@ function BillingRow({
     return (
       <div className="flex flex-col gap-1.5">
         {/* Original Rate */}
-        <div className="min-h-5 flex items-center justify-center">
+        <div className="min-h-4 flex items-center justify-center">
           {item.productId && originalRate > 0 && (
             <span
               className={cn(
@@ -1329,7 +1329,7 @@ function BillingRow({
    <TableCell className="w-20 px-2 py-2.5 align-middle">
   <div className="flex flex-col gap-1.5">
     {/* Helper Row */}
-    <div className="min-h-5 flex items-center justify-center">
+    <div className="min-h-4 flex items-center justify-center">
       {item.discountPercent > 0 && (
         <span className="text-[11px] text-rose-500 font-medium">
           Discount
@@ -1404,7 +1404,7 @@ function BillingRow({
      <TableCell className="w-18 px-1 py-2.5 text-center align-middle">
   <div className="flex flex-col gap-1.5 items-center">
     {/* Spacer keeps this column aligned with the other columns' helper rows. */}
-    <div className="min-h-5" />
+    <div className="min-h-4" />
 
     {invoiceType === "quotation" ? (
       <input
@@ -1983,7 +1983,7 @@ function PaymentPanel({
   }, [grandTotal])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-1.5">
       {/* Mode segmented control. Locked while editing: an edit never collects a
           new payment (amountPaid is preserved server-side), so switching to
           Cash/UPI would only surface a dead amount field and rewrite the stored
@@ -1996,7 +1996,7 @@ function PaymentPanel({
             onClick={() => onModeChange(pm.value)}
             disabled={isEditing}
             className={cn(
-              'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors',
+              'inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
               mode === pm.value
                 ? 'bg-background text-foreground shadow-sm ring-1 ring-border/40'
                 : 'text-muted-foreground hover:text-foreground',
@@ -2111,12 +2111,12 @@ function PaymentPanel({
 
       {/* Credit */}
       {mode === 'CREDIT' && (
-        <div className="space-y-2.5">
+        <div className="space-y-1.5">
           {customer && (() => {
             const outstanding = Number(customer.currentOutstanding) || 0
             const hasCredit = outstanding < 0
             return (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5 text-[11px] space-y-1.5">
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-1.5 text-[11px] space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">{hasCredit ? 'Available Credit' : 'Outstanding'}</span>
                   <span className={cn(
@@ -2149,11 +2149,28 @@ function PaymentPanel({
               </div>
             )
           })()}
-          {/* Pure credit sale — nothing collected now, the whole amount goes to
-              the customer's outstanding with a due date. To collect a part-payment
-              up front, use Cash/UPI mode with a partial amount (that records the
-              collection method in history and marks the invoice credit). */}
-          <div className="space-y-1.5">
+          {/* Optional cash advance taken up front against the credit sale. The
+              remaining balance still goes to the customer's outstanding with a due
+              date. On save, amountPaid = min(this, grand total) (see submitInvoice). */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cash Received <span className="font-normal normal-case text-muted-foreground/70">(advance — optional)</span>
+            </label>
+            <Input
+              type="number"
+              min={0}
+              max={grandTotal}
+              value={details.amountReceived || ''}
+              onChange={(e) =>
+                onDetailsChange({ amountReceived: Math.min(grandTotal, Math.max(0, parseFloat(e.target.value) || 0)) })
+              }
+              className="h-9 font-mono text-sm font-semibold tabular-nums"
+              placeholder="0.00"
+            />
+          </div>
+          {/* The remainder after any advance goes to the customer's outstanding,
+              so a due date is still required for the credit balance. */}
+          <div className="space-y-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date <span className="text-rose-500">*</span>
             </label>
@@ -4893,7 +4910,7 @@ export default function NewSalePage() {
   const actionBarInner = (
     <div className="border-t border-border bg-background/95 backdrop-blur-sm">
       {/* responsive: kbd badges (F7/F8/F9/F10) hidden on md tablets to keep cells from overflowing. 6-wide grid: Held + Hold + Share + Preview (4) + Save & Print (spans 2) = 6, so the bar fills with no empty column. */}
-      <div className="grid grid-cols-6 divide-x divide-border/60">
+      <div className="grid grid-cols-6 divide-x divide-border/60 [&_button]:py-2.5">
         {/* Held — with count badge */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -5049,7 +5066,7 @@ export default function NewSalePage() {
             SEARCH BAR + CONTEXT ROW
         ═══════════════════════════════════════════════════ */}
         {/* responsive: stack vertically below md, side-by-side md+; gap scales lg+. Hidden in checkout step until lg (where both panels show side-by-side) */}
-        <div className={cn("flex flex-col gap-2 mb-3 md:flex-row md:flex-wrap md:items-stretch md:h-auto lg:h-11 md:gap-2 lg:gap-3 shrink-0", mobileStep === 'checkout' && 'hidden lg:flex')}>
+        <div className={cn("flex flex-col gap-2 mb-2 md:flex-row md:flex-wrap md:items-stretch md:h-auto lg:h-10 md:gap-2 lg:gap-3 shrink-0", mobileStep === 'checkout' && 'hidden lg:flex')}>
           {/* ═══════════════════════════════════════════════════
               TABLE ACTION AREA (Aligned with Table Card)
           ═══════════════════════════════════════════════════ */}
@@ -5080,7 +5097,7 @@ export default function NewSalePage() {
                       onKeyDown={handleHeroKeyDown}
                       placeholder="Search products..."
                       className={cn(
-                        'w-full h-11 rounded-lg border border-border bg-background pl-10 pr-20 text-sm',
+                        'w-full h-10 rounded-lg border border-border bg-background pl-10 pr-20 text-sm',
                         'placeholder:text-muted-foreground/50 font-medium',
                         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:border-primary/40',
                         'transition-colors duration-150 hover:border-border/80'
@@ -5243,7 +5260,7 @@ export default function NewSalePage() {
                 type="button"
                 onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
                 className={cn(
-                  'flex items-center gap-2.5 w-full h-11 rounded-lg border bg-background px-3 text-xs transition-colors',
+                  'flex items-center gap-2.5 w-full h-10 rounded-lg border bg-background px-3 text-xs transition-colors',
                   selectedCustomer
                     ? 'border-border hover:border-border/80'
                     : 'border-dashed border-amber-500/40 bg-amber-500/4 hover:border-amber-500/60'
@@ -5406,7 +5423,7 @@ export default function NewSalePage() {
           {/* responsive: only show salesperson context strip on lg+; below that, the customer row already shows the badge */}
           <div className="hidden lg:flex w-48 xl:w-56 shrink-0 items-stretch">
             <div className={cn(
-              'flex items-center gap-2 w-full h-11 rounded-lg border border-border bg-muted/30 px-3 text-xs select-none overflow-hidden',
+              'flex items-center gap-2 w-full h-10 rounded-lg border border-border bg-muted/30 px-3 text-xs select-none overflow-hidden',
             )}>
               <div className={cn(
                 "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold",
@@ -5442,7 +5459,7 @@ export default function NewSalePage() {
               <Button
                 type="button"
                 onClick={startNewSale}
-                className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
+                className="h-10 md:h-10 px-3 shrink-0 gap-1.5"
                 title="Start a new sale (Ctrl+N) — the current bill is parked in Held"
               >
                 <Plus className="h-4 w-4" />
@@ -5454,7 +5471,7 @@ export default function NewSalePage() {
                   type="button"
                   variant="outline"
                   onClick={() => openNewReminder(`Monthly order follow-up — ${selectedCustomer.name}`)}
-                  className="h-11 md:h-11 px-3 shrink-0 gap-1.5"
+                  className="h-10 md:h-10 px-3 shrink-0 gap-1.5"
                   title="Set monthly reminder for this customer"
                 >
                   <CalendarClock className="h-4 w-4" />
@@ -5472,21 +5489,21 @@ export default function NewSalePage() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden mb-2"
+              className="overflow-hidden mb-1"
             >
               {/* Neutral strip (no colored fill) so it doesn't clash with the
                   rose credit-block banner when both are on screen. */}
-              <div className="border-b border-border/40 px-4 py-2">
+              <div className="border-b border-border/40 px-4 py-1.5">
                 {/* Detail fields (name shown in the selector pill above).
                     A hide/show toggle collapses the strip to reclaim vertical space. */}
                 <div className="flex items-start justify-between gap-2">
-                  <div className={cn('flex min-w-0 flex-1 flex-wrap items-start gap-x-8 gap-y-2.5', customerDetailsHidden && 'hidden')}>
+                  <div className={cn('flex min-w-0 flex-1 flex-wrap items-start gap-x-8 gap-y-1.5', customerDetailsHidden && 'hidden')}>
                   {selectedCustomer.phone && selectedCustomer.phone !== '0000000000' && (
                     <div className="flex items-center gap-2">
                       <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground/60" />
                       <div>
                         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">Phone</div>
-                        <div className="text-sm font-medium text-foreground tabular-nums">
+                        <div className="text-xs font-medium text-foreground tabular-nums">
                           {selectedCustomer.phone}
                           {selectedCustomer.alternatePhone && <span className="text-muted-foreground"> / {selectedCustomer.alternatePhone}</span>}
                         </div>
@@ -5494,11 +5511,11 @@ export default function NewSalePage() {
                     </div>
                   )}
                   {selectedCustomer.address && (
-                    <div className="flex items-start gap-2 min-w-0 max-w-md">
-                      <MapPin className="h-4 w-4 shrink-0 text-muted-foreground/60 mt-0.5" />
+                    <div className="flex items-start gap-2 min-w-0 max-w-xl">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 mt-0.5" />
                       <div className="min-w-0">
                         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">Address</div>
-                        <div className="text-sm font-medium text-foreground leading-snug">{selectedCustomer.address}</div>
+                        <div className="text-xs font-medium text-foreground leading-snug">{selectedCustomer.address}</div>
                       </div>
                     </div>
                   )}
@@ -5507,7 +5524,7 @@ export default function NewSalePage() {
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
                       <div>
                         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">GSTIN</div>
-                        <div className="text-sm font-medium text-foreground font-mono">{selectedCustomer.gstin}</div>
+                        <div className="text-xs font-medium text-foreground font-mono">{selectedCustomer.gstin}</div>
                       </div>
                     </div>
                   )}
@@ -5516,7 +5533,7 @@ export default function NewSalePage() {
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
                       <div>
                         <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 leading-none mb-0.5">DL No.</div>
-                        <div className="text-sm font-medium text-foreground font-mono">{selectedCustomer.dlNumber}</div>
+                        <div className="text-xs font-medium text-foreground font-mono">{selectedCustomer.dlNumber}</div>
                       </div>
                     </div>
                   )}
@@ -5588,8 +5605,10 @@ export default function NewSalePage() {
         {/* ═══════════════════════════════════════════════════
             MAIN TWO-PANEL LAYOUT
         ═══════════════════════════════════════════════════ */}
-        {/* responsive: stacks below lg (tablets get full-width table); side-by-side only at lg+ where there's room for both 920px table + 288px sidebar */}
-        <div className="flex flex-col gap-1.5 flex-1 lg:flex-row lg:gap-2 overflow-hidden">
+        {/* responsive: always a vertical stack — product table on top, order-summary
+            bar underneath (legacy Sales Bill layout). Below lg the mobileStep flow
+            shows one panel at a time; at lg+ both stack (table flex-1 + bottom bar). */}
+        <div className="flex flex-col gap-1.5 flex-1 lg:gap-1.5 overflow-hidden">
           {/* ── LEFT: Table Area with Tabs ────────────────── */}
           {/* responsive: hidden during checkout step on mobile + tablet; always visible at lg+ where panels are side-by-side */}
           <div className={cn("flex-1 min-w-0 flex flex-col min-h-0", mobileStep === 'checkout' && 'hidden lg:flex')}>
@@ -6035,7 +6054,7 @@ export default function NewSalePage() {
             ) : (
               <>
             {/* Tab strip — order: Customer History | Products | Reminders */}
-            <div className="flex items-center justify-between gap-2 mb-2 border-b border-border/60">
+            <div className="flex items-center justify-between gap-2 mb-1 border-b border-border/60">
               {/* responsive: tab row fills the space left of the toggle and
                   scrolls horizontally when its 5 tabs (which carry the customer
                   name, so they get long) don't fit — instead of overflowing and
@@ -6205,7 +6224,7 @@ export default function NewSalePage() {
                             the scroll viewport (outer wrapper) stays full size.
                             Scoped to this sales table — the rest of the page and
                             other screens are unaffected. */}
-                        <Table className="w-full min-w-200 [zoom:0.8]">
+                        <Table className="w-full min-w-200 [zoom:0.8] [&_td]:!py-1.5 [&_th]:!py-2">
                           <TableHeader className="sticky top-0 z-20 bg-linear-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
                             <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
@@ -7119,17 +7138,154 @@ export default function NewSalePage() {
               </Button>
             </div>
 
-            {/* Desktop action bar — rendered inside the left column (lg+ only)
-                so it spans just the table width, leaving the order-summary
-                sidebar free to use the full height beside it without scrolling. */}
-            <div className="hidden lg:block shrink-0 mt-2">
-              {actionBarInner}
-            </div>
+            {/* Desktop action bar moved into the bottom summary bar below (lg+),
+                so it sits under the totals like the legacy screen. On md/phones it
+                still renders in the full-width footer further down. */}
           </div>
 
-          {/* ── RIGHT: Sticky Sidebar ────────────────── */}
-          {/* responsive: full-width on mobile + tablet (in checkout step); 288px at lg; 304px at xl. md (tablets) now goes through the step flow */}
-          <div className={cn("w-full flex-1 min-h-0 flex flex-col gap-2 lg:w-72 xl:w-76 lg:flex-none", mobileStep === 'items' && 'hidden lg:flex')}>
+          {/* ═══════════════════════════════════════════════════
+              DESKTOP BOTTOM SUMMARY BAR (lg+) — order summary + inline payment
+              stacked directly under the product table, like the legacy Sales
+              Bill screen. Replaces the right sidebar at lg+; the sidebar below
+              (now lg:hidden) still serves the mobile/tablet checkout step.
+          ═══════════════════════════════════════════════════ */}
+          <div className="hidden lg:flex lg:flex-col shrink-0 rounded-xl border border-border/60 bg-card shadow-md shadow-black/5 ring-1 ring-border/30 overflow-hidden">
+            <div className="flex items-stretch divide-x divide-border/60 max-h-[46vh] overflow-y-auto">
+
+              {/* ── Totals (legacy-style grid) ── */}
+              <div className="flex-1 min-w-0 p-2 flex flex-col">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <Receipt className="h-3.5 w-3.5" />
+                  Order Summary
+                  <span className="ml-auto inline-flex items-center gap-1 font-semibold tabular-nums">
+                    <Package className="h-3 w-3" />
+                    {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="flex-1 flex flex-wrap content-evenly gap-x-8 gap-y-1.5 text-xs xl:text-[13px] [&>div]:w-40 xl:[&>div]:w-44">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">No. of Items</span>
+                    <span className="font-mono font-medium tabular-nums">{activeItemCount}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Total Qty</span>
+                    <span className="font-mono font-medium tabular-nums">
+                      {items.reduce((s, i) => s + ((i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) ? (Number(i.quantity) || 0) : 0), 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
+                  </div>
+                  {totals.productDiscount > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Discount</span>
+                      <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Taxable</span>
+                    <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
+                  </div>
+                  {(totals.cgst + totals.sgst) > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">CGST + SGST</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                    </div>
+                  )}
+                  {totals.igst > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">IGST</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
+                    </div>
+                  )}
+                  {/* Delivery — editable, non-taxable add-on */}
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-muted-foreground">Delivery</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-muted-foreground">₹</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.01"
+                        value={deliveryCharge === 0 ? '' : deliveryCharge}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          const n = v === '' ? 0 : parseFloat(v)
+                          setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
+                        }}
+                        placeholder="0.00"
+                        className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                  {totals.roundOff !== 0 && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Round Off</span>
+                      <span className={cn('font-mono font-medium tabular-nums', totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
+                        {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {invoiceType !== 'quotation' && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><Truck className="h-3.5 w-3.5" /> Courier</span>
+                      <Switch checked={enableCourier} onCheckedChange={setEnableCourier} aria-label="Send to courier tracking after save" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Payment (invoices only) ── */}
+              {invoiceType !== 'quotation' && (
+                <div className="w-72 xl:w-80 2xl:w-88 shrink-0 p-2">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <CreditCard className="h-3.5 w-3.5" />
+                    Payment
+                  </div>
+                  <PaymentPanel
+                    mode={paymentMode}
+                    onModeChange={setPaymentMode}
+                    grandTotal={totals.grandTotal}
+                    details={paymentDetails}
+                    onDetailsChange={(d) => setPaymentDetails((prev) => ({ ...prev, ...d }))}
+                    customer={selectedCustomer}
+                    isEditing={!!editingInvoiceId}
+                  />
+                </div>
+              )}
+
+              {/* ── Net Payable ── */}
+              <div className="w-44 xl:w-52 2xl:w-56 shrink-0 flex flex-col justify-center gap-2 p-2 bg-linear-to-br from-primary/10 via-primary/5 to-transparent">
+                {invoiceType !== 'quotation' && paymentMode !== 'SPLIT' && (() => {
+                  const applied = Math.min(Number(paymentDetails.amountReceived) || 0, totals.grandTotal)
+                  const dueAmt = totals.grandTotal - applied
+                  if (dueAmt <= 0.01) return null
+                  return (
+                    <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-2.5 py-1.5 text-amber-700 dark:text-amber-400 text-[11px]">
+                      <span className="flex items-center gap-1.5 font-semibold"><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" /> Credit</span>
+                      <span className="font-mono font-bold tabular-nums">{formatCurrency(dueAmt)} due</span>
+                    </div>
+                  )
+                })()}
+                <div>
+                  <span className="block text-[10px] xl:text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
+                  <span className="mt-1 block whitespace-nowrap text-right font-mono text-2xl xl:text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
+                    {formatCurrency(totals.grandTotal)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action bar (Held / Hold / Share / Preview / Save & Print) */}
+            {actionBarInner}
+          </div>
+
+          {/* ── Sticky Sidebar — mobile/tablet checkout step only (lg:hidden) ── */}
+          {/* responsive: full-width on mobile + tablet (in checkout step). At lg+ this
+              sidebar is replaced by the bottom summary bar above, so it's hidden. */}
+          <div className={cn("w-full flex-1 min-h-0 flex flex-col gap-2 lg:hidden", mobileStep === 'items' && 'hidden')}>
             {/* responsive: back-to-items button shown on mobile + tablet; hidden at lg+ */}
             <div className="flex items-center gap-2 lg:hidden">
               <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setMobileStep('items')}>
