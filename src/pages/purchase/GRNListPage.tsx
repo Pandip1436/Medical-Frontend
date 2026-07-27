@@ -509,7 +509,7 @@ export default function GRNListPage() {
           <div className="mx-0.5 hidden h-6 w-px bg-border/60 sm:block" />
           <Button size="sm" onClick={() => navigate('/purchase/grn')}>
             <PackageCheck className="mr-1.5 h-4 w-4" />
-            <span className="hidden sm:inline">New PE</span>
+            <span className="hidden sm:inline">New Purchase Entry</span>
           </Button>
           <ViewModeToggle
             view="split"
@@ -699,7 +699,7 @@ export default function GRNListPage() {
               onClick={() => navigate('/purchase/grn')}
             >
               <PackageCheck className="mr-1.5 h-4 w-4" />
-              <span className="hidden sm:inline">New PE</span>
+              <span className="hidden sm:inline">New Purchase Entry</span>
               <span className="sm:hidden">New</span>
             </Button>
           </div>

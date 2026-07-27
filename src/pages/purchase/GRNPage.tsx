@@ -7,12 +7,13 @@ import type { Product } from '@/types'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Package,
-  ClipboardList,
+  LayoutGrid,
+  List as ListIcon,
   CheckCircle2,
   Trash2,
   Search,
   AlertTriangle,
-  ArrowLeft,
+  IndianRupee,
   Layers,
   FileText,
   Printer,
@@ -50,7 +51,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { navigate, goBack, useRoute } from '@/lib/router'
+import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -355,17 +356,18 @@ export default function GRNPage() {
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
 
-  // Right panel step (Invoice+Payment, then Summary+Confirm) — independent
-  // of showConfirm above. The panel used to be one long scroll; splitting it
-  // into two steps means each one fits on screen without scrolling. Which
-  // step is showing has no bearing on whether the left workspace is in edit
-  // or review mode — they're separate axes that happen to share a footer.
-  const [panelStep, setPanelStep] = useState<1 | 2>(1)
-  const [panelDirection, setPanelDirection] = useState(1)
-  const goToPanelStep = (step: 1 | 2) => {
-    setPanelDirection(step > panelStep ? 1 : -1)
-    setPanelStep(step)
+  // Item workspace view: 'list' (compact editable table, like the New Sale
+  // page) or 'card' (roomy stacked cards). Persisted so the choice sticks.
+  const [itemViewMode, setItemViewMode] = useState<'list' | 'card'>(() => {
+    try { return (localStorage.getItem('grn_item_view') as 'list' | 'card') || 'list' } catch { return 'list' }
+  })
+  const setItemView = (v: 'list' | 'card') => {
+    setItemViewMode(v)
+    try { localStorage.setItem('grn_item_view', v) } catch { /* ignore */ }
   }
+
+  // Right panel shows Invoice+Payment and the Summary together in a single
+  // scroll view (no step wizard). The footer goes straight to Review → Confirm.
 
   // Mobile-only third axis: which "page" of the wizard the edit view shows —
   // 'products' (source bar + supplier/product search + item cards) or 'panel'
@@ -687,21 +689,6 @@ export default function GRNPage() {
   }
 
   // ── Source toggle ──
-  function handleSourceChange(type: 'po' | 'direct') {
-    setSourceType(type)
-    setSelectedPOId(null)
-    setGrnItems(type === 'direct' ? [createEmptyItem()] : [])
-    setInvoiceNo('')
-    setInvoiceDate('')
-    setInvoiceAmount(0); setInvoiceAmountEdited(false)
-    setPayChoice('CREDIT')
-    setPaidAmount(0)
-    setPayMode('NEFT_UPI')
-    setDirectSupplierId('')
-    setDirectSupplierName('')
-    setSupplierSearch('')
-  }
-
   // ── Item operations ──
   function updateItem(index: number, field: keyof GRNFormItem, value: string | number) {
     setGrnItems((prev) => {
@@ -1075,7 +1062,6 @@ export default function GRNPage() {
     setPayChoice('CREDIT')
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
-    setPanelStep(1)
     setMobileSectionState('products')
     draft.clear()
   }
@@ -1090,6 +1076,76 @@ export default function GRNPage() {
   // scroll — see `panelStep`. Both are pure content; neither renders its
   // own Next/Back/Confirm buttons, which stay in the (already step-aware)
   // pinned footers below.
+  // Direct-entry supplier selector (card when picked, search otherwise).
+  // Rendered in the header row on desktop and in the workspace on mobile.
+  function renderSupplierSelector() {
+    return directSupplierId ? (
+      <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Selected supplier</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-bold text-foreground" title={directSupplierName}>{directSupplierName}</p>
+            {directSupplierPhone && (
+              <p className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <Phone className="h-3 w-3" /> {directSupplierPhone}
+              </p>
+            )}
+          </div>
+        </div>
+        {!editMode && (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
+          >
+            ✕ Change
+          </button>
+        )}
+      </div>
+    ) : (
+      <div className="relative">
+        <Input
+          icon={<Search />}
+          placeholder="Search and select supplier..."
+          value={supplierSearch}
+          onChange={(e) => { setSupplierSearch(e.target.value); setSupplierDropdownOpen(true) }}
+          onFocus={() => setSupplierDropdownOpen(true)}
+          onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
+        />
+        {supplierDropdownOpen && (
+          <div
+            ref={supplierDropdownScrollRef}
+            onScroll={handleSupplierDropdownScroll}
+            className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
+          >
+            {supplierResults.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
+                onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
+              >
+                <div>
+                  <p className="text-sm font-medium">{s.name}</p>
+                  {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
+                </div>
+              </button>
+            ))}
+            {supplierResultsLoading && (
+              <div className="flex items-center justify-center gap-2 px-4 py-3 text-[11px] text-muted-foreground">
+                <div className="h-3 w-3 rounded-full border-b-2 border-current animate-spin" />
+                Loading suppliers…
+              </div>
+            )}
+            {!supplierResultsLoading && supplierResults.length === 0 && (
+              <p className="px-4 py-3 text-sm text-muted-foreground">No suppliers found</p>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   function renderInvoiceAndPaymentStep() {
     return (
       <>
@@ -1267,17 +1323,17 @@ export default function GRNPage() {
           </div>
 
           {/* Metric cards */}
-          <div className="grid grid-cols-3 gap-2 mb-3">
-            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-              <p className="font-mono text-lg font-bold">{totalItems}</p>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            <div className="rounded-lg border border-border/40 bg-background p-2 text-center">
+              <p className="font-mono text-base font-bold">{totalItems}</p>
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
             </div>
-            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-              <p className="font-mono text-lg font-bold">{totalQty}</p>
+            <div className="rounded-lg border border-border/40 bg-background p-2 text-center">
+              <p className="font-mono text-base font-bold">{totalQty}</p>
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Total Qty</p>
             </div>
-            <div className="rounded-lg border border-border/40 bg-background p-2.5 text-center">
-              <p className={cn('font-mono text-lg font-bold', shortSupplyCount > 0 && 'text-amber-600 dark:text-amber-400')}>
+            <div className="rounded-lg border border-border/40 bg-background p-2 text-center">
+              <p className={cn('font-mono text-base font-bold', shortSupplyCount > 0 && 'text-amber-600 dark:text-amber-400')}>
                 {shortSupplyCount}
               </p>
               <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Short</p>
@@ -1285,7 +1341,7 @@ export default function GRNPage() {
           </div>
 
           {/* GST breakdown */}
-          <div className="space-y-2 rounded-lg border border-border/40 bg-background p-3">
+          <div className="space-y-1.5 rounded-lg border border-border/40 bg-background p-2.5">
             <div className="flex justify-between text-[11px]">
               <span className="text-muted-foreground">Taxable Amount</span>
               <span className="font-mono font-medium">{formatCurrency(gstBreakdown.taxable)}</span>
@@ -1338,24 +1394,7 @@ export default function GRNPage() {
       {/* ══════════════════════════════════════════════════════════ */}
       {/* FIXED HEADER                                              */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-2.5 sm:px-6">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => goBack(editMode ? '/purchase/grn-list' : '/purchase/orders')}
-            className="text-muted-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h2 className="text-lg font-bold tracking-tight">{editMode ? 'Edit Purchase Entry' : 'New Purchase Entry'}</h2>
-            <p className="text-[11px] text-muted-foreground">
-              {editMode ? 'Amend a received Purchase Entry — stock is reconciled on save' : 'Receive and verify incoming goods'}
-            </p>
-          </div>
-        </div>
-
+      <div className={cn('flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/40 bg-background px-4 py-2.5 sm:px-6', !replacementReturnId && 'lg:hidden')}>
         {/* Replacement return context banner */}
         {replacementReturnId && (
           <div className="flex items-center gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50/60 px-3 py-2 dark:border-emerald-800/40 dark:bg-emerald-950/20">
@@ -1366,59 +1405,60 @@ export default function GRNPage() {
           </div>
         )}
 
-        {/* Source toggle — segmented control. Locked in edit mode: a received
-            GRN's source (PO vs direct) and supplier can't be re-pointed.
-            Below lg, only the Products step needs it (that's where source/
-            supplier/products are chosen) — centered there, hidden on the
-            other mobile steps; always shown at lg+ regardless of step. */}
-        <div className={cn(
-          'items-center rounded-lg border border-border/60 bg-muted/30 p-0.5',
-          mobileSection === 'products' ? 'flex w-full justify-center lg:w-auto lg:justify-start' : 'hidden lg:flex',
-          editMode && 'opacity-60',
-        )}>
-          <button
-            onClick={() => handleSourceChange('po')}
-            disabled={editMode}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-              editMode && 'cursor-not-allowed',
-              sourceType === 'po'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <ClipboardList className="h-3.5 w-3.5" />
-            Against PO
-          </button>
-          <button
-            onClick={() => handleSourceChange('direct')}
-            disabled={editMode}
-            className={cn(
-              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-              editMode && 'cursor-not-allowed',
-              sourceType === 'direct'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <Package className="h-3.5 w-3.5" />
-            Direct Entry
-          </button>
-        </div>
+      </div>
 
-        <div className="hidden items-center gap-2 lg:flex">
-          <Badge variant="outline" size="sm" className="font-mono">
-            {grnNumber}
-          </Badge>
+      {/* ── Supplier + Invoice strip (desktop header) — supplier selection sits
+          on the same row as the invoice fields; moved out of the bottom bar ── */}
+      <div className="hidden lg:flex flex-wrap shrink-0 items-end gap-3 border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
+        {sourceType === 'direct' && (
+          <div className="w-96 shrink-0 self-end">
+            {renderSupplierSelector()}
+          </div>
+        )}
+        <div className="w-56 space-y-1">
+          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice No{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
+          <Input
+            data-field="invoiceNumber"
+            className="h-8 font-mono text-xs"
+            placeholder="e.g. INV-2025-001"
+            value={invoiceNo}
+            onChange={(e) => setInvoiceNo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
+          />
+        </div>
+        <div className="w-44 space-y-1">
+          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
+          <DatePicker dataField="invoiceDate" className="h-8 text-xs" value={invoiceDate} onChange={setInvoiceDate} />
+        </div>
+        <div className="w-40 space-y-1">
+          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
+          <Input
+            type="number"
+            min={0}
+            className="h-8 font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            placeholder="0.00"
+            value={invoiceAmount || ''}
+            onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
+          />
+        </div>
+        {/* Card / List view toggle — last in the invoice row */}
+        <div className="ml-auto flex shrink-0 items-center self-end rounded-lg border border-border/60 bg-muted/30 p-0.5">
+          <button type="button" onClick={() => setItemView('list')} className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-2 text-[11px] font-semibold transition-all', itemViewMode === 'list' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <ListIcon className="h-3.5 w-3.5" /> List
+          </button>
+          <button type="button" onClick={() => setItemView('card')} className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-2 text-[11px] font-semibold transition-all', itemViewMode === 'card' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <LayoutGrid className="h-3.5 w-3.5" /> Card
+          </button>
         </div>
       </div>
 
       {/* ══════════════════════════════════════════════════════════ */}
-      {/* MAIN WORKSPACE — Two-column layout                        */}
+      {/* MAIN WORKSPACE — items on top, summary bar underneath      */}
+      {/* (legacy Sales-Bill style, matching the New Sale page)      */}
       {/* ══════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ─── LEFT: Item Workspace (70%) — or Review View when confirming ─── */}
-        <div className="flex w-full flex-col overflow-hidden border-r border-border/40 lg:w-[70%]">
+      <div className="flex flex-col flex-1 overflow-hidden">
+        {/* ─── TOP: Item Workspace (full width) — or Review View when confirming ─── */}
+        <div className="flex w-full min-h-0 flex-1 flex-col overflow-hidden">
         {showConfirm ? (
           /* ─── REVIEW VIEW ─── replaces the edit form while confirming ─── */
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -1451,7 +1491,7 @@ export default function GRNPage() {
                     line; truncate is only a fallback for pathological
                     values, with the title tooltip on Value revealing the
                     full number on hover in that rare case. */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                   <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
                     <p className="mt-0.5 truncate font-mono text-base font-bold">{totalItems}</p>
@@ -1483,27 +1523,20 @@ export default function GRNPage() {
                       {shortSupplyCount > 0 ? `${shortSupplyCount}` : '✓ Ready'}
                     </p>
                   </div>
-                </div>
-
-                {/* Source / Invoice meta — single horizontal card */}
-                <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/40 bg-muted/20 sm:grid-cols-4">
-                  <div className="flex min-w-0 flex-col justify-center px-3 py-3 sm:px-4">
+                  {/* Source / Invoice meta — merged into the same single-row grid */}
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source</p>
-                    <p className="mt-0.5 truncate text-sm font-medium">
-                      {sourceType === 'po' && selectedPO ? `PO · ${selectedPO.poNumber}` : 'Direct Entry'}
-                    </p>
+                    <p className="mt-0.5 truncate text-sm font-medium">{sourceType === 'po' && selectedPO ? `PO · ${selectedPO.poNumber}` : 'Direct Entry'}</p>
                   </div>
-                  <div className="flex min-w-0 flex-col justify-center border-l border-border/40 px-3 py-3 sm:px-4">
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
-                    <p className="mt-0.5 truncate text-sm font-medium" title={selectedPO?.supplierName || directSupplierName || '—'}>
-                      {selectedPO?.supplierName || directSupplierName || '—'}
-                    </p>
+                    <p className="mt-0.5 truncate text-sm font-medium" title={selectedPO?.supplierName || directSupplierName || '—'}>{selectedPO?.supplierName || directSupplierName || '—'}</p>
                   </div>
-                  <div className="flex min-w-0 flex-col justify-center border-t border-border/40 px-3 py-3 sm:border-t-0 sm:border-l sm:px-4">
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier Invoice</p>
                     <p className="mt-0.5 truncate font-mono text-sm font-medium">{invoiceNo || '—'}</p>
                   </div>
-                  <div className="flex min-w-0 flex-col justify-center border-l border-t border-border/40 px-3 py-3 sm:border-t-0 sm:px-4">
+                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Inv. Amount</p>
                     <p className="mt-0.5 truncate font-mono text-sm font-medium">{invoiceAmount > 0 ? formatCurrency(invoiceAmount) : '—'}</p>
                   </div>
@@ -1667,19 +1700,8 @@ export default function GRNPage() {
                 {/* Mobile/tablet (<lg): Invoice, Payment & Summary fields —
                     the desktop right-hand context panel is hidden below lg. */}
                 <div className="lg:hidden mt-3 space-y-5 border-t border-border/40 pt-3 overflow-hidden">
-                  <AnimatePresence mode="wait" custom={panelDirection}>
-                    <motion.div
-                      key={panelStep}
-                      custom={panelDirection}
-                      initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
-                      transition={{ duration: 0.15, ease: 'easeInOut' }}
-                      className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
-                    >
-                      {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
-                    </motion.div>
-                  </AnimatePresence>
+                  {renderInvoiceAndPaymentStep()}
+                  {renderSummaryAndActionsStep()}
                 </div>
               </div>
             </ScrollArea>
@@ -1874,89 +1896,13 @@ export default function GRNPage() {
 
           {/* Direct entry: product search */}
           {sourceType === 'direct' && (
-            <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-3 space-y-3 dark:bg-muted/5">
-              {/* Supplier selector */}
-              {directSupplierId ? (
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Selected supplier</p>
-                    <div className="mt-0.5 flex min-w-0 items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate text-lg font-bold text-foreground" title={directSupplierName}>{directSupplierName}</p>
-                      {directSupplierPhone && (
-                        <p className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
-                          <Phone className="h-3.5 w-3.5" /> {directSupplierPhone}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {!editMode && (
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
-                    >
-                      ✕ Change
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-start gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      icon={<Search />}
-                      placeholder="Search and select supplier..."
-                      value={supplierSearch}
-                      onChange={(e) => { setSupplierSearch(e.target.value); setSupplierDropdownOpen(true) }}
-                      onFocus={() => setSupplierDropdownOpen(true)}
-                      onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
-                      autoFocus
-                    />
-                    {supplierDropdownOpen && (
-                      <div
-                        ref={supplierDropdownScrollRef}
-                        onScroll={handleSupplierDropdownScroll}
-                        className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
-                      >
-                        {supplierResults.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
-                            onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
-                          >
-                            <div>
-                              <p className="text-sm font-medium">{s.name}</p>
-                              {s.phone && <p className="text-[11px] text-muted-foreground">{s.phone}</p>}
-                            </div>
-                          </button>
-                        ))}
-                        {supplierResultsLoading && (
-                          <div className="flex items-center justify-center gap-2 px-4 py-3 text-[11px] text-muted-foreground">
-                            <div className="h-3 w-3 rounded-full border-b-2 border-current animate-spin" />
-                            Loading suppliers…
-                          </div>
-                        )}
-                        {!supplierResultsLoading && supplierResults.length === 0 && (
-                          <p className="px-4 py-3 text-sm text-muted-foreground">No suppliers found</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 gap-1.5"
-                    onClick={() => setSupplierFormOpen(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add Supplier
-                  </Button>
-                </div>
-              )}
-              {/* Product search + Add Product. Mirrors the supplier row above —
-                  Add Product opens the shared ProductFormDialog drawer so users
-                  can create a master record without leaving the GRN flow. */}
-              <div className="flex items-start gap-2">
+            <div className="shrink-0 border-b border-border/40 bg-muted/10 px-5 py-2.5 flex flex-col gap-2.5 dark:bg-muted/5">
+              {/* Supplier selector — mobile only; on desktop it lives in the header row. */}
+              <div className="lg:hidden">
+                {renderSupplierSelector()}
+              </div>
+              {/* Product search + Add Product */}
+              <div className="min-w-0 flex items-start gap-2">
                 <div className="relative flex-1">
                 <Input
                   icon={<Search />}
@@ -2008,6 +1954,15 @@ export default function GRNPage() {
                   type="button"
                   variant="outline"
                   className="shrink-0 gap-1.5"
+                  onClick={() => setSupplierFormOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Supplier
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
                   onClick={() => setProductFormOpen(true)}
                 >
                   <Plus className="h-4 w-4" />
@@ -2034,6 +1989,58 @@ export default function GRNPage() {
                 </div>
               )}
 
+              {/* ── List (table) view — compact editable rows, like New Sale ── */}
+              {itemViewMode === 'list' && grnItems.filter((i) => i.productId).length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-border/40">
+                  <table className="w-full min-w-[900px] text-xs">
+                    <thead>
+                      <tr className="border-b border-border/50 bg-muted/30 text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
+                        <th className="w-8 px-2 py-2 text-center">#</th>
+                        <th className="px-2 py-2 text-left">Product</th>
+                        <th className="w-24 px-2 py-2 text-left">Recd Qty</th>
+                        <th className="w-20 px-2 py-2 text-left">Free</th>
+                        <th className="w-24 px-2 py-2 text-left">Rate</th>
+                        <th className="w-24 px-2 py-2 text-left">MRP</th>
+                        <th className="w-28 px-2 py-2 text-left">Batch</th>
+                        <th className="w-32 px-2 py-2 text-left">Expiry</th>
+                        <th className="w-16 px-2 py-2 text-left">GST%</th>
+                        <th className="w-24 px-2 py-2 text-right">Amount</th>
+                        {(sourceType === 'direct' || editMode) && <th className="w-8 px-1 py-2"></th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {grnItems.filter((i) => i.productId).map((item, index) => (
+                        <tr key={item.id} className={cn(item.shortSupply ? 'bg-amber-50/30 dark:bg-amber-900/5' : item.receivedQty > 0 ? 'bg-emerald-50/20 dark:bg-emerald-900/5' : '')}>
+                          <td className="px-2 py-1.5 text-center text-[10px] font-bold text-muted-foreground">{index + 1}</td>
+                          <td className="px-2 py-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate font-semibold text-[13px]" title={item.productName}>{item.productName}</span>
+                              {item.shortSupply && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />}
+                            </div>
+                          </td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'receivedQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.receivedQty || ''} onChange={(e) => updateItem(index, 'receivedQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'receivedQty') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'freeQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.freeQty || ''} onChange={(e) => updateItem(index, 'freeQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'freeQty') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'purchaseRate')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.purchaseRate || ''} onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'mrp')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.mrp || ''} onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'batchNumber')} className="h-8 font-mono text-xs" placeholder="B-00000" value={item.batchNumber} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'batchNumber') } }} /></td>
+                          <td className="px-1.5 py-1"><DatePicker id={grnFieldId(item.id, 'expiryDate')} className={cn('h-8 text-xs', item.expiryDate && (isExpiryHealthy(item.expiryDate) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'))} value={item.expiryDate} min={new Date().toISOString().slice(0, 10)} onChange={(v) => updateItem(index, 'expiryDate', v)} onEnterKey={() => handleRowEnter(index, 'expiryDate')} /></td>
+                          <td className="px-1.5 py-1"><Input type="number" min={0} max={100} step="0.01" className="h-8 font-mono text-xs" placeholder="0" value={item.gstPercent ?? ''} onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))} /></td>
+                          <td className="px-2 py-1.5 text-right font-mono font-bold whitespace-nowrap">{formatCurrency(item.receivedQty * item.purchaseRate)}</td>
+                          {(sourceType === 'direct' || editMode) && (
+                            <td className="px-1 py-1 text-center">
+                              <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => removeItem(index)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {itemViewMode === 'card' && (
               <AnimatePresence mode="popLayout">
                 {grnItems.filter((i) => i.productId).map((item, index) => (
                   <motion.div
@@ -2108,10 +2115,10 @@ export default function GRNPage() {
                       </div>
                     </div>
 
-                    {/* Row 2: Editable fields — two-row grid for breathing room */}
+                    {/* Row 2: Editable fields — all on a single row at lg+ */}
                     <div className="px-4 pb-4 space-y-3">
-                      {/* Quantities row */}
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Received Qty · Free Qty · Purchase Rate · MRP · Batch · Expiry · GST */}
+                      <div className="grid grid-cols-2 lg:grid-cols-7 gap-3">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
@@ -2170,9 +2177,6 @@ export default function GRNPage() {
                             />
                           </div>
                         </div>
-                      </div>
-                      {/* Batch & dates row */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
@@ -2238,25 +2242,15 @@ export default function GRNPage() {
                   </motion.div>
                 ))}
               </AnimatePresence>
+              )}
                   </div>
                 </ScrollArea>
           </div>
           <div className={cn(mobileSection === 'panel' ? 'flex' : 'hidden', 'lg:hidden flex-1 min-h-0 flex-col')}>
               <ScrollArea className="min-h-0 flex-1">
-                <div className="p-4">
-                <AnimatePresence mode="wait" custom={panelDirection}>
-                  <motion.div
-                    key={panelStep}
-                    custom={panelDirection}
-                    initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
-                    transition={{ duration: 0.15, ease: 'easeInOut' }}
-                    className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
-                  >
-                    {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
-                  </motion.div>
-                </AnimatePresence>
+                <div className="p-4 space-y-5">
+                  {renderInvoiceAndPaymentStep()}
+                  {renderSummaryAndActionsStep()}
                 </div>
               </ScrollArea>
           </div>
@@ -2270,20 +2264,9 @@ export default function GRNPage() {
               Next
               <ChevronRight className="ml-1.5 h-4 w-4" />
             </Button>
-          ) : panelStep === 1 ? (
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => goToMobileSection('products')}>
-                <ChevronLeft className="mr-1.5 h-4 w-4" />
-                Back
-              </Button>
-              <Button className="flex-1" onClick={() => goToPanelStep(2)}>
-                Next
-                <ChevronRight className="ml-1.5 h-4 w-4" />
-              </Button>
-            </div>
           ) : (
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => goToPanelStep(1)}>
+              <Button variant="outline" className="flex-1" onClick={() => goToMobileSection('products')}>
                 <ChevronLeft className="mr-1.5 h-4 w-4" />
                 Back
               </Button>
@@ -2313,52 +2296,141 @@ export default function GRNPage() {
         </div>
         </div>
 
-        {/* ─── RIGHT: Context Panel (30%) ──────────────────────── */}
-        <div className="hidden lg:flex lg:w-[30%] flex-col overflow-hidden bg-muted/5 dark:bg-muted/2">
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="p-5 overflow-hidden">
-              <AnimatePresence mode="wait" custom={panelDirection}>
-                <motion.div
-                  key={panelStep}
-                  custom={panelDirection}
-                  initial={{ x: panelDirection > 0 ? 40 : -40, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: panelDirection > 0 ? -40 : 40, opacity: 0 }}
-                  transition={{ duration: 0.15, ease: 'easeInOut' }}
-                  className={panelStep === 1 ? 'space-y-5' : 'space-y-4'}
-                >
-                  {panelStep === 1 ? renderInvoiceAndPaymentStep() : renderSummaryAndActionsStep()}
-                </motion.div>
-              </AnimatePresence>
+        {/* ─── BOTTOM: Summary bar (full width) — Supplier Invoice + Payment
+            beside the Live Summary, like the New Sale bottom bar ─── */}
+        <div className="hidden lg:flex lg:w-full shrink-0 flex-col overflow-hidden border-t border-border/40 bg-muted/5 dark:bg-muted/2">
+          <div className="flex items-stretch divide-x divide-border/50 max-h-[34vh] overflow-y-auto">
+            {/* ── Region 1: Summary totals (Order Summary style) ── */}
+            <div className="shrink-0 p-2.5 flex flex-col">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <Layers className="h-3.5 w-3.5" />
+                Summary
+                <span className="ml-auto inline-flex items-center gap-1 font-semibold tabular-nums">{totalItems} item{totalItems !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="flex-1 flex items-start gap-x-6 gap-y-1.5 text-xs xl:text-[13px]">
+                <div className="flex w-36 flex-col gap-y-1.5">
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">No. of Items</span><span className="font-mono font-medium tabular-nums">{totalItems}</span></div>
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Total Qty</span><span className="font-mono font-medium tabular-nums">{totalQty}</span></div>
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Short</span><span className={cn('font-mono font-medium tabular-nums', shortSupplyCount > 0 && 'text-amber-600 dark:text-amber-400')}>{shortSupplyCount}</span></div>
+                </div>
+                <div className="flex w-44 flex-col gap-y-1.5">
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Taxable</span><span className="font-mono font-medium tabular-nums">{formatCurrency(gstBreakdown.taxable)}</span></div>
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">CGST{gstHalfLabel}</span><span className="font-mono font-medium tabular-nums">{formatCurrency(gstBreakdown.cgst)}</span></div>
+                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">SGST{gstHalfLabel}</span><span className="font-mono font-medium tabular-nums">{formatCurrency(gstBreakdown.sgst)}</span></div>
+                </div>
+              </div>
             </div>
-          </ScrollArea>
 
-          {/* ── Pinned Action Footer ── (step + review-mode aware) ── */}
-          <div className="shrink-0 border-t border-border/40 bg-background p-4 space-y-2">
-            {panelStep === 1 ? (
-              <Button className="w-full" onClick={() => goToPanelStep(2)}>
-                Next
-                <ChevronRight className="ml-1.5 h-4 w-4" />
-              </Button>
-            ) : (
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => goToPanelStep(1)}>
+            {/* ── Region 2: Payment (create-only; Supplier Invoice lives in the header) ── */}
+            {!editMode && !replacementReturnId && (
+              <div className="flex-1 min-w-0 p-2.5 space-y-2.5">
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <Wallet className="h-3.5 w-3.5" />
+                    Payment
+                  </div>
+                  <div className="flex items-center rounded-lg border border-border/60 bg-muted/30 p-0.5">
+                    {([['CREDIT', 'Credit'], ['PARTIAL', 'Partial'], ['PAID', 'Paid in full']] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setPayChoice(val)}
+                        className={cn(
+                          'flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-all',
+                          payChoice === val ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {payChoice === 'CREDIT' ? (
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">Full invoice amount will be added to the supplier's outstanding.</p>
+                  ) : (
+                    <div className="mt-2 grid grid-cols-3 gap-2 items-end" data-field="paymentExtra">
+                      <div className="space-y-1">
+                        <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Paid{payChoice === 'PARTIAL' && <span className="text-rose-500"> *</span>}</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          className="h-8 font-mono text-xs"
+                          placeholder="0.00"
+                          value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
+                          disabled={payChoice === 'PAID'}
+                          max={invoiceAmount || undefined}
+                          onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value) || 0))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Mode</Label>
+                        <Select value={payMode} onValueChange={(v) => setPayMode(v as 'CASH' | 'CHEQUE' | 'NEFT_UPI')}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="CASH">Cash</SelectItem>
+                            <SelectItem value="CHEQUE">Cheque</SelectItem>
+                            <SelectItem value="NEFT_UPI">NEFT / UPI</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</Label>
+                        <p className="h-8 flex items-center justify-end font-mono text-xs font-semibold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Region 3: Total Value (Net Payable style) ── */}
+            <div className="w-56 xl:w-64 shrink-0 flex flex-col gap-2 p-2.5 bg-linear-to-br from-primary/10 via-primary/5 to-transparent">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-primary/80">
+                <IndianRupee className="h-3.5 w-3.5" />
+                Total Value
+              </div>
+              <span className="block whitespace-nowrap text-right font-mono text-2xl xl:text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
+                {formatCurrency(gstBreakdown.total)}
+              </span>
+              {Number(invoiceAmount) > 0 && Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
+                <p className="mt-auto text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                  Invoice {Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over' : 'short'} by {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* ── Pinned Action Footer ── (review-mode aware) ── */}
+          <div className="shrink-0 border-t border-border/40 bg-background p-3 flex flex-wrap items-center gap-2 [&>*]:flex-1 [&>*]:min-w-40">
+            {showConfirm ? (
+              <>
+                <Button variant="outline" onClick={() => setShowConfirm(false)}>
                   <ChevronLeft className="mr-1.5 h-4 w-4" />
                   Back
                 </Button>
                 <Button
-                  className="flex-1"
-                  disabled={!canConfirm || (showConfirm && isSubmitting)}
-                  onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
+                  className="order-last"
+                  disabled={!canConfirm || isSubmitting}
+                  onClick={handleConfirm}
                 >
-                  {showConfirm && isSubmitting ? (
+                  {isSubmitting ? (
                     <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
                   ) : (
                     <CheckCircle2 className="mr-1.5 h-4 w-4" />
                   )}
-                  {showConfirm ? (isSubmitting ? 'Saving…' : 'Confirm') : 'Review'}
+                  {isSubmitting ? 'Saving…' : 'Confirm'}
                 </Button>
-              </div>
+              </>
+            ) : (
+              <Button
+                className="order-last"
+                disabled={!canConfirm}
+                onClick={() => setShowConfirm(true)}
+              >
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                Review
+              </Button>
             )}
             {editMode ? (
               <Button variant="outline" className="w-full text-muted-foreground" onClick={() => navigate('/purchase/grn-list')}>
