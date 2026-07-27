@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Printer, Download, ShoppingCart, Wallet,
   Stethoscope, CalendarClock, Pencil,
-  Send, QrCode, History, Eye, Phone, MapPin,
+  Send, History, Eye, Phone, MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
@@ -47,7 +47,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const [collectRef, setCollectRef] = useState('')
   const [collectSubmitting, setCollectSubmitting] = useState(false)
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false)
-  const [regeneratingQr, setRegeneratingQr] = useState(false)
   // On-screen invoice preview — the same styled document the New Sale page shows.
   const [previewOpen, setPreviewOpen] = useState(false)
   // Active detail tab. Payment History lives in its own tab (only offered when
@@ -66,6 +65,12 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const handleSendWhatsApp = async () => {
     setSendingWhatsApp(true)
     try {
+      // Auto-generate a fresh payment QR first so the WhatsApp message carries
+      // an up-to-date UPI link. Non-fatal: a fully-paid invoice returns null
+      // (no QR needed) and any failure still lets the invoice PDF go out.
+      try {
+        await api.post(`/billing/${invoice.id}/payment-link`)
+      } catch { /* ignore — still send the invoice */ }
       // Backend now waits for the real send to finish (~1-2s) instead of
       // firing-and-forgetting, so this reflects what actually happened —
       // previously the toast always said "queued...shortly" regardless of
@@ -83,23 +88,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
       toast.error(err.response?.data?.message ?? 'Failed to send WhatsApp message')
     } finally {
       setSendingWhatsApp(false)
-    }
-  }
-
-  const handleRegenerateQr = async () => {
-    setRegeneratingQr(true)
-    try {
-      const res = await api.post(`/billing/${invoice.id}/payment-link`)
-      if (res.data == null) {
-        toast.info('Invoice fully paid — no payment QR needed')
-      } else {
-        toast.success('Payment QR generated')
-      }
-    } catch (err: any) {
-      const msg = err.response?.data?.message ?? 'Failed to generate payment QR'
-      toast.error(typeof msg === 'string' ? msg : 'Failed to generate payment QR')
-    } finally {
-      setRegeneratingQr(false)
     }
   }
 
@@ -557,16 +545,6 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             >
               <Send className={`h-4 w-4 ${sendingWhatsApp ? 'animate-pulse' : ''}`} />
               {sendingWhatsApp ? 'Sending…' : 'Send WhatsApp'}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 flex-1 gap-2 bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900/40 sm:flex-none"
-              onClick={handleRegenerateQr}
-              disabled={regeneratingQr}
-              title="Generate a fresh Razorpay UPI QR for the current outstanding amount. Closes any existing live QR for this invoice first."
-            >
-              <QrCode className={`h-4 w-4 ${regeneratingQr ? 'animate-pulse' : ''}`} />
-              {regeneratingQr ? 'Generating…' : 'Generate QR'}
             </Button>
             <span className="mx-1 hidden h-6 w-px bg-border/60 sm:block" aria-hidden />
           </>
