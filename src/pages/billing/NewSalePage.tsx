@@ -7,7 +7,7 @@ import {
   Trash2,
   Search,
   Printer,
-  Share2,
+  IndianRupee,
   Save,
   Pause,
   X,
@@ -2015,25 +2015,52 @@ function PaymentPanel({
       )}
 
       {/* Cash */}
-      {mode === 'CASH' && (
-        <div className="space-y-2.5">
+      {mode === 'CASH' && (() => {
+        const received = Number(details.amountReceived) || 0
+        const isPartial = received > 0 && grandTotal - received > 0.01
+        return (
           <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Amount Received
-            </label>
-            <Input
-              type="number"
-              min={0}
-              value={details.amountReceived || ''}
-              onChange={(e) =>
-                onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })
-              }
-              className="h-10 font-mono text-base font-semibold tabular-nums"
-              placeholder={grandTotal.toFixed(2)}
-            />
+            {/* Amount Received + Due Date on a single row (Due Date only when a
+                partial amount leaves a credit balance). */}
+            <div className={cn('grid gap-3', isPartial ? 'grid-cols-2' : 'grid-cols-1')}>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Amount Received
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={details.amountReceived || ''}
+                  onChange={(e) =>
+                    onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })
+                  }
+                  className="h-10 font-mono text-base font-semibold tabular-nums"
+                  placeholder={grandTotal.toFixed(2)}
+                />
+              </div>
+              {isPartial && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Due Date <span className="text-rose-500">*</span>
+                  </label>
+                  <DatePicker
+                    value={details.creditDueDate}
+                    onChange={(v) => onDetailsChange({ creditDueDate: v })}
+                    min={new Date().toISOString().slice(0, 10)}
+                    error={!details.creditDueDate}
+                    className="h-10 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+            {isPartial && (
+              <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                {formatCurrency(Math.max(0, grandTotal - received))} will be added to credit — set a due date.
+              </p>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Card */}
       {mode === 'CARD' && (
@@ -2080,96 +2107,70 @@ function PaymentPanel({
       )}
 
       {/* UPI */}
-      {mode === 'UPI' && (
-        <div className="space-y-2.5">
+      {mode === 'UPI' && (() => {
+        const received = Number(details.amountReceived) || 0
+        const isPartial = received > 0 && grandTotal - received > 0.01
+        return (
           <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Amount Paid
-            </label>
-            <Input
-              type="number"
-              min={0}
-              value={details.amountReceived || ''}
-              onChange={(e) => onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })}
-              className="h-10 font-mono text-base font-semibold tabular-nums"
-              placeholder={grandTotal.toFixed(2)}
-            />
+            {/* Amount Paid + UPI Reference + Due Date on a single row (Due Date
+                only when a partial amount leaves a credit balance). */}
+            <div className={cn('grid gap-3', isPartial ? 'grid-cols-3' : 'grid-cols-2')}>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Amount Paid
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={details.amountReceived || ''}
+                  onChange={(e) => onDetailsChange({ amountReceived: Math.max(0, parseFloat(e.target.value) || 0) })}
+                  className="h-10 font-mono text-base font-semibold tabular-nums"
+                  placeholder={grandTotal.toFixed(2)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  UPI Reference # <span className="text-rose-500">*</span>
+                </label>
+                <Input
+                  value={details.upiRef}
+                  onChange={(e) => onDetailsChange({ upiRef: e.target.value })}
+                  className={cn('h-10 text-sm', received > 0 && !details.upiRef.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
+                  placeholder="UPI transaction ID"
+                />
+              </div>
+              {isPartial && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Due Date <span className="text-rose-500">*</span>
+                  </label>
+                  <DatePicker
+                    value={details.creditDueDate}
+                    onChange={(v) => onDetailsChange({ creditDueDate: v })}
+                    min={new Date().toISOString().slice(0, 10)}
+                    error={!details.creditDueDate}
+                    className="h-10 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+            {isPartial && (
+              <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                {formatCurrency(Math.max(0, grandTotal - received))} will be added to credit — set a due date.
+              </p>
+            )}
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              UPI Reference # <span className="text-rose-500">*</span>
-            </label>
-            <Input
-              value={details.upiRef}
-              onChange={(e) => onDetailsChange({ upiRef: e.target.value })}
-              className={cn('h-9 text-xs', (details.amountReceived || 0) > 0 && !details.upiRef.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
-              placeholder="UPI transaction ID"
-            />
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Credit */}
       {mode === 'CREDIT' && (
         <div className="space-y-1.5">
-          {customer && (() => {
-            const outstanding = Number(customer.currentOutstanding) || 0
-            const hasCredit = outstanding < 0
-            return (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-1.5 text-[11px] space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">{hasCredit ? 'Available Credit' : 'Outstanding'}</span>
-                  <span className={cn(
-                    'font-semibold font-mono tabular-nums',
-                    hasCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
-                  )}>
-                    {formatCurrency(Math.abs(outstanding))}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Pending Invoices</span>
-                  <span className={cn(
-                    'font-semibold font-mono tabular-nums',
-                    (customer.pendingCreditCount ?? 0) >= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'
-                  )}>
-                    {customer.pendingCreditCount ?? 0} / 3
-                  </span>
-                </div>
-                {hasCredit && (
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 border-t border-emerald-500/20 pt-1.5">
-                    This credit will auto-apply to the unpaid balance on save.
-                  </p>
-                )}
-                {!isEditing && (customer.pendingCreditCount ?? 0) >= 3 && (
-                  <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold border-t border-amber-500/20 pt-1.5 flex items-center gap-1.5">
-                    <ShieldAlert className="h-3 w-3" />
-                    Credit blocked — clear pending invoices first
-                  </p>
-                )}
-              </div>
-            )
-          })()}
-          {/* Optional cash advance taken up front against the credit sale. The
-              remaining balance still goes to the customer's outstanding with a due
-              date. On save, amountPaid = min(this, grand total) (see submitInvoice). */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cash Received <span className="font-normal normal-case text-muted-foreground/70">(advance — optional)</span>
-            </label>
-            <Input
-              type="number"
-              min={0}
-              max={grandTotal}
-              value={details.amountReceived || ''}
-              onChange={(e) =>
-                onDetailsChange({ amountReceived: Math.min(grandTotal, Math.max(0, parseFloat(e.target.value) || 0)) })
-              }
-              className="h-9 font-mono text-sm font-semibold tabular-nums"
-              placeholder="0.00"
-            />
-          </div>
-          {/* The remainder after any advance goes to the customer's outstanding,
-              so a due date is still required for the credit balance. */}
+          {/* Outstanding / Pending Invoices card moved to the Order Summary panel. */}
+          {/* Pure credit sale — nothing collected now, the whole amount goes to
+              the customer's outstanding with a due date. To collect a part-payment
+              up front, use Cash/UPI mode with a partial amount (that records the
+              collection method in history and marks the invoice credit). */}
           <div className="space-y-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Due Date <span className="text-rose-500">*</span>
@@ -2189,7 +2190,7 @@ function PaymentPanel({
           capture a due date for it — same rule as a pure credit sale. Only
           shows once a partial amount has actually been entered (a full payment
           leaves no balance). Reuses details.creditDueDate. */}
-      {(mode === 'CASH' || mode === 'UPI' || mode === 'CARD') &&
+      {mode === 'CARD' &&
         (details.amountReceived || 0) > 0 &&
         grandTotal - (details.amountReceived || 0) > 0.01 && (
         <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2.5">
@@ -4909,8 +4910,10 @@ export default function NewSalePage() {
   // on md tablets where the two panels stack through the step flow.
   const actionBarInner = (
     <div className="border-t border-border bg-background/95 backdrop-blur-sm">
-      {/* responsive: kbd badges (F7/F8/F9/F10) hidden on md tablets to keep cells from overflowing. 6-wide grid: Held + Hold + Share + Preview (4) + Save & Print (spans 2) = 6, so the bar fills with no empty column. */}
-      <div className="grid grid-cols-6 divide-x divide-border/60 [&_button]:py-2.5">
+      {/* responsive: kbd badges hidden on md tablets to keep cells from overflowing.
+          Invoices: Held + Hold + Courier + Preview (4) + Save & Print (spans 2) = 6 cols.
+          Quotations (no courier): Held + Hold + Preview (3) + Save & Print (spans 2) = 5 cols. */}
+      <div className={cn("grid divide-x divide-border/60 [&_button]:py-2.5", invoiceType !== 'quotation' ? 'grid-cols-6' : 'grid-cols-5')}>
         {/* Held — with count badge */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -4920,7 +4923,7 @@ export default function NewSalePage() {
               className="group relative inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
             >
               <Receipt className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Held</span>
+              <span className="hidden sm:inline">Drafts</span>
               {heldBills.length > 0 && (
                 <span className="inline-flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white tabular-nums">
                   {heldBills.length}
@@ -4928,7 +4931,7 @@ export default function NewSalePage() {
               )}
             </button>
           </TooltipTrigger>
-          <TooltipContent>View held bills</TooltipContent>
+          <TooltipContent>View saved drafts</TooltipContent>
         </Tooltip>
 
         {/* Hold (F10) */}
@@ -4940,30 +4943,41 @@ export default function NewSalePage() {
               className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
             >
               <Pause className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Hold</span>
+              <span className="hidden sm:inline">Save Draft</span>
               <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F10</kbd>
             </button>
           </TooltipTrigger>
-          <TooltipContent>Hold bill for later (F10)</TooltipContent>
+          <TooltipContent>Save as draft (F10)</TooltipContent>
         </Tooltip>
+
+        {/* Courier delivery toggle (moved from Order Summary) — invoices only */}
+        {invoiceType !== 'quotation' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setEnableCourier((v) => !v)}
+                aria-pressed={enableCourier}
+                className={cn(
+                  'group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold transition-colors hover:bg-accent cursor-pointer',
+                  enableCourier ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Truck className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Courier</span>
+                <span className={cn(
+                  'shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+                  enableCourier ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground/70'
+                )}>
+                  {enableCourier ? 'On' : 'Off'}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{enableCourier ? 'Courier delivery: on (sent to tracking on save)' : 'Courier delivery: off'}</TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Save as Draft — hidden for now (not needed in this flow). */}
-
-        {/* Share (F9) */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => { if (!lastSavedInvoice) { toast.info('Save invoice first before sharing'); return }; shareInvoiceViaWhatsApp(lastSavedInvoice) }}
-              className="group inline-flex items-center justify-center gap-1.5 lg:gap-2 px-2 lg:px-3 py-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-            >
-              <Share2 className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Share</span>
-              <kbd className="hidden xl:inline-flex rounded border border-border/60 bg-muted/60 px-1 text-[9px] font-mono text-muted-foreground/70">F9</kbd>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Share via WhatsApp (F9)</TooltipContent>
-        </Tooltip>
 
         {/* Preview (F7) */}
         <Tooltip>
@@ -7153,7 +7167,7 @@ export default function NewSalePage() {
             <div className="flex items-stretch divide-x divide-border/60 max-h-[46vh] overflow-y-auto">
 
               {/* ── Totals (legacy-style grid) ── */}
-              <div className="flex-1 min-w-0 p-2 flex flex-col">
+              <div className={cn("p-2 flex flex-col", invoiceType !== 'quotation' ? 'shrink-0' : 'flex-1 min-w-0')}>
                 <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   <Receipt className="h-3.5 w-3.5" />
                   Order Summary
@@ -7162,84 +7176,97 @@ export default function NewSalePage() {
                     {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <div className="flex-1 flex flex-wrap content-evenly gap-x-8 gap-y-1.5 text-xs xl:text-[13px] [&>div]:w-40 xl:[&>div]:w-44">
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">No. of Items</span>
-                    <span className="font-mono font-medium tabular-nums">{activeItemCount}</span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">Total Qty</span>
-                    <span className="font-mono font-medium tabular-nums">
-                      {items.reduce((s, i) => s + ((i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) ? (Number(i.quantity) || 0) : 0), 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
-                  </div>
-                  {totals.productDiscount > 0 && (
+                <div className="flex-1 flex flex-wrap items-start gap-x-8 gap-y-4 text-xs xl:text-[13px] [&_.sumcol]:flex [&_.sumcol]:w-40 xl:[&_.sumcol]:w-44 [&_.sumcol]:flex-col [&_.sumcol]:gap-y-1.5">
+                  {/* Column 1 — counts + customer outstanding (single column) */}
+                  <div className="sumcol">
                     <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Discount</span>
-                      <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
+                      <span className="text-muted-foreground">No. of Items</span>
+                      <span className="font-mono font-medium tabular-nums">{activeItemCount}</span>
                     </div>
-                  )}
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">Taxable</span>
-                    <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
-                  </div>
-                  {(totals.cgst + totals.sgst) > 0 && (
                     <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">CGST + SGST</span>
-                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
-                    </div>
-                  )}
-                  {totals.igst > 0 && (
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">IGST</span>
-                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
-                    </div>
-                  )}
-                  {/* Delivery — editable, non-taxable add-on */}
-                  <div className="flex justify-between items-center gap-2">
-                    <span className="text-muted-foreground">Delivery</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-muted-foreground">₹</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step="0.01"
-                        value={deliveryCharge === 0 ? '' : deliveryCharge}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          const n = v === '' ? 0 : parseFloat(v)
-                          setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
-                        }}
-                        placeholder="0.00"
-                        className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-                  </div>
-                  {totals.roundOff !== 0 && (
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Round Off</span>
-                      <span className={cn('font-mono font-medium tabular-nums', totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
-                        {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
+                      <span className="text-muted-foreground">Total Qty</span>
+                      <span className="font-mono font-medium tabular-nums">
+                        {items.reduce((s, i) => s + ((i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) ? (Number(i.quantity) || 0) : 0), 0)}
                       </span>
                     </div>
-                  )}
-                  {invoiceType !== 'quotation' && (
+                    {/* Customer outstanding balance. Pending Invoices lives in the Net Payable card. */}
+                    {invoiceType !== 'quotation' && selectedCustomer && (() => {
+                      const outstanding = Number(selectedCustomer.currentOutstanding) || 0
+                      const hasCredit = outstanding < 0
+                      return (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">{hasCredit ? 'Available Credit' : 'Outstanding'}</span>
+                          <span className={cn('font-mono font-medium tabular-nums', hasCredit && 'text-emerald-600 dark:text-emerald-400')}>{formatCurrency(Math.abs(outstanding))}</span>
+                        </div>
+                      )
+                    })()}
+                    {/* Delivery — editable, non-taxable add-on */}
                     <div className="flex justify-between items-center gap-2">
-                      <span className="flex items-center gap-1.5 text-muted-foreground"><Truck className="h-3.5 w-3.5" /> Courier</span>
-                      <Switch checked={enableCourier} onCheckedChange={setEnableCourier} aria-label="Send to courier tracking after save" />
+                      <span className="text-muted-foreground">Delivery</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-muted-foreground">₹</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          value={deliveryCharge === 0 ? '' : deliveryCharge}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            const n = v === '' ? 0 : parseFloat(v)
+                            setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
+                          }}
+                          placeholder="0.00"
+                          className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Column 2 — amounts */}
+                  <div className="sumcol">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
+                    </div>
+                    {totals.productDiscount > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Discount</span>
+                        <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Taxable</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
+                    </div>
+                    {(totals.cgst + totals.sgst) > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">CGST + SGST</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.cgst + totals.sgst)}</span>
+                      </div>
+                    )}
+                    {totals.igst > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">IGST</span>
+                        <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
+                      </div>
+                    )}
+                    {totals.roundOff !== 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Round Off</span>
+                        <span className={cn('font-mono font-medium tabular-nums', totals.roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
+                          {totals.roundOff > 0 ? '+' : ''}{totals.roundOff.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* ── Payment (invoices only) ── */}
+              {/* ── Payment (invoices only) — fills the space freed by the
+                  content-width Order Summary so there's no empty gap. ── */}
               {invoiceType !== 'quotation' && (
-                <div className="w-72 xl:w-80 2xl:w-88 shrink-0 p-2">
+                <div className="flex-1 min-w-0 p-2">
                   <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                     <CreditCard className="h-3.5 w-3.5" />
                     Payment
@@ -7257,24 +7284,22 @@ export default function NewSalePage() {
               )}
 
               {/* ── Net Payable ── */}
-              <div className="w-44 xl:w-52 2xl:w-56 shrink-0 flex flex-col justify-center gap-2 p-2 bg-linear-to-br from-primary/10 via-primary/5 to-transparent">
-                {invoiceType !== 'quotation' && paymentMode !== 'SPLIT' && (() => {
-                  const applied = Math.min(Number(paymentDetails.amountReceived) || 0, totals.grandTotal)
-                  const dueAmt = totals.grandTotal - applied
-                  if (dueAmt <= 0.01) return null
-                  return (
-                    <div className="flex justify-between items-center rounded-lg border border-amber-500/25 bg-amber-500/6 px-2.5 py-1.5 text-amber-700 dark:text-amber-400 text-[11px]">
-                      <span className="flex items-center gap-1.5 font-semibold"><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" /> Credit</span>
-                      <span className="font-mono font-bold tabular-nums">{formatCurrency(dueAmt)} due</span>
-                    </div>
-                  )
-                })()}
-                <div>
-                  <span className="block text-[10px] xl:text-[11px] font-bold uppercase tracking-wider text-primary/80">Net Payable</span>
-                  <span className="mt-1 block whitespace-nowrap text-right font-mono text-2xl xl:text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
-                    {formatCurrency(totals.grandTotal)}
-                  </span>
+              <div className="w-56 xl:w-64 2xl:w-72 shrink-0 flex flex-col gap-2 p-2 bg-linear-to-br from-primary/10 via-primary/5 to-transparent">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-primary/80">
+                  <IndianRupee className="h-3.5 w-3.5" />
+                  Net Payable
                 </div>
+                <span className="block whitespace-nowrap text-right font-mono text-2xl xl:text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
+                  {formatCurrency(totals.grandTotal)}
+                </span>
+                {invoiceType !== 'quotation' && selectedCustomer && (
+                  <div className="mt-auto flex justify-between items-center gap-2 border-t border-primary/15 pt-2 text-[11px]">
+                    <span className="text-muted-foreground">Pending Invoices</span>
+                    <span className={cn('font-mono font-semibold tabular-nums', (selectedCustomer.pendingCreditCount ?? 0) >= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-foreground')}>
+                      {selectedCustomer.pendingCreditCount ?? 0} / 3
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
