@@ -86,6 +86,20 @@ export function ProductFormDialog({
     if (open && categories.length === 0) fetchCategories()
   }, [open, categories.length, fetchCategories])
 
+  // Live duplicate-name check — flags an already-used product name inline as
+  // the user types, and immediately for a name prefilled from the GRN search.
+  const nameValue = watch('name')
+  useEffect(() => {
+    if (!open) return
+    const trimmed = (nameValue ?? '').trim().toLowerCase()
+    if (trimmed && products.some(p => p.name.trim().toLowerCase() === trimmed)) {
+      form.setError('name', { type: 'manual', message: 'A product with this name already exists' })
+    } else if (trimmed) {
+      form.clearErrors('name')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameValue, open, products])
+
   const manufacturers = useMemo(() => {
     const fromSuppliers = suppliers.map(s => s.name)
     const fromProducts = products.map(p => p.manufacturer).filter(Boolean)

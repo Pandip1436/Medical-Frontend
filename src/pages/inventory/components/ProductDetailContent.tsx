@@ -209,6 +209,32 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     }))
   }, [history])
 
+  // Per-batch purchase/sales aggregates for the Batches tab, derived from the
+  // product's transaction feeds (batches carry only current stock, not lifetime
+  // purchased/sold), then merged onto each batch record.
+  const batchesEnriched = useMemo(() => {
+    const purchasedBy = new Map<string, number>()
+    for (const p of purchaseRows) {
+      if (!p.batch) continue
+      purchasedBy.set(p.batch, (purchasedBy.get(p.batch) ?? 0) + (Number(p.qty) || 0) + (Number(p.freeQty) || 0))
+    }
+    const soldBy = new Map<string, number>()
+    const lastSale = new Map<string, { date: number; rate: number }>()
+    for (const s of salesRows) {
+      if (!s.batch) continue
+      soldBy.set(s.batch, (soldBy.get(s.batch) ?? 0) + (Number(s.qty) || 0))
+      const t = s.date.getTime()
+      const prev = lastSale.get(s.batch)
+      if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
+    }
+    return (detail.batches as any[]).map((b) => ({
+      ...b,
+      purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
+      salesQty: soldBy.get(b.batchNumber) ?? 0,
+      sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
+    }))
+  }, [detail.batches, purchaseRows, salesRows])
+
   // ── Purchase return rows (outgoing — stock OUT to supplier) ──
   const SHORT_DELIVERY_RE = /short.*delivery|short.*supply/i
   const purchaseReturnRows = useMemo(() => {
@@ -624,19 +650,27 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                         <TableRow className="bg-muted/20">
                           <TableHead className="text-[10px]">Batch</TableHead>
                           <TableHead className="text-right text-[10px]">Qty</TableHead>
+                          <TableHead className="text-right text-[10px]">Purchase Qty</TableHead>
+                          <TableHead className="text-right text-[10px]">Sales Qty</TableHead>
                           <TableHead className="text-right text-[10px]">MRP</TableHead>
+                          <TableHead className="text-right text-[10px]">Purchase Rate</TableHead>
+                          <TableHead className="text-right text-[10px]">Selling Price</TableHead>
                           <TableHead className="text-right text-[10px]">Expiry</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {detail.batches.map((b: any) => {
+                        {batchesEnriched.map((b: any) => {
                           const daysLeft = Math.floor((new Date(b.expiryDate).getTime() - Date.now()) / 86400000)
                           const expirySoon = daysLeft <= 90
                           return (
                             <TableRow key={b.id}>
                               <TableCell className="font-mono text-[11px]">{b.batchNumber}</TableCell>
                               <TableCell className="text-right text-[11px]">{b.quantity}</TableCell>
+                              <TableCell className="text-right text-[11px] text-muted-foreground">{b.purchaseQty ?? '—'}</TableCell>
+                              <TableCell className="text-right text-[11px] text-muted-foreground">{b.salesQty ?? '—'}</TableCell>
                               <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.mrp)}</TableCell>
+                              <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.purchaseRate)}</TableCell>
+                              <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.sellingPrice ?? b.mrp)}</TableCell>
                               <TableCell className={cn('text-right text-[11px]', expirySoon ? 'font-semibold text-amber-600 dark:text-amber-400' : '')}>
                                 {formatDate(b.expiryDate)}
                               </TableCell>
@@ -659,7 +693,7 @@ export function ProductDetailContent({ productId }: { productId: string }) {
           // ── Batches tab — reads the product record (detail.batches), so it
           //    stands apart from the history loading / empty gates below.
           <ProductBatchesTab
-            batches={detail.batches}
+            batches={batchesEnriched}
             loading={detail.loading}
             onAfterAction={detail.refetch}
           />
@@ -891,13 +925,13 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                 <p className="px-4 pt-3 pb-1 text-[11px] text-muted-foreground">
                   Tip: click any row to open its invoice, GRN or note for verification.
                 </p>
-                <Table>
+                <Table className="text-xs [&_th]:h-9 [&_th]:px-2 [&_th]:text-[10px] [&_td]:px-2 [&_td]:py-2 [&_td]:text-xs">
                   <TableHeader className="sticky top-0 z-10 bg-card">
                     <TableRow>
-                      <TableHead className="w-40 min-w-40">Type</TableHead>
+                      <TableHead className="w-32 min-w-32">Type</TableHead>
                       <TableHead className="whitespace-nowrap">Date</TableHead>
                       <TableHead>Party</TableHead>
-                      <TableHead className="w-32">Batch</TableHead>
+                      <TableHead className="w-24">Batch</TableHead>
                       <TableHead>Document #</TableHead>
                       <TableHead className="text-right">Qty</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -931,19 +965,19 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {row.date.toLocaleDateString('en-IN')}
                           </TableCell>
-                          <TableCell className="text-sm">
+                          <TableCell className="max-w-[130px] text-sm">
                             {row.partyId ? (
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); goToParty(row.partyKind, row.partyId) }}
-                                className="text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left"
-                                title={`View ${row.partyKind} details`}
+                                className="block max-w-full truncate text-sky-600 dark:text-sky-400 font-medium hover:underline underline-offset-2 text-left"
+                                title={row.party}
                               >
                                 {row.party}
                               </button>
-                            ) : row.party}
+                            ) : <span className="block max-w-full truncate" title={row.party}>{row.party}</span>}
                             {row.partyPhone && (
-                              <span className="block text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
+                              <span className="block truncate text-[11px] font-mono text-muted-foreground">{row.partyPhone}</span>
                             )}
                           </TableCell>
                           <TableCell className="text-[13px] font-mono text-muted-foreground">

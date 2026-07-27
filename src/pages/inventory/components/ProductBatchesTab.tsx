@@ -111,14 +111,17 @@ export function ProductBatchesTab({
           </p>
         </div>
       ) : (
-        <Table>
+        <Table className="text-xs [&_th]:h-9 [&_th]:px-2 [&_th]:text-[10px] [&_td]:px-2 [&_td]:py-2 [&_td]:text-xs">
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 <TableHead>Batch #</TableHead>
                 <TableHead>Expiry Date</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right">Purchase Qty</TableHead>
+                <TableHead className="text-right">Sales Qty</TableHead>
                 <TableHead className="text-right">MRP</TableHead>
                 <TableHead className="text-right">Purchase Rate</TableHead>
+                <TableHead className="text-right">Selling Price</TableHead>
                 <TableHead className="text-right">Stock Value</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -151,19 +154,23 @@ export function ProductBatchesTab({
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">{b.quantity}</TableCell>
+                    <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).purchaseQty ?? '—'}</TableCell>
+                    <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).salesQty ?? '—'}</TableCell>
                     <TableCell className="text-right font-mono text-sm">{formatCurrency(b.mrp)}</TableCell>
                     <TableCell className="text-right font-mono text-sm">{formatCurrency(b.purchaseRate)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{formatCurrency((b as any).sellingPrice ?? b.mrp)}</TableCell>
                     <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>
-                    <TableCell>
+                    <TableCell className="max-w-[110px]">
                       {b.supplierId && supplierName ? (
                         <button
-                          className="text-xs font-medium text-primary hover:underline"
+                          className="block max-w-full truncate text-left text-xs font-medium text-primary hover:underline"
+                          title={supplierName}
                           onClick={(e) => { e.stopPropagation(); navigate(`/purchase/suppliers/detail?supplierId=${b.supplierId}`) }}
                         >
                           {supplierName}
                         </button>
                       ) : (
-                        <span className="text-xs text-muted-foreground">{supplierName || '—'}</span>
+                        <span className="block max-w-full truncate text-xs text-muted-foreground" title={supplierName || undefined}>{supplierName || '—'}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

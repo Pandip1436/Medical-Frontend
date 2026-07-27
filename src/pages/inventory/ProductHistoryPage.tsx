@@ -227,6 +227,31 @@ export default function ProductHistoryPage() {
     }))
   }, [history])
 
+  // Per-batch purchase/sales aggregates for the Batches tab, derived from the
+  // transaction feeds (batches carry only current stock) and merged on.
+  const batchesEnriched = useMemo(() => {
+    const purchasedBy = new Map<string, number>()
+    for (const p of purchaseRows) {
+      if (!p.batch) continue
+      purchasedBy.set(p.batch, (purchasedBy.get(p.batch) ?? 0) + (Number(p.qty) || 0) + (Number(p.freeQty) || 0))
+    }
+    const soldBy = new Map<string, number>()
+    const lastSale = new Map<string, { date: number; rate: number }>()
+    for (const s of salesRows) {
+      if (!s.batch) continue
+      soldBy.set(s.batch, (soldBy.get(s.batch) ?? 0) + (Number(s.qty) || 0))
+      const t = s.date.getTime()
+      const prev = lastSale.get(s.batch)
+      if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
+    }
+    return (batches as any[]).map((b) => ({
+      ...b,
+      purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
+      salesQty: soldBy.get(b.batchNumber) ?? 0,
+      sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
+    }))
+  }, [batches, purchaseRows, salesRows])
+
   // ── Purchase return rows (outgoing — stock OUT to supplier) ──
   // Short-delivery debit notes are excluded: they're financial claims for
   // goods that never arrived, so they don't represent any stock movement.
@@ -632,7 +657,7 @@ export default function ProductHistoryPage() {
               the history empty/no-match gates below. */}
           {activeTab === 'batches' ? (
             <ProductBatchesTab
-              batches={batches}
+              batches={batchesEnriched}
               loading={batchesLoading}
               onAfterAction={refetchBatches}
             />

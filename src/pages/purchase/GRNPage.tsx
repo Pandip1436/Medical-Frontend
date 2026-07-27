@@ -412,7 +412,7 @@ export default function GRNPage() {
   } | null>(null)
   const [shortBillingOpen, setShortBillingOpen] = useState(false)
 
-  const { purchaseOrders, products, suppliers, fetchMasterData } = useMasterDataStore()
+  const { purchaseOrders, products, suppliers, batches: stockBatches, fetchMasterData } = useMasterDataStore()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Phone for the selected direct-entry supplier, resolved from master data by
@@ -818,6 +818,21 @@ export default function GRNPage() {
   const gstHalfLabel = distinctGstRates.length === 1 ? ` (${distinctGstRates[0] / 2}%)` : ''
 
   const canConfirm = receivedItems.length > 0
+
+  // Batch already present for this product — either already in stock (master
+  // data) or duplicated on another line of this same Purchase Entry. Used for
+  // the inline "already exists" warning on the batch inputs.
+  const isBatchDuplicate = (item: GRNFormItem) => {
+    const bn = item.batchNumber?.trim().toLowerCase()
+    if (!bn || !item.productId) return false
+    const inStock = stockBatches.some(
+      (b) => b.productId === item.productId && (b.batchNumber || '').trim().toLowerCase() === bn,
+    )
+    const dupOnGrn = grnItems.filter(
+      (o) => o.productId === item.productId && (o.batchNumber || '').trim().toLowerCase() === bn,
+    ).length > 1
+    return inStock || dupOnGrn
+  }
 
   // Amount actually paid to the supplier at receive time (drives outstanding).
   const effectivePaid = replacementReturnId
@@ -1992,15 +2007,15 @@ export default function GRNPage() {
               {/* ── List (table) view — compact editable rows, like New Sale ── */}
               {itemViewMode === 'list' && grnItems.filter((i) => i.productId).length > 0 && (
                 <div className="overflow-x-auto rounded-xl border border-border/40">
-                  <table className="w-full min-w-[900px] text-xs">
+                  <table className="w-full min-w-[900px] text-xs [&_input]:[appearance:textfield] [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none">
                     <thead>
                       <tr className="border-b border-border/50 bg-muted/30 text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
                         <th className="w-8 px-2 py-2 text-center">#</th>
                         <th className="px-2 py-2 text-left">Product</th>
                         <th className="w-24 px-2 py-2 text-left">Recd Qty</th>
                         <th className="w-20 px-2 py-2 text-left">Free</th>
-                        <th className="w-24 px-2 py-2 text-left">Rate</th>
-                        <th className="w-24 px-2 py-2 text-left">MRP</th>
+                        <th className="w-28 px-2 py-2 text-left">Rate</th>
+                        <th className="w-28 px-2 py-2 text-left">MRP</th>
                         <th className="w-28 px-2 py-2 text-left">Batch</th>
                         <th className="w-32 px-2 py-2 text-left">Expiry</th>
                         <th className="w-16 px-2 py-2 text-left">GST%</th>
@@ -2022,7 +2037,24 @@ export default function GRNPage() {
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'freeQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.freeQty || ''} onChange={(e) => updateItem(index, 'freeQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'freeQty') } }} /></td>
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'purchaseRate')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.purchaseRate || ''} onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }} /></td>
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'mrp')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.mrp || ''} onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }} /></td>
-                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'batchNumber')} className="h-8 font-mono text-xs" placeholder="B-00000" value={item.batchNumber} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'batchNumber') } }} /></td>
+                          <td className="px-1.5 py-1">
+                            <Input
+                              id={grnFieldId(item.id, 'batchNumber')}
+                              className={cn(
+                                'h-8 font-mono text-xs',
+                                item.receivedQty > 0 && !item.batchNumber?.trim() && 'border-rose-400 focus-visible:ring-rose-400',
+                                isBatchDuplicate(item) && 'border-amber-400 focus-visible:ring-amber-400',
+                              )}
+                              placeholder="B-00000"
+                              title={item.receivedQty > 0 && !item.batchNumber?.trim() ? 'Batch number is required' : isBatchDuplicate(item) ? 'Batch already exists for this product' : undefined}
+                              value={item.batchNumber}
+                              onChange={(e) => updateItem(index, 'batchNumber', e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'batchNumber') } }}
+                            />
+                            {isBatchDuplicate(item) && (
+                              <p className="mt-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">Batch already exists</p>
+                            )}
+                          </td>
                           <td className="px-1.5 py-1"><DatePicker id={grnFieldId(item.id, 'expiryDate')} className={cn('h-8 text-xs', item.expiryDate && (isExpiryHealthy(item.expiryDate) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'))} value={item.expiryDate} min={new Date().toISOString().slice(0, 10)} onChange={(v) => updateItem(index, 'expiryDate', v)} onEnterKey={() => handleRowEnter(index, 'expiryDate')} /></td>
                           <td className="px-1.5 py-1"><Input type="number" min={0} max={100} step="0.01" className="h-8 font-mono text-xs" placeholder="0" value={item.gstPercent ?? ''} onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))} /></td>
                           <td className="px-2 py-1.5 text-right font-mono font-bold whitespace-nowrap">{formatCurrency(item.receivedQty * item.purchaseRate)}</td>
@@ -2181,12 +2213,24 @@ export default function GRNPage() {
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
                           <Input
                             id={grnFieldId(item.id, 'batchNumber')}
-                            className="h-9 font-mono text-xs font-bold tracking-tight border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                            className={cn(
+                              'h-9 font-mono text-xs font-bold tracking-tight bg-muted/20 focus:bg-background transition-all',
+                              item.receivedQty > 0 && !item.batchNumber?.trim()
+                                ? 'border-rose-400 focus-visible:ring-rose-400'
+                                : isBatchDuplicate(item)
+                                  ? 'border-amber-400 focus-visible:ring-amber-400'
+                                  : 'border-primary/5',
+                            )}
                             placeholder="B-00000"
                             value={item.batchNumber}
                             onChange={(e) => updateItem(index, 'batchNumber', e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'batchNumber') } }}
                           />
+                          {item.receivedQty > 0 && !item.batchNumber?.trim() ? (
+                            <p className="mt-1 text-[10px] font-medium text-rose-500">Batch number is required</p>
+                          ) : isBatchDuplicate(item) ? (
+                            <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">Batch already exists for this product</p>
+                          ) : null}
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>

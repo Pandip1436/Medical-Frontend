@@ -8,7 +8,6 @@ import {
   FileText,
   FileCheck,
   FileCheck2,
-  ShoppingCart,
   PackageCheck,
   Truck,
   Package,
@@ -103,7 +102,6 @@ const navigationGroups: NavGroup[] = [
   {
     title: 'PURCHASE',
     items: [
-      { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase/orders', quickAdd: '/purchase/orders?add=1' },
       { label: 'Purchase Entry', icon: PackageCheck, href: '/purchase/grn-list', quickAdd: '/purchase/grn' },
       { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes', quickAdd: '/purchase/returns' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers', quickAdd: '/purchase/suppliers?add=1' },
