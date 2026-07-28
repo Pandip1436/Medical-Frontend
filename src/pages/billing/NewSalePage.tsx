@@ -3535,6 +3535,7 @@ export default function NewSalePage() {
       // oversold it. Each new row must take a DISTINCT batch.
       let noFreshBatch = false
       let bumped = false
+      let outOfStock = false
       setItems((prev) => {
         const nonEmpty = prev.filter((i) => i.productId)
         // This product's in-stock, non-expired batches, keyed for lookup.
@@ -3572,6 +3573,28 @@ export default function NewSalePage() {
         )
         const batch = productBatches.find((b) => !usedBatchIds.has(b.id))
         if (!batch) {
+          // Out of stock — the product has no sellable (in-stock, non-expired)
+          // batch at all. Still add it as a batchless row (matching the per-row
+          // picker) so it can be put on the bill; the operator picks a batch or
+          // the batch-required check flags it on save.
+          if (productBatches.length === 0) {
+            outOfStock = true
+            const oosItem: BillingItem = {
+              ...createEmptyItem(),
+              productId: product.id,
+              productName: product.name,
+              gstPercent: product.gstRate,
+              mrp: Number(product.mrp) || 0,
+              rate: resolveLineRate({ product, batch: undefined, billingType, customerLastRate: lastRate }),
+              schedule: product.schedule,
+              batchId: '',
+              batchNumber: '',
+              expiryDate: '',
+              quantity: 1,
+            }
+            oosItem.amount = calculateItemAmount(oosItem)
+            return [...nonEmpty, oosItem]
+          }
           // Every available batch is on the bill AND billed to its full stock —
           // adding more would oversell.
           noFreshBatch = true
@@ -3596,6 +3619,8 @@ export default function NewSalePage() {
 
       if (noFreshBatch) {
         toast.warning(`All available stock of ${product.name} is already in the bill`)
+      } else if (outOfStock) {
+        toast.warning(`${product.name} is out of stock — added without a batch. Select a batch to bill it.`)
       } else if (!bumped && lastRate !== undefined) {
         toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
       }
