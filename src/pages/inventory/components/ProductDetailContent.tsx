@@ -209,9 +209,25 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     }))
   }, [history])
 
-  // Per-batch purchase/sales aggregates for the Batches tab, derived from the
-  // product's transaction feeds (batches carry only current stock, not lifetime
-  // purchased/sold), then merged onto each batch record.
+  // ── Purchase return rows (outgoing — stock OUT to supplier) ──
+  const SHORT_DELIVERY_RE = /short.*delivery|short.*supply/i
+  const purchaseReturnRows = useMemo(() => {
+    if (!history) return []
+    return (history.purchaseReturns ?? [])
+      .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
+      .map((r: any) => ({
+        date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName, partyPhone: r.supplierPhone,
+        batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
+        purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
+        reason: r.reason, isReturn: true, docType: 'purchase-return' as ProductDocType, docId: r.purchaseReturnId,
+        partyKind: 'supplier' as PartyKind, partyId: r.supplierId,
+      }))
+  }, [history])
+
+  // Per-batch purchased/sold totals for the Batches tab. Gross lifetime figures
+  // (batches carry only current stock): Purchase Qty = total received (+ free),
+  // Sales Qty = total sold. Returns and manual stock adjustments are NOT netted
+  // here, so Qty won't always equal Purchase Qty − Sales Qty.
   const batchesEnriched = useMemo(() => {
     const purchasedBy = new Map<string, number>()
     for (const p of purchaseRows) {
@@ -227,28 +243,15 @@ export function ProductDetailContent({ productId }: { productId: string }) {
       const prev = lastSale.get(s.batch)
       if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
     }
+    const gstRate = Number((detail.product as any)?.gstRate) || 0
     return (detail.batches as any[]).map((b) => ({
       ...b,
+      gstRate,
       purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
       salesQty: soldBy.get(b.batchNumber) ?? 0,
       sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
-  }, [detail.batches, purchaseRows, salesRows])
-
-  // ── Purchase return rows (outgoing — stock OUT to supplier) ──
-  const SHORT_DELIVERY_RE = /short.*delivery|short.*supply/i
-  const purchaseReturnRows = useMemo(() => {
-    if (!history) return []
-    return (history.purchaseReturns ?? [])
-      .filter((r: any) => !SHORT_DELIVERY_RE.test(r.reason ?? ''))
-      .map((r: any) => ({
-        date: new Date(r.date), ref: r.debitNoteNo, party: r.supplierName, partyPhone: r.supplierPhone,
-        batch: r.batchNumber, qty: r.returnedQty, freeQty: 0,
-        purchaseRate: r.purchaseRate, mrp: 0, amount: r.amount, status: r.status,
-        reason: r.reason, isReturn: true, docType: 'purchase-return' as ProductDocType, docId: r.purchaseReturnId,
-        partyKind: 'supplier' as PartyKind, partyId: r.supplierId,
-      }))
-  }, [history])
+  }, [detail.batches, detail.product, purchaseRows, salesRows])
 
   // ── Timeline — all 4 types merged with running stock ─────────
   const timeline = useMemo((): TimelineRow[] => {

@@ -20,8 +20,6 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
 import { RightPanel } from './RightPanel'
 
 const loginSchema = z.object({
@@ -102,7 +100,6 @@ export default function LoginPage({
 }: LoginPageProps) {
   // ─── PRESERVED STATE — DO NOT TOUCH ──────────────────────────
   const [showPassword, setShowPassword] = useState(false)
-  const [rememberMe, setRememberMe] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [shake, setShake] = useState(false)
@@ -506,21 +503,6 @@ export default function LoginPage({
                 )}
               </div>
 
-              {/* Remember me */}
-              <div className="flex items-center pt-0.5">
-                <div className="flex items-center gap-2.5">
-                  <Checkbox
-                    id="remember"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMe(checked === true)}
-                    aria-label="Remember me"
-                    className="ms-checkbox h-4 w-4 rounded-[5px] cursor-pointer"
-                  />
-                  <Label htmlFor="remember" className="cursor-pointer text-[12.5px] font-normal text-[#475569]">
-                    Remember me
-                  </Label>
-                </div>
-              </div>
 
               {/* Primary submit button */}
               <button

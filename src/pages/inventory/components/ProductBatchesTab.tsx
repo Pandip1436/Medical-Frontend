@@ -6,11 +6,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { DataTableRowActions } from '@/components/shared/DataTableRowActions'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import { BatchDetailView } from '../BatchDetailView'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import type { Batch } from '@/types'
+import type { ColumnDef } from '@/types/table'
+
+// Column set for the Batches table — toggleable via ColumnsToggle. Batch # and
+// Actions are always shown (required); the rest can be hidden.
+const BATCH_COLUMNS: ColumnDef[] = [
+  { id: 'batch', label: 'Batch #', required: true },
+  { id: 'expiry', label: 'Expiry Date', defaultVisible: true },
+  { id: 'qty', label: 'Qty', defaultVisible: true },
+  { id: 'purchaseQty', label: 'Purchase Qty', defaultVisible: true },
+  { id: 'salesQty', label: 'Sales Qty', defaultVisible: true },
+  { id: 'mrp', label: 'MRP', defaultVisible: true },
+  { id: 'purchaseRate', label: 'Purchase Rate', defaultVisible: true },
+  { id: 'sellingPrice', label: 'Selling Price', defaultVisible: true },
+  { id: 'taxable', label: 'Taxable', defaultVisible: true },
+  { id: 'gstAmount', label: 'GST Amt', defaultVisible: true },
+  { id: 'netAmount', label: 'Net Amount', defaultVisible: true },
+  { id: 'stockValue', label: 'Stock Value', defaultVisible: true },
+  { id: 'supplier', label: 'Supplier', defaultVisible: true },
+  { id: 'actions', label: 'Actions', required: true },
+]
 
 // Shared "Batches" tab — the in-stock batches for one product, with a
 // batch/supplier search, an expiry-status folder, and per-row actions (open
@@ -27,6 +49,7 @@ export function ProductBatchesTab({
   loading: boolean
   onAfterAction: () => void
 }) {
+  const cols = useColumnVisibility('inventory.batches', BATCH_COLUMNS)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'near_expiry' | 'expired'>('all')
   const [detailBatchId, setDetailBatchId] = useState<string | null>(null)
@@ -88,6 +111,7 @@ export function ProductBatchesTab({
             <SelectItem value="expired">Expired ({counts.expired})</SelectItem>
           </SelectContent>
         </Select>
+        <ColumnsToggle columns={BATCH_COLUMNS} visible={cols.visible} onToggle={cols.toggle} onReset={cols.reset} />
         <span className="ml-auto shrink-0 text-xs text-muted-foreground">{filtered.length} found</span>
       </div>
 
@@ -114,17 +138,20 @@ export function ProductBatchesTab({
         <Table className="text-xs [&_th]:h-9 [&_th]:px-2 [&_th]:text-[10px] [&_td]:px-2 [&_td]:py-2 [&_td]:text-xs">
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
-                <TableHead>Batch #</TableHead>
-                <TableHead>Expiry Date</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Purchase Qty</TableHead>
-                <TableHead className="text-right">Sales Qty</TableHead>
-                <TableHead className="text-right">MRP</TableHead>
-                <TableHead className="text-right">Purchase Rate</TableHead>
-                <TableHead className="text-right">Selling Price</TableHead>
-                <TableHead className="text-right">Stock Value</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                {cols.isVisible('batch') && <TableHead>Batch #</TableHead>}
+                {cols.isVisible('expiry') && <TableHead>Expiry Date</TableHead>}
+                {cols.isVisible('qty') && <TableHead className="text-right">Qty</TableHead>}
+                {cols.isVisible('purchaseQty') && <TableHead className="text-right">Purchase Qty</TableHead>}
+                {cols.isVisible('salesQty') && <TableHead className="text-right">Sales Qty</TableHead>}
+                {cols.isVisible('mrp') && <TableHead className="text-right">MRP</TableHead>}
+                {cols.isVisible('purchaseRate') && <TableHead className="text-right">Purchase Rate</TableHead>}
+                {cols.isVisible('sellingPrice') && <TableHead className="text-right">Selling Price</TableHead>}
+                {cols.isVisible('taxable') && <TableHead className="text-right">Taxable</TableHead>}
+                {cols.isVisible('gstAmount') && <TableHead className="text-right">GST Amt</TableHead>}
+                {cols.isVisible('netAmount') && <TableHead className="text-right">Net Amount</TableHead>}
+                {cols.isVisible('stockValue') && <TableHead className="text-right">Stock Value</TableHead>}
+                {cols.isVisible('supplier') && <TableHead>Supplier</TableHead>}
+                {cols.isVisible('actions') && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -133,14 +160,21 @@ export function ProductBatchesTab({
                 const nearExpiry = !expired && isNearExpiry(b.expiryDate, 90)
                 const daysLeft = Math.ceil((new Date(b.expiryDate).getTime() - Date.now()) / 86400000)
                 const supplierName = (b as any).supplierName as string | undefined
-                const stockValue = (b.quantity ?? 0) * Number(b.mrp ?? 0)
+                // Stock value on a cost basis: quantity × purchase rate.
+                const stockValue = (b.quantity ?? 0) * Number(b.purchaseRate ?? 0)
+                const gstRate = Number((b as any).gstRate) || 0
+                // Per-unit taxable + GST — purchase rate (GST-inclusive) for one unit.
+                const unitRate = Number(b.purchaseRate ?? 0)
+                const taxable = gstRate > 0 ? unitRate / (1 + gstRate / 100) : unitRate
+                const gstAmount = unitRate - taxable
                 return (
                   <TableRow
                     key={b.id}
                     className="cursor-pointer transition-colors hover:bg-muted/30"
                     onClick={() => setDetailBatchId(b.id)}
                   >
-                    <TableCell className="font-mono text-xs font-medium">{b.batchNumber}</TableCell>
+                    {cols.isVisible('batch') && <TableCell className="font-mono text-xs font-medium">{b.batchNumber}</TableCell>}
+                    {cols.isVisible('expiry') && (
                     <TableCell>
                       <div className={cn(
                         'text-xs font-medium',
@@ -153,13 +187,18 @@ export function ProductBatchesTab({
                         {expired ? 'expired' : `${daysLeft}d left`}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">{b.quantity}</TableCell>
-                    <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).purchaseQty ?? '—'}</TableCell>
-                    <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).salesQty ?? '—'}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{formatCurrency(b.mrp)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{formatCurrency(b.purchaseRate)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{formatCurrency((b as any).sellingPrice ?? b.mrp)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>
+                    )}
+                    {cols.isVisible('qty') && <TableCell className="text-right font-mono text-sm">{b.quantity}</TableCell>}
+                    {cols.isVisible('purchaseQty') && <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).purchaseQty ?? '—'}</TableCell>}
+                    {cols.isVisible('salesQty') && <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).salesQty ?? '—'}</TableCell>}
+                    {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrency(b.mrp)}</TableCell>}
+                    {cols.isVisible('purchaseRate') && <TableCell className="text-right font-mono text-sm">{formatCurrency(b.purchaseRate)}</TableCell>}
+                    {cols.isVisible('sellingPrice') && <TableCell className="text-right font-mono text-sm">{formatCurrency((b as any).sellingPrice ?? b.mrp)}</TableCell>}
+                    {cols.isVisible('taxable') && <TableCell className="text-right font-mono text-sm">{formatCurrency(taxable)}</TableCell>}
+                    {cols.isVisible('gstAmount') && <TableCell className="text-right font-mono text-sm">{formatCurrency(gstAmount)}</TableCell>}
+                    {cols.isVisible('netAmount') && <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(taxable + gstAmount)}</TableCell>}
+                    {cols.isVisible('stockValue') && <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(stockValue)}</TableCell>}
+                    {cols.isVisible('supplier') && (
                     <TableCell className="max-w-[110px]">
                       {b.supplierId && supplierName ? (
                         <button
@@ -173,6 +212,8 @@ export function ProductBatchesTab({
                         <span className="block max-w-full truncate text-xs text-muted-foreground" title={supplierName || undefined}>{supplierName || '—'}</span>
                       )}
                     </TableCell>
+                    )}
+                    {cols.isVisible('actions') && (
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <DataTableRowActions
                         onView={() => setDetailBatchId(b.id)}
@@ -185,6 +226,7 @@ export function ProductBatchesTab({
                         ]}
                       />
                     </TableCell>
+                    )}
                   </TableRow>
                 )
               })}
