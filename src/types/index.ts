@@ -161,6 +161,15 @@ export interface Batch {
   supplierId: string
   productName?: string
   grnItemId?: string
+  // Authoritative per-batch stock movements — present only on the product-
+  // scoped batches endpoint (see products.service.ts computeBatchMovements).
+  // They reconcile: quantity = received − purchaseReturnedQty − sold +
+  // salesReturnedQty + adjustedQty.
+  received?: number
+  purchaseReturnedQty?: number
+  sold?: number
+  salesReturnedQty?: number
+  adjustedQty?: number
 }
 
 export interface InvoiceItem {

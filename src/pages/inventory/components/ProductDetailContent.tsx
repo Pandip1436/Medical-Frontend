@@ -35,7 +35,7 @@ type ActiveTab = 'overview' | 'batches' | 'sales' | 'purchases' | 'timeline'
 type PartyKind = 'customer' | 'supplier'
 
 interface TimelineRow {
-  type: 'SALE' | 'PURCHASE' | 'SALES_RETURN' | 'PURCHASE_RETURN'
+  type: 'SALE' | 'PURCHASE' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'OPENING'
   date: Date
   ref: string
   party: string
@@ -57,6 +57,7 @@ const DOC_TYPE_OF: Record<TimelineRow['type'], ProductDocType> = {
   PURCHASE: 'grn',
   SALES_RETURN: 'credit-note',
   PURCHASE_RETURN: 'purchase-return',
+  OPENING: 'grn', // placeholder — opening rows have no document to open
 }
 
 // Distinct colour per movement type so all four read apart at a glance.
@@ -65,6 +66,7 @@ const TYPE_THEME: Record<TimelineRow['type'], { badge: string; qty: string }> = 
   PURCHASE:        { badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', qty: 'text-emerald-600 dark:text-emerald-300' },
   SALES_RETURN:    { badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',     qty: 'text-amber-600 dark:text-amber-300' },
   PURCHASE_RETURN: { badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',  qty: 'text-violet-600 dark:text-violet-300' },
+  OPENING:         { badge: 'bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300',    qty: 'text-slate-600 dark:text-slate-300' },
 }
 
 // Navigate to the party's detail page (customer or supplier).
@@ -224,46 +226,32 @@ export function ProductDetailContent({ productId }: { productId: string }) {
       }))
   }, [history])
 
-  // Per-batch purchased/sold totals for the Batches tab. Gross lifetime figures
-  // (batches carry only current stock): Purchase Qty = total received (+ free),
-  // Sales Qty = total sold. Returns and manual stock adjustments are NOT netted
-  // here, so Qty won't always equal Purchase Qty − Sales Qty.
+  // Per-batch columns for the Batches tab. The movement quantities now come
+  // AUTHORITATIVELY from the backend on each batch row (received /
+  // purchaseReturnedQty / sold / salesReturnedQty / adjustedQty — see
+  // products.service.ts computeBatchMovements) and reconcile with Qty:
+  //   qty = received − purchaseReturnedQty − sold + salesReturnedQty + adjustedQty
+  // Only sellingPrice (last sale rate) and gstRate stay client-derived.
   const batchesEnriched = useMemo(() => {
-    const purchasedBy = new Map<string, number>()
-    for (const p of purchaseRows) {
-      if (!p.batch) continue
-      purchasedBy.set(p.batch, (purchasedBy.get(p.batch) ?? 0) + (Number(p.qty) || 0) + (Number(p.freeQty) || 0))
-    }
-    const soldBy = new Map<string, number>()
     const lastSale = new Map<string, { date: number; rate: number }>()
     for (const s of salesRows) {
       if (!s.batch) continue
-      soldBy.set(s.batch, (soldBy.get(s.batch) ?? 0) + (Number(s.qty) || 0))
       const t = s.date.getTime()
       const prev = lastSale.get(s.batch)
       if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
-    }
-    const purReturnBy = new Map<string, number>()
-    for (const r of purchaseReturnRows) {
-      if (!r.batch) continue
-      purReturnBy.set(r.batch, (purReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
-    }
-    const salesReturnBy = new Map<string, number>()
-    for (const r of salesReturnRows) {
-      if (!r.batch) continue
-      salesReturnBy.set(r.batch, (salesReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
     }
     const gstRate = Number((detail.product as any)?.gstRate) || 0
     return (detail.batches as any[]).map((b) => ({
       ...b,
       gstRate,
-      purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
-      salesQty: soldBy.get(b.batchNumber) ?? 0,
-      purchaseReturnQty: purReturnBy.get(b.batchNumber) ?? 0,
-      salesReturnQty: salesReturnBy.get(b.batchNumber) ?? 0,
+      purchaseQty: b.received ?? 0,
+      salesQty: b.sold ?? 0,
+      purchaseReturnQty: b.purchaseReturnedQty ?? 0,
+      salesReturnQty: b.salesReturnedQty ?? 0,
+      adjustedQty: b.adjustedQty ?? 0,
       sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
-  }, [detail.batches, detail.product, purchaseRows, purchaseReturnRows, salesRows, salesReturnRows])
+  }, [detail.batches, detail.product, salesRows])
 
   // ── Timeline — all 4 types merged with running stock ─────────
   const timeline = useMemo((): TimelineRow[] => {
@@ -307,12 +295,29 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     }
     const totalNet = rows.reduce((s, r) => s + netChange(r.type, r.qty), 0)
     const currentStock: number = history.summary.currentStock ?? 0
-    let runningStock = currentStock - totalNet
+    // Opening balance = stock that existed before the earliest recorded move
+    // (carried-forward stock / migration opening / adjustments not in the feed).
+    // Without surfacing it, this phantom got baked into the first transaction's
+    // running stock (e.g. a +500 purchase showing 615). Show it as its own row.
+    const openingStock = currentStock - totalNet
+    let runningStock = openingStock
 
-    return rows.map(row => {
+    const movement: TimelineRow[] = rows.map(row => {
       runningStock += netChange(row.type, row.qty)
       return { ...row, runningStock }
     })
+
+    if (openingStock !== 0 && rows.length > 0) {
+      const opening: TimelineRow = {
+        type: 'OPENING',
+        date: new Date(rows[0].date.getTime() - 1),
+        ref: 'Opening balance', party: '', partyKind: 'supplier',
+        batch: '', qty: openingStock, amount: 0,
+        runningStock: openingStock, docType: 'grn',
+      }
+      return [opening, ...movement]
+    }
+    return movement
   }, [history])
 
   // ── Apply shared filters + sort to each tab ─────────────────
@@ -961,15 +966,16 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                         PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/40', accent: 'border-l-emerald-400 dark:border-l-emerald-500/60', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
                         SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30', accent: 'border-l-emerald-300 dark:border-l-emerald-500/40', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
                         PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-100/60 dark:hover:bg-rose-950/30',      accent: 'border-l-rose-300 dark:border-l-rose-500/40',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                        OPENING:         { rowBg: 'bg-slate-50/60 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/40',  accent: 'border-l-slate-300 dark:border-l-slate-600/60',      badge: 'bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300', icon: Package,    label: 'Opening Stock',   qtySign: '',  qtyColor: 'text-slate-600 dark:text-slate-300' },
                       }
                       const style = TYPE_STYLE[row.type]
                       const Icon = style.icon
                       return (
                         <TableRow
                           key={`tl-${i}`}
-                          className="group cursor-pointer border-b border-border/30 transition-colors hover:bg-muted/50"
-                          onClick={() => openDoc(row.docType, row.docId)}
-                          title="Click to view the document"
+                          className={cn('group border-b border-border/30 transition-colors hover:bg-muted/50', row.docId && 'cursor-pointer')}
+                          onClick={() => row.docId && openDoc(row.docType, row.docId)}
+                          title={row.docId ? 'Click to view the document' : undefined}
                         >
                           <TableCell>
                             <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase whitespace-nowrap', TYPE_THEME[row.type].badge)}>
@@ -1013,12 +1019,7 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                             ) : '—'}
                           </TableCell>
                           <TableCell className="text-sm font-medium font-mono group-hover:text-primary transition-colors">{row.ref}</TableCell>
-                          <TableCell className={cn(
-                            'text-right text-[15px] font-mono font-semibold',
-                            style.qtySign === '+'
-                              ? 'text-emerald-600 dark:text-emerald-300'
-                              : 'text-rose-600 dark:text-rose-300',
-                          )}>
+                          <TableCell className={cn('text-right text-[15px] font-mono font-semibold', style.qtyColor)}>
                             {style.qtySign}{row.qty}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">{formatCurrency(row.amount)}</TableCell>

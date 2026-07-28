@@ -25,6 +25,7 @@ const BATCH_COLUMNS: ColumnDef[] = [
   { id: 'purchaseReturnQty', label: 'Pur. Return Qty', defaultVisible: true },
   { id: 'salesQty', label: 'Sales Qty', defaultVisible: true },
   { id: 'salesReturnQty', label: 'Sales Return Qty', defaultVisible: true },
+  { id: 'adjustedQty', label: 'Adjusted', defaultVisible: true },
   { id: 'mrp', label: 'MRP', defaultVisible: true },
   { id: 'purchaseRate', label: 'Purchase Rate', defaultVisible: true },
   { id: 'sellingPrice', label: 'Selling Price', defaultVisible: true },
@@ -147,6 +148,7 @@ export function ProductBatchesTab({
                 {cols.isVisible('purchaseReturnQty') && <TableHead className="text-right">Pur. Return Qty</TableHead>}
                 {cols.isVisible('salesQty') && <TableHead className="text-right">Sales Qty</TableHead>}
                 {cols.isVisible('salesReturnQty') && <TableHead className="text-right">Sales Return Qty</TableHead>}
+                {cols.isVisible('adjustedQty') && <TableHead className="text-right">Adjusted</TableHead>}
                 {cols.isVisible('mrp') && <TableHead className="text-right">MRP</TableHead>}
                 {cols.isVisible('purchaseRate') && <TableHead className="text-right">Purchase Rate</TableHead>}
                 {cols.isVisible('sellingPrice') && <TableHead className="text-right">Selling Price</TableHead>}
@@ -197,6 +199,20 @@ export function ProductBatchesTab({
                     {cols.isVisible('purchaseReturnQty') && <TableCell className="text-right font-mono text-sm text-amber-600 dark:text-amber-400">{(b as any).purchaseReturnQty ?? 0}</TableCell>}
                     {cols.isVisible('salesQty') && <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).salesQty ?? '—'}</TableCell>}
                     {cols.isVisible('salesReturnQty') && <TableCell className="text-right font-mono text-sm text-emerald-600 dark:text-emerald-400">{(b as any).salesReturnQty ?? 0}</TableCell>}
+                    {cols.isVisible('adjustedQty') && (() => {
+                      // Residual that makes the row balance: qty = received −
+                      // pur.return − sold + sales.return + adjusted. Non-zero =
+                      // manual stock adjustment / write-off (or orphan stock).
+                      const adj = Number((b as any).adjustedQty ?? 0)
+                      return (
+                        <TableCell className={cn(
+                          'text-right font-mono text-sm',
+                          adj === 0 ? 'text-muted-foreground' : adj < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-blue-600 dark:text-blue-400',
+                        )} title="Manual stock adjustments / write-offs — balances Qty against the movements">
+                          {adj === 0 ? '—' : adj > 0 ? `+${adj}` : adj}
+                        </TableCell>
+                      )
+                    })()}
                     {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull(b.mrp)}</TableCell>}
                     {cols.isVisible('purchaseRate') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull(b.purchaseRate)}</TableCell>}
                     {cols.isVisible('sellingPrice') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull((b as any).sellingPrice ?? b.mrp)}</TableCell>}
