@@ -91,7 +91,7 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
           <ChevronDown className="h-3 w-3 opacity-60" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className={cn('p-0', hasPositionable ? 'w-64' : 'w-56')}>
+      <PopoverContent align="end" className={cn('p-0', hasPositionable ? 'w-64' : 'w-80')}>
         <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
           <h3 className="text-xs font-semibold">Toggle Columns</h3>
           {onReset && (
@@ -106,8 +106,8 @@ export function ColumnsToggle({ columns, visible, onToggle, onReset, isRight, on
             </button>
           )}
         </div>
-        <ScrollArea className="max-h-72">
-          <div className="p-1">
+        <ScrollArea className="max-h-80">
+          <div className={cn('p-1', !hasPositionable && 'grid grid-cols-2 gap-0.5')}>
             {columns.map((col) => {
               const isOn = visible.includes(col.id)
               const isLocked = !!col.required

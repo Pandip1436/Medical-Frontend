@@ -243,15 +243,27 @@ export function ProductDetailContent({ productId }: { productId: string }) {
       const prev = lastSale.get(s.batch)
       if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
     }
+    const purReturnBy = new Map<string, number>()
+    for (const r of purchaseReturnRows) {
+      if (!r.batch) continue
+      purReturnBy.set(r.batch, (purReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
+    }
+    const salesReturnBy = new Map<string, number>()
+    for (const r of salesReturnRows) {
+      if (!r.batch) continue
+      salesReturnBy.set(r.batch, (salesReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
+    }
     const gstRate = Number((detail.product as any)?.gstRate) || 0
     return (detail.batches as any[]).map((b) => ({
       ...b,
       gstRate,
       purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
       salesQty: soldBy.get(b.batchNumber) ?? 0,
+      purchaseReturnQty: purReturnBy.get(b.batchNumber) ?? 0,
+      salesReturnQty: salesReturnBy.get(b.batchNumber) ?? 0,
       sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
-  }, [detail.batches, detail.product, purchaseRows, salesRows])
+  }, [detail.batches, detail.product, purchaseRows, purchaseReturnRows, salesRows, salesReturnRows])
 
   // ── Timeline — all 4 types merged with running stock ─────────
   const timeline = useMemo((): TimelineRow[] => {

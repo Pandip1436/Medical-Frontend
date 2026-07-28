@@ -11,7 +11,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import { BatchDetailView } from '../BatchDetailView'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import { navigate } from '@/lib/router'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyFull, formatDate } from '@/lib/utils'
 import type { Batch } from '@/types'
 import type { ColumnDef } from '@/types/table'
 
@@ -22,7 +22,9 @@ const BATCH_COLUMNS: ColumnDef[] = [
   { id: 'expiry', label: 'Expiry Date', defaultVisible: true },
   { id: 'qty', label: 'Qty', defaultVisible: true },
   { id: 'purchaseQty', label: 'Purchase Qty', defaultVisible: true },
+  { id: 'purchaseReturnQty', label: 'Pur. Return Qty', defaultVisible: true },
   { id: 'salesQty', label: 'Sales Qty', defaultVisible: true },
+  { id: 'salesReturnQty', label: 'Sales Return Qty', defaultVisible: true },
   { id: 'mrp', label: 'MRP', defaultVisible: true },
   { id: 'purchaseRate', label: 'Purchase Rate', defaultVisible: true },
   { id: 'sellingPrice', label: 'Selling Price', defaultVisible: true },
@@ -142,7 +144,9 @@ export function ProductBatchesTab({
                 {cols.isVisible('expiry') && <TableHead>Expiry Date</TableHead>}
                 {cols.isVisible('qty') && <TableHead className="text-right">Qty</TableHead>}
                 {cols.isVisible('purchaseQty') && <TableHead className="text-right">Purchase Qty</TableHead>}
+                {cols.isVisible('purchaseReturnQty') && <TableHead className="text-right">Pur. Return Qty</TableHead>}
                 {cols.isVisible('salesQty') && <TableHead className="text-right">Sales Qty</TableHead>}
+                {cols.isVisible('salesReturnQty') && <TableHead className="text-right">Sales Return Qty</TableHead>}
                 {cols.isVisible('mrp') && <TableHead className="text-right">MRP</TableHead>}
                 {cols.isVisible('purchaseRate') && <TableHead className="text-right">Purchase Rate</TableHead>}
                 {cols.isVisible('sellingPrice') && <TableHead className="text-right">Selling Price</TableHead>}
@@ -190,10 +194,12 @@ export function ProductBatchesTab({
                     )}
                     {cols.isVisible('qty') && <TableCell className="text-right font-mono text-sm">{b.quantity}</TableCell>}
                     {cols.isVisible('purchaseQty') && <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).purchaseQty ?? '—'}</TableCell>}
+                    {cols.isVisible('purchaseReturnQty') && <TableCell className="text-right font-mono text-sm text-amber-600 dark:text-amber-400">{(b as any).purchaseReturnQty ?? 0}</TableCell>}
                     {cols.isVisible('salesQty') && <TableCell className="text-right font-mono text-sm text-muted-foreground">{(b as any).salesQty ?? '—'}</TableCell>}
-                    {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrency(b.mrp)}</TableCell>}
-                    {cols.isVisible('purchaseRate') && <TableCell className="text-right font-mono text-sm">{formatCurrency(b.purchaseRate)}</TableCell>}
-                    {cols.isVisible('sellingPrice') && <TableCell className="text-right font-mono text-sm">{formatCurrency((b as any).sellingPrice ?? b.mrp)}</TableCell>}
+                    {cols.isVisible('salesReturnQty') && <TableCell className="text-right font-mono text-sm text-emerald-600 dark:text-emerald-400">{(b as any).salesReturnQty ?? 0}</TableCell>}
+                    {cols.isVisible('mrp') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull(b.mrp)}</TableCell>}
+                    {cols.isVisible('purchaseRate') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull(b.purchaseRate)}</TableCell>}
+                    {cols.isVisible('sellingPrice') && <TableCell className="text-right font-mono text-sm">{formatCurrencyFull((b as any).sellingPrice ?? b.mrp)}</TableCell>}
                     {cols.isVisible('taxable') && <TableCell className="text-right font-mono text-sm">{formatCurrency(taxable)}</TableCell>}
                     {cols.isVisible('gstAmount') && <TableCell className="text-right font-mono text-sm">{formatCurrency(gstAmount)}</TableCell>}
                     {cols.isVisible('netAmount') && <TableCell className="text-right font-mono text-sm font-medium">{formatCurrency(taxable + gstAmount)}</TableCell>}

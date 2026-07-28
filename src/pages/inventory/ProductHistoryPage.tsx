@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX, PackagePlus, SquarePen, AlertTriangle, Layers,
+  RotateCcw, PackageX, SquarePen, AlertTriangle, Layers,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -263,15 +263,27 @@ export default function ProductHistoryPage() {
       const prev = lastSale.get(s.batch)
       if (!prev || t >= prev.date) lastSale.set(s.batch, { date: t, rate: Number(s.rate) || 0 })
     }
+    const purReturnBy = new Map<string, number>()
+    for (const r of purchaseReturnRows) {
+      if (!r.batch) continue
+      purReturnBy.set(r.batch, (purReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
+    }
+    const salesReturnBy = new Map<string, number>()
+    for (const r of salesReturnRows) {
+      if (!r.batch) continue
+      salesReturnBy.set(r.batch, (salesReturnBy.get(r.batch) ?? 0) + (Number(r.qty) || 0))
+    }
     const gstRate = Number((selectedProduct as any)?.gstRate ?? (history?.product as any)?.gstRate) || 0
     return (batches as any[]).map((b) => ({
       ...b,
       gstRate,
       purchaseQty: purchasedBy.get(b.batchNumber) ?? 0,
       salesQty: soldBy.get(b.batchNumber) ?? 0,
+      purchaseReturnQty: purReturnBy.get(b.batchNumber) ?? 0,
+      salesReturnQty: salesReturnBy.get(b.batchNumber) ?? 0,
       sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
-  }, [batches, purchaseRows, salesRows, selectedProduct, history])
+  }, [batches, purchaseRows, purchaseReturnRows, salesRows, salesReturnRows, selectedProduct, history])
 
   // ── Timeline — all 4 types merged with running stock ─────────
   const timeline = useMemo((): TimelineRow[] => {
@@ -445,14 +457,6 @@ export default function ProductHistoryPage() {
             >
               <SquarePen className="h-3.5 w-3.5" />
               Edit Product
-            </Button>
-            <Button
-              size="sm"
-              className="gap-1.5"
-              onClick={() => navigate(`/purchase/orders?productId=${selectedProductId}`)}
-            >
-              <PackagePlus className="h-3.5 w-3.5" />
-              Create PO
             </Button>
             {/* Sort + export drive the transaction-history tabs; the Batches
                 tab has its own ordering and isn't part of the history export. */}
