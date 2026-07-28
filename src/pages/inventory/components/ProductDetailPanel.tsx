@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import type { Product, Batch, Category } from '@/types'
 
@@ -168,7 +168,7 @@ export function ProductDetailPanel({ product, batches, onEdit }: ProductDetailPa
                               expirySoon ? 'font-semibold text-amber-600 dark:text-amber-400' : '',
                             )}
                           >
-                            {formatDate(b.expiryDate)}
+                            {formatExpiry(b.expiryDate)}
                           </TableCell>
                         </TableRow>
                       )

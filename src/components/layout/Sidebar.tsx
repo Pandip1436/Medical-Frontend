@@ -11,7 +11,6 @@ import {
   PackageCheck,
   Truck,
   Package,
-  BarChart3,
   Clock,
   Settings2,
   Users,
@@ -117,7 +116,11 @@ const navigationGroups: NavGroup[] = [
       // view where the drawer isn't mounted, so nothing opens.
       { label: 'Products', icon: Package, href: '/inventory/products', quickAdd: '/inventory/products?view=table&action=add' },
       { label: 'Categories', icon: Tag, href: '/inventory/categories', quickAdd: '/inventory/categories?add=1' },
-      { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
+      // Stock Overview hidden — per-product batch view (Products → Batches tab)
+      // already surfaces batch-wise stock, so this aggregate page is redundant.
+      // Route + page kept in App.tsx so existing deep links don't 404 and it can
+      // be re-enabled by uncommenting this line.
+      // { label: 'Stock Overview', icon: BarChart3, href: '/inventory/stock' },
       { label: 'Expiry Management', icon: Clock, href: '/inventory/expiry' },
       { label: 'Stock Adjustment', icon: Settings2, href: '/inventory/adjustment' },
     ],

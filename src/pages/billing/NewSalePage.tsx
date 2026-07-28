@@ -234,8 +234,10 @@ function isNearExpiry(expiryDate: string): boolean {
 }
 
 function formatExpiryShort(dateStr: string): string {
+  // Pharma expiry is month/year only — never show the day.
   const d = new Date(dateStr)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }).toUpperCase()
 }
 
 
@@ -264,6 +266,40 @@ function calculateItemAmount(item: BillingItem): number {
   const baseAmount = item.quantity * item.rate
   const discount = baseAmount * (item.discountPercent / 100)
   return baseAmount - discount
+}
+
+// Resolve the default unit sale rate for a line, in precedence order:
+//   1) the last rate THIS customer paid for the product (relationship price)
+//   2) the chosen BATCH's own selling/wholesale rate (per-batch pricing — each
+//      batch is priced against its own cost/MRP, so FEFO bills the batch's rate)
+//   3) the product MASTER selling/wholesale rate (fallback when the batch has
+//      none, e.g. legacy batches created before per-batch pricing)
+// The wholesale vs retail tier is chosen by billingType.
+function resolveLineRate(opts: {
+  product?: { sellingRate?: number; wholesaleRate?: number } | null
+  batch?: { sellingRate?: number; wholesaleRate?: number } | null
+  billingType: string
+  customerLastRate?: number
+}): number {
+  const { product, batch, billingType, customerLastRate } = opts
+  if (customerLastRate != null && Number(customerLastRate) > 0) return Number(customerLastRate)
+  const wholesale = billingType === 'wholesale'
+  const batchRate = wholesale ? Number(batch?.wholesaleRate ?? 0) : Number(batch?.sellingRate ?? 0)
+  if (batchRate > 0) return batchRate
+  const masterRate = wholesale ? Number(product?.wholesaleRate ?? 0) : Number(product?.sellingRate ?? 0)
+  return masterRate || 0
+}
+
+// Look the line's batch up in the master store and report whether its unit rate
+// is below that batch's purchase cost — a below-cost sale the backend rejects
+// unless the operator has explicitly accepted it (allowBelowCost). Returns
+// false when there's no batch or no cost on file (legacy batch).
+function isLineBelowCost(item: { batchId?: string; rate: number | string }): boolean {
+  if (!item.batchId) return false
+  const batch = useMasterDataStore.getState().batches.find((b) => b.id === item.batchId)
+  if (!batch) return false
+  const cost = Number(batch.purchaseRate ?? 0)
+  return cost > 0 && Number(item.rate) < cost - 0.01
 }
 
 // When a product is selected (from hero search or row picker), the response
@@ -510,9 +546,14 @@ function BillingRow({
       if (!firstBatch && productBatches.length > 0) {
         toast.warning(`All batches of ${product.name} are already on the bill.`)
       }
-      const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
       const lastRate = customerLastRates[product.id]
-      const rate = lastRate ?? defaultRate
+      // Precedence: customer's last rate → chosen batch's own rate → master.
+      const rate = resolveLineRate({
+        product,
+        batch: firstBatch,
+        billingType,
+        customerLastRate: lastRate,
+      })
       if (lastRate !== undefined) {
         toast.info(`Using last sale price ₹${lastRate} for ${product.name}`, { duration: 2000 })
       }
@@ -575,6 +616,15 @@ function BillingRow({
         batchNumber: batch.batchNumber,
         expiryDate: batch.expiryDate,
         mrp: Number(batch.mrp || selectedProduct?.mrp) || 0,
+        // Re-price to the newly chosen batch: each batch carries its own sale
+        // rate (customer's last rate still wins if present). Mirrors the MRP
+        // update above — switching batch is a deliberate re-pricing action.
+        rate: resolveLineRate({
+          product: selectedProduct,
+          batch,
+          billingType,
+          customerLastRate: customerLastRates[item.productId],
+        }),
         // Picking a batch unlocks quantity — seed it to 1 if the line was sitting
         // at 0 (e.g. the product was added while it had no available batch).
         ...(item.quantity <= 0 ? { quantity: 1 } : {}),
@@ -583,7 +633,7 @@ function BillingRow({
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
     },
-    [item, onUpdate, productBatches]
+    [item, onUpdate, productBatches, billingType, customerLastRates, selectedProduct]
   )
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1208,6 +1258,13 @@ function BillingRow({
     const overMrp =
       item.mrp > 0 && Number(item.rate) > item.mrp;
 
+    // Below the chosen batch's purchase cost — a loss sale. Allowed (the backend
+    // accepts it once the operator has seen this warning), but flagged so it's
+    // never silent. purchaseRate 0 = legacy batch with no cost on file.
+    const batchCost = Number(selectedBatch?.purchaseRate ?? 0);
+    const belowCost =
+      !overMrp && batchCost > 0 && Number(item.rate) < batchCost - 0.01;
+
     return (
       <div className="flex flex-col gap-1.5">
         {/* Original Rate */}
@@ -1242,6 +1299,8 @@ function BillingRow({
             isModified
               ? "border-amber-400 bg-amber-50/30 dark:bg-amber-900/10"
               : "border-border/40",
+            belowCost &&
+              "border-amber-500 bg-amber-50/40 dark:bg-amber-900/15",
             overMrp &&
               "border-rose-400 bg-rose-50/30 dark:bg-rose-900/10"
           )}
@@ -1314,11 +1373,15 @@ function BillingRow({
         </div>
 
         {/* Warning */}
-        {overMrp && (
+        {overMrp ? (
           <div className="text-[10px] text-center text-rose-600 font-medium">
             Exceeds MRP
           </div>
-        )}
+        ) : belowCost ? (
+          <div className="text-[10px] text-center text-amber-600 dark:text-amber-400 font-medium">
+            Below cost ₹{batchCost.toFixed(2)}
+          </div>
+        ) : null}
       </div>
     );
   })()}
@@ -1700,7 +1763,8 @@ function MobileBillingCard({
       .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
     const firstBatch = pBatches[0]
-    const rate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
+    // Per-batch pricing: prefer the chosen batch's own rate, fall back to master.
+    const rate = resolveLineRate({ product, batch: firstBatch, billingType })
 
     const updates: Partial<BillingItem> = {
       productId: product.id,
@@ -3460,10 +3524,10 @@ export default function NewSalePage() {
         .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
         .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
 
-      const defaultRate = billingType === 'wholesale' ? product.wholesaleRate : product.sellingRate
-      // Use last sold rate to this customer if available
+      // Use last sold rate to this customer if available. The final unit rate is
+      // resolved per-chosen-batch inside the updater below (customer-last →
+      // batch → master), since the batch isn't known until then.
       const lastRate = customerLastRates[product.id]
-      const rate = lastRate ?? defaultRate
 
       // Decide the batch INSIDE the updater so rapid repeat clicks read the
       // latest cart (prev) — a stale `items` snapshot was making a second click
@@ -3519,7 +3583,7 @@ export default function NewSalePage() {
           productName: product.name,
           gstPercent: product.gstRate,
           mrp: Number(batch.mrp || product.mrp) || 0,
-          rate: Number(rate) || 0,
+          rate: resolveLineRate({ product, batch, billingType, customerLastRate: lastRate }),
           schedule: product.schedule,
           batchId: batch.id,
           batchNumber: batch.batchNumber,
@@ -4194,6 +4258,7 @@ export default function NewSalePage() {
             discountPercent: Number(item.discountPercent) || 0,
             gstPercent: Number(item.gstPercent) || 0,
             amount: Number(item.amount) || 0,
+            allowBelowCost: isLineBelowCost(item),
           }
         }),
       }
@@ -4439,7 +4504,8 @@ export default function NewSalePage() {
             rate: Number(item.rate) || 0,
             discountPercent: Number(item.discountPercent) || 0,
             gstPercent: Number(item.gstPercent) || 0,
-            amount: Number(item.amount) || 0
+            amount: Number(item.amount) || 0,
+            allowBelowCost: isLineBelowCost(item),
           }
         })
       }

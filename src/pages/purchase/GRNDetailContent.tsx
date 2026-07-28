@@ -20,7 +20,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import api from '@/lib/api'
@@ -273,10 +273,14 @@ export function GRNDetailContent({
   const [payOpen, setPayOpen] = useState(false)
 
   // View Bill — lazy-loaded sales & returns history for this PE's products.
-  const [activeTab, setActiveTab] = useState<'details' | 'sales'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'sales' | 'payments'>('details')
   const [bill, setBill] = useState<GRNBill | null>(null)
   const [billLoading, setBillLoading] = useState(false)
   const [billError, setBillError] = useState(false)
+  // Payment history — lazy-loaded supplier payments booked against this PE.
+  const [payments, setPayments] = useState<GRNPaymentsResponse | null>(null)
+  const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const [paymentsError, setPaymentsError] = useState(false)
   // Which product row in the Sales & Returns table is expanded (only one open at
   // a time). Persisted per-GRN so it's restored when returning from a product /
   // customer / invoice link opened out of the sub-table.
@@ -306,6 +310,26 @@ export function GRNDetailContent({
   useEffect(() => {
     if (activeTab === 'sales') loadBill()
   }, [activeTab, loadBill])
+
+  // Lazy-load the payment history the first time the Payments tab is opened
+  // (re-pulls after a Record Payment so the new row shows). Guards dup fetches.
+  const loadPayments = useCallback(async (force = false) => {
+    if ((payments || paymentsLoading) && !force) return
+    setPaymentsLoading(true)
+    setPaymentsError(false)
+    try {
+      const res = await api.get(`/grn/${grn.id}/payments`)
+      setPayments(res.data)
+    } catch {
+      setPaymentsError(true)
+    } finally {
+      setPaymentsLoading(false)
+    }
+  }, [payments, paymentsLoading, grn.id])
+
+  useEffect(() => {
+    if (activeTab === 'payments') loadPayments()
+  }, [activeTab, loadPayments])
 
   const paidAmount = Number(grn.amountPaid || 0)
   const balanceDue = grnBalance(grn)
@@ -374,7 +398,7 @@ export function GRNDetailContent({
       const damaged   = item.damageQty ?? 0
       const lineValue = (item.receivedQty + (item.freeQty ?? 0)) * item.purchaseRate
       const days      = item.expiryDate ? Math.floor((new Date(item.expiryDate).getTime() - Date.now()) / 86400000) : null
-      const expLabel  = item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('en-IN') : '—'
+      const expLabel  = item.expiryDate ? formatExpiry(item.expiryDate) : '—'
       const expColor  = days !== null && days < 0 ? '#dc2626' : days !== null && days <= 90 ? '#d97706' : '#374151'
       const rowBg     = damaged > 0 ? '#fff1f2' : short > 0 ? '#fffbeb' : i % 2 === 0 ? '#f9fafb' : '#ffffff'
       return `<tr style="background:${rowBg}">
@@ -689,6 +713,7 @@ export function GRNDetailContent({
         {([
           { key: 'details', label: 'Details' },
           { key: 'sales', label: 'Sales & Returns' },
+          { key: 'payments', label: 'Payment History' },
         ] as const).map((t) => (
           <button
             key={t.key}
@@ -854,7 +879,7 @@ export function GRNDetailContent({
                       : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
                     )}>
                       {expired ? <XCircle className="h-3.5 w-3.5" /> : expiringSoon ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                      {new Date(item.expiryDate).toLocaleDateString('en-IN')}
+                      {formatExpiry(item.expiryDate)}
                     </span>
                   ) : <span className="mt-1 block text-sm text-muted-foreground/40">—</span>}
                 </div>
@@ -972,7 +997,7 @@ export function GRNDetailContent({
                           : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
                         )}>
                           {expired ? <XCircle className="h-3.5 w-3.5" /> : expiringSoon ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                          {new Date(item.expiryDate).toLocaleDateString('en-IN')}
+                          {formatExpiry(item.expiryDate)}
                           {expiringSoon && !expired && ` · ${days}d`}
                           {expired && ' · Expired'}
                         </span>
@@ -1027,6 +1052,16 @@ export function GRNDetailContent({
       )}
 
       </div>
+      )}
+
+      {/* ── Payment History tab ── supplier payments booked against this PE ── */}
+      {activeTab === 'payments' && (
+        <GRNPaymentHistory
+          data={payments}
+          loading={paymentsLoading || (!payments && !paymentsError)}
+          error={paymentsError}
+          onRetry={() => loadPayments(true)}
+        />
       )}
 
       {/* ── Sales & Returns tab ── what happened to the received stock ── */}
@@ -1088,7 +1123,7 @@ export function GRNDetailContent({
                           </span>
                           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-[1.375rem] text-[11px] text-muted-foreground">
                             <span className="font-mono text-foreground/80">{it.batchNumber}</span>
-                            <span className="whitespace-nowrap">Exp {formatDate(it.expiryDate)}</span>
+                            <span className="whitespace-nowrap">Exp {formatExpiry(it.expiryDate)}</span>
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
@@ -1216,7 +1251,7 @@ export function GRNDetailContent({
                               </span>
                             </TableCell>
                             <TableCell className="px-3 py-2.5 font-mono text-sm text-foreground/80">{it.batchNumber}</TableCell>
-                            <TableCell className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(it.expiryDate)}</TableCell>
+                            <TableCell className="px-3 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{formatExpiry(it.expiryDate)}</TableCell>
                             <TableCell className="px-3 py-2.5 text-right font-mono text-base tabular-nums">{it.receivedQty}</TableCell>
                             <TableCell className={cn('px-3 py-2.5 text-right font-mono text-base font-semibold tabular-nums', it.unitsSold > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground/50')}>{it.unitsSold}</TableCell>
                             <TableCell className={cn('px-3 py-2.5 text-right font-mono text-base font-semibold tabular-nums', it.unitsReturned > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground/50')}>{it.unitsReturned}</TableCell>
@@ -1363,9 +1398,122 @@ export function GRNDetailContent({
         <GRNPaymentDialog
           grn={grn}
           onClose={() => setPayOpen(false)}
-          onSuccess={onRefresh}
+          onSuccess={() => { onRefresh(); loadPayments(true) }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Payment History tab ─────────────────────────────────────
+interface GRNPayment {
+  id: string
+  paymentNumber: string
+  amount: number
+  paymentMode: string
+  referenceNumber: string | null
+  notes: string | null
+  createdAt: string
+}
+interface GRNPaymentsResponse {
+  grnNumber: string
+  supplierName: string
+  invoiceAmount: number
+  amountPaid: number
+  payments: GRNPayment[]
+}
+
+const PAY_MODE_LABEL: Record<string, string> = {
+  CASH: 'Cash', CHEQUE: 'Cheque', NEFT_UPI: 'NEFT / UPI', UPI: 'UPI', CARD: 'Card',
+}
+const PAY_MODE_BADGE: Record<string, string> = {
+  CASH: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  CHEQUE: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
+  NEFT_UPI: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+  UPI: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+  CARD: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+}
+
+// Supplier payment history for one PE. Mirrors the invoice PaymentHistory:
+// Date / Payment # / Mode / Reference / Amount, with a Total Paid footer.
+function GRNPaymentHistory({
+  data, loading, error, onRetry,
+}: {
+  data: GRNPaymentsResponse | null
+  loading: boolean
+  error: boolean
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-xs text-muted-foreground">Loading payments…</p>
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <XCircle className="h-8 w-8 text-muted-foreground/40" />
+        <p className="text-sm text-muted-foreground">Couldn't load payment history.</p>
+        <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>
+      </div>
+    )
+  }
+  if (!data || data.payments.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
+          <Wallet className="h-5 w-5 text-muted-foreground/50" />
+        </div>
+        <p className="text-sm font-medium text-muted-foreground">No payments recorded yet</p>
+        <p className="text-xs text-muted-foreground">Payments made at receipt or via “Record Payment” appear here.</p>
+      </div>
+    )
+  }
+  const total = data.payments.reduce((s, p) => s + p.amount, 0)
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <History className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Payment History</h3>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {data.payments.length} payment{data.payments.length === 1 ? '' : 's'} · {formatCurrency(data.amountPaid)} paid
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border/50">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Payment #</TableHead>
+              <TableHead>Mode</TableHead>
+              <TableHead>Reference</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.payments.map((p) => (
+              <TableRow key={p.id}>
+                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(p.createdAt)}</TableCell>
+                <TableCell className="font-mono text-xs">{p.paymentNumber}</TableCell>
+                <TableCell>
+                  <Badge className={cn('font-medium', PAY_MODE_BADGE[p.paymentMode])} variant="secondary">
+                    {PAY_MODE_LABEL[p.paymentMode] ?? p.paymentMode}
+                  </Badge>
+                </TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">{p.referenceNumber || '—'}</TableCell>
+                <TableCell className="text-right font-mono text-sm font-semibold tabular-nums">{formatCurrency(p.amount)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-2.5">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Paid</span>
+        <span className="font-mono text-sm font-bold tabular-nums">{formatCurrency(total)}</span>
+      </div>
     </div>
   )
 }

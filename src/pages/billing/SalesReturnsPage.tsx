@@ -61,7 +61,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { cn, formatCurrency, formatDate, generateInvoiceNumber } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, generateInvoiceNumber, formatExpiry} from '@/lib/utils'
 import { goBack, navigate } from '@/lib/router'
 import { toast } from 'sonner'
 import api from '@/lib/api'
@@ -191,7 +191,7 @@ const MobileReturnCard = ({
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground/60">
               <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
               <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
-              <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+              <span>Exp: {ri.item.expiryDate ? formatExpiry(ri.item.expiryDate) : 'N/A'}</span>
               <span className="text-foreground/40 font-bold">Sold: {ri.item.quantity}</span>
               {ri.alreadyReturned > 0 && (
                 <Badge variant={ri.maxQty === 0 ? 'destructive' : 'warning'} className="text-[9px] px-1.5 py-0">
@@ -1070,7 +1070,7 @@ export default function SalesReturnsPage() {
                                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                                           <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
                                           <span className="font-mono bg-muted px-1 rounded text-muted-foreground">{ri.item.batchNumber}</span>
-                                          <span className="text-muted-foreground">Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+                                          <span className="text-muted-foreground">Exp: {ri.item.expiryDate ? formatExpiry(ri.item.expiryDate) : 'N/A'}</span>
                                         </div>
                                       </div>
                                       <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">{ri.maxQty} returnable</span>
@@ -1195,7 +1195,7 @@ export default function SalesReturnsPage() {
                                 <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground/60">
                                   <span className="font-mono bg-primary/10 text-primary px-1 rounded">{ri.invoiceNumber}</span>
                                   <span className="font-mono bg-muted px-1 rounded">{ri.item.batchNumber}</span>
-                                  <span>Exp: {ri.item.expiryDate ? formatDate(ri.item.expiryDate) : 'N/A'}</span>
+                                  <span>Exp: {ri.item.expiryDate ? formatExpiry(ri.item.expiryDate) : 'N/A'}</span>
                                   {ri.alreadyReturned > 0 && (
                                     <Badge variant={ri.maxQty === 0 ? 'destructive' : 'warning'} className="text-[9px] px-1.5 py-0">
                                       {ri.maxQty === 0 ? 'Fully returned' : `${ri.alreadyReturned} returned · ${ri.maxQty} left`}

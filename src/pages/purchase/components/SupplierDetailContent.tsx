@@ -61,7 +61,7 @@ import {
 } from '@/components/shared/SupplierActivityDialog'
 
 import { navigate, useRoute } from '@/lib/router'
-import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID, formatExpiry} from '@/lib/utils'
 import type { Supplier } from '@/types'
 import { useSupplierDetail } from '@/hooks/useSupplierDetail'
 
@@ -920,7 +920,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                               <div>
                                 <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Expiry</div>
                                 <div className={cn('text-[11px] font-semibold', expiryColor)}>
-                                  {b.expiryDate ? formatDate(b.expiryDate) : '—'}
+                                  {b.expiryDate ? formatExpiry(b.expiryDate) : '—'}
                                   {days !== null && days < 0 && ' (expired)'}
                                   {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
                                 </div>
@@ -967,7 +967,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                                 <TableCell className="px-3 py-2.5 font-mono text-sm">{b.batchNumber}</TableCell>
                                 <TableCell className="px-3 py-2.5 text-sm whitespace-nowrap">{b.mfgDate ? formatDate(b.mfgDate) : '—'}</TableCell>
                                 <TableCell className={cn('px-3 py-2.5 text-sm font-semibold whitespace-nowrap', expiryColor)}>
-                                  {b.expiryDate ? formatDate(b.expiryDate) : '—'}
+                                  {b.expiryDate ? formatExpiry(b.expiryDate) : '—'}
                                   {days !== null && days < 0 && ' (expired)'}
                                   {days !== null && days >= 0 && days <= 90 && ` (${days}d)`}
                                 </TableCell>

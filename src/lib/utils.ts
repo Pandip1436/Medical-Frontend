@@ -126,6 +126,29 @@ export function formatDateTime(date: Date | string | undefined | null): string {
   return `${renderDate(d, fmt)}, ${time}`
 }
 
+// Pharma drug expiry is a MONTH/YEAR, not a specific day (a drug is usable
+// through the end of its printed expiry month). Render as MM/YYYY everywhere so
+// the day is never shown, even for legacy rows stored with a specific day.
+export function formatExpiry(date: Date | string | undefined | null): string {
+  if (!date) return '-'
+  const d = typeof date === 'string' ? new Date(date) : date
+  if (Number.isNaN(d.getTime())) return '-'
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${mm}/${d.getFullYear()}`
+}
+
+// Normalize a month/year selection to the LAST day of that month (local time),
+// returned as an ISO yyyy-mm-dd string. Storing expiry at end-of-month keeps
+// day-granular logic correct — FEFO ordering and isExpired/isNearExpiry — since
+// stock is sellable through its whole expiry month. `month` is 1-12.
+export function endOfMonthISO(year: number, month: number): string {
+  // Day 0 of the NEXT month === last day of THIS month.
+  const d = new Date(year, month, 0)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 // Combine a picked calendar day with the CURRENT wall-clock time. Records that
 // only capture a date (e.g. expenses via a date picker) otherwise store
 // midnight, which surfaces as 05:30 in the Cash Book (IST = UTC+5:30). Uses

@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/input'
 import { SupplierFormDialog } from '@/components/shared/SupplierFormDialog'
 import { ProductFormDialog } from '@/components/shared/ProductFormDialog'
 import { DatePicker } from '@/components/ui/date-picker'
+import { MonthYearPicker } from '@/components/ui/month-year-picker'
 import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -50,7 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -65,6 +66,10 @@ import { ShortBillingDialog, type ShortBillingItem } from './ShortBillingDialog'
 
 interface GRNFormItem extends GRNItem {
   shortSupply: boolean
+  // Per-batch sale price captured at receipt. Defaults from the product master
+  // (editable) and is stored on the created Batch so each batch is sold against
+  // its own cost/MRP.
+  sellingRate: number
   _alreadyReceived?: number
   _remaining?: number
 }
@@ -81,6 +86,32 @@ function isExpiryHealthy(dateStr: string): boolean {
   const sixMonthsOut = new Date()
   sixMonthsOut.setMonth(sixMonthsOut.getMonth() + 6)
   return new Date(dateStr) >= sixMonthsOut
+}
+
+// Pricing-band validation for one purchase-entry row. Mirrors the backend
+// invariant (assertPricingSane / GRN DTO): purchase rate ≤ MRP, and sale rate
+// between purchase cost and MRP. Returns the error message for the given field,
+// or null. Zero (unset) values are skipped so a half-filled row doesn't nag.
+function grnPriceError(
+  item: { purchaseRate: number; mrp: number; sellingRate: number },
+  field: 'purchaseRate' | 'mrp' | 'sellingRate',
+): string | null {
+  const pr = Number(item.purchaseRate) || 0
+  const mrp = Number(item.mrp) || 0
+  const sr = Number(item.sellingRate) || 0
+  if (field === 'purchaseRate') {
+    if (pr > 0 && mrp > 0 && pr > mrp) return 'Purchase rate cannot exceed MRP'
+  }
+  if (field === 'sellingRate') {
+    if (sr > 0 && pr > 0 && sr < pr) return 'Sale rate cannot be below purchase rate'
+    if (sr > 0 && mrp > 0 && sr > mrp) return 'Sale rate cannot exceed MRP'
+  }
+  return null
+}
+
+// Any pricing error on a row (used to gate Review).
+function rowHasPriceError(item: { purchaseRate: number; mrp: number; sellingRate: number }): boolean {
+  return !!(grnPriceError(item, 'purchaseRate') || grnPriceError(item, 'sellingRate'))
 }
 
 const statusBadgeConfig: Record<
@@ -108,6 +139,7 @@ function createEmptyItem(): GRNFormItem {
     expiryDate: '',
     purchaseRate: 0,
     mrp: 0,
+    sellingRate: 0,
     shortSupply: false,
     _alreadyReceived: 0,
     _remaining: 0,
@@ -118,7 +150,7 @@ function createEmptyItem(): GRNFormItem {
 // Order Enter advances through within one product row. GST is deliberately
 // excluded — still directly editable by click/Tab, just not part of the
 // Enter chain the operator uses for fast keyboard-driven entry.
-const GRN_FIELD_ORDER = ['receivedQty', 'freeQty', 'purchaseRate', 'mrp', 'batchNumber', 'expiryDate'] as const
+const GRN_FIELD_ORDER = ['receivedQty', 'freeQty', 'mrp', 'purchaseRate', 'sellingRate', 'batchNumber', 'expiryDate'] as const
 type GrnFieldName = (typeof GRN_FIELD_ORDER)[number]
 
 function grnFieldId(itemId: string, field: GrnFieldName): string {
@@ -296,6 +328,8 @@ export default function GRNPage() {
   const [payChoice, setPayChoice] = useState<'CREDIT' | 'PAID' | 'PARTIAL'>('CREDIT')
   const [paidAmount, setPaidAmount] = useState<number>(0)
   const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
+  // UTR / cheque # / txn ref for the receive-time payment (non-cash modes only).
+  const [payReference, setPayReference] = useState<string>('')
 
   // ── Form draft — auto-saves so an in-progress entry survives navigating
   // away and back. Skipped when arriving via an intentional prefill (editing
@@ -355,6 +389,20 @@ export default function GRNPage() {
 
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
+  // Price fields blurred at least once, keyed `${itemId}:${field}` — pricing
+  // errors only surface after the operator leaves the field (not mid-typing).
+  const [touchedPrice, setTouchedPrice] = useState<Set<string>>(new Set())
+  const markPriceTouched = (itemId: string, field: 'purchaseRate' | 'mrp' | 'sellingRate') =>
+    setTouchedPrice((prev) => (prev.has(`${itemId}:${field}`) ? prev : new Set(prev).add(`${itemId}:${field}`)))
+  const showPriceErr = (itemId: string, field: 'purchaseRate' | 'sellingRate', item: GRNFormItem): string | null => {
+    // The purchase>MRP error completes only once MRP is entered, so surface it
+    // when either the rate or the MRP field has been left.
+    const touched =
+      field === 'purchaseRate'
+        ? touchedPrice.has(`${itemId}:purchaseRate`) || touchedPrice.has(`${itemId}:mrp`)
+        : touchedPrice.has(`${itemId}:sellingRate`)
+    return touched ? grnPriceError(item, field) : null
+  }
 
   // Item workspace view: 'list' (compact editable table, like the New Sale
   // page) or 'card' (roomy stacked cards). Persisted so the choice sticks.
@@ -463,6 +511,7 @@ export default function GRNPage() {
               expiryDate: '',
               purchaseRate: Number(it.rate ?? it.purchaseRate) || 0,
               mrp: products.find((p) => p.id === it.productId)?.mrp ?? 0,
+              sellingRate: products.find((p) => p.id === it.productId)?.sellingRate ?? 0,
               shortSupply: false,
               _alreadyReceived: 0,
               _remaining: qty,
@@ -512,6 +561,7 @@ export default function GRNPage() {
                 expiryDate: '',
                 purchaseRate: Number(item.expectedRate),
                 mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
+                sellingRate: products.find((p) => p.id === item.productId)?.sellingRate ?? 0,
                 shortSupply: false,
                 _alreadyReceived: alreadyReceived,
                 _remaining: isPartial ? remaining : item.requiredQty,
@@ -571,6 +621,7 @@ export default function GRNPage() {
               expiryDate: it.expiryDate ? String(it.expiryDate).slice(0, 10) : '',
               purchaseRate: Number(it.purchaseRate) || 0,
               mrp: Number(it.mrp) || 0,
+              sellingRate: products.find((p) => p.id === it.productId)?.sellingRate ?? 0,
               shortSupply: ordered > 0 && received < ordered,
             } as GRNFormItem
           })
@@ -678,6 +729,7 @@ export default function GRNPage() {
             expiryDate: '',
             purchaseRate: item.expectedRate,
             mrp: products.find((p) => p.id === item.productId)?.mrp ?? 0,
+            sellingRate: products.find((p) => p.id === item.productId)?.sellingRate ?? 0,
             shortSupply: false,
             // Store remaining so label can show "X of Y remaining"
             _alreadyReceived: alreadyReceived,
@@ -698,7 +750,7 @@ export default function GRNPage() {
       // guard, instead of only catching it with a toast at final submit.
       if (
         typeof value === 'number' &&
-        (field === 'receivedQty' || field === 'freeQty' || field === 'purchaseRate' || field === 'mrp')
+        (field === 'receivedQty' || field === 'freeQty' || field === 'purchaseRate' || field === 'mrp' || field === 'sellingRate')
       ) {
         value = Math.max(0, value)
       } else if (field === 'gstPercent' && typeof value === 'number') {
@@ -729,6 +781,7 @@ export default function GRNPage() {
         expiryDate: '',
         purchaseRate: product.purchaseRate,
         mrp: product.mrp,
+        sellingRate: product.sellingRate ?? 0,
         gstPercent: product.gstRate ?? 12,
         shortSupply: false,
       },
@@ -761,10 +814,21 @@ export default function GRNPage() {
     if (nextItem) {
       focusGrnField(nextItem.id, GRN_FIELD_ORDER[0])
     } else {
-      pendingInvoiceFocusRef.current = true
-      goToMobileSection('panel')
-      focusVisibleGrnField('[data-field="invoiceNumber"]')
+      // End of the last product row — the invoice header (No/Date/Amount) is
+      // filled first (it sits above the grid and feeds INTO the products), so
+      // the natural end of the chain is Review.
+      handleReview()
     }
+  }
+
+  // Enter on the last invoice-header field (Invoice Amount) drops focus INTO the
+  // product grid — the first row's first field — so the flow runs top-down:
+  // Invoice No → Date → Amount → products → Review. Falls back to Review when no
+  // product has been added yet.
+  function focusFirstProduct() {
+    const first = grnItems.find((i) => i.productId)
+    if (first) focusGrnField(first.id, GRN_FIELD_ORDER[0])
+    else handleReview()
   }
 
   // ── Calculations ──
@@ -842,6 +906,33 @@ export default function GRNPage() {
       : payChoice === 'PARTIAL'
         ? Math.min(Number(paidAmount) || 0, Number(invoiceAmount) || 0)
         : 0
+
+  // Mark every price field of every product row as touched so all pending
+  // pricing errors surface at once (used when Review is attempted).
+  function markAllPriceTouched() {
+    setTouchedPrice(() => {
+      const s = new Set<string>()
+      for (const it of grnItems) {
+        if (!it.productId) continue
+        s.add(`${it.id}:purchaseRate`)
+        s.add(`${it.id}:mrp`)
+        s.add(`${it.id}:sellingRate`)
+      }
+      return s
+    })
+  }
+
+  // Gate the move to the Review screen on the pricing band (purchase ≤ MRP,
+  // sale between cost and MRP). Also the target of the Enter-key chain's end.
+  function handleReview() {
+    const bad = grnItems.filter((i) => i.productId && i.receivedQty > 0 && rowHasPriceError(i))
+    if (bad.length > 0) {
+      markAllPriceTouched()
+      toast.error('Fix the pricing errors first — purchase rate ≤ MRP, and sale rate between purchase cost and MRP.')
+      return
+    }
+    setShowConfirm(true)
+  }
 
   async function handleConfirm() {
     if (sourceType === 'direct' && !directSupplierId) {
@@ -926,6 +1017,7 @@ export default function GRNPage() {
         // Receive-time payment (ignored by the edit path, which preserves amountPaid).
         amountPaid: isReplacementFlow ? 0 : effectivePaid,
         paymentMode: payMode,
+        referenceNumber: payMode === 'CASH' ? undefined : (payReference.trim() || undefined),
         items: receivedItems.map((i) => ({
           productId: i.productId,
           productName: i.productName,
@@ -937,6 +1029,9 @@ export default function GRNPage() {
           expiryDate: new Date(i.expiryDate).toISOString(),
           purchaseRate: Number(i.purchaseRate),
           mrp: Number(i.mrp),
+          // Per-batch sale price — stored on the created Batch so each batch is
+          // billed against its own cost/MRP (0 → backend falls back to master).
+          sellingRate: Number(i.sellingRate) || 0,
           // GST rate is stored per line so the detail view / PDF can extract the
           // tax from the GST-inclusive purchase rate (same fallback as the live
           // summary above).
@@ -1017,6 +1112,7 @@ export default function GRNPage() {
       setPayChoice('CREDIT')
       setPaidAmount(0)
       setPayMode('NEFT_UPI')
+      setPayReference('')
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
@@ -1077,6 +1173,7 @@ export default function GRNPage() {
     setPayChoice('CREDIT')
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
+    setPayReference('')
     setMobileSectionState('products')
     draft.clear()
   }
@@ -1208,6 +1305,7 @@ export default function GRNPage() {
                   className="h-9 text-sm"
                   value={invoiceDate}
                   onChange={setInvoiceDate}
+                  onEnterKey={() => focusVisibleGrnField('[data-field="invoiceAmount"]')}
                 />
               </div>
               <div className="space-y-1">
@@ -1215,12 +1313,14 @@ export default function GRNPage() {
                   Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}
                 </Label>
                 <Input
+                  data-field="invoiceAmount"
                   type="number"
                   min={0}
                   className="h-9 font-mono text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00"
                   value={invoiceAmount || ''}
                   onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
                 />
                 {/* Live mismatch warning — invoice amount vs the calculated line total. */}
                 {Number(invoiceAmount) > 0 &&
@@ -1308,6 +1408,19 @@ export default function GRNPage() {
                       </Select>
                     </div>
                   </div>
+                  {payMode !== 'CASH' && (
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {payMode === 'CHEQUE' ? 'Cheque No.' : 'Reference / UTR No.'}
+                      </Label>
+                      <Input
+                        className="h-8 font-mono text-xs"
+                        placeholder={payMode === 'CHEQUE' ? 'Cheque number' : 'UPI / NEFT reference'}
+                        value={payReference}
+                        onChange={(e) => setPayReference(e.target.value)}
+                      />
+                    </div>
+                  )}
                   <div className="flex justify-between text-[11px]">
                     <span className="text-muted-foreground">Balance to outstanding</span>
                     <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
@@ -1443,17 +1556,19 @@ export default function GRNPage() {
         </div>
         <div className="w-44 space-y-1">
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
-          <DatePicker dataField="invoiceDate" className="h-8 text-xs" value={invoiceDate} onChange={setInvoiceDate} />
+          <DatePicker dataField="invoiceDate" className="h-8 text-xs" value={invoiceDate} onChange={setInvoiceDate} onEnterKey={() => focusVisibleGrnField('[data-field="invoiceAmount"]')} />
         </div>
         <div className="w-40 space-y-1">
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Amount{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
           <Input
+            data-field="invoiceAmount"
             type="number"
             min={0}
             className="h-8 font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             placeholder="0.00"
             value={invoiceAmount || ''}
             onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
           />
         </div>
         {/* Card / List view toggle — last in the invoice row */}
@@ -1622,7 +1737,7 @@ export default function GRNPage() {
                                     : nearExpiry ? 'text-amber-600 dark:text-amber-400 font-semibold'
                                     : 'text-foreground/80',
                                 )}>
-                                  {expired && '⚠ '}{formatDate(item.expiryDate)}
+                                  {expired && '⚠ '}{formatExpiry(item.expiryDate)}
                                 </span>
                               )
                             })() : (
@@ -1664,7 +1779,7 @@ export default function GRNPage() {
                               : nearExpiry ? 'text-amber-600 dark:text-amber-400 font-semibold'
                               : 'text-foreground/80',
                           )}>
-                            {expired && '⚠ '}{formatDate(item.expiryDate)}
+                            {expired && '⚠ '}{formatExpiry(item.expiryDate)}
                           </span>
                         )
                       }
@@ -2014,8 +2129,9 @@ export default function GRNPage() {
                         <th className="px-2 py-2 text-left">Product</th>
                         <th className="w-24 px-2 py-2 text-left">Recd Qty</th>
                         <th className="w-20 px-2 py-2 text-left">Free</th>
-                        <th className="w-28 px-2 py-2 text-left">Rate</th>
                         <th className="w-28 px-2 py-2 text-left">MRP</th>
+                        <th className="w-28 px-2 py-2 text-left">Purchase Rate</th>
+                        <th className="w-28 px-2 py-2 text-left">Sale Rate</th>
                         <th className="w-28 px-2 py-2 text-left">Batch</th>
                         <th className="w-32 px-2 py-2 text-left">Expiry</th>
                         <th className="w-16 px-2 py-2 text-left">GST%</th>
@@ -2035,8 +2151,9 @@ export default function GRNPage() {
                           </td>
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'receivedQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.receivedQty || ''} onChange={(e) => updateItem(index, 'receivedQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'receivedQty') } }} /></td>
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'freeQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.freeQty || ''} onChange={(e) => updateItem(index, 'freeQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'freeQty') } }} /></td>
-                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'purchaseRate')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.purchaseRate || ''} onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }} /></td>
-                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'mrp')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0.00" value={item.mrp || ''} onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'mrp')} type="number" min={0} className={cn('h-8 font-mono text-xs', showPriceErr(item.id, 'purchaseRate', item) && 'border-rose-400 focus-visible:ring-rose-400')} placeholder="0.00" value={item.mrp || ''} onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))} onBlur={() => markPriceTouched(item.id, 'mrp')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }} /></td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'purchaseRate')} type="number" min={0} className={cn('h-8 font-mono text-xs', showPriceErr(item.id, 'purchaseRate', item) && 'border-rose-400 focus-visible:ring-rose-400')} placeholder="0.00" value={item.purchaseRate || ''} onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))} onBlur={() => markPriceTouched(item.id, 'purchaseRate')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }} />{showPriceErr(item.id, 'purchaseRate', item) && <p className="mt-0.5 text-[9px] font-medium text-rose-600 dark:text-rose-400">{showPriceErr(item.id, 'purchaseRate', item)}</p>}</td>
+                          <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'sellingRate')} type="number" min={0} className={cn('h-8 font-mono text-xs', showPriceErr(item.id, 'sellingRate', item) && 'border-rose-400 focus-visible:ring-rose-400')} placeholder="0.00" value={item.sellingRate || ''} onChange={(e) => updateItem(index, 'sellingRate', Number(e.target.value))} onBlur={() => markPriceTouched(item.id, 'sellingRate')} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'sellingRate') } }} />{showPriceErr(item.id, 'sellingRate', item) && <p className="mt-0.5 text-[9px] font-medium text-rose-600 dark:text-rose-400">{showPriceErr(item.id, 'sellingRate', item)}</p>}</td>
                           <td className="px-1.5 py-1">
                             <Input
                               id={grnFieldId(item.id, 'batchNumber')}
@@ -2055,7 +2172,7 @@ export default function GRNPage() {
                               <p className="mt-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">Batch already exists</p>
                             )}
                           </td>
-                          <td className="px-1.5 py-1"><DatePicker id={grnFieldId(item.id, 'expiryDate')} className={cn('h-8 text-xs', item.expiryDate && (isExpiryHealthy(item.expiryDate) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'))} value={item.expiryDate} min={new Date().toISOString().slice(0, 10)} onChange={(v) => updateItem(index, 'expiryDate', v)} onEnterKey={() => handleRowEnter(index, 'expiryDate')} /></td>
+                          <td className="px-1.5 py-1"><MonthYearPicker id={grnFieldId(item.id, 'expiryDate')} className={cn('h-8 text-xs', item.expiryDate && (isExpiryHealthy(item.expiryDate) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'))} value={item.expiryDate} min={new Date().toISOString().slice(0, 10)} onChange={(v) => updateItem(index, 'expiryDate', v)} onEnterKey={() => handleRowEnter(index, 'expiryDate')} /></td>
                           <td className="px-1.5 py-1"><Input type="number" min={0} max={100} step="0.01" className="h-8 font-mono text-xs" placeholder="0" value={item.gstPercent ?? ''} onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))} /></td>
                           <td className="px-2 py-1.5 text-right font-mono font-bold whitespace-nowrap">{formatCurrency(item.receivedQty * item.purchaseRate)}</td>
                           {(sourceType === 'direct' || editMode) && (
@@ -2149,8 +2266,8 @@ export default function GRNPage() {
 
                     {/* Row 2: Editable fields — all on a single row at lg+ */}
                     <div className="px-4 pb-4 space-y-3">
-                      {/* Received Qty · Free Qty · Purchase Rate · MRP · Batch · Expiry · GST */}
-                      <div className="grid grid-cols-2 lg:grid-cols-7 gap-3">
+                      {/* Received Qty · Free Qty · Purchase Rate · MRP · Sale Rate · Batch · Expiry · GST */}
+                      <div className="grid grid-cols-2 lg:grid-cols-8 gap-3">
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
                           <Input
@@ -2178,22 +2295,6 @@ export default function GRNPage() {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Purchase Rate</Label>
-                          <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
-                            <Input
-                              id={grnFieldId(item.id, 'purchaseRate')}
-                              type="number"
-                              min={0}
-                              className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
-                              placeholder="0.00"
-                              value={item.purchaseRate || ''}
-                              onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))}
-                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">MRP</Label>
                           <div className="relative">
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
@@ -2201,13 +2302,53 @@ export default function GRNPage() {
                               id={grnFieldId(item.id, 'mrp')}
                               type="number"
                               min={0}
-                              className="h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
+                              className={cn('h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all', showPriceErr(item.id, 'purchaseRate', item) && 'border-rose-400 focus-visible:ring-rose-400')}
                               placeholder="0.00"
                               value={item.mrp || ''}
                               onChange={(e) => updateItem(index, 'mrp', Number(e.target.value))}
+                              onBlur={() => markPriceTouched(item.id, 'mrp')}
                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'mrp') } }}
                             />
                           </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Purchase Rate</Label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
+                            <Input
+                              id={grnFieldId(item.id, 'purchaseRate')}
+                              type="number"
+                              min={0}
+                              className={cn('h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all', showPriceErr(item.id, 'purchaseRate', item) && 'border-rose-400 focus-visible:ring-rose-400')}
+                              placeholder="0.00"
+                              value={item.purchaseRate || ''}
+                              onChange={(e) => updateItem(index, 'purchaseRate', Number(e.target.value))}
+                              onBlur={() => markPriceTouched(item.id, 'purchaseRate')}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'purchaseRate') } }}
+                            />
+                          </div>
+                          {showPriceErr(item.id, 'purchaseRate', item) && <p className="text-[9px] font-medium text-rose-600 dark:text-rose-400">{showPriceErr(item.id, 'purchaseRate', item)}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Sale Rate</Label>
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">₹</span>
+                            <Input
+                              id={grnFieldId(item.id, 'sellingRate')}
+                              type="number"
+                              min={0}
+                              className={cn(
+                                'h-9 font-mono text-xs font-bold pl-5 border-primary/5 bg-muted/20 focus:bg-background transition-all',
+                                showPriceErr(item.id, 'sellingRate', item) && 'border-rose-400 focus-visible:ring-rose-400',
+                              )}
+                              placeholder="0.00"
+                              value={item.sellingRate || ''}
+                              onChange={(e) => updateItem(index, 'sellingRate', Number(e.target.value))}
+                              onBlur={() => markPriceTouched(item.id, 'sellingRate')}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'sellingRate') } }}
+                            />
+                          </div>
+                          {showPriceErr(item.id, 'sellingRate', item) && <p className="text-[9px] font-medium text-rose-600 dark:text-rose-400">{showPriceErr(item.id, 'sellingRate', item)}</p>}
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Batch Number</Label>
@@ -2233,8 +2374,8 @@ export default function GRNPage() {
                           ) : null}
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry Date</Label>
-                          <DatePicker
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Expiry (MM/YYYY)</Label>
+                          <MonthYearPicker
                             id={grnFieldId(item.id, 'expiryDate')}
                             className={cn(
                               "h-9 text-xs font-bold bg-muted/20 focus:bg-background transition-all",
@@ -2317,7 +2458,7 @@ export default function GRNPage() {
               <Button
                 className="flex-1"
                 disabled={!canConfirm || (showConfirm && isSubmitting)}
-                onClick={showConfirm ? handleConfirm : () => setShowConfirm(true)}
+                onClick={showConfirm ? handleConfirm : handleReview}
               >
                 {showConfirm && isSubmitting ? (
                   <div className="mr-1.5 h-4 w-4 rounded-full border-b-2 border-white animate-spin" />
@@ -2391,7 +2532,7 @@ export default function GRNPage() {
                   {payChoice === 'CREDIT' ? (
                     <p className="mt-1.5 text-[10px] text-muted-foreground">Full invoice amount will be added to the supplier's outstanding.</p>
                   ) : (
-                    <div className="mt-2 grid grid-cols-3 gap-2 items-end" data-field="paymentExtra">
+                    <div className={cn('mt-2 grid gap-2 items-end', payMode !== 'CASH' ? 'grid-cols-4' : 'grid-cols-3')} data-field="paymentExtra">
                       <div className="space-y-1">
                         <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Paid{payChoice === 'PARTIAL' && <span className="text-rose-500"> *</span>}</Label>
                         <Input
@@ -2416,6 +2557,19 @@ export default function GRNPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                      {payMode !== 'CASH' && (
+                        <div className="space-y-1">
+                          <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {payMode === 'CHEQUE' ? 'Cheque No.' : 'Reference / UTR No.'}
+                          </Label>
+                          <Input
+                            className="h-8 font-mono text-xs"
+                            placeholder={payMode === 'CHEQUE' ? 'Cheque number' : 'UPI / NEFT ref'}
+                            value={payReference}
+                            onChange={(e) => setPayReference(e.target.value)}
+                          />
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</Label>
                         <p className="h-8 flex items-center justify-end font-mono text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -2470,7 +2624,7 @@ export default function GRNPage() {
               <Button
                 className="order-last"
                 disabled={!canConfirm}
-                onClick={() => setShowConfirm(true)}
+                onClick={handleReview}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" />
                 Review

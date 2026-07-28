@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { printDebitNotePdf, downloadDebitNotePdf } from '@/lib/pdf/notesPdf'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ReturnDetail } from './DebitNotesPage'
@@ -163,7 +163,7 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
                 </div>
                 <div>
                   <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Expiry</p>
-                  <p className="text-[11px]">{it.expiryDate ? formatDate(it.expiryDate) : '—'}</p>
+                  <p className="text-[11px]">{it.expiryDate ? formatExpiry(it.expiryDate) : '—'}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Qty</p>
@@ -209,7 +209,7 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
                   <TableCell className="px-3 py-2.5 text-sm font-medium">{it.productName}</TableCell>
                   <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">{it.batchNumber || '—'}</TableCell>
                   <TableCell className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    {it.expiryDate ? formatDate(it.expiryDate) : '—'}
+                    {it.expiryDate ? formatExpiry(it.expiryDate) : '—'}
                   </TableCell>
                   <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{it.returnedQty}</TableCell>
                   <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(rate)}</TableCell>

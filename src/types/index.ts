@@ -158,6 +158,10 @@ export interface Batch {
   quantity: number
   mrp: number
   purchaseRate: number
+  // Per-batch sale prices (mirror mrp/purchaseRate). 0 = not set → the UI falls
+  // back to the product master sellingRate/wholesaleRate.
+  sellingRate?: number
+  wholesaleRate?: number
   supplierId: string
   productName?: string
   grnItemId?: string

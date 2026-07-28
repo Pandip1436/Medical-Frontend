@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import api from '@/lib/api'
 
 // Shared batch-detail renderer used both by the full BatchDetailPage route
@@ -211,7 +211,7 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
                           : isCritical ? 'text-orange-700 dark:text-orange-300'
                           : 'text-foreground',
               )}>
-                {formatDate(batch.expiryDate)}
+                {formatExpiry(batch.expiryDate)}
               </span>
             </div>
             <span className={cn(
@@ -241,7 +241,7 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
             <div className="mt-2.5 grid grid-cols-1 gap-y-2.5 border-t border-border/40 pt-2.5">
               <InfoRow label="Purchase Rate" value={formatCurrency(Number(batch.purchaseRate))} icon={Wallet} />
               <InfoRow label="MRP" value={formatCurrency(Number(batch.mrp))} icon={Tag} />
-              <InfoRow label="Stock Value" value={formatCurrency(stockValue)} icon={IndianRupee} />
+              <InfoRow label="Retail Value (MRP)" value={formatCurrency(stockValue)} icon={IndianRupee} />
               <InfoRow label="Loss on Write-off" value={formatCurrency(lossAtCost)} icon={TrendingDown} />
             </div>
           </BigTile>
@@ -381,7 +381,7 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
                 <span className="font-mono">{batch.quantity} units &rarr; 0</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Stock value</span>
+                <span className="text-muted-foreground">Retail value (MRP)</span>
                 <span className="font-mono">{formatCurrency(stockValue)}</span>
               </div>
               <div className="flex justify-between gap-3">

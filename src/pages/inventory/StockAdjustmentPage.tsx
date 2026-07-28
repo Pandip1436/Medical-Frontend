@@ -76,6 +76,9 @@ interface AdjustmentItem {
   reason: AdjustmentReason
   notes: string
   mrp: number
+  // Batch purchase cost — the basis for the value-impact of a write-off (what
+  // we paid), separate from mrp which is shown for reference only. (M4)
+  cost: number
 }
 
 type FolderKey = 'all' | 'in-adjustment' | 'available' | 'history'
@@ -127,6 +130,7 @@ type BatchKindRow =
       batchNumber: string
       quantity: number
       mrp: number
+      cost: number
     }
 
 type DisplayRow =
@@ -287,6 +291,7 @@ export default function StockAdjustmentPage() {
           reason: 'Damaged',
           notes: '',
           mrp: Number(row.mrp),
+          cost: Number(row.purchaseRate) || 0,
         }
         setItems((prev) => [...prev, newItem])
         setFolder('in-adjustment')
@@ -337,6 +342,7 @@ export default function StockAdjustmentPage() {
             batchNumber: r.batchNumber,
             quantity: r.quantity,
             mrp: Number(r.mrp),
+            cost: Number(r.purchaseRate) || 0,
           }
     })
     return folder === 'available' ? mapped.filter((r) => r.kind === 'batch') : mapped
@@ -382,7 +388,7 @@ export default function StockAdjustmentPage() {
 
   // Calculations
   const totalValueImpact = useMemo(
-    () => items.reduce((sum, item) => sum + item.adjustment * item.mrp, 0),
+    () => items.reduce((sum, item) => sum + item.adjustment * item.cost, 0),
     [items],
   )
 
@@ -488,7 +494,7 @@ export default function StockAdjustmentPage() {
 
   const handleAddBatch = (
     args: { productId: string; productName: string; batchId: string;
-            batchNumber: string; systemQty: number; mrp: number },
+            batchNumber: string; systemQty: number; mrp: number; cost: number },
     adjustment: number,
     reason: AdjustmentReason,
     notes: string,
@@ -507,6 +513,7 @@ export default function StockAdjustmentPage() {
       reason,
       notes,
       mrp: args.mrp,
+      cost: args.cost,
     }
     setItems((prev) => [...prev, newItem])
     setSelectedId(newItem.id)
@@ -843,7 +850,7 @@ function BatchRow({
 }) {
   const key = rowKey(row)
   const isItem = row.kind === 'item'
-  const impact = isItem ? row.item.adjustment * row.item.mrp : 0
+  const impact = isItem ? row.item.adjustment * row.item.cost : 0
   const aboveThreshold = isItem && Math.abs(impact) > APPROVAL_THRESHOLD_INR
   const borderTone = !isItem
     ? 'border-l-transparent'
@@ -920,7 +927,7 @@ function BatchDetailPanel({
   onClose: () => void
   onAdd: (
     args: { productId: string; productName: string; batchId: string;
-            batchNumber: string; systemQty: number; mrp: number },
+            batchNumber: string; systemQty: number; mrp: number; cost: number },
     adjustment: number,
     reason: AdjustmentReason,
     notes: string,
@@ -940,6 +947,7 @@ function BatchDetailPanel({
 
   const systemQty = isItem ? row.item.systemQty : row.quantity
   const mrp = isItem ? row.item.mrp : row.mrp
+  const cost = isItem ? row.item.cost : row.cost
   const productName = isItem ? row.item.productName : row.productName
   const batchNumber = isItem ? row.item.batchNumber : row.batchNumber
 
@@ -949,7 +957,7 @@ function BatchDetailPanel({
   const rawAdjustment = isItem ? row.item.rawAdjustment : draftRaw
   const reason = isItem ? row.item.reason : draftReason
   const notes = isItem ? row.item.notes : draftNotes
-  const impact = adjustment * mrp
+  const impact = adjustment * cost
   const aboveThreshold = Math.abs(impact) > APPROVAL_THRESHOLD_INR
 
   const handleRawChange = (raw: string) => {
@@ -1163,6 +1171,7 @@ function BatchDetailPanel({
                   batchNumber: row.batchNumber,
                   systemQty: row.quantity,
                   mrp: row.mrp,
+                  cost: row.cost,
                 },
                 adjustment,
                 draftReason,

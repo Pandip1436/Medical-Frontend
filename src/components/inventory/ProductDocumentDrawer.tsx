@@ -5,7 +5,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import api from '@/lib/api'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
@@ -251,7 +251,7 @@ function DocumentBody({
           const isCurrent = highlightProductId && it.productId === highlightProductId
           const cells = [
             { label: 'Batch', value: it.batchNumber || '—' },
-            ...(showExpiry ? [{ label: 'Expiry', value: it.expiryDate ? formatDate(it.expiryDate) : '—' }] : []),
+            ...(showExpiry ? [{ label: 'Expiry', value: it.expiryDate ? formatExpiry(it.expiryDate) : '—' }] : []),
             { label: 'Qty', value: String(qtyOf(it)) },
             ...(showMrp ? [{ label: 'MRP', value: num(it.mrp) > 0 ? formatCurrency(num(it.mrp)) : '—' }] : []),
             { label: 'Rate', value: formatCurrency(rateOf(it)) },
@@ -327,7 +327,7 @@ function DocumentBody({
                   <TableCell className="py-2.5 text-xs font-mono text-muted-foreground">{it.batchNumber || '—'}</TableCell>
                   {showExpiry && (
                     <TableCell className="py-2.5 text-xs font-mono text-muted-foreground whitespace-nowrap">
-                      {it.expiryDate ? formatDate(it.expiryDate) : '—'}
+                      {it.expiryDate ? formatExpiry(it.expiryDate) : '—'}
                     </TableCell>
                   )}
                   <TableCell className="py-2.5 text-right text-sm font-mono font-semibold">{qtyOf(it)}</TableCell>

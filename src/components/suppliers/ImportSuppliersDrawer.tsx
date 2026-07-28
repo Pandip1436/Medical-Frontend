@@ -36,7 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { cn, formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency, formatExpiry } from '@/lib/utils'
 
 import {
   type DuplicateHandling,
@@ -1379,7 +1379,7 @@ function PreviewBatchTable({ suppliers }: { suppliers: ParsedSupplier[] }) {
             <TableCell className="text-xs">{b.productName ?? b.productId ?? '—'}</TableCell>
             <TableCell className="text-xs font-mono">{b.batchNumber}</TableCell>
             <TableCell className="text-xs font-mono">
-              {b.expiryDate ? b.expiryDate.slice(0, 10) : '—'}
+              {b.expiryDate ? formatExpiry(b.expiryDate) : '—'}
             </TableCell>
             <TableCell className="text-xs font-mono text-right">
               {b.quantity ?? 0}

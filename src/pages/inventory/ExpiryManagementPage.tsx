@@ -21,7 +21,7 @@ import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
-import { cn, formatCurrency, formatDate, timeAgo } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, timeAgo, formatExpiry} from '@/lib/utils'
 import { assignExpiryBucket, daysToExpiry as computeDaysToExpiry, type ExpiryBucket } from '@/lib/inventory'
 import api from '@/lib/api'
 
@@ -656,7 +656,7 @@ function BatchCard({ batch, onSelect }: { batch: EnrichedBatch; onSelect: () => 
               <p className="mt-0.5 font-mono text-sm font-bold tabular-nums">{formatCurrency(batch.mrp)}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Value</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">Retail Value</p>
               <p className="mt-0.5 font-mono text-sm font-bold tabular-nums">{formatCurrency(batch.stockValue)}</p>
             </div>
           </div>
@@ -768,7 +768,7 @@ function BatchTable({ rows, onSelect }: { rows: EnrichedBatch[]; onSelect: (b: E
             <TableHead>Expiry</TableHead>
             <TableHead className="text-right">Qty</TableHead>
             <TableHead className="text-right">MRP</TableHead>
-            <TableHead className="text-right">Value</TableHead>
+            <TableHead className="text-right">Retail Value</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -788,7 +788,7 @@ function BatchTable({ rows, onSelect }: { rows: EnrichedBatch[]; onSelect: (b: E
                 <TableCell>
                   <Badge variant={status.variant} size="sm" dot>{status.label}</Badge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDate(b.expiryDate)}</TableCell>
+                <TableCell className="text-muted-foreground">{formatExpiry(b.expiryDate)}</TableCell>
                 <TableCell className="text-right font-mono text-sm tabular-nums">{b.quantity}</TableCell>
                 <TableCell className="text-right font-mono text-sm tabular-nums">{formatCurrency(b.mrp)}</TableCell>
                 <TableCell className="text-right font-mono text-sm font-semibold tabular-nums">{formatCurrency(b.stockValue)}</TableCell>

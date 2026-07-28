@@ -11,7 +11,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import { BatchDetailView } from '../BatchDetailView'
 import { isExpired, isNearExpiry } from '@/lib/inventory'
 import { navigate } from '@/lib/router'
-import { cn, formatCurrency, formatCurrencyFull, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyFull, formatExpiry } from '@/lib/utils'
 import type { Batch } from '@/types'
 import type { ColumnDef } from '@/types/table'
 
@@ -187,7 +187,7 @@ export function ProductBatchesTab({
                         expired ? 'text-rose-600 dark:text-rose-400'
                           : nearExpiry ? 'text-amber-600 dark:text-amber-400' : 'text-foreground',
                       )}>
-                        {formatDate(b.expiryDate)}
+                        {formatExpiry(b.expiryDate)}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
                         {expired ? 'expired' : `${daysLeft}d left`}

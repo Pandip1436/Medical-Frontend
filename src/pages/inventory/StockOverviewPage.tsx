@@ -51,7 +51,7 @@ import {
 
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate } from '@/lib/router'
-import { cn, formatCurrency, formatDate, formatNumber } from '@/lib/utils'
+import { cn, formatCurrency, formatDate, formatNumber, formatExpiry} from '@/lib/utils'
 import { BatchDetailView } from './BatchDetailView'
 
 // ─────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ export default function StockOverviewPage() {
       return {
         'Product Name': r.productName ?? '',
         'Batch Number': r.batchNumber ?? '',
-        'Expiry Date': r.expiryDate ? formatDate(r.expiryDate) : '',
+        'Expiry Date': r.expiryDate ? formatExpiry(r.expiryDate) : '',
         'Quantity': qty,
         'MRP': mrp,
         'Stock Value': qty * mrp,
@@ -577,7 +577,7 @@ export default function StockOverviewPage() {
                         <div className="flex flex-wrap items-center gap-1 pt-0.5">
                           <Badge variant={sc.variant} dot size="sm">{sc.label}</Badge>
                           {row.expiryDate && (
-                            <span className="text-xs text-muted-foreground">Exp: {formatDate(row.expiryDate)}</span>
+                            <span className="text-xs text-muted-foreground">Exp: {formatExpiry(row.expiryDate)}</span>
                           )}
                         </div>
                       </div>
@@ -655,7 +655,7 @@ export default function StockOverviewPage() {
                         >
                           <TableCell className="font-medium">{row.productName}</TableCell>
                           <TableCell className="font-mono text-xs">{row.batchNumber}</TableCell>
-                          <TableCell className="text-muted-foreground">{formatDate(row.expiryDate)}</TableCell>
+                          <TableCell className="text-muted-foreground">{formatExpiry(row.expiryDate)}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{row.quantity}</TableCell>
                           <TableCell className="text-right font-mono text-sm">{formatCurrency(row.mrp)}</TableCell>
                           <TableCell className="text-right font-mono text-sm font-semibold">{formatCurrency(row.stockValue)}</TableCell>
