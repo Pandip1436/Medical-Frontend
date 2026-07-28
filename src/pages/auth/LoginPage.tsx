@@ -35,7 +35,6 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>
 
 interface LoginPageProps {
-  onForgotPassword?: () => void
   onLoginSuccess?: () => void
 }
 
@@ -99,7 +98,6 @@ const demoAccounts = [
 ]
 
 export default function LoginPage({
-  onForgotPassword,
   onLoginSuccess,
 }: LoginPageProps) {
   // ─── PRESERVED STATE — DO NOT TOUCH ──────────────────────────
@@ -508,8 +506,8 @@ export default function LoginPage({
                 )}
               </div>
 
-              {/* Remember + Forgot */}
-              <div className="flex items-center justify-between pt-0.5">
+              {/* Remember me */}
+              <div className="flex items-center pt-0.5">
                 <div className="flex items-center gap-2.5">
                   <Checkbox
                     id="remember"
@@ -522,13 +520,6 @@ export default function LoginPage({
                     Remember me
                   </Label>
                 </div>
-                <button
-                  type="button"
-                  onClick={onForgotPassword}
-                  className="ms-link cursor-pointer text-[12.5px] font-medium text-[#0a1628] hover:text-[#0fb5a8]"
-                >
-                  Forgot password?
-                </button>
               </div>
 
               {/* Primary submit button */}

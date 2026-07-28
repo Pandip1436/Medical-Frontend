@@ -298,7 +298,6 @@ function App() {
         <Suspense fallback={<LoadingFallback />}>
           <LoginPage
             onLoginSuccess={() => navigate(defaultRouteForRole(useAuthStore.getState().user))}
-            onForgotPassword={() => navigate('/forgot-password')}
           />
         </Suspense>
         <Toaster position="top-right" richColors closeButton />
