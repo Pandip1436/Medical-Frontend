@@ -22,7 +22,7 @@ import { ProductDocumentDrawer, type ProductDocType } from '@/components/invento
 import { ProductBatchesTab } from './ProductBatchesTab'
 import api from '@/lib/api'
 import { navigate } from '@/lib/router'
-import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyFull, formatDate } from '@/lib/utils'
 import {
   buildProductHistoryExportRows,
   productHistoryExportFilename,
@@ -561,33 +561,33 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               {/* Product details — HSN, Manufacturer, etc. (most important, shown first) */}
               <section>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Details</p>
-                <div className="divide-y divide-border/40 rounded-lg border border-border/40 bg-muted/20">
+                <div className="grid grid-cols-2 gap-3 rounded-lg border border-border/40 bg-muted/20 p-3 sm:grid-cols-4">
                   {detail.product.manufacturer && (
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs font-medium text-muted-foreground">Manufacturer</span>
-                      <span className="text-sm font-semibold">{detail.product.manufacturer}</span>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Manufacturer</p>
+                      <p className="mt-0.5 text-sm font-semibold">{detail.product.manufacturer}</p>
                     </div>
                   )}
                   {detail.product.hsnCode && (
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs font-medium text-muted-foreground">HSN Code</span>
-                      <span className="text-sm font-mono font-semibold tracking-wider">{detail.product.hsnCode}</span>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">HSN Code</p>
+                      <p className="mt-0.5 text-sm font-mono font-semibold tracking-wider">{detail.product.hsnCode}</p>
                     </div>
                   )}
                   {detail.product.schedule && detail.product.schedule !== 'NONE' && (
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs font-medium text-muted-foreground">Schedule</span>
-                      <Badge variant="warning" size="sm">Schedule {detail.product.schedule}</Badge>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Schedule</p>
+                      <div className="mt-0.5"><Badge variant="warning" size="sm">Schedule {detail.product.schedule}</Badge></div>
                     </div>
                   )}
                   {detail.product.category && (
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs font-medium text-muted-foreground">Category</span>
-                      <span className="text-sm font-medium">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Category</p>
+                      <p className="mt-0.5 text-sm font-medium">
                         {typeof detail.product.category === 'string'
                           ? detail.product.category
                           : (detail.product.category as any)?.name ?? ''}
-                      </span>
+                      </p>
                     </div>
                   )}
                 </div>
@@ -597,14 +597,29 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               <section>
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pricing</p>
                 <div className="grid grid-cols-3 gap-3 rounded-lg border border-border/40 bg-muted/20 p-3">
-                  {[
-                    { label: 'MRP', value: formatCurrency(detail.product.mrp) },
-                    { label: 'Purchase Rate', value: formatCurrency(detail.product.purchaseRate) },
-                    { label: 'Selling Rate', value: formatCurrency(detail.product.sellingRate) },
-                  ].map(m => (
-                    <div key={m.label}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{m.label}</p>
-                      <p className="mt-0.5 text-sm font-mono font-bold">{m.value}</p>
+                  {(() => {
+                    const rate = Number(detail.product.purchaseRate) || 0
+                    const gstRate = Number((detail.product as any).gstRate) || 0
+                    // Purchase rate is GST-inclusive — break it into taxable + GST (per unit).
+                    const taxable = gstRate > 0 ? rate / (1 + gstRate / 100) : rate
+                    const gst = rate - taxable
+                    const TONE: Record<string, { card: string; text: string }> = {
+                      sky:     { card: 'bg-sky-500/15 ring-1 ring-sky-500/40',         text: 'text-sky-700 dark:text-sky-400' },
+                      amber:   { card: 'bg-amber-500/15 ring-1 ring-amber-500/40',     text: 'text-amber-700 dark:text-amber-400' },
+                      emerald: { card: 'bg-emerald-500/15 ring-1 ring-emerald-500/40', text: 'text-emerald-700 dark:text-emerald-400' },
+                    }
+                    return [
+                      { label: 'MRP', value: formatCurrencyFull(detail.product.mrp), tone: 'sky' },
+                      { label: 'Selling Rate', value: formatCurrencyFull(detail.product.sellingRate), tone: 'emerald' },
+                      { label: 'Purchase Rate', value: formatCurrencyFull(detail.product.purchaseRate), tone: 'amber' },
+                      { label: 'Taxable', value: formatCurrencyFull(taxable), tone: undefined },
+                      { label: gstRate ? `GST (${gstRate}%)` : 'GST', value: formatCurrencyFull(gst), tone: undefined },
+                      { label: 'Net Amount', value: formatCurrencyFull(rate), tone: undefined },
+                    ].map(m => ({ ...m, t: m.tone ? TONE[m.tone] : undefined }))
+                  })().map(m => (
+                    <div key={m.label} className={cn('rounded-md p-2', m.t?.card)}>
+                      <p className={cn('text-[10px] font-semibold uppercase tracking-wider', m.t ? m.t.text : 'text-muted-foreground')}>{m.label}</p>
+                      <p className={cn('mt-0.5 font-mono font-bold', m.t ? cn('text-base', m.t.text) : 'text-sm')}>{m.value}</p>
                     </div>
                   ))}
                 </div>
@@ -641,7 +656,7 @@ export function ProductDetailContent({ productId }: { productId: string }) {
               {history && (
                 <section>
                   <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Transaction Summary</p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {[
                       { label: 'Sold Qty', value: String(history.summary.totalSoldQty), sub: `${history.summary.totalSalesReturnQty ?? 0} returned`, color: 'text-rose-600 dark:text-rose-400' },
                       { label: 'Purchased Qty', value: String(history.summary.totalPurchasedQty), sub: `${history.summary.totalPurchaseReturnQty ?? 0} returned`, color: 'text-emerald-600 dark:text-emerald-400' },
@@ -658,50 +673,6 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                 </section>
               )}
 
-              {/* Active batches */}
-              {detail.batches.length > 0 && (
-                <section>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Active Batches ({detail.batches.length})
-                  </p>
-                  <div className="overflow-hidden rounded-md border border-border/40">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/20">
-                          <TableHead className="text-[10px]">Batch</TableHead>
-                          <TableHead className="text-right text-[10px]">Qty</TableHead>
-                          <TableHead className="text-right text-[10px]">Purchase Qty</TableHead>
-                          <TableHead className="text-right text-[10px]">Sales Qty</TableHead>
-                          <TableHead className="text-right text-[10px]">MRP</TableHead>
-                          <TableHead className="text-right text-[10px]">Purchase Rate</TableHead>
-                          <TableHead className="text-right text-[10px]">Selling Price</TableHead>
-                          <TableHead className="text-right text-[10px]">Expiry</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {batchesEnriched.map((b: any) => {
-                          const daysLeft = Math.floor((new Date(b.expiryDate).getTime() - Date.now()) / 86400000)
-                          const expirySoon = daysLeft <= 90
-                          return (
-                            <TableRow key={b.id}>
-                              <TableCell className="font-mono text-[11px]">{b.batchNumber}</TableCell>
-                              <TableCell className="text-right text-[11px]">{b.quantity}</TableCell>
-                              <TableCell className="text-right text-[11px] text-muted-foreground">{b.purchaseQty ?? '—'}</TableCell>
-                              <TableCell className="text-right text-[11px] text-muted-foreground">{b.salesQty ?? '—'}</TableCell>
-                              <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.mrp)}</TableCell>
-                              <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.purchaseRate)}</TableCell>
-                              <TableCell className="text-right font-mono text-[11px]">{formatCurrency(b.sellingPrice ?? b.mrp)}</TableCell>
-                              <TableCell className={cn('text-right text-[11px]', expirySoon ? 'font-semibold text-amber-600 dark:text-amber-400' : '')}>
-                                {formatDate(b.expiryDate)}
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </section>
-              )}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
