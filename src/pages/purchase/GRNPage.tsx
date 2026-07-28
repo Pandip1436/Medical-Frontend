@@ -360,11 +360,15 @@ export default function GRNPage() {
   useEffect(() => {
     const saved = draft.load()
     if (!saved) return
+    // Only restore Direct Entry drafts. PO mode is entered by navigating from a
+    // purchase order (not manually — the source toggle was removed), so a
+    // restored PO draft would strand the user in PO mode with no way back.
+    if (saved.sourceType !== 'direct') { draft.clear(); return }
     const hasContent =
-      saved.grnItems?.some((i) => i.productId) || !!saved.invoiceNo || !!saved.directSupplierId || !!saved.selectedPOId
+      saved.grnItems?.some((i) => i.productId) || !!saved.invoiceNo || !!saved.directSupplierId
     if (!hasContent) return
-    setSourceType(saved.sourceType)
-    setSelectedPOId(saved.selectedPOId)
+    setSourceType('direct')
+    setSelectedPOId(null)
     setDirectSupplierId(saved.directSupplierId)
     setDirectSupplierName(saved.directSupplierName)
     setGrnItems(saved.grnItems)
@@ -1103,9 +1107,15 @@ export default function GRNPage() {
         })
       }
 
-      setSourceType('po')
+      // Reset to a clean Direct Entry state (the page's only manual source now —
+      // the Against PO / Direct toggle was removed). PO mode is only entered by
+      // navigating from a purchase order.
+      setSourceType('direct')
       setSelectedPOId(null)
-      setGrnItems([])
+      setGrnItems([createEmptyItem()])
+      setDirectSupplierId('')
+      setDirectSupplierName('')
+      setSupplierSearch('')
       setInvoiceNo('')
       setInvoiceDate('')
       setInvoiceAmount(0); setInvoiceAmountEdited(false)
