@@ -414,30 +414,40 @@ export default function SalesListPage() {
   const periodInvoices = useMemo(() => {
     let result = [...invoices]
     const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    // Compare on the LOCAL calendar day, not the UTC day. inv.date is a UTC
+    // ISO timestamp, so slice(0,10) yields its UTC date — which is the previous
+    // day for invoices created between midnight and 05:30 IST. The period
+    // boundaries below are all built from local `now`, and the list displays
+    // formatDate(inv.date) (local), so the filter must match on local dates too
+    // or a "today" invoice made just after midnight silently disappears.
+    const localDay = (d: string | Date) => {
+      const dt = typeof d === 'string' ? new Date(d) : d
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    }
+    const todayStr = localDay(now)
     switch (period) {
       case 'today':
-        result = result.filter((inv) => inv.date.slice(0, 10) === todayStr)
+        result = result.filter((inv) => localDay(inv.date) === todayStr)
         break
       case 'week': {
         const weekStr = weekStartISO(now)
-        result = result.filter((inv) => inv.date.slice(0, 10) >= weekStr)
+        result = result.filter((inv) => localDay(inv.date) >= weekStr)
         break
       }
       case 'month': {
         const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        result = result.filter((inv) => inv.date.slice(0, 10) >= monthStart)
+        result = result.filter((inv) => localDay(inv.date) >= monthStart)
         break
       }
       case 'quarter': {
         const qMonth = Math.floor(now.getMonth() / 3) * 3
         const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
-        result = result.filter((inv) => inv.date.slice(0, 10) >= quarterStart)
+        result = result.filter((inv) => localDay(inv.date) >= quarterStart)
         break
       }
       case 'custom':
-        if (dateFrom) result = result.filter((inv) => inv.date.slice(0, 10) >= dateFrom)
-        if (dateTo) result = result.filter((inv) => inv.date.slice(0, 10) <= dateTo)
+        if (dateFrom) result = result.filter((inv) => localDay(inv.date) >= dateFrom)
+        if (dateTo) result = result.filter((inv) => localDay(inv.date) <= dateTo)
         break
     }
     return result
