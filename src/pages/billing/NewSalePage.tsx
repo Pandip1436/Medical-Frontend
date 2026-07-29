@@ -7289,8 +7289,10 @@ export default function NewSalePage() {
           ═══════════════════════════════════════════════════ */}
           <div className={cn(
             'hidden shrink-0 rounded-xl border border-border/60 bg-card shadow-md shadow-black/5 ring-1 ring-border/30 overflow-hidden',
-            // Hidden while the inline Add New Customer form is open — it takes over the workspace.
-            addCustomerDialogOpen ? 'lg:hidden' : 'lg:flex lg:flex-col',
+            // Only shown on the Products tab — the other tabs (Purchase/Product History,
+            // Reminders, Quotations) are reference views that don't need the checkout bar.
+            // Also hidden while the inline Add New Customer form is open — it takes over the workspace.
+            addCustomerDialogOpen || tableView !== 'products' ? 'lg:hidden' : 'lg:flex lg:flex-col',
           )}>
             <div className="flex items-stretch divide-x divide-border/60 max-h-[46vh] overflow-y-auto">
 
