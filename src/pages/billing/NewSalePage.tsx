@@ -106,6 +106,9 @@ import { useSettingsStore } from '@/stores/settingsStore'
 // and line amounts are never rounded/hidden — the figures visibly add up to the
 // grand total. Aliased to `formatCurrency` to keep the call sites unchanged.
 import { cn, formatCurrencyFull as formatCurrency, generateInvoiceNumber, formatDate } from '@/lib/utils'
+import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import type { ColumnDef } from '@/types/table'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -359,6 +362,19 @@ function PillToggle<T extends string>({
 // ─────────────────────────────────────────────────────────────
 // SUB-COMPONENT: Inline Compact Billing Row
 // ─────────────────────────────────────────────────────────────
+
+// Toggleable columns for the billing items table. Core columns (#, Product,
+// Qty, Rate, Amount, delete) are always shown; the rest can be hidden via the
+// Columns control. Hiding is done with nth-child classes on the <Table> so no
+// per-cell edits are needed (header + all rows share the same 12-column order).
+const BILLING_COLUMNS: ColumnDef[] = [
+  { id: 'batch', label: 'Batch & Expiry', defaultVisible: true },
+  { id: 'mrp', label: 'MRP', defaultVisible: true },
+  { id: 'disc', label: 'Disc %', defaultVisible: true },
+  { id: 'gst', label: 'GST', defaultVisible: true },
+  { id: 'taxable', label: 'Taxable', defaultVisible: true },
+  { id: 'gstAmount', label: 'GST ₹', defaultVisible: true },
+]
 
 function BillingRow({
   item,
@@ -1033,6 +1049,9 @@ function BillingRow({
                         <Badge variant="outline" className="text-[8px] px-1 h-3.5 text-muted-foreground">In use</Badge>
                       ) : idx === 0 && (
                         <Badge variant="success" className="text-[8px] px-1 h-3.5">FEFO</Badge>
+                      )}
+                      {b.expiryDate && (
+                        <span className="text-[10px] opacity-60 whitespace-nowrap">{formatExpiryShort(b.expiryDate)}</span>
                       )}
                       {/* Current physical stock in the batch — NOT credit-adjusted,
                           so editing an invoice shows real stock (e.g. 1328), not
@@ -3036,6 +3055,7 @@ export default function NewSalePage() {
   type TableView = 'products' | 'customer-history' | 'customer-reminders' | 'product-history' | 'quotations'
   const [tableView, setTableView] = useState<TableView>('customer-history')
   const [mobileStep, setMobileStep] = useState<'items' | 'checkout'>('items')
+  const billingCols = useColumnVisibility('billing.items', BILLING_COLUMNS)
   // Right-panel 2-step flow: review the order summary, then continue to payment.
   // 'summary' shows totals + a Continue button; 'payment' shows the payment
   // panel + a Back button. Quotations skip payment, so they stay on 'summary'.
@@ -6294,20 +6314,23 @@ export default function NewSalePage() {
 
               {/* Right-end controls — only on Products tab */}
               {tableView === 'products' && (
-                <label
-                  htmlFor="show-inline-history"
-                  className="hidden sm:inline-flex shrink-0 items-center gap-2 pb-1.5 cursor-pointer select-none"
-                  title="Show or hide each product's past purchase history under its row"
-                >
-                  <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
-                    Show purchase history
-                  </span>
-                  <Switch
-                    id="show-inline-history"
-                    checked={showInlineHistory}
-                    onCheckedChange={setShowInlineHistory}
-                  />
-                </label>
+                <div className="hidden sm:flex shrink-0 items-center gap-3 pb-1.5">
+                  <label
+                    htmlFor="show-inline-history"
+                    className="inline-flex shrink-0 items-center gap-2 cursor-pointer select-none"
+                    title="Show or hide each product's past purchase history under its row"
+                  >
+                    <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
+                      Show purchase history
+                    </span>
+                    <Switch
+                      id="show-inline-history"
+                      checked={showInlineHistory}
+                      onCheckedChange={setShowInlineHistory}
+                    />
+                  </label>
+                  <ColumnsToggle columns={BILLING_COLUMNS} visible={billingCols.visible} onToggle={billingCols.toggle} onReset={billingCols.reset} />
+                </div>
               )}
             </div>
 
@@ -6329,7 +6352,17 @@ export default function NewSalePage() {
                             the scroll viewport (outer wrapper) stays full size.
                             Scoped to this sales table — the rest of the page and
                             other screens are unaffected. */}
-                        <Table className="w-full min-w-200 [zoom:0.8] [&_td]:!py-1.5 [&_th]:!py-2">
+                        <Table className={cn(
+                          'w-full min-w-200 [zoom:0.8] [&_td]:!py-1.5 [&_th]:!py-2',
+                          // Column show/hide — nth-child matches the 12-column order:
+                          // 1 # · 2 Product · 3 Batch · 4 MRP · 5 Qty · 6 Rate · 7 Disc · 8 GST · 9 Taxable · 10 GST₹ · 11 Amount · 12 ⌫
+                          !billingCols.isVisible('batch') && '[&_tr>*:nth-child(3)]:hidden',
+                          !billingCols.isVisible('mrp') && '[&_tr>*:nth-child(4)]:hidden',
+                          !billingCols.isVisible('disc') && '[&_tr>*:nth-child(7)]:hidden',
+                          !billingCols.isVisible('gst') && '[&_tr>*:nth-child(8)]:hidden',
+                          !billingCols.isVisible('taxable') && '[&_tr>*:nth-child(9)]:hidden',
+                          !billingCols.isVisible('gstAmount') && '[&_tr>*:nth-child(10)]:hidden',
+                        )}>
                           <TableHeader className="sticky top-0 z-20 bg-linear-to-b from-muted/60 to-background/95 backdrop-blur-md shadow-sm">
                             <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
@@ -7254,7 +7287,11 @@ export default function NewSalePage() {
               Bill screen. Replaces the right sidebar at lg+; the sidebar below
               (now lg:hidden) still serves the mobile/tablet checkout step.
           ═══════════════════════════════════════════════════ */}
-          <div className="hidden lg:flex lg:flex-col shrink-0 rounded-xl border border-border/60 bg-card shadow-md shadow-black/5 ring-1 ring-border/30 overflow-hidden">
+          <div className={cn(
+            'hidden shrink-0 rounded-xl border border-border/60 bg-card shadow-md shadow-black/5 ring-1 ring-border/30 overflow-hidden',
+            // Hidden while the inline Add New Customer form is open — it takes over the workspace.
+            addCustomerDialogOpen ? 'lg:hidden' : 'lg:flex lg:flex-col',
+          )}>
             <div className="flex items-stretch divide-x divide-border/60 max-h-[46vh] overflow-y-auto">
 
               {/* ── Totals (legacy-style grid) ── */}
