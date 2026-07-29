@@ -292,7 +292,14 @@ export default function CreditNotesPage() {
 
       // Period → date range
       const now = new Date()
-      const todayStr = now.toISOString().slice(0, 10)
+      // Use the LOCAL calendar day, not the UTC day: now.toISOString() yields the
+      // UTC date, which is a day behind between midnight and 05:30 IST, so "Today"
+      // would send yesterday's range and drop today's just-after-midnight records.
+      const localDay = (d: string | Date) => {
+        const dt = typeof d === 'string' ? new Date(d) : d
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+      }
+      const todayStr = localDay(now)
       // NOTE: the backend reads `from` / `to` / `q` — NOT dateFrom/dateTo/search.
       // Sending the wrong names silently dropped the date range, so every period
       // returned ALL credit notes (e.g. "Today" showed rows from other days).
@@ -400,31 +407,40 @@ export default function CreditNotesPage() {
   const periodNotes = useMemo(() => {
     let result = [...creditNotes]
     const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    // Compare on the LOCAL calendar day, not the UTC day. cn.date is a UTC ISO
+    // timestamp, so slice(0,10) yields its UTC date — a day behind for records
+    // created between midnight and 05:30 IST. The period boundaries below are
+    // built from local `now` and the list displays local dates, so the filter
+    // must match on local dates too or a "today" record just after midnight drops out.
+    const localDay = (d: string | Date) => {
+      const dt = typeof d === 'string' ? new Date(d) : d
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    }
+    const todayStr = localDay(now)
 
     switch (period) {
       case 'today':
-        result = result.filter(cn => cn.date.slice(0, 10) === todayStr)
+        result = result.filter(cn => localDay(cn.date) === todayStr)
         break
       case 'week': {
         const weekStr = weekStartISO(now)
-        result = result.filter(cn => cn.date.slice(0, 10) >= weekStr)
+        result = result.filter(cn => localDay(cn.date) >= weekStr)
         break
       }
       case 'month': {
         const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        result = result.filter(cn => cn.date.slice(0, 10) >= monthStart)
+        result = result.filter(cn => localDay(cn.date) >= monthStart)
         break
       }
       case 'quarter': {
         const qMonth = Math.floor(now.getMonth() / 3) * 3
         const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
-        result = result.filter(cn => cn.date.slice(0, 10) >= quarterStart)
+        result = result.filter(cn => localDay(cn.date) >= quarterStart)
         break
       }
       case 'custom':
-        if (dateFrom) result = result.filter(cn => cn.date.slice(0, 10) >= dateFrom)
-        if (dateTo)   result = result.filter(cn => cn.date.slice(0, 10) <= dateTo)
+        if (dateFrom) result = result.filter(cn => localDay(cn.date) >= dateFrom)
+        if (dateTo)   result = result.filter(cn => localDay(cn.date) <= dateTo)
         break
     }
     return result

@@ -264,30 +264,40 @@ export default function DebitNotesPage() {
   const periodReturns = useMemo(() => {
     let result = [...allReturns]
     const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    // Compare on the LOCAL calendar day, not the UTC day. r.date is a UTC ISO
+    // timestamp, so slice(0,10) yields its UTC date — a day behind for records
+    // created between midnight and 05:30 IST. The period boundaries below are
+    // built from local `now` and the list displays local dates, so the filter
+    // must match on local dates too or a "today" record just after midnight drops out.
+    const localDay = (d: string | Date | null | undefined) => {
+      if (!d) return ''
+      const dt = typeof d === 'string' ? new Date(d) : d
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    }
+    const todayStr = localDay(now)
     switch (period) {
       case 'today':
-        result = result.filter(r => r.date?.slice(0, 10) === todayStr)
+        result = result.filter(r => localDay(r.date) === todayStr)
         break
       case 'week': {
         const weekStr = weekStartISO(now)
-        result = result.filter(r => r.date?.slice(0, 10) >= weekStr)
+        result = result.filter(r => localDay(r.date) >= weekStr)
         break
       }
       case 'month': {
         const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        result = result.filter(r => r.date?.slice(0, 10) >= monthStart)
+        result = result.filter(r => localDay(r.date) >= monthStart)
         break
       }
       case 'quarter': {
         const qMonth = Math.floor(now.getMonth() / 3) * 3
         const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
-        result = result.filter(r => r.date?.slice(0, 10) >= quarterStart)
+        result = result.filter(r => localDay(r.date) >= quarterStart)
         break
       }
       case 'custom':
-        if (dateFrom) result = result.filter(r => r.date?.slice(0, 10) >= dateFrom)
-        if (dateTo)   result = result.filter(r => r.date?.slice(0, 10) <= dateTo)
+        if (dateFrom) result = result.filter(r => localDay(r.date) >= dateFrom)
+        if (dateTo)   result = result.filter(r => localDay(r.date) <= dateTo)
         break
     }
     return result

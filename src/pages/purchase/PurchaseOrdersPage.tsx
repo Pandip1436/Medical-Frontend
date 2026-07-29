@@ -654,24 +654,33 @@ export default function PurchaseOrdersPage() {
 
     // Period
     const now = new Date()
-    const todayStr = now.toISOString().slice(0, 10)
+    // Compare on the LOCAL calendar day, not the UTC day. po.date is a UTC ISO
+    // timestamp, so slice(0,10) yields its UTC date — a day behind for records
+    // created between midnight and 05:30 IST. The period boundaries below are
+    // built from local `now` and the list displays local dates, so the filter
+    // must match on local dates too or a "today" record just after midnight drops out.
+    const localDay = (d: string | Date) => {
+      const dt = typeof d === 'string' ? new Date(d) : d
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    }
+    const todayStr = localDay(now)
     switch (period) {
       case 'today':
-        result = result.filter((po) => po.date.slice(0, 10) === todayStr)
+        result = result.filter((po) => localDay(po.date) === todayStr)
         break
       case 'week': {
         const weekStr = weekStartISO(now)
-        result = result.filter((po) => po.date.slice(0, 10) >= weekStr)
+        result = result.filter((po) => localDay(po.date) >= weekStr)
         break
       }
       case 'month': {
         const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        result = result.filter((po) => po.date.slice(0, 10) >= monthStart)
+        result = result.filter((po) => localDay(po.date) >= monthStart)
         break
       }
       case 'custom':
-        if (dateFrom) result = result.filter((po) => po.date.slice(0, 10) >= dateFrom)
-        if (dateTo) result = result.filter((po) => po.date.slice(0, 10) <= dateTo)
+        if (dateFrom) result = result.filter((po) => localDay(po.date) >= dateFrom)
+        if (dateTo) result = result.filter((po) => localDay(po.date) <= dateTo)
         break
     }
 
