@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Edit2,
   MapPin,
@@ -178,6 +178,17 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
+  // Open every supplier on Overview. The split view reuses this component
+  // across suppliers (prop change, no remount), so the previously-selected tab
+  // would otherwise carry over. Guarded by the previous id so a deep link /
+  // browser-Back onto a specific tab is preserved on the first render.
+  const prevSupplierId = useRef(supplierId)
+  useEffect(() => {
+    if (prevSupplierId.current !== supplierId) {
+      prevSupplierId.current = supplierId
+      setActiveTab('overview')
+    }
+  }, [supplierId])
   const [editOpen, setEditOpen] = useState(false)
 
   const [activityTypeFilter, setActivityTypeFilter] = useState<'ALL' | SAType>('ALL')

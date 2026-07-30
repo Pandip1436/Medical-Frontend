@@ -172,6 +172,11 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     if (productId) loadHistory(productId)
   }, [productId, loadHistory])
 
+  // Always open a product on the Overview tab. The split view reuses this
+  // component across products (prop change, no remount), so without this the
+  // previously-selected tab (e.g. Batches) would carry over to the next product.
+  useEffect(() => { setActiveTab('overview') }, [productId])
+
   // History endpoint already returns the product
   const selectedProduct = history?.product ?? null
 
