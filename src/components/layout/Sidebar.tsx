@@ -105,6 +105,7 @@ const navigationGroups: NavGroup[] = [
       { label: 'Debit Notes', icon: FileText, href: '/purchase/debit-notes', quickAdd: '/purchase/returns' },
       { label: 'Suppliers', icon: Truck, href: '/purchase/suppliers', quickAdd: '/purchase/suppliers?add=1' },
       { label: 'Supplier Outstanding', icon: IndianRupee, href: '/purchase/suppliers/outstanding' },
+      { label: 'Payments Due', icon: CalendarClock, href: '/purchase/suppliers/payments-due' },
     ],
   },
   {

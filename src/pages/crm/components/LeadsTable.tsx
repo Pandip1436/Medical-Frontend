@@ -168,6 +168,7 @@ export function LeadsTable({
             {/* Action icons column — always present alongside Customer Info */}
             <TableHead className="w-32" aria-label="Quick actions" />
             {show('leadNumber') && <TableHead className="whitespace-nowrap">Lead ID</TableHead>}
+            {show('description') && <TableHead>Description</TableHead>}
             {show('contact') && <TableHead>Contact</TableHead>}
             {show('email') && <TableHead>Email</TableHead>}
             {show('phone') && <TableHead>Phone</TableHead>}
@@ -473,6 +474,18 @@ function LeadRow({
       {show('leadNumber') && (
         <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
           {lead.leadNumber}
+        </TableCell>
+      )}
+
+      {show('description') && (
+        <TableCell className="text-sm">
+          {lead.description ? (
+            <span className="block max-w-[16rem] truncate" title={lead.description}>
+              {lead.description}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
         </TableCell>
       )}
 

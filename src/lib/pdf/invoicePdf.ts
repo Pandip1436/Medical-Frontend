@@ -150,19 +150,50 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   }
   y += 3
 
+  // Batch & Expiry are inventory facts — omitted on a quotation. The freed
+  // width (28mm) is redistributed so the remaining columns still fill the page.
+  const isQuote = invoice.type === 'QUOTATION'
+  const head = isQuote
+    ? ['#', 'Product', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount']
+    : ['#', 'Product', 'Batch', 'Expiry', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount']
+  const columnStyles = (isQuote
+    ? {
+        0: { halign: 'center', cellWidth: 7 },   // #
+        1: { halign: 'left',   cellWidth: 46 },  // Product
+        2: { halign: 'center', cellWidth: 9 },   // Qty
+        3: { halign: 'right',  cellWidth: 17 },  // MRP
+        4: { halign: 'right',  cellWidth: 19 },  // Rate
+        5: { halign: 'center', cellWidth: 12 },  // Disc%
+        6: { halign: 'right',  cellWidth: 21 },  // Taxable
+        7: { halign: 'center', cellWidth: 11 },  // GST%
+        8: { halign: 'right',  cellWidth: 15 },  // GST Rs
+        9: { halign: 'right',  cellWidth: 25 },  // Amount
+      }
+    : {
+        0:  { halign: 'center', cellWidth: 7 },  // #
+        1:  { halign: 'left',   cellWidth: 32 }, // Product
+        2:  { halign: 'left',   cellWidth: 15 }, // Batch
+        3:  { halign: 'center', cellWidth: 13 }, // Expiry
+        4:  { halign: 'center', cellWidth: 9 },  // Qty
+        5:  { halign: 'right',  cellWidth: 15 }, // MRP
+        6:  { halign: 'right',  cellWidth: 15 }, // Rate
+        7:  { halign: 'center', cellWidth: 12 }, // Disc%
+        8:  { halign: 'right',  cellWidth: 17 }, // Taxable
+        9:  { halign: 'center', cellWidth: 11 }, // GST%
+        10: { halign: 'right',  cellWidth: 15 }, // GST Rs
+        11: { halign: 'right',  cellWidth: 21 }, // Amount
+      }) as Record<number, { halign: 'left' | 'center' | 'right'; cellWidth: number }>
+  const headAlign = (isQuote
+    ? ['center', 'left', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right']
+    : ['center', 'left', 'left', 'center', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right']) as ReadonlyArray<'left' | 'center' | 'right'>
+
   autoTable(doc, {
     startY: y + 3,
-    head: [[
-      '#', 'Product', 'Batch', 'Expiry', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount',
-    ]],
+    head: [head],
     body: invoice.items.map((it, i) => {
       const amt = Number(it.amount || 0)
       const taxable = amt / (1 + Number(it.gstPercent) / 100)
-      return [
-        i + 1,
-        it.productName,
-        it.batchNumber,
-        new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+      const tail = [
         it.quantity,
         Number(it.mrp).toFixed(2),
         Number(it.rate).toFixed(2),
@@ -175,31 +206,24 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
         // Full line amount with paise — never rounded/hidden.
         amt.toFixed(2),
       ]
+      return isQuote
+        ? [i + 1, it.productName, ...tail]
+        : [
+            i + 1,
+            it.productName,
+            it.batchNumber,
+            it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }) : '—',
+            ...tail,
+          ]
     }),
     styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
     headStyles: { fillColor: [45, 55, 72], textColor: 255 },
-    // Explicit widths (sum = 182mm = full usable width after 14mm margins) so
-    // all 12 columns fit and fill the page. Counts/percents centred, money
-    // right-aligned, text left.
-    columnStyles: {
-      0:  { halign: 'center', cellWidth: 7 },  // #
-      1:  { halign: 'left',   cellWidth: 32 }, // Product
-      2:  { halign: 'left',   cellWidth: 15 }, // Batch
-      3:  { halign: 'center', cellWidth: 13 }, // Expiry
-      4:  { halign: 'center', cellWidth: 9 },  // Qty
-      5:  { halign: 'right',  cellWidth: 15 }, // MRP
-      6:  { halign: 'right',  cellWidth: 15 }, // Rate
-      7:  { halign: 'center', cellWidth: 12 }, // Disc%
-      8:  { halign: 'right',  cellWidth: 17 }, // Taxable
-      9:  { halign: 'center', cellWidth: 11 }, // GST%
-      10: { halign: 'right',  cellWidth: 15 }, // GST Rs
-      11: { halign: 'right',  cellWidth: 21 }, // Amount
-    },
+    columnStyles,
     // Header text is left-aligned by default — force each header cell to use its
     // column's alignment so labels sit directly above their values.
     didParseCell: (data) => {
       if (data.section !== 'head') return
-      const align = (['center', 'left', 'left', 'center', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right'] as const)[data.column.index]
+      const align = headAlign[data.column.index]
       if (align) data.cell.styles.halign = align
     },
     margin: { left: 14, right: 14 },

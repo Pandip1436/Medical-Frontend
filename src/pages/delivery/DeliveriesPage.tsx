@@ -150,7 +150,7 @@ export default function DeliveriesPage() {
         <StatCard label="Total" value={totalCount} icon={PackageSearch}
           accent="border-l-slate-400" iconBg="bg-muted text-foreground"
           onClick={() => setStatus('ALL')} active={status === 'ALL'} />
-        <StatCard label="Booked" value={booked} icon={Package}
+        <StatCard label="Billed" value={booked} icon={Package}
           accent="border-l-blue-500" iconBg="bg-blue-500/10 text-blue-600 dark:text-blue-400"
           onClick={() => setStatus(status === 'BOOKED' ? 'ALL' : 'BOOKED')} active={status === 'BOOKED'} />
         <StatCard label="In Transit" value={inTransit} icon={Truck}
@@ -213,7 +213,7 @@ export default function DeliveriesPage() {
                   <TableHead>Courier</TableHead>
                   <TableHead>Tracking ID</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead className="text-right">Booked</TableHead>
+                  <TableHead className="text-right">Billed</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-8" />
                 </TableRow>
@@ -251,7 +251,7 @@ export default function DeliveriesPage() {
                       {formatDate(d.createdAt)}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={displayDeliveryStatus(d.status)} />
+                      <StatusBadge status={d.status === 'BOOKED' ? 'BILLED' : displayDeliveryStatus(d.status)} />
                     </TableCell>
                     <TableCell>
                       <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />
@@ -283,7 +283,7 @@ export default function DeliveriesPage() {
                 {/* Customer name + status first */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 max-w-full truncate text-sm font-semibold">{d.customerName}</span>
-                  <StatusBadge status={displayDeliveryStatus(d.status)} />
+                  <StatusBadge status={d.status === 'BOOKED' ? 'BILLED' : displayDeliveryStatus(d.status)} />
                 </div>
                 {/* Delivery address second */}
                 {d.deliveryAddress && (
@@ -305,11 +305,11 @@ export default function DeliveriesPage() {
                   {d.trackingId && <span className="font-mono break-all">#{d.trackingId}</span>}
                   {d.mobileNumber && <span className="inline-flex shrink-0 items-center gap-1"><Phone className="h-3 w-3" />{d.mobileNumber}</span>}
                   {/* Booked date — the side column is hidden on mobile, so surface it here. */}
-                  <span className="inline-flex shrink-0 items-center gap-1 sm:hidden">Booked {formatDate(d.createdAt)}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 sm:hidden">Billed {formatDate(d.createdAt)}</span>
                 </div>
               </div>
               <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">
-                <p>Booked</p>
+                <p>Billed</p>
                 <p className="font-medium text-foreground">{formatDate(d.createdAt)}</p>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />

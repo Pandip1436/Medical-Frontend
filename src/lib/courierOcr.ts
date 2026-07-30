@@ -147,7 +147,10 @@ export const DELIVERY_STATUSES: DeliveryStatus[] = [
 ]
 
 export const STATUS_LABEL: Record<DeliveryStatus, string> = {
-  BOOKED: 'Booked',
+  // Display label only — the underlying status value stays BOOKED. This is the
+  // first tracking stage, shown as "Billed" (the delivery record is created
+  // when the invoice is billed with courier enabled).
+  BOOKED: 'Billed',
   DISPATCHED: 'Dispatched',
   IN_TRANSIT: 'In Transit',
   ARRIVED_AT_HUB: 'Arrived at Hub',

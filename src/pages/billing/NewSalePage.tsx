@@ -110,6 +110,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
+import { isAdminish } from '@/types'
 import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
@@ -885,8 +886,27 @@ function BillingRow({
                 {filteredProducts.length === 0 && !rowProductSearch.loading ? (
                   <div className="p-4 text-center space-y-2">
                     <div className="text-xs text-muted-foreground italic">
-                      {productSearch ? `No products match "${productSearch}"` : 'Start typing to search products'}
+                      {invoiceType === 'quotation'
+                        ? (productSearch ? `No catalog match — quote it as free text` : 'Type any product name to quote')
+                        : (productSearch ? `No products match "${productSearch}"` : 'Start typing to search products')}
                     </div>
+                    {/* Quotations aren't tied to inventory — accept the typed name as
+                        a free-text line (the name is already persisted on keystroke;
+                        this just confirms it and dismisses the dropdown). */}
+                    {invoiceType === 'quotation' && productSearch.trim() && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          onUpdate(item.id, { productName: productSearch })
+                          setShowProductDropdown(false)
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 hover:bg-primary/15 px-3 py-1.5 text-[11px] font-semibold text-primary transition-colors"
+                      >
+                        <PackagePlus className="h-3.5 w-3.5" />
+                        Use "{productSearch}" as quotation item
+                      </button>
+                    )}
                     {invoiceType !== 'quotation' && onRequestAddProduct && productSearch && (
                       <button
                         type="button"
@@ -1024,7 +1044,13 @@ function BillingRow({
               </span>
             ) : null}
           </div>
-          {/* Main control */}
+          {/* Main control — batch is inventory-only; a quotation doesn't draw
+              stock, so no batch selection is shown (or required) for one. */}
+          {invoiceType === 'quotation' ? (
+            <div className="flex h-8 w-full items-center justify-center rounded-lg border border-dashed border-border/40 bg-muted/20 text-[11px] italic text-muted-foreground/50">
+              Not needed
+            </div>
+          ) : (
           <Select
             value={item.batchId}
             onValueChange={handleBatchChange}
@@ -1080,6 +1106,7 @@ function BillingRow({
               })}
             </SelectContent>
           </Select>
+          )}
         </div>
       </TableCell>
 
@@ -1917,6 +1944,11 @@ function MobileBillingCard({
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Batch & Expiry</Label>
+            {invoiceType === 'quotation' ? (
+              <div className="flex h-9 items-center rounded-md border border-dashed border-border/40 bg-muted/20 px-2 text-xs italic text-muted-foreground/50">
+                Not needed for quotation
+              </div>
+            ) : (
             <Select value={item.batchId} onValueChange={(vid) => {
               const b = batches.find(x => x.id === vid)
               if (!b) return
@@ -1945,6 +1977,7 @@ function MobileBillingCard({
                 ))}
               </SelectContent>
             </Select>
+            )}
             {item.expiryDate && (
               <div className={cn(
                 "text-[10px] font-semibold uppercase tracking-wider tabular-nums",
@@ -2399,6 +2432,8 @@ export default function NewSalePage() {
   const activeBranchId = useBranchStore(s => s.activeBranchId)
   const { sidebarCollapsed, toggleSidebar, user: authUser } = useAuthStore()
   const isPharmacist = authUser?.role === 'PHARMACIST'
+  // Admins are exempt from the pending-credit cap (backend enforces the same).
+  const isAdmin = isAdminish(authUser)
 
   // Auto-collapse sidebar for full-screen billing experience, restore on leave
   useEffect(() => {
@@ -3678,6 +3713,36 @@ export default function NewSalePage() {
     [items, billingType, selectedCustomer, customerLastRates]
   )
 
+  // Quotation-only: add a free-text line from the hero search when the typed
+  // name isn't a catalog product. Quotes aren't tied to inventory, so a plain
+  // name + qty + rate is enough (batch/stock are skipped on save).
+  const addFreeTextItem = useCallback(
+    (name: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      if (!selectedCustomer) {
+        toast.error('Please select a customer before adding products')
+        setShowCustomerDropdown(true)
+        setHeroSearch('')
+        setShowHeroResults(false)
+        setTimeout(() => heroSearchRef.current?.focus(), 300)
+        return
+      }
+      setItems((prev) => {
+        const nonEmpty = prev.filter((i) => i.productId || (i.productName || '').trim() !== '')
+        const newItem: BillingItem = { ...createEmptyItem(), productName: trimmed, quantity: 1 }
+        newItem.amount = calculateItemAmount(newItem)
+        return [...nonEmpty, newItem]
+      })
+      setTableView('products')
+      setHeroSearch('')
+      setShowHeroResults(false)
+      setHeroSelectedIdx(0)
+      setTimeout(() => heroSearchRef.current?.focus(), 50)
+    },
+    [selectedCustomer],
+  )
+
   // ── Hero keyboard navigation ──────────────────────────────
   const handleHeroKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -3728,6 +3793,9 @@ export default function NewSalePage() {
 
         if (heroResults.length > 0) {
           addProductFromSearch(heroResults[heroSelectedIdx])
+        } else if (invoiceType === 'quotation' && (heroSearchRef.current?.value ?? '').trim()) {
+          // No catalog match on a quotation — take the typed text as a free line.
+          addFreeTextItem(heroSearchRef.current!.value)
         }
       } else if (e.key === 'Escape') {
         setShowHeroResults(false)
@@ -3735,7 +3803,7 @@ export default function NewSalePage() {
         barcodeCharCountRef.current = 0
       }
     },
-    [heroResults, heroSelectedIdx, addProductFromSearch]
+    [heroResults, heroSelectedIdx, addProductFromSearch, invoiceType, addFreeTextItem]
   )
 
   // ── Item management ─────────────────────────────────────
@@ -3829,9 +3897,12 @@ export default function NewSalePage() {
   // ── Pending credit check (max 3 open UNPAID/PARTIAL invoices) ──
   // The block guards against taking on NEW credit debt. Editing an existing
   // invoice isn't a new sale — its credit is already counted — so the block
-  // (banner + save gate) is suppressed while editing.
+  // (banner + save gate) is suppressed while editing. Quotations are exempt too:
+  // a quote is a non-binding price estimate, not a credit sale, so it never adds
+  // to receivables and must never be gated by the outstanding-invoices block.
   const pendingCreditCount = selectedCustomer?.pendingCreditCount ?? 0
-  const isCreditBlocked = pendingCreditCount >= 3 && !editingInvoiceId
+  // Admins bypass the block entirely — no warning banner, no approval flow.
+  const isCreditBlocked = pendingCreditCount >= 3 && !editingInvoiceId && !isAdmin && invoiceType !== 'quotation'
 
   // State for the pay-pending-credits dialog
   const [creditPayDialogOpen, setCreditPayDialogOpen] = useState(false)
@@ -4682,7 +4753,14 @@ export default function NewSalePage() {
       if (invoiceType === 'quotation') {
         toast.success(`Quotation ${savedInvoice.quotationNumber ?? savedInvoice.invoiceNumber} saved successfully`)
         localStorage.removeItem(AUTO_DRAFT_KEY)
-        navigate('/billing/quotations')
+        fetchMasterData()
+        // Stay on New Sale (fresh blank form) instead of jumping to the
+        // Quotation list — same behaviour as saving an invoice, so the operator
+        // can immediately start the next bill/quote. Keep Quotation mode so a
+        // run of quotations doesn't flip back to Invoice each save.
+        resetToBlankSale()
+        setInvoiceType('quotation')
+        navigate('/billing/new') // clear any ?type=quotation / prefill params
       } else {
         // If this invoice was converted from a quotation, mark it as CONVERTED
         if (quotationSource) {
@@ -5319,8 +5397,22 @@ export default function NewSalePage() {
                           <div className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</div>
                         )}
                         {!heroSearchResults.loading && heroResults.length === 0 && (
-                          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                            {heroSearch ? `No products match "${heroSearch}"` : 'Start typing to search products'}
+                          <div className="px-3 py-6 text-center text-xs text-muted-foreground space-y-2">
+                            <div>
+                              {invoiceType === 'quotation'
+                                ? (heroSearch ? 'No catalog match — quote it as free text' : 'Type any product name to quote')
+                                : (heroSearch ? `No products match "${heroSearch}"` : 'Start typing to search products')}
+                            </div>
+                            {invoiceType === 'quotation' && heroSearch.trim() && (
+                              <button
+                                type="button"
+                                onMouseDown={(e) => { e.preventDefault(); addFreeTextItem(heroSearch) }}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 hover:bg-primary/15 px-3 py-1.5 text-[11px] font-semibold text-primary transition-colors"
+                              >
+                                <PackagePlus className="h-3.5 w-3.5" />
+                                Use "{heroSearch}" as quotation item
+                              </button>
+                            )}
                           </div>
                         )}
                         {heroResults.map((p, idx) => {
@@ -5533,7 +5625,7 @@ export default function NewSalePage() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 shrink-0 ml-auto">
-                                {(cust.pendingCreditCount ?? 0) >= 3 ? (
+                                {(cust.pendingCreditCount ?? 0) >= 3 && !isAdmin ? (
                                   <span
                                     className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-semibold text-rose-600 dark:text-rose-400 whitespace-nowrap"
                                     title="Credit blocked — 3 pending invoices"
@@ -5755,7 +5847,7 @@ export default function NewSalePage() {
                       size="sm"
                       className="h-8 px-3 text-[11px] bg-amber-500 hover:bg-amber-600 text-white shadow-none"
                       onClick={() => submitInvoice('CREDIT')}
-                      disabled={isSubmitting || items.filter((i) => (i.productId || (invoiceType === 'quotation' && (i.productName || '').trim() !== '')) && i.quantity > 0).length === 0}
+                      disabled={isSubmitting || items.filter((i) => i.productId && i.quantity > 0).length === 0}
                     >
                       <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                       {isSubmitting ? 'Sending…' : 'Request Approval'}
@@ -7798,8 +7890,9 @@ export default function NewSalePage() {
                         <tr className="bg-zinc-800 dark:bg-zinc-950 text-white">
                           <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider w-10">#</th>
                           <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Product Name</th>
-                          <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Batch</th>
-                          <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Expiry</th>
+                          {/* Batch & Expiry are inventory facts — omitted on a quotation. */}
+                          {invoiceType !== 'quotation' && <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Batch</th>}
+                          {invoiceType !== 'quotation' && <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Expiry</th>}
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Qty</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">MRP</th>
                           <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Rate</th>
@@ -7818,10 +7911,12 @@ export default function NewSalePage() {
                             <td className="px-4 py-3.5 font-semibold text-sm text-zinc-900 dark:text-zinc-100">
                               {it.productName}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-xs font-mono text-zinc-500">{it.batchNumber || '—'}</td>
-                            <td className="px-4 py-3.5 text-center text-xs text-zinc-500 whitespace-nowrap">
-                              {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—'}
-                            </td>
+                            {invoiceType !== 'quotation' && <td className="px-4 py-3.5 text-center text-xs font-mono text-zinc-500">{it.batchNumber || '—'}</td>}
+                            {invoiceType !== 'quotation' && (
+                              <td className="px-4 py-3.5 text-center text-xs text-zinc-500 whitespace-nowrap">
+                                {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—'}
+                              </td>
+                            )}
                             <td className="px-4 py-3.5 text-right font-bold text-sm text-zinc-900 dark:text-zinc-100">{it.quantity}</td>
                             <td className="px-4 py-3.5 text-right text-xs font-mono text-zinc-400">{Number(it.mrp).toFixed(2)}</td>
                             <td className="px-4 py-3.5 text-right text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">{Number(it.rate).toFixed(2)}</td>
@@ -7960,7 +8055,7 @@ export default function NewSalePage() {
               Pending Credit Invoices — {selectedCustomer?.name}
             </DialogTitle>
             <DialogDescription>
-              {pendingCreditCount >= 3
+              {pendingCreditCount >= 3 && !isAdmin
                 ? 'Credit sales are blocked. Clear at least one invoice to continue.'
                 : `${pendingCreditCount} pending credit invoice${pendingCreditCount !== 1 ? 's' : ''}.`}
             </DialogDescription>

@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
 import { DatePicker } from '@/components/ui/date-picker'
+import { DayOfMonthPicker } from '@/components/ui/day-of-month-picker'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -99,6 +100,10 @@ const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
   { key: 'this-week', label: 'This Week' },
   { key: 'overdue',   label: 'Overdue' },
 ]
+
+// Mirrors the server-side cap (reminders.service.ts): 29–31 don't exist in every
+// month, so the API rejects them outright. 28 is the "end of month" choice.
+const MAX_REMINDER_DAY = 28
 
 const ORDINAL = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd']
@@ -347,8 +352,8 @@ export default function RemindersPage() {
       return
     }
     const dayOfMonthNum = parseInt(form.dayOfMonth)
-    if (!Number.isInteger(dayOfMonthNum) || dayOfMonthNum < 1 || dayOfMonthNum > 31) {
-      toast.error('Day must be between 1 and 31')
+    if (!Number.isInteger(dayOfMonthNum) || dayOfMonthNum < 1 || dayOfMonthNum > MAX_REMINDER_DAY) {
+      toast.error(`Day must be between 1 and ${MAX_REMINDER_DAY} — use ${MAX_REMINDER_DAY} for end-of-month`)
       return
     }
     setSaving(true)
@@ -724,16 +729,14 @@ export default function RemindersPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Reminder Day (1–31) *</Label>
-              <Input
-                type="number"
-                min={1}
-                max={31}
+              <Label className="text-xs font-semibold">Reminder Day (1–{MAX_REMINDER_DAY}) *</Label>
+              <DayOfMonthPicker
                 placeholder="e.g. 3"
+                maxDay={MAX_REMINDER_DAY}
                 value={form.dayOfMonth}
-                onChange={e => setForm(f => ({ ...f, dayOfMonth: e.target.value }))}
+                onChange={day => setForm(f => ({ ...f, dayOfMonth: day }))}
               />
-              {form.dayOfMonth && parseInt(form.dayOfMonth) >= 1 && parseInt(form.dayOfMonth) <= 31 && (
+              {form.dayOfMonth && parseInt(form.dayOfMonth) >= 1 && parseInt(form.dayOfMonth) <= MAX_REMINDER_DAY && (
                 <p className="text-[10px] text-muted-foreground">
                   Will remind on the {ORDINAL(parseInt(form.dayOfMonth))} of every month
                 </p>

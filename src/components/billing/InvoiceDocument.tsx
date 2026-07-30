@@ -127,8 +127,9 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
             <tr className="bg-zinc-800 text-white dark:bg-zinc-950">
               <th className="w-10 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">#</th>
               <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-wider">Product Name</th>
-              <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Batch</th>
-              <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Expiry</th>
+              {/* Batch & Expiry are inventory facts — irrelevant on a quotation. */}
+              {!isQuotation && <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Batch</th>}
+              {!isQuotation && <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Expiry</th>}
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Qty</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">MRP</th>
               <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider">Rate</th>
@@ -150,10 +151,12 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
               >
                 <td className="px-4 py-3.5 text-center text-xs text-zinc-400">{i + 1}</td>
                 <td className="px-4 py-3.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{it.productName}</td>
-                <td className="px-4 py-3.5 text-center font-mono text-xs text-zinc-500">{it.batchNumber || '—'}</td>
-                <td className="whitespace-nowrap px-4 py-3.5 text-center text-xs text-zinc-500">
-                  {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—'}
-                </td>
+                {!isQuotation && <td className="px-4 py-3.5 text-center font-mono text-xs text-zinc-500">{it.batchNumber || '—'}</td>}
+                {!isQuotation && (
+                  <td className="whitespace-nowrap px-4 py-3.5 text-center text-xs text-zinc-500">
+                    {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—'}
+                  </td>
+                )}
                 <td className="px-4 py-3.5 text-right text-sm font-bold text-zinc-900 dark:text-zinc-100">{it.quantity}</td>
                 <td className="px-4 py-3.5 text-right font-mono text-xs text-zinc-400">{num(it.mrp).toFixed(2)}</td>
                 <td className="px-4 py-3.5 text-right font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-300">{num(it.rate).toFixed(2)}</td>

@@ -62,6 +62,21 @@ function stepperIndex(status: DeliveryStatus): number {
   return STEPPER.indexOf(folded)
 }
 
+// The browser (and Tesseract, which decodes through it) can't read every
+// "image/*" type — notably HEIC/HEIF from iPhones and TIFF. A successful decode
+// here means OCR can run; a failure means the format is unsupported and we
+// should tell the user instead of feeding Tesseract undecodable bytes.
+async function canDecodeImage(file: File): Promise<boolean> {
+  if (typeof createImageBitmap !== 'function') return true // no way to check → let OCR try
+  try {
+    const bitmap = await createImageBitmap(file)
+    bitmap.close()
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function DeliveryTrackingPage() {
   const { search } = useRoute()
   const params = new URLSearchParams(search)
@@ -133,13 +148,24 @@ export default function DeliveryTrackingPage() {
   // ─── Receipt upload + OCR ──────────────────────────────────────────────────
   const handleFile = async (file: File) => {
     setReceiptName(file.name)
-    if (file.type.startsWith('image/')) {
-      setReceiptPreview(URL.createObjectURL(file))
-    } else {
+    if (!file.type.startsWith('image/')) {
       setReceiptPreview(null)
-      toast.info('PDF stored. For auto-extract, upload an image of the receipt.')
+      toast.info('PDF stored. For auto-extract, upload a JPG or PNG image of the receipt.')
       return
     }
+    // Format-compatibility guard: HEIC/HEIF (iPhone) and TIFF pass the image/*
+    // check but can't be decoded here, so OCR would only produce noise (and the
+    // preview would break too). Verify the image decodes first, and guide the
+    // user to a supported format on failure.
+    if (!(await canDecodeImage(file))) {
+      setReceiptPreview(null)
+      toast.error(
+        'Couldn’t read this image — the format may be unsupported (e.g. an iPhone HEIC photo). Please upload a clear JPG, PNG or WebP image, or a screenshot of the receipt.',
+        { duration: 6500 },
+      )
+      return
+    }
+    setReceiptPreview(URL.createObjectURL(file))
     setOcrRunning(true)
     setOcrProgress(0)
     try {
@@ -333,7 +359,7 @@ export default function DeliveryTrackingPage() {
                     {delivery.invoiceNumber}
                     <ExternalLink className="h-3.5 w-3.5 opacity-0 transition group-hover:opacity-100" />
                   </button>
-                  <StatusBadge status={displayDeliveryStatus(delivery.status)} className="px-2.5 py-0.5" />
+                  <StatusBadge status={delivery.status === 'BOOKED' ? 'BILLED' : displayDeliveryStatus(delivery.status)} className="px-2.5 py-0.5" />
                 </div>
                 <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
                   <User className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{delivery.customerName}</span>
@@ -609,7 +635,10 @@ export default function DeliveryTrackingPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,application/pdf"
+                // Only formats the browser can decode for OCR. HEIC/HEIF/TIFF are
+                // excluded so the picker steers users to a readable image; the
+                // decode guard in handleFile is the runtime safety net.
+                accept="image/jpeg,image/png,image/webp,application/pdf"
                 className="hidden"
                 onChange={onFileInput}
               />
@@ -633,7 +662,7 @@ export default function DeliveryTrackingPage() {
                     {receiptName ? <ImageIcon className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
                   </div>
                   <p className="text-sm font-medium">{receiptName ?? 'Upload courier receipt'}</p>
-                  <p className="text-xs text-muted-foreground">ST / Professional Courier — image or PDF</p>
+                  <p className="text-xs text-muted-foreground">JPG, PNG or WebP — a clear, upright photo</p>
                 </button>
               )}
 
@@ -654,10 +683,17 @@ export default function DeliveryTrackingPage() {
                 </div>
               )}
 
-              <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-                We auto-extract Courier Name, Tracking ID & Dispatch Date. Review the
-                fields on the left, then <span className="font-medium">Save</span>.
-              </p>
+              {/* Upload instructions — what to upload and how to get a good read. */}
+              <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                <p className="mb-1 font-semibold text-foreground/80">For the best auto-read:</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  <li>Use a <span className="font-medium">JPG, PNG or WebP</span> image (not PDF).</li>
+                  <li>Keep the receipt <span className="font-medium">flat and upright</span>, filling the frame.</li>
+                  <li>Make sure the <span className="font-medium">courier name and tracking number</span> are sharp and well-lit.</li>
+                  <li><span className="font-medium">iPhone HEIC</span> photos aren’t supported — set Camera → Formats to “Most Compatible”, or upload a screenshot/JPG.</li>
+                </ul>
+                <p className="mt-1.5">We auto-fill Courier Name, Tracking ID &amp; Dispatch Date. Always review the fields on the left, then <span className="font-medium">Save</span>.</p>
+              </div>
 
               {ocrText && !ocrRunning && (
                 <details className="rounded-lg bg-muted/30 p-2 text-xs">
@@ -671,7 +707,7 @@ export default function DeliveryTrackingPage() {
           {/* Booked meta */}
           <Card>
             <CardContent className="space-y-2 py-4 text-xs text-muted-foreground">
-              <div className="flex justify-between"><span>Booked</span><span>{formatDate(delivery.createdAt)}</span></div>
+              <div className="flex justify-between"><span>Billed</span><span>{formatDate(delivery.createdAt)}</span></div>
               {delivery.dispatchDate && (
                 <div className="flex justify-between"><span>Dispatched</span><span>{formatDate(delivery.dispatchDate)}</span></div>
               )}

@@ -34,6 +34,7 @@ const DebitNoteDetailPage = lazy(() => import('@/pages/purchase/DebitNoteDetailP
 const SuppliersPage = lazy(() => import('@/pages/purchase/SuppliersPage'))
 const SupplierDetailPage = lazy(() => import('@/pages/purchase/SupplierDetailPage'))
 const SupplierOutstandingPage = lazy(() => import('@/pages/purchase/SupplierOutstandingPage'))
+const SupplierPaymentsDuePage = lazy(() => import('@/pages/purchase/SupplierPaymentsDuePage'))
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage'))
 const ProductHistoryPage = lazy(() => import('@/pages/inventory/ProductHistoryPage'))
 const CategoriesPage = lazy(() => import('@/pages/inventory/CategoriesPage'))
@@ -121,6 +122,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/suppliers',
     '/purchase/suppliers/detail',
     '/purchase/suppliers/outstanding',
+    '/purchase/suppliers/payments-due',
     '/notifications',
     '/admin/approvals',
     '/admin/approvals/detail',
@@ -136,6 +138,7 @@ export const rolePermissions: Record<string, string[]> = {
     '/purchase/suppliers',
     '/purchase/suppliers/detail',
     '/purchase/suppliers/outstanding',
+    '/purchase/suppliers/payments-due',
     '/accounting/cashbook',
     '/accounting/expenses',
     '/accounting/ledger',
@@ -353,6 +356,8 @@ function App() {
         return <SupplierDetailPage />
       case '/purchase/suppliers/outstanding':
         return <SupplierOutstandingPage />
+      case '/purchase/suppliers/payments-due':
+        return <SupplierPaymentsDuePage />
       case '/inventory/products':
         return <ProductsPage />
       case '/inventory/product-history':

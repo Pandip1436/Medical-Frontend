@@ -207,6 +207,17 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
+  // Open every customer on Overview. The split view reuses this component
+  // across customers (prop change, no remount), so the previously-selected tab
+  // would otherwise carry over. Guarded by the previous id so a deep link /
+  // browser-Back onto a specific tab is preserved on the first render.
+  const prevCustomerId = useRef(customerId)
+  useEffect(() => {
+    if (prevCustomerId.current !== customerId) {
+      prevCustomerId.current = customerId
+      setActiveTab('overview')
+    }
+  }, [customerId])
   const [editOpen, setEditOpen] = useState(false)
 
   const [activityTypeFilter, setActivityTypeFilter] = useState<'ALL' | SAType>('ALL')

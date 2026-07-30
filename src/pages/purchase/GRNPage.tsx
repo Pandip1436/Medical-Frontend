@@ -330,6 +330,9 @@ export default function GRNPage() {
   const [payMode, setPayMode] = useState<'CASH' | 'CHEQUE' | 'NEFT_UPI'>('NEFT_UPI')
   // UTR / cheque # / txn ref for the receive-time payment (non-cash modes only).
   const [payReference, setPayReference] = useState<string>('')
+  // Payment due date for the credit portion (CREDIT / PARTIAL). yyyy-mm-dd from
+  // the DatePicker; sent to the backend as ISO. Empty for paid-in-full.
+  const [dueDate, setDueDate] = useState<string>('')
 
   // ── Form draft — auto-saves so an in-progress entry survives navigating
   // away and back. Skipped when arriving via an intentional prefill (editing
@@ -350,6 +353,7 @@ export default function GRNPage() {
     payChoice: 'CREDIT' | 'PAID' | 'PARTIAL'
     paidAmount: number
     payMode: 'CASH' | 'CHEQUE' | 'NEFT_UPI'
+    dueDate: string
   }
   const draft = useFormDraft<GrnDraftSnapshot>(`grn-draft:${activeBranchId ?? 'none'}`, {
     skip: editMode || !!prefilledPoId || !!prefilledSupplierId || !!replacementReturnId,
@@ -379,6 +383,7 @@ export default function GRNPage() {
     setPayChoice(saved.payChoice)
     setPaidAmount(saved.paidAmount)
     setPayMode(saved.payMode)
+    setDueDate(saved.dueDate ?? '')
     toast.info('Restored your in-progress purchase entry')
   }, [])
 
@@ -387,9 +392,9 @@ export default function GRNPage() {
     draft.save({
       sourceType, selectedPOId, directSupplierId, directSupplierName, grnItems,
       invoiceNo, invoiceDate, invoiceAmount, invoiceAmountEdited,
-      payChoice, paidAmount, payMode,
+      payChoice, paidAmount, payMode, dueDate,
     })
-  }, [sourceType, selectedPOId, directSupplierId, directSupplierName, grnItems, invoiceNo, invoiceDate, invoiceAmount, invoiceAmountEdited, payChoice, paidAmount, payMode])
+  }, [sourceType, selectedPOId, directSupplierId, directSupplierName, grnItems, invoiceNo, invoiceDate, invoiceAmount, invoiceAmountEdited, payChoice, paidAmount, payMode, dueDate])
 
   // Confirm overlay
   const [showConfirm, setShowConfirm] = useState(false)
@@ -604,6 +609,7 @@ export default function GRNPage() {
         }
         setInvoiceNo(grn.supplierInvoiceNo ?? '')
         setInvoiceDate(grn.supplierInvoiceDate ? String(grn.supplierInvoiceDate).slice(0, 10) : '')
+        setDueDate(grn.dueDate ? String(grn.dueDate).slice(0, 10) : '')
         setInvoiceAmount(Number(grn.supplierInvoiceAmount) || 0)
         // Treat the loaded amount as operator-set so the auto-fill effect can't
         // clobber it with the line total (which would silently rewrite the
@@ -961,6 +967,12 @@ export default function GRNPage() {
       toast.error('Amount paid cannot exceed the invoice amount')
       return
     }
+    // Credit/partial receipts leave a balance on the supplier's outstanding —
+    // require a due date so it can be chased. Paid-in-full has no balance.
+    if (!isReplacementFlow && payChoice !== 'PAID' && !dueDate) {
+      toast.error('Please set a payment due date for the credit amount')
+      return
+    }
 
     // Item-level validation before we hit the server
     for (let idx = 0; idx < receivedItems.length; idx++) {
@@ -1000,6 +1012,14 @@ export default function GRNPage() {
       }
     }
 
+    // Invoice amount must reconcile exactly with the calculated total value
+    // (within a rounding paisa) before a Purchase Entry can be confirmed.
+    const amountDiff = Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total))
+    if (!isReplacementFlow && amountDiff > 0.01) {
+      toast.error(`Invoice amount must equal the total value (${formatCurrency(Number(gstBreakdown.total) || 0)}) before you can confirm.`)
+      return
+    }
+
     setIsSubmitting(true)
     try {
       // For replacement GRNs, default invoice number/date if user left them blank
@@ -1014,6 +1034,8 @@ export default function GRNPage() {
         supplierName: selectedPO?.supplierName ?? directSupplierName,
         supplierInvoiceNo: effectiveInvoiceNo,
         supplierInvoiceDate: effectiveInvoiceDate,
+        // Credit due date — only sent when a balance stays on outstanding.
+        dueDate: !isReplacementFlow && payChoice !== 'PAID' && dueDate ? new Date(dueDate).toISOString() : undefined,
         supplierInvoiceAmount: Number(invoiceAmount) || 0,
         totalAmount: Number(gstBreakdown.total) || 0,
         status: 'RECEIVED',
@@ -1123,6 +1145,7 @@ export default function GRNPage() {
       setPaidAmount(0)
       setPayMode('NEFT_UPI')
       setPayReference('')
+      setDueDate('')
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
@@ -1184,6 +1207,7 @@ export default function GRNPage() {
     setPaidAmount(0)
     setPayMode('NEFT_UPI')
     setPayReference('')
+    setDueDate('')
     setMobileSectionState('products')
     draft.clear()
   }
@@ -1235,17 +1259,40 @@ export default function GRNPage() {
           onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 200)}
         />
         {supplierDropdownOpen && (
-          <div
-            ref={supplierDropdownScrollRef}
-            onScroll={handleSupplierDropdownScroll}
-            className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-52 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
-          >
+          <div className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-52 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg">
+            <div
+              ref={supplierDropdownScrollRef}
+              onScroll={handleSupplierDropdownScroll}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
             {supplierResults.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-accent/50 border-b border-border/20 last:border-b-0"
-                onMouseDown={(e) => { e.preventDefault(); setDirectSupplierId(s.id); setDirectSupplierName(s.name); setSupplierSearch(''); setSupplierDropdownOpen(false) }}
+                // Switching supplier starts a clean entry — the product lines and
+                // the supplier-invoice details (number/date/amount/due date) all
+                // belonged to the previous supplier, so none of them carry over.
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setDirectSupplierId(s.id)
+                  setDirectSupplierName(s.name)
+                  setSupplierSearch('')
+                  setSupplierDropdownOpen(false)
+                  if (!editMode) {
+                    setGrnItems([createEmptyItem()])
+                    setInvoiceNo('')
+                    setInvoiceDate('')
+                    setInvoiceAmount(0)
+                    setInvoiceAmountEdited(false)
+                    setDueDate('')
+                    // Reset the bottom bar's payment section too.
+                    setPayChoice('CREDIT')
+                    setPaidAmount(0)
+                    setPayMode('NEFT_UPI')
+                    setPayReference('')
+                  }
+                }}
               >
                 <div>
                   <p className="text-sm font-medium">{s.name}</p>
@@ -1262,6 +1309,17 @@ export default function GRNPage() {
             {!supplierResultsLoading && supplierResults.length === 0 && (
               <p className="px-4 py-3 text-sm text-muted-foreground">No suppliers found</p>
             )}
+            </div>
+            {/* Create a new supplier without leaving the entry. Sits in a fixed
+                footer below the scroll area so it never overlaps rows. */}
+            <button
+              type="button"
+              className="flex w-full shrink-0 items-center gap-2 border-t border-border/40 bg-popover px-4 py-2.5 text-left text-sm font-medium text-primary transition-colors hover:bg-accent/50"
+              onMouseDown={(e) => { e.preventDefault(); setSupplierDropdownOpen(false); setSupplierFormOpen(true) }}
+            >
+              <Plus className="h-4 w-4" />
+              Add New Supplier
+            </button>
           </div>
         )}
       </div>
@@ -1332,11 +1390,11 @@ export default function GRNPage() {
                   onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
                 />
-                {/* Live mismatch warning — invoice amount vs the calculated line total. */}
+                {/* Must equal the calculated Total Value to confirm — blocks submission. */}
                 {Number(invoiceAmount) > 0 &&
                   Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
-                  <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                    Doesn't match calculated total ({formatCurrency(Number(gstBreakdown.total) || 0)}) —
+                  <p className="mt-1 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                    Must equal Total Value ({formatCurrency(Number(gstBreakdown.total) || 0)}) to confirm —
                     {' '}{Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over by' : 'short by'}{' '}
                     {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}.
                   </p>
@@ -1437,6 +1495,16 @@ export default function GRNPage() {
                       {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
                     </span>
                   </div>
+                </div>
+              )}
+              {/* Due date for the credit balance — shown whenever any amount
+                  stays on the supplier's outstanding (CREDIT or PARTIAL). */}
+              {payChoice !== 'PAID' && (
+                <div className="mt-2 space-y-1">
+                  <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Due Date<span className="text-rose-500"> *</span>
+                  </Label>
+                  <DatePicker className="h-9 text-sm" value={dueDate} onChange={setDueDate} />
                 </div>
               )}
             </div>
@@ -1574,12 +1642,24 @@ export default function GRNPage() {
             data-field="invoiceAmount"
             type="number"
             min={0}
-            className="h-8 font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className={cn(
+              'h-8 font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+              !replacementReturnId && Number(invoiceAmount) > 0 && Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && 'border-rose-400 focus-visible:ring-rose-400',
+            )}
             placeholder="0.00"
             value={invoiceAmount || ''}
             onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
           />
+          {/* Must equal the calculated Total Value to confirm — blocks submission. */}
+          {!replacementReturnId && Number(invoiceAmount) > 0 &&
+            Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)) > 0.01 && (
+            <p className="text-[10px] font-medium leading-tight text-rose-600 dark:text-rose-400">
+              Must equal Total Value ({formatCurrency(Number(gstBreakdown.total) || 0)}) —
+              {' '}{Number(invoiceAmount) > Number(gstBreakdown.total) ? 'over' : 'short'}{' '}
+              {formatCurrency(Math.abs(Number(invoiceAmount) - Number(gstBreakdown.total)))}
+            </p>
+          )}
         </div>
         {/* Card / List view toggle — last in the invoice row */}
         <div className="ml-auto flex shrink-0 items-center self-end rounded-lg border border-border/60 bg-muted/30 p-0.5">
@@ -1631,7 +1711,7 @@ export default function GRNPage() {
                     line; truncate is only a fallback for pathological
                     values, with the title tooltip on Value revealing the
                     full number on hover in that rare case. */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                   <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
                     <p className="mt-0.5 truncate font-mono text-base font-bold">{totalItems}</p>
@@ -1663,11 +1743,7 @@ export default function GRNPage() {
                       {shortSupplyCount > 0 ? `${shortSupplyCount}` : '✓ Ready'}
                     </p>
                   </div>
-                  {/* Source / Invoice meta — merged into the same single-row grid */}
-                  <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source</p>
-                    <p className="mt-0.5 truncate text-sm font-medium">{sourceType === 'po' && selectedPO ? `PO · ${selectedPO.poNumber}` : 'Direct Entry'}</p>
-                  </div>
+                  {/* Invoice meta — merged into the same single-row grid */}
                   <div className="min-w-0 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supplier</p>
                     <p className="mt-0.5 truncate text-sm font-medium" title={selectedPO?.supplierName || directSupplierName || '—'}>{selectedPO?.supplierName || directSupplierName || '—'}</p>
@@ -1998,9 +2074,9 @@ export default function GRNPage() {
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    onScroll={handleProductDropdownScroll}
-                    className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
+                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-64 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
+                    <div onScroll={handleProductDropdownScroll} className="min-h-0 flex-1 overflow-y-auto">
                     {filteredProducts.map((p) => (
                       <button
                         key={p.id}
@@ -2028,6 +2104,17 @@ export default function GRNPage() {
                     {!productSearchPaged.loading && filteredProducts.length === 0 && (
                       <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
                     )}
+                    </div>
+                    {/* Create a new product without leaving the entry. Sits in a
+                        fixed footer below the scroll area so it never overlaps rows. */}
+                    <button
+                      type="button"
+                      className="flex w-full shrink-0 items-center gap-2 border-t border-border/40 bg-popover px-4 py-2.5 text-left text-sm font-medium text-primary transition-colors hover:bg-accent/50"
+                      onMouseDown={(e) => { e.preventDefault(); setProductFocused(false); setProductFormOpen(true) }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add New Product
+                    </button>
                   </motion.div>
                 )}
               </div>
@@ -2041,7 +2128,7 @@ export default function GRNPage() {
               <div className="lg:hidden">
                 {renderSupplierSelector()}
               </div>
-              {/* Product search + Add Product */}
+              {/* Product search (Add Supplier / Add Product now live inside their dropdowns) */}
               <div className="min-w-0 flex items-start gap-2">
                 <div className="relative flex-1">
                 <Input
@@ -2057,9 +2144,9 @@ export default function GRNPage() {
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    onScroll={handleProductDropdownScroll}
-                    className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-border/60 bg-popover shadow-lg"
+                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-64 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
+                    <div onScroll={handleProductDropdownScroll} className="min-h-0 flex-1 overflow-y-auto">
                     {filteredProducts.map((p) => (
                       <button
                         key={p.id}
@@ -2087,27 +2174,20 @@ export default function GRNPage() {
                     {!productSearchPaged.loading && filteredProducts.length === 0 && (
                       <p className="px-4 py-3 text-sm text-muted-foreground">No products found</p>
                     )}
+                    </div>
+                    {/* Create a new product without leaving the entry. Sits in a
+                        fixed footer below the scroll area so it never overlaps rows. */}
+                    <button
+                      type="button"
+                      className="flex w-full shrink-0 items-center gap-2 border-t border-border/40 bg-popover px-4 py-2.5 text-left text-sm font-medium text-primary transition-colors hover:bg-accent/50"
+                      onMouseDown={(e) => { e.preventDefault(); setProductFocused(false); setProductFormOpen(true) }}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add New Product
+                    </button>
                   </motion.div>
                 )}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => setSupplierFormOpen(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Supplier
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => setProductFormOpen(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Product
-                </Button>
               </div>
             </div>
           )}
@@ -2137,7 +2217,7 @@ export default function GRNPage() {
                       <tr className="border-b border-border/50 bg-muted/30 text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
                         <th className="w-8 px-2 py-2 text-center">#</th>
                         <th className="px-2 py-2 text-left">Product</th>
-                        <th className="w-24 px-2 py-2 text-left">Recd Qty</th>
+                        <th className="w-24 px-2 py-2 text-left">Qty</th>
                         <th className="w-20 px-2 py-2 text-left">Free</th>
                         <th className="w-28 px-2 py-2 text-left">MRP</th>
                         <th className="w-28 px-2 py-2 text-left">Purchase Rate</th>
@@ -2183,7 +2263,8 @@ export default function GRNPage() {
                             )}
                           </td>
                           <td className="px-1.5 py-1"><MonthYearPicker id={grnFieldId(item.id, 'expiryDate')} className={cn('h-8 text-xs', item.expiryDate && (isExpiryHealthy(item.expiryDate) ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'))} value={item.expiryDate} min={new Date().toISOString().slice(0, 10)} onChange={(v) => updateItem(index, 'expiryDate', v)} onEnterKey={() => handleRowEnter(index, 'expiryDate')} /></td>
-                          <td className="px-1.5 py-1"><Input type="number" min={0} max={100} step="0.01" className="h-8 font-mono text-xs" placeholder="0" value={item.gstPercent ?? ''} onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))} /></td>
+                          {/* GST is fixed to the product's master rate — not editable at receiving. */}
+                          <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground" title="GST rate comes from the product master">{(products.find((p) => p.id === item.productId)?.gstRate ?? item.gstPercent ?? 12)}%</td>
                           <td className="px-2 py-1.5 text-right font-mono font-bold whitespace-nowrap">{formatCurrency(item.receivedQty * item.purchaseRate)}</td>
                           {(sourceType === 'direct' || editMode) && (
                             <td className="px-1 py-1 text-center">
@@ -2279,7 +2360,7 @@ export default function GRNPage() {
                       {/* Received Qty · Free Qty · Purchase Rate · MRP · Sale Rate · Batch · Expiry · GST */}
                       <div className="grid grid-cols-2 lg:grid-cols-8 gap-3">
                         <div className="space-y-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Received Qty</Label>
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">Qty</Label>
                           <Input
                             id={grnFieldId(item.id, 'receivedQty')}
                             type="number"
@@ -2406,18 +2487,13 @@ export default function GRNPage() {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">GST %</Label>
-                          <div className="relative">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.01"
-                              className="h-9 font-mono text-xs font-bold pr-5 border-primary/5 bg-muted/20 focus:bg-background transition-all"
-                              placeholder="0"
-                              value={item.gstPercent ?? ''}
-                              onChange={(e) => updateItem(index, 'gstPercent', Number(e.target.value))}
-                            />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground/30">%</span>
+                          {/* GST is fixed to the product's master rate — not editable at receiving. */}
+                          <div
+                            className="flex h-9 items-center justify-between rounded-md border border-primary/5 bg-muted/30 px-3 font-mono text-xs font-bold text-muted-foreground"
+                            title="GST rate comes from the product master"
+                          >
+                            <span>{(products.find((p) => p.id === item.productId)?.gstRate ?? item.gstPercent ?? 12)}</span>
+                            <span className="text-[10px] text-muted-foreground/40">%</span>
                           </div>
                         </div>
                       </div>
@@ -2586,6 +2662,15 @@ export default function GRNPage() {
                           {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
                         </p>
                       </div>
+                    </div>
+                  )}
+                  {/* Due date for the credit balance — CREDIT or PARTIAL. */}
+                  {payChoice !== 'PAID' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Label className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Due Date<span className="text-rose-500"> *</span>
+                      </Label>
+                      <DatePicker className="h-8 flex-1 text-xs" value={dueDate} onChange={setDueDate} />
                     </div>
                   )}
                 </div>

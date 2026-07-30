@@ -7,7 +7,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { ALL_COLUMNS } from '../types'
 import { cn } from '@/lib/utils'
 
@@ -90,13 +89,17 @@ export function ColumnsToggle({ visible, onToggle }: ColumnsToggleProps) {
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="p-0"
+        // Cap to the space Radix reports between the trigger and the viewport
+        // edge (fallback 24rem) and let the list scroll — otherwise, with 16
+        // columns, the popover runs off the bottom of the screen and the last
+        // columns (Owner / Score / Value / Created / Updated) become unreachable.
+        className="flex max-h-[var(--radix-popover-content-available-height,24rem)] flex-col p-0"
         style={{ width: 'var(--radix-popover-trigger-width)' }}
       >
-        <div className="border-b border-border/40 px-3 py-2">
+        <div className="shrink-0 border-b border-border/40 px-3 py-2">
           <h3 className="text-xs font-semibold">Toggle Columns</h3>
         </div>
-        <ScrollArea className="max-h-72">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-1">
             {ALL_COLUMNS.map((col) => {
               const isOn = visible.includes(col.id)
@@ -130,7 +133,7 @@ export function ColumnsToggle({ visible, onToggle }: ColumnsToggleProps) {
               )
             })}
           </div>
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   )
