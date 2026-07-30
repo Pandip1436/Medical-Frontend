@@ -427,13 +427,23 @@ function BillingRow({
   // row the list runs off-screen and the "Add new product" footer is unreachable.
   const computeDropdownPos = (rect: DOMRect) => {
     const margin = 12
-    const spaceBelow = window.innerHeight - rect.bottom - margin
-    const spaceAbove = rect.top - margin
+    // Safari (esp. iOS) positions `position: fixed` relative to the VISUAL
+    // viewport, while getBoundingClientRect() is layout-viewport relative. When
+    // the page is pinch-zoomed or the dynamic toolbar is up, the two differ and
+    // the dropdown lands offset — overlapping the input. Correct by the visual
+    // viewport's offset; on Chrome / unzoomed desktop these offsets are 0, so
+    // nothing changes there.
+    const vv = window.visualViewport
+    const offTop = vv?.offsetTop ?? 0
+    const offLeft = vv?.offsetLeft ?? 0
+    const vh = vv?.height ?? window.innerHeight
+    const spaceBelow = vh - (rect.bottom - offTop) - margin
+    const spaceAbove = (rect.top - offTop) - margin
     const openUp = spaceBelow < 340 && spaceAbove > spaceBelow
     return {
-      top: rect.bottom + 4,
-      bottom: window.innerHeight - rect.top + 4,
-      left: rect.left,
+      top: rect.bottom - offTop + 4,
+      bottom: vh - (rect.top - offTop) + 4,
+      left: rect.left - offLeft,
       width: Math.max(rect.width, 440),
       openUp,
       maxHeight: Math.max(200, openUp ? spaceAbove : spaceBelow),
@@ -841,7 +851,12 @@ function BillingRow({
                 maxHeight: dropdownPos.maxHeight,
                 zIndex: 9999,
                 maxWidth: 'calc(100vw - 32px)',
-                left: Math.max(16, Math.min(dropdownPos.left, window.innerWidth - (dropdownPos.width || 400) - 16))
+                left: Math.max(16, Math.min(dropdownPos.left, window.innerWidth - (dropdownPos.width || 400) - 16)),
+                // Force its own compositing layer + stacking context so Safari
+                // reliably paints it above the page chrome (it otherwise lets
+                // sibling fixed/sticky bars bleed over a fixed portal layer).
+                transform: 'translateZ(0)',
+                isolation: 'isolate',
               }}
               className="flex flex-col rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
             >
@@ -1112,14 +1127,11 @@ function BillingRow({
         className="
           h-8 w-full
           flex items-center justify-end
-          rounded-xl
-          border border-border/30
-          bg-muted/20
           px-2
-          text-sm
+          text-base
           font-semibold
           tabular-nums
-          text-muted-foreground
+          text-foreground
         "
       >
         {formatCurrency(item.mrp)}
@@ -1642,16 +1654,16 @@ function BillingRow({
         {/* Column labels for the sub-rows */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6 border-b border-violet-200/30 dark:border-violet-800/20">
           <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="min-w-32 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Date · Invoice #</TableCell>
-          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Batch</TableCell>
+          <TableCell className="min-w-32 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Date · Invoice #</TableCell>
+          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Batch</TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-28 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Qty</TableCell>
-          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-28 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Qty</TableCell>
+          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Rate / Qty</TableCell>
           <TableCell className="w-16 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-18 px-1 py-1 align-middle"></TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
           <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-24 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 align-middle">Status</TableCell>
+          <TableCell className="w-24 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Status</TableCell>
           <TableCell className="w-10 px-1 py-1 align-middle"></TableCell>
         </TableRow>
         {/* Per-history record rows */}
@@ -1666,16 +1678,16 @@ function BillingRow({
             <TableCell className="w-10 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="min-w-32 px-3 py-1.5 align-middle">
               <div className="flex items-center gap-2 text-[10px]">
-                <span className="text-muted-foreground/60 whitespace-nowrap shrink-0">
+                <span className="text-muted-foreground whitespace-nowrap shrink-0">
                   {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                 </span>
-                <span className="font-mono font-semibold text-primary/70 truncate">{h.invoiceNumber}</span>
+                <span className="font-mono font-semibold text-primary truncate">{h.invoiceNumber}</span>
               </div>
             </TableCell>
-            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-muted-foreground/70">{h.batchNumber}</TableCell>
+            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-foreground">{h.batchNumber}</TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-28 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
-            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground/80">₹{h.rate}</TableCell>
+            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground">₹{h.rate}</TableCell>
             <TableCell className="w-16 px-2 py-1.5 align-middle"></TableCell>
             <TableCell className="w-18 px-1 py-1.5 align-middle"></TableCell>
             <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
@@ -2804,6 +2816,12 @@ export default function NewSalePage() {
     }
     setSelectedCustomer(c)
     setItems([createEmptyItem()])
+    // A fresh bill starts clean — clear any values carried over from a prior
+    // bill or a restored auto-draft (delivery fee, courier toggle, amount paid /
+    // payment references) so they don't leak onto the new customer's sale.
+    setDeliveryCharge(0)
+    setEnableCourier(false)
+    setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
   }
 
   // Clear prefill data after loaded, set customer name from quotation
@@ -4016,6 +4034,33 @@ export default function NewSalePage() {
     setTimeout(() => setShowCustomerDropdown(true), 50)
   }
 
+  // Reset to a clean blank sale WITHOUT parking to Held — used right after a
+  // bill is saved successfully. The just-billed items are already an invoice
+  // (not an in-progress bill to resume), so they must NOT go to Held; we simply
+  // clear the form so the operator stays on New Sale ready for the next bill.
+  const resetToBlankSale = () => {
+    setItems([createEmptyItem()])
+    setSelectedCustomer(null)
+    setCustomerSearch('')
+    setPaymentMode('CREDIT')
+    setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
+    setDeliveryCharge(0)
+    setBillingType('retail')
+    setInvoiceType('invoice')
+    setEnableCourier(false)
+    setLinkedLeadId(null)
+    setQuotationSource(null)
+    setReplacementSource(null)
+    setEditingDraftId(null)
+    setEditingInvoiceId(null)
+    setEditingInvoiceNumber(null)
+    setEditStockCredit({})
+    setTableView('customer-history')
+    setMobileStep('items')
+    setCheckoutStep('summary')
+    try { localStorage.removeItem(AUTO_DRAFT_KEY) } catch { /* ignore */ }
+  }
+
   // "Cancel Edit" — discard the in-progress edit (no changes are saved; the
   // backend only recalculates stock/ledger on UPDATE & PRINT) and return to the
   // invoice list. Clears the edit context including the stock credit.
@@ -4683,14 +4728,19 @@ export default function NewSalePage() {
           }
         }
 
-        // Leave the New Sale page for the invoice list, THEN open the print. The
-        // print preview is a full-screen browser overlay, so closing it lands the
-        // user straight on the list — no extra step and no fragile "dialog
-        // closed" detection (Chrome's PDF print preview fires no reliable event
-        // we could navigate on). The print is deferred a tick so the route has
-        // re-rendered before the print iframe is created (creating it on the
-        // settled list page keeps the preview from being disturbed).
-        navigate('/billing/sales')
+        // Where to land after saving:
+        //  • Editing an existing invoice → back to the invoice list (the edit
+        //    flow starts from there, so returning there is expected).
+        //  • A brand-new bill → STAY on New Sale, reset to a blank bill so the
+        //    operator can immediately start the next one (POS-style). The print
+        //    (if auto-print is on) is a full-screen overlay; closing it lands
+        //    them on the fresh blank sale, ready to go.
+        if (wasEditing) {
+          navigate('/billing/sales')
+        } else {
+          resetToBlankSale()
+          navigate('/billing/new') // clear any ?editId/?from params from the URL
+        }
         if (autoPrint) {
           setTimeout(() => {
             try { printInvoicePdf(printData) } catch { /* invoice already saved */ }
@@ -6200,7 +6250,7 @@ export default function NewSalePage() {
                 )}
               >
                 <History className="h-3.5 w-3.5" />
-                Purchase History
+                Invoice History
                 {!selectedCustomer && (
                   <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                 )}
@@ -7347,24 +7397,15 @@ export default function NewSalePage() {
                             setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
                           }}
                           placeholder="0.00"
-                          className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
                     </div>
                   </div>
 
-                  {/* Column 2 — amounts */}
+                  {/* Column 2 — amounts. Order: Taxable → GST → Subtotal →
+                      Discount → Round Off (round-off always last). */}
                   <div className="sumcol">
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
-                    </div>
-                    {totals.productDiscount > 0 && (
-                      <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">Discount</span>
-                        <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
-                      </div>
-                    )}
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Taxable</span>
                       <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.taxableAmount)}</span>
@@ -7379,6 +7420,16 @@ export default function NewSalePage() {
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">IGST</span>
                         <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.igst)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-mono font-medium tabular-nums">{formatCurrency(totals.subtotal)}</span>
+                    </div>
+                    {totals.productDiscount > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Discount</span>
+                        <span className="font-mono font-medium tabular-nums text-rose-600 dark:text-rose-400">−{formatCurrency(totals.productDiscount)}</span>
                       </div>
                     )}
                     {totals.roundOff !== 0 && (
@@ -7550,7 +7601,7 @@ export default function NewSalePage() {
                               setDeliveryCharge(Number.isFinite(n) && n >= 0 ? n : 0)
                             }}
                             placeholder="0.00"
-                            className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                            className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         </div>
                       </div>
