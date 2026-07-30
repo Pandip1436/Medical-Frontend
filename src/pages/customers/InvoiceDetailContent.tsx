@@ -65,17 +65,8 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
   const handleSendWhatsApp = async () => {
     setSendingWhatsApp(true)
     try {
-      // Auto-generate a fresh payment QR first so the WhatsApp message carries
-      // an up-to-date UPI link. Non-fatal: a fully-paid invoice returns null
-      // (no QR needed) and any failure still lets the invoice PDF go out.
-      try {
-        await api.post(`/billing/${invoice.id}/payment-link`)
-      } catch { /* ignore — still send the invoice */ }
-      // Backend now waits for the real send to finish (~1-2s) instead of
-      // firing-and-forgetting, so this reflects what actually happened —
-      // previously the toast always said "queued...shortly" regardless of
-      // outcome, which read as "nothing happened" and invited repeat clicks
-      // that sent duplicate messages to the customer.
+      // The backend's send-whatsapp handler creates a fresh payment QR
+      // internally (InvoiceCreatedListener step 1) — no pre-call needed here.
       const { data } = await api.post(`/billing/${invoice.id}/send-whatsapp`)
       if (data?.status === 'SENT') {
         toast.success('WhatsApp message sent')
