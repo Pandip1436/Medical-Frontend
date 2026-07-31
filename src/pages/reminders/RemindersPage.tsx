@@ -24,6 +24,7 @@ import {
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 import { cn, timeAgo, daysLeftInWeek } from '@/lib/utils'
+import { MAX_REMINDER_DAY } from '@/lib/validators'
 import { goBack } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -100,10 +101,6 @@ const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
   { key: 'this-week', label: 'This Week' },
   { key: 'overdue',   label: 'Overdue' },
 ]
-
-// Mirrors the server-side cap (reminders.service.ts): 29–31 don't exist in every
-// month, so the API rejects them outright. 28 is the "end of month" choice.
-const MAX_REMINDER_DAY = 28
 
 const ORDINAL = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd']

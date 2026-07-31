@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CalendarDays, X } from "lucide-react"
+import { AlertCircle, CalendarDays, X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -53,32 +53,40 @@ export const DayOfMonthPicker = React.forwardRef<HTMLInputElement, DayOfMonthPic
     ref,
   ) {
     const days = React.useMemo(() => Array.from({ length: maxDay }, (_, i) => i + 1), [maxDay])
-    const selected = parseDay(value, maxDay)
     const [open, setOpen] = React.useState(false)
-    const [text, setText] = React.useState(selected ? String(selected) : "")
+    const [text, setText] = React.useState(() => {
+      const d = parseDay(value, maxDay)
+      return d ? String(d) : ""
+    })
 
-    // Re-sync the text when the external value changes.
+    // The typed text is the source of truth while editing. An out-of-range entry
+    // is KEPT on screen (not silently reverted) and reported inline below the
+    // field — the parent is handed "" for it, so an invalid day can never be
+    // submitted even though the user still sees what they typed.
+    const typed = text.trim()
+    const selected = parseDay(typed, maxDay)
+    const invalid = typed !== "" && selected === null
+
+    const invalidMessage = !invalid
+      ? null
+      : Number(typed) > maxDay
+        ? `Day must be 1–${maxDay}${maxDay === 28 ? " — use 28 for end-of-month" : ""}`
+        : `Day must be 1–${maxDay}`
+
+    // Re-sync when the external value changes — but never wipe an in-progress
+    // invalid entry, which is exactly the "" the parent holds while it's shown.
     React.useEffect(() => {
       const d = parseDay(value, maxDay)
-      setText(d ? String(d) : "")
+      if (d) setText(String(d))
+      else setText((t) => (parseDay(t, maxDay) === null && t.trim() !== "" ? t : ""))
     }, [value, maxDay])
 
-    // Returns whether a valid day committed — Enter uses it to advance focus.
-    const commitText = (input: string): boolean => {
-      const trimmed = input.trim()
-      if (!trimmed) {
-        onChange?.("")
-        return false
-      }
-      const d = parseDay(trimmed, maxDay)
-      if (!d) {
-        // Out of range / unparseable — revert to the last valid value.
-        setText(selected ? String(selected) : "")
-        return false
-      }
-      onChange?.(String(d))
-      setText(String(d))
-      return true
+    // Emit on every keystroke: the day when valid, "" when not.
+    const handleText = (raw: string) => {
+      const next = raw.replace(/\D/g, "").slice(0, 2)
+      setText(next)
+      const d = parseDay(next, maxDay)
+      onChange?.(d ? String(d) : "")
     }
 
     const handleClear = (e: React.MouseEvent) => {
@@ -89,13 +97,14 @@ export const DayOfMonthPicker = React.forwardRef<HTMLInputElement, DayOfMonthPic
     }
 
     return (
+      <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverAnchor asChild>
           <div
             className={cn(
               "flex h-11 md:h-9 w-full items-center gap-1 rounded-lg border border-input bg-transparent px-3 text-sm shadow-sm transition-all duration-150",
               "focus-within:border-ring",
-              error && "border-destructive",
+              (error || invalid) && "border-destructive focus-within:border-destructive",
               disabled && "cursor-not-allowed opacity-50",
               className,
             )}
@@ -121,13 +130,15 @@ export const DayOfMonthPicker = React.forwardRef<HTMLInputElement, DayOfMonthPic
               value={text}
               disabled={disabled}
               placeholder={placeholder ?? "Pick a day"}
-              onChange={(e) => setText(e.target.value.replace(/\D/g, "").slice(0, 2))}
-              onBlur={(e) => commitText(e.target.value)}
+              aria-invalid={invalid || error || undefined}
+              aria-describedby={invalid && id ? `${id}-error` : undefined}
+              onChange={(e) => handleText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault()
-                  const val = (e.target as HTMLInputElement).value
-                  if (commitText(val) || !val.trim()) onEnterKey?.()
+                  // Only advance the keyboard chain once the field is clean —
+                  // an out-of-range day keeps focus so the error gets fixed.
+                  if (!invalid) onEnterKey?.()
                 }
               }}
               className="flex-1 min-w-0 bg-transparent tabular-nums outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
@@ -185,6 +196,13 @@ export const DayOfMonthPicker = React.forwardRef<HTMLInputElement, DayOfMonthPic
           )}
         </PopoverContent>
       </Popover>
+      {invalidMessage && (
+        <p id={id ? `${id}-error` : undefined} role="alert" className="flex items-center gap-1 text-[11px] font-medium text-destructive">
+          <AlertCircle className="size-3 shrink-0" />
+          {invalidMessage}
+        </p>
+      )}
+      </>
     )
   },
 )

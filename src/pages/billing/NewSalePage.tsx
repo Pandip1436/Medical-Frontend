@@ -42,6 +42,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
+import { DayOfMonthPicker } from '@/components/ui/day-of-month-picker'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -64,7 +65,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX, MAX_REMINDER_DAY } from '@/lib/validators'
 import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 
@@ -4197,8 +4198,8 @@ export default function NewSalePage() {
       return
     }
     const reminderDayNum = parseInt(reminderDay)
-    if (!Number.isInteger(reminderDayNum) || reminderDayNum < 1 || reminderDayNum > 31) {
-      toast.error('Day must be between 1 and 31')
+    if (!Number.isInteger(reminderDayNum) || reminderDayNum < 1 || reminderDayNum > MAX_REMINDER_DAY) {
+      toast.error(`Day must be between 1 and ${MAX_REMINDER_DAY} — use ${MAX_REMINDER_DAY} for end-of-month`)
       return
     }
     setReminderSaving(true)
@@ -8193,17 +8194,15 @@ export default function NewSalePage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Reminder Day of Month (1–31) *</Label>
-              <Input
-                type="number"
-                min={1}
-                max={31}
+              <Label className="text-xs font-semibold">Reminder Day of Month (1–{MAX_REMINDER_DAY}) *</Label>
+              <DayOfMonthPicker
                 placeholder="e.g. 3"
+                maxDay={MAX_REMINDER_DAY}
                 value={reminderDay}
-                onChange={e => setReminderDay(e.target.value)}
+                onChange={setReminderDay}
                 autoFocus
               />
-              {reminderDay && parseInt(reminderDay) >= 1 && parseInt(reminderDay) <= 31 && (
+              {reminderDay && parseInt(reminderDay) >= 1 && parseInt(reminderDay) <= MAX_REMINDER_DAY && (
                 <p className="text-[10px] text-muted-foreground">
                   You'll be reminded on the {reminderDay}{['st','nd','rd'][parseInt(reminderDay)-1] ?? 'th'} of every month
                 </p>

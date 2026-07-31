@@ -4,6 +4,13 @@ import { z } from 'zod'
 // Single source of truth so every form (Suppliers, Branches, Customers,
 // Settings, New Sale quick-add, …) validates these identically.
 
+// Highest day a monthly customer reminder can be set to. Mirrors the server-side
+// cap in reminders.service.ts: 29–31 are missing from some months (Feb every
+// year, the 31st in four others), so a reminder on those days wouldn't fire
+// reliably. 28 is the "end of month" choice. Used by the Reminders page and the
+// New Sale quick-reminder dialog.
+export const MAX_REMINDER_DAY = 28
+
 // Standard 15-char Indian GSTIN: 2-digit state code, 5 letters (PAN), 4 digits,
 // 1 letter (PAN), 1 alphanumeric (entity), 'Z', 1 alphanumeric (checksum).
 export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/

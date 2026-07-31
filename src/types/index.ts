@@ -288,6 +288,12 @@ export interface GRN {
   supplierInvoiceNo: string
   supplierInvoiceDate: string
   supplierInvoiceAmount: number
+  // Payment due date for the credit portion of this purchase (null when paid
+  // in full at receive, or for replacements).
+  dueDate?: string | null
+  // Effective due date the backend resolves for display: dueDate, else PE date
+  // + the supplier's credit term. Present on the single-GRN detail response.
+  effectiveDueDate?: string | null
   items: GRNItem[]
   totalAmount: number
   status: 'DRAFT' | 'RECEIVED' | 'VERIFIED'

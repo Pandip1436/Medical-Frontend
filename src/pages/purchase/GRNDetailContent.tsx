@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, Fragment } from 'react'
 import {
-  AlertTriangle, Printer, Truck, Calendar, FileText,
+  AlertTriangle, Printer, Truck, Calendar, CalendarClock, FileText,
   CheckCircle2, XCircle, RotateCcw, Pencil, Wallet, PackageCheck,
   ChevronDown, ChevronRight, History, ShoppingCart, Undo2,
 } from 'lucide-react'
@@ -534,6 +534,7 @@ export function GRNDetailContent({
     <div class="info-cell"><div class="info-label">PE Date</div><div class="info-value">${formatDate(grn.date)}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Number</div><div class="info-value">${grn.supplierInvoiceNo || '—'}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Date</div><div class="info-value">${grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—'}</div></div>
+    <div class="info-cell"><div class="info-label">Due Date</div><div class="info-value">${(grn.effectiveDueDate ?? grn.dueDate) ? formatDate((grn.effectiveDueDate ?? grn.dueDate)!) : '—'}</div></div>
     <div class="info-cell"><div class="info-label">Invoice Amount</div><div class="info-value">₹${(grn.supplierInvoiceAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
     <div class="info-cell"><div class="info-label">PE Total</div><div class="info-value" style="color:#1d4ed8">₹${(grn.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div></div>
   </div>
@@ -691,6 +692,7 @@ export function GRNDetailContent({
           { label: 'Invoice #', value: grn.supplierInvoiceNo || '—', icon: <FileText className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'Invoice Type', value: grn.isReplacement ? 'Replacement' : isSupplementary ? 'Supplementary' : hasPO ? 'Against PO' : 'Direct Entry' },
           { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
+          { label: 'Due Date', value: (grn.effectiveDueDate ?? grn.dueDate) ? formatDate((grn.effectiveDueDate ?? grn.dueDate)!) : '—', icon: <CalendarClock className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
         ].map((c, i) => (
           <div key={c.label} className={cn(
