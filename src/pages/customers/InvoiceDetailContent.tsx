@@ -497,10 +497,12 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
             { label: 'Subtotal', value: Number(invoice.subtotal) },
             Number(invoice.productDiscount) > 0 ? { label: 'Disc', value: -Number(invoice.productDiscount) } : null,
             { label: 'Taxable', value: Number(invoice.taxableAmount) },
-            { label: 'CGST', value: Number(invoice.cgst) },
-            { label: 'SGST', value: Number(invoice.sgst) },
+            (Number(invoice.cgst) + Number(invoice.sgst)) > 0 ? { label: 'GST', value: Number(invoice.cgst) + Number(invoice.sgst) } : null,
             Number(invoice.igst) > 0 ? { label: 'IGST', value: Number(invoice.igst) } : null,
             Number(invoice.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(invoice.deliveryCharge) } : null,
+            ...((invoice.additionalCharges ?? [])
+              .filter((c) => (c?.label ?? '').trim() !== '' && Number(c?.amount) !== 0)
+              .map((c) => ({ label: c.label || 'Charge', value: Number(c.amount) || 0 }))),
             Math.abs(Number(invoice.roundOff)) > 0 ? { label: 'Round Off', value: Number(invoice.roundOff) } : null,
           ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
             <div key={row.label} className="flex items-center gap-1">

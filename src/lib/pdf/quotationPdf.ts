@@ -16,6 +16,9 @@ export interface QuotationDoc {
   // the table falls back to qty × rate / 0% GST when absent.
   items: { name: string; qty: number; rate: number; gstPercent?: number; amount?: number }[]
   deliveryCharge?: number
+  // User-defined extra charges (Commission, Handling, …) — non-taxable add-ons
+  // already folded into `total`; each prints as its own line.
+  additionalCharges?: { label: string; amount: number }[]
   total: number
 }
 
@@ -123,6 +126,14 @@ export function generateQuotationPdf(qt: QuotationDoc) {
     doc.setFontSize(10)
     doc.text('Delivery / Packaging', pageWidth - 60, totalY)
     doc.text(fmtINR(Number(qt.deliveryCharge)), pageWidth - 14, totalY, { align: 'right' })
+    totalY += 6
+  }
+  for (const c of (qt.additionalCharges ?? [])) {
+    if ((c?.label ?? '').trim() === '' || Number(c?.amount) === 0) continue
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.text(String(c.label).trim(), pageWidth - 60, totalY)
+    doc.text(fmtINR(Number(c.amount) || 0), pageWidth - 14, totalY, { align: 'right' })
     totalY += 6
   }
   doc.setFont('helvetica', 'bold')

@@ -1,4 +1,4 @@
-import { Send, ArrowRightLeft, CheckCircle2, XCircle, Share2, Package } from 'lucide-react'
+import { Send, ArrowRightLeft, CheckCircle2, XCircle, Share2, Download, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
 import api from '@/lib/api'
@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/table'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
-import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
+import { shareQuotationViaWhatsApp, downloadQuotationPdf } from '@/lib/pdf/quotationPdf'
 import type { Quotation, QuotationStatus } from '../QuotationsPage'
 
 const statusBadgeVariant: Record<QuotationStatus, 'success' | 'warning' | 'info' | 'purple' | 'destructive' | 'secondary'> = {
@@ -58,6 +58,7 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
       customerName: qt.customerName,
       customerPhone: qt.customerPhone ?? '',
       deliveryCharge: Number(qt.deliveryCharge) || 0,
+      additionalCharges: qt.additionalCharges ?? [],
       items: qt.items.map((it) => ({
         productName: it.name,
         quantity: it.qty,
@@ -109,6 +110,7 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
                 <TableHead className="h-9 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Item</TableHead>
                 <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Qty</TableHead>
                 <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rate</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">GST</TableHead>
                 <TableHead className="h-9 px-3 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Amount</TableHead>
               </TableRow>
             </TableHeader>
@@ -118,16 +120,15 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
                   <TableCell className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell className="px-3 py-2.5 text-sm font-medium">
                     {item.name}
-                    {(item.discountPercent > 0 || item.gstPercent > 0) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
-                        {item.discountPercent > 0 && <span>−{item.discountPercent}% disc</span>}
-                        {item.discountPercent > 0 && item.gstPercent > 0 && <span className="text-border">·</span>}
-                        {item.gstPercent > 0 && <span>+{item.gstPercent}% GST</span>}
+                    {item.discountPercent > 0 && (
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        −{item.discountPercent}% disc
                       </div>
                     )}
                   </TableCell>
                   <TableCell className="px-3 py-2.5 text-right font-mono text-sm">{item.qty}</TableCell>
                   <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap">{formatCurrency(item.rate)}</TableCell>
+                  <TableCell className="px-3 py-2.5 text-right font-mono text-sm whitespace-nowrap text-muted-foreground">{item.gstPercent > 0 ? `${item.gstPercent}%` : '—'}</TableCell>
                   <TableCell className="px-3 py-2.5 text-right font-mono text-sm font-semibold whitespace-nowrap">{formatCurrency(item.amount)}</TableCell>
                 </TableRow>
               ))}
@@ -145,6 +146,9 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
             (Number(qt.cgst) > 0 || Number(qt.sgst) > 0) ? { label: 'Taxable', value: Number(qt.subtotal) - Number(qt.cgst) - Number(qt.sgst) } : null,
             (Number(qt.cgst) > 0 || Number(qt.sgst) > 0) ? { label: 'CGST + SGST', value: Number(qt.cgst) + Number(qt.sgst) } : null,
             Number(qt.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(qt.deliveryCharge) } : null,
+            ...((qt.additionalCharges ?? [])
+              .filter((c) => (c?.label ?? '').trim() !== '' && Number(c?.amount) !== 0)
+              .map((c) => ({ label: c.label || 'Charge', value: Number(c.amount) || 0 }))),
           ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
             <div key={row.label} className="flex items-center gap-1">
               <span className="text-[11px] text-muted-foreground">{row.label}</span>
@@ -190,6 +194,10 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
               <span className="sm:hidden">Convert</span>
             </Button>
           )}
+          <Button variant="outline" className="gap-2" onClick={() => downloadQuotationPdf(qt)}>
+            <Download className="h-4 w-4" />
+            Download
+          </Button>
           <Button variant="outline" className="gap-2" onClick={() => shareQuotationViaWhatsApp(qt, qt.customerPhone)}>
             <Share2 className="h-4 w-4" />
             Share

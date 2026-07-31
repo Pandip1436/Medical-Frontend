@@ -245,7 +245,11 @@ export default function AppLayout({
               exit="exit"
               className={
                 isFullViewport
-                  ? 'content-area min-w-0 h-full flex flex-col'
+                  // No `content-area` here: the billing workspace is a
+                  // full-bleed working page, so it must skip the ultra-wide
+                  // max-width cap (index.css) that centers other pages and
+                  // leaves big left/right gutters on wide monitors.
+                  ? 'min-w-0 h-full flex flex-col'
                   : isCompactPage
                     ? 'content-area min-w-0 h-full flex flex-col px-2 pt-2 pb-2 sm:px-3 md:px-4'
                     : isTightScrollPage

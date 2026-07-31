@@ -252,6 +252,12 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   if (Number(invoice.deliveryCharge) > 0) {
     row('Delivery / Packaging', fmt2(Number(invoice.deliveryCharge)), sy); sy += 5
   }
+  // User-defined extra charges (Commission, Handling, …) — non-taxable add-ons
+  // already folded into grandTotal; each gets its own line.
+  for (const c of (invoice.additionalCharges ?? [])) {
+    if ((c?.label ?? '').trim() === '' || Number(c?.amount) === 0) continue
+    row(String(c.label).trim(), fmt2(Number(c.amount) || 0), sy); sy += 5
+  }
   if (Math.abs(Number(invoice.roundOff)) > 0) {
     row('Round Off', fmt2(Number(invoice.roundOff)), sy); sy += 5
   }

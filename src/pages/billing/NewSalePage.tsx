@@ -120,6 +120,14 @@ import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 // TYPES
 // ─────────────────────────────────────────────────────────────
 
+// A user-defined extra charge on the bill (e.g. Commission, Handling). A
+// non-taxable add-on: its amount is added to the total after GST, like Delivery.
+interface AdditionalCharge {
+  id: string
+  label: string
+  amount: number
+}
+
 interface BillingItem {
   id: string
   productId: string
@@ -221,6 +229,24 @@ type CustomerFormValues = z.input<typeof customerSchema>
 
 function generateRowId() {
   return `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+// Strip blank-label rows and normalize amounts for the save payload / snapshots.
+function cleanCharges(charges: AdditionalCharge[]): { label: string; amount: number }[] {
+  return charges
+    .filter((c) => (c.label ?? '').trim() !== '')
+    .map((c) => ({ label: c.label.trim(), amount: Number(c.amount) || 0 }))
+}
+
+// Rehydrate stored charges ({label, amount}[]) back into editable rows (with ids)
+// when loading an invoice/quotation/draft.
+function coerceCharges(raw: unknown): AdditionalCharge[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((c: any) => ({
+    id: generateRowId(),
+    label: String(c?.label ?? ''),
+    amount: Number(c?.amount) || 0,
+  }))
 }
 
 function isExpired(expiryDate: string): boolean {
@@ -373,7 +399,11 @@ const BILLING_COLUMNS: ColumnDef[] = [
   { id: 'batch', label: 'Batch & Expiry', defaultVisible: true },
   { id: 'mrp', label: 'MRP', defaultVisible: true },
   { id: 'disc', label: 'Disc %', defaultVisible: true },
-  { id: 'gst', label: 'GST', defaultVisible: true },
+  // `required`, not just `defaultVisible`: GST must always show on invoices AND
+  // quotations regardless of a user's saved column choice — the visible set
+  // always includes required columns, so it can't be hidden or lost to a stale
+  // stored preference. (Was defaultVisible, which a customized account overrode.)
+  { id: 'gst', label: 'GST', required: true },
   { id: 'taxable', label: 'Taxable', defaultVisible: true },
   { id: 'gstAmount', label: 'GST ₹', defaultVisible: true },
 ]
@@ -387,7 +417,6 @@ function BillingRow({
   onRemove,
   customerLastRates,
   productPurchases,
-  showInlineHistory = true,
   onRequestAddProduct,
   batchesUsedByOthers,
   editStockCredit,
@@ -403,7 +432,6 @@ function BillingRow({
   // Pre-fetched purchase history keyed by productId. Sourced from the
   // /billing/product-purchases endpoint which bypasses the 200-invoice cap.
   productPurchases: Record<string, Array<{ date: string; invoiceNumber: string; batchNumber: string; qty: number; rate: number; status: string }>>
-  showInlineHistory?: boolean
   onRequestAddProduct?: (rowId: string, prefillName?: string) => void
   // batchIds already selected on other rows of the same product — disabled here.
   batchesUsedByOthers?: Set<string>
@@ -443,15 +471,18 @@ function BillingRow({
     const spaceAbove = (rect.top - offTop) - margin
     const openUp = spaceBelow < 340 && spaceAbove > spaceBelow
     return {
-      top: rect.bottom - offTop + 4,
-      bottom: vh - (rect.top - offTop) + 4,
+      top: rect.bottom - offTop + 8,
+      bottom: vh - (rect.top - offTop) + 8,
       left: rect.left - offLeft,
       width: Math.max(rect.width, 440),
       openUp,
       maxHeight: Math.max(200, openUp ? spaceAbove : spaceBelow),
     }
   }
-  const [historyOpen, setHistoryOpen] = useState(true)
+  // Collapsed by default — the operator clicks the row's history icon (↺ badge)
+  // to reveal that product's past purchases below it. (Replaces the removed
+  // global "Show purchase history" toggle.)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const productRef = useRef<HTMLTableCellElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -469,6 +500,34 @@ function BillingRow({
     rowProductSearch.setQuery(productSearch)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productSearch])
+
+  // Keep the (fixed, portalled) dropdown anchored to the input while it's open.
+  // The position is otherwise computed only once on focus — but Safari
+  // auto-scrolls a focused input into view and collapses its toolbar (resizing
+  // the visual viewport), which moves the input while the fixed dropdown stays
+  // put, so it drifts over the field. Recompute on any scroll/resize so it
+  // always tracks the input's current position.
+  useEffect(() => {
+    if (!showProductDropdown) return
+    const reposition = () => {
+      if (inputRef.current) {
+        setDropdownPos(computeDropdownPos(inputRef.current.getBoundingClientRect()))
+      }
+    }
+    reposition()
+    // capture:true catches scrolls inside any nested scroll container too.
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    window.visualViewport?.addEventListener('resize', reposition)
+    window.visualViewport?.addEventListener('scroll', reposition)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+      window.visualViewport?.removeEventListener('resize', reposition)
+      window.visualViewport?.removeEventListener('scroll', reposition)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProductDropdown])
 
   const filteredProducts = rowProductSearch.items
 
@@ -541,11 +600,6 @@ function BillingRow({
     if (!item.productId) return []
     return productPurchases[item.productId] ?? []
   }, [item.productId, productPurchases])
-
-  // Auto-open history when product first gets history entries
-  useEffect(() => {
-    if (productHistory.length > 0) setHistoryOpen(true)
-  }, [productHistory.length])
 
   const handleProductSelect = useCallback(
     (product: Product) => {
@@ -851,7 +905,11 @@ function BillingRow({
                 ...(dropdownPos.openUp ? { bottom: dropdownPos.bottom } : { top: dropdownPos.top }),
                 width: Math.min(dropdownPos.width, window.innerWidth - 32),
                 maxHeight: dropdownPos.maxHeight,
-                zIndex: 9999,
+                // Sit on the app's popover layer (z-50), like every other
+                // dropdown here — NOT above it. The expanded sidebar is z-[60]
+                // and must paint OVER this dropdown (it was 9999, which let the
+                // dropdown cover the sidebar).
+                zIndex: 50,
                 maxWidth: 'calc(100vw - 32px)',
                 left: Math.max(16, Math.min(dropdownPos.left, window.innerWidth - (dropdownPos.width || 400) - 16)),
                 // Force its own compositing layer + stacking context so Safari
@@ -859,8 +917,14 @@ function BillingRow({
                 // sibling fixed/sticky bars bleed over a fixed portal layer).
                 transform: 'translateZ(0)',
                 isolation: 'isolate',
+                // Cast the shadow AWAY from the input — upward when the dropdown
+                // opens up (input below), downward when it opens down — so the
+                // shadow never bleeds onto / hides the search bar.
+                boxShadow: dropdownPos.openUp
+                  ? '0 -14px 34px -12px rgba(0,0,0,0.30)'
+                  : '0 14px 34px -12px rgba(0,0,0,0.30)',
               }}
-              className="flex flex-col rounded-xl border border-border/60 bg-popover shadow-2xl overflow-hidden"
+              className="flex flex-col rounded-xl border border-border/60 bg-popover overflow-hidden"
             >
               <div className="px-3 py-1.5 border-b border-border/40 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted/30">
                 {rowProductSearch.loading && filteredProducts.length === 0 ? (
@@ -877,6 +941,9 @@ function BillingRow({
               </div>
               <div
                 className="flex-1 min-h-0 overflow-y-auto"
+                // Cap the list to ~4 rows so the dropdown never runs to the
+                // bottom of the screen; the rest scroll. (~55px per row.)
+                style={{ maxHeight: 224 }}
                 onScroll={(e) => {
                   const el = e.currentTarget
                   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
@@ -1028,9 +1095,10 @@ function BillingRow({
       {/* Batch + Expiry — helper on top, control below */}
       <TableCell className="w-32 px-2 py-2.5 align-middle">
         <div className="flex flex-col gap-0.5">
-          {/* Helper row (top) — expiry chip */}
+          {/* Helper row (top) — expiry chip. Hidden for quotations: a quote
+              doesn't draw a batch, so batch/expiry are irrelevant there. */}
           <div className="h-3.5 flex items-center justify-center">
-            {item.batchId && item.expiryDate ? (
+            {invoiceType !== 'quotation' && item.batchId && item.expiryDate ? (
               <span
                 className={cn(
                   'inline-flex items-center gap-0.5 text-[11px] font-semibold tabular-nums',
@@ -1187,7 +1255,7 @@ function BillingRow({
         at qty 0 (so it reads e.g. "1328 left" the moment a batch is picked).
         Turns amber at zero (batch fully consumed), red if the qty exceeds stock. */}
     <div className="min-h-4 flex items-center justify-center">
-      {item.batchId && (() => {
+      {invoiceType !== 'quotation' && item.batchId && (() => {
         const remaining = selectedBatchAvail - item.quantity
         return (
           <span
@@ -1665,34 +1733,34 @@ function BillingRow({
     </MotionTableRow>
 
     {/* ── Per-product purchase history sub-rows — aligned with parent columns ── */}
-    {showInlineHistory && productHistory.length > 0 && historyOpen && (
+    {productHistory.length > 0 && historyOpen && (
       <>
         {/* Title strip */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6">
-          <TableCell className="w-10 px-2 py-1.5 text-center align-middle text-violet-500/70">↳</TableCell>
-          <TableCell colSpan={11} className="px-3 py-1.5 align-middle">
-            <div className="flex items-center gap-1.5">
-              <History className="h-3 w-3 text-violet-500/70" />
-              <span className="text-[9px] font-bold uppercase tracking-widest text-violet-500/80">
-                Purchase history for <span className="font-black text-violet-600 dark:text-violet-300 bg-violet-400/10 px-1 py-0.5 rounded">{item.productName}</span>
+          <TableCell className="w-10 px-2 py-2.5 text-center align-middle text-violet-500/70">↳</TableCell>
+          <TableCell colSpan={11} className="px-3 py-2.5 align-middle">
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-violet-500/70" />
+              <span className="text-[11px] font-bold uppercase tracking-widest text-violet-500/80">
+                Purchase history for <span className="font-black text-violet-600 dark:text-violet-300 bg-violet-400/10 px-1.5 py-0.5 rounded">{item.productName}</span>
               </span>
             </div>
           </TableCell>
         </TableRow>
         {/* Column labels for the sub-rows */}
         <TableRow className="bg-violet-500/4 dark:bg-violet-500/6 hover:bg-violet-500/4 dark:hover:bg-violet-500/6 border-b border-violet-200/30 dark:border-violet-800/20">
-          <TableCell className="w-10 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="min-w-32 px-3 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Date · Invoice #</TableCell>
-          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Batch</TableCell>
-          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-28 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Qty</TableCell>
-          <TableCell className="w-32 px-2 py-1 text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Rate / Qty</TableCell>
-          <TableCell className="w-16 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-18 px-1 py-1 align-middle"></TableCell>
-          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-20 px-2 py-1 align-middle"></TableCell>
-          <TableCell className="w-24 px-3 py-1 text-right text-[9px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Status</TableCell>
-          <TableCell className="w-10 px-1 py-1 align-middle"></TableCell>
+          <TableCell className="w-10 px-2 py-2 align-middle"></TableCell>
+          <TableCell className="min-w-32 px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Date · Invoice #</TableCell>
+          <TableCell className="w-32 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Batch</TableCell>
+          <TableCell className="w-20 px-2 py-2 align-middle"></TableCell>
+          <TableCell className="w-28 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Qty</TableCell>
+          <TableCell className="w-32 px-2 py-2 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Rate / Qty</TableCell>
+          <TableCell className="w-16 px-2 py-2 align-middle"></TableCell>
+          <TableCell className="w-18 px-1 py-2 align-middle"></TableCell>
+          <TableCell className="w-20 px-2 py-2 align-middle"></TableCell>
+          <TableCell className="w-20 px-2 py-2 align-middle"></TableCell>
+          <TableCell className="w-24 px-3 py-2 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground align-middle">Status</TableCell>
+          <TableCell className="w-10 px-1 py-2 align-middle"></TableCell>
         </TableRow>
         {/* Per-history record rows */}
         {productHistory.map((h, i) => (
@@ -1703,33 +1771,33 @@ function BillingRow({
               i === productHistory.length - 1 ? 'border-b border-border/40' : 'border-b border-violet-100/30 dark:border-violet-900/20'
             )}
           >
-            <TableCell className="w-10 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="min-w-32 px-3 py-1.5 align-middle">
-              <div className="flex items-center gap-2 text-[10px]">
+            <TableCell className="w-10 px-2 py-2.5 align-middle"></TableCell>
+            <TableCell className="min-w-32 px-3 py-2.5 align-middle">
+              <div className="flex items-center gap-2.5 text-[12px]">
                 <span className="text-muted-foreground whitespace-nowrap shrink-0">
                   {new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                 </span>
                 <span className="font-mono font-semibold text-primary truncate">{h.invoiceNumber}</span>
               </div>
             </TableCell>
-            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono text-[10px] text-foreground">{h.batchNumber}</TableCell>
-            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-28 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums">{h.qty}</TableCell>
-            <TableCell className="w-32 px-2 py-1.5 text-center align-middle font-mono font-bold text-[10px] tabular-nums text-foreground">₹{h.rate}</TableCell>
-            <TableCell className="w-16 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-18 px-1 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-20 px-2 py-1.5 align-middle"></TableCell>
-            <TableCell className="w-24 px-3 py-1.5 text-right align-middle">
+            <TableCell className="w-32 px-2 py-2.5 text-center align-middle font-mono text-[12px] text-foreground">{h.batchNumber}</TableCell>
+            <TableCell className="w-20 px-2 py-2.5 align-middle"></TableCell>
+            <TableCell className="w-28 px-2 py-2.5 text-center align-middle font-mono font-bold text-[12px] tabular-nums">{h.qty}</TableCell>
+            <TableCell className="w-32 px-2 py-2.5 text-center align-middle font-mono font-bold text-[12px] tabular-nums text-foreground">₹{h.rate}</TableCell>
+            <TableCell className="w-16 px-2 py-2.5 align-middle"></TableCell>
+            <TableCell className="w-18 px-1 py-2.5 align-middle"></TableCell>
+            <TableCell className="w-20 px-2 py-2.5 align-middle"></TableCell>
+            <TableCell className="w-20 px-2 py-2.5 align-middle"></TableCell>
+            <TableCell className="w-24 px-3 py-2.5 text-right align-middle">
               <Badge
                 variant={h.status === 'PAID' ? 'success' : h.status === 'UNPAID' ? 'warning' : h.status === 'CANCELLED' ? 'destructive' : 'secondary'}
                 size="sm"
-                className="text-[8px] px-1.5 h-3.5"
+                className="text-[10px] px-2 h-5"
               >
                 {h.status}
               </Badge>
             </TableCell>
-            <TableCell className="w-10 px-1 py-1.5 align-middle"></TableCell>
+            <TableCell className="w-10 px-1 py-2.5 align-middle"></TableCell>
           </TableRow>
         ))}
       </>
@@ -2565,6 +2633,7 @@ export default function NewSalePage() {
           }
           if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
           if (inv.deliveryCharge !== undefined) setDeliveryCharge(Number(inv.deliveryCharge) || 0)
+          setAdditionalCharges(coerceCharges(inv.additionalCharges))
           // An invoice reaching edit is UNPAID or PARTIAL — i.e. it still has a
           // balance owed, so the remainder is on credit. Edit it in CREDIT mode
           // regardless of the stored paymentMode (which for a PARTIAL invoice can
@@ -2620,6 +2689,7 @@ export default function NewSalePage() {
     billingType: 'retail' | 'wholesale'
     invoiceType: 'invoice' | 'quotation'
     deliveryCharge: number
+    additionalCharges: AdditionalCharge[]
     enableCourier: boolean
     linkedLeadId: string | null
     quotationSource: { id: string; number: string; customerName: string } | null
@@ -2649,6 +2719,7 @@ export default function NewSalePage() {
       paymentMode: PaymentMode
       paymentDetails: PaymentDetails
       deliveryCharge?: number
+      additionalCharges?: AdditionalCharge[]
     }
   }
   const [heldBills, setHeldBills] = useState<HeldBill[]>(() => {
@@ -2670,7 +2741,7 @@ export default function NewSalePage() {
       customerName: selectedCustomer?.name ?? '',
       itemCount: activeItems.length,
       total: totals.grandTotal,
-      snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails, deliveryCharge },
+      snapshot: { invoiceType, billingType, selectedCustomer, items, paymentMode, paymentDetails, deliveryCharge, additionalCharges },
     }
     saveHeldBills([...heldBills, bill])
     // Clear current bill. Default the fresh blank bill to CREDIT (the standard
@@ -2680,7 +2751,7 @@ export default function NewSalePage() {
     setCustomerSearch('')
     setPaymentMode('CREDIT')
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
-    setDeliveryCharge(0)
+    setDeliveryCharge(0); setAdditionalCharges([])
     // A held bill is a plain new bill — never an in-flight invoice edit.
     setEditingInvoiceId(null)
     setEditingInvoiceNumber(null)
@@ -2698,6 +2769,7 @@ export default function NewSalePage() {
     setPaymentMode(s.paymentMode)
     setPaymentDetails(s.paymentDetails)
     setDeliveryCharge(Number(s.deliveryCharge) || 0)
+    setAdditionalCharges(coerceCharges(s.additionalCharges))
     // Resumed bills are new sales, not invoice edits — clear any edit context
     // (and its stock credit) so batch availability reflects real stock.
     setEditingInvoiceId(null)
@@ -2855,7 +2927,7 @@ export default function NewSalePage() {
     // A fresh bill starts clean — clear any values carried over from a prior
     // bill or a restored auto-draft (delivery fee, courier toggle, amount paid /
     // payment references) so they don't leak onto the new customer's sale.
-    setDeliveryCharge(0)
+    setDeliveryCharge(0); setAdditionalCharges([])
     setEnableCourier(false)
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
   }
@@ -2868,6 +2940,7 @@ export default function NewSalePage() {
         const qt = JSON.parse(qtStored)
         setQuotationSource({ id: qt.quotationId, number: qt.quotationNumber, customerName: qt.customerName })
         if (qt.deliveryCharge !== undefined) setDeliveryCharge(Number(qt.deliveryCharge) || 0)
+        setAdditionalCharges(coerceCharges(qt.additionalCharges))
         // Conversion → invoice. Two paths:
         //   A) Quotation has a real customerId — look it up from master and
         //      select it directly. Do NOT open Add Customer panel.
@@ -3081,6 +3154,15 @@ export default function NewSalePage() {
   // Editable Delivery / Packaging fee. Non-taxable add-on folded into the
   // pre-rounding total so Net Payable rounds to a whole rupee.
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0)
+  // User-defined extra charges (e.g. Commission, Handling) — each a {label,
+  // amount}. Non-taxable add-ons folded into the total exactly like Delivery.
+  const [additionalCharges, setAdditionalCharges] = useState<AdditionalCharge[]>([])
+  const addCharge = () =>
+    setAdditionalCharges((prev) => [...prev, { id: generateRowId(), label: '', amount: 0 }])
+  const updateCharge = (id: string, patch: Partial<AdditionalCharge>) =>
+    setAdditionalCharges((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  const removeCharge = (id: string) =>
+    setAdditionalCharges((prev) => prev.filter((c) => c.id !== id))
   // When on, the saved invoice is pushed into the Delivery Tracking module and
   // the user is taken straight to its tracking page after save.
   const [enableCourier, setEnableCourier] = useState(false)
@@ -3162,6 +3244,7 @@ export default function NewSalePage() {
       if (snap.billingType) setBillingType(snap.billingType)
       if (snap.invoiceType) setInvoiceType(snap.invoiceType)
       if (typeof snap.deliveryCharge === 'number') setDeliveryCharge(snap.deliveryCharge)
+      if (snap.additionalCharges) setAdditionalCharges(coerceCharges(snap.additionalCharges))
       if (typeof snap.enableCourier === 'boolean') setEnableCourier(snap.enableCourier)
       if (snap.linkedLeadId) setLinkedLeadId(snap.linkedLeadId)
       if (snap.quotationSource) setQuotationSource(snap.quotationSource)
@@ -3212,6 +3295,7 @@ export default function NewSalePage() {
       billingType,
       invoiceType,
       deliveryCharge,
+      additionalCharges,
       enableCourier,
       linkedLeadId,
       quotationSource,
@@ -3228,7 +3312,7 @@ export default function NewSalePage() {
       localStorage.setItem(AUTO_DRAFT_KEY, JSON.stringify(snap))
     } catch { /* localStorage full / unavailable — non-fatal */ }
   }, [
-    items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge,
+    items, selectedCustomer, customerSearch, paymentMode, paymentDetails, billingType, invoiceType, deliveryCharge, additionalCharges,
     enableCourier, linkedLeadId, quotationSource, replacementSource, editingDraftId, editingInvoiceId, editingInvoiceNumber,
     editStockCredit, tableView, mobileStep,
   ])
@@ -3238,7 +3322,6 @@ export default function NewSalePage() {
 
   // Toggle: show inline purchase-history sub-rows under each product row in the
   // Products tab. Off by default — Product History tab provides the same view.
-  const [showInlineHistory, setShowInlineHistory] = useState(false)
   // Product History tab: per-product expand state. By default each product
   // shows its 5 most recent purchases; expanding reveals all entries. Keyed by
   // cart-item id (not productId) so two rows with the same product can be
@@ -3842,11 +3925,16 @@ export default function NewSalePage() {
   // empty. Empty rows are ignored by totals/count and stripped on save.
   useEffect(() => {
     if (!selectedCustomer) return
+    // A row "has content" if it's a real product OR a quotation free-text line
+    // (name typed, no productId). Without the quotation case the cart never
+    // grew a fresh row after a free-text item, so you couldn't add the next one.
+    const hasContent = (r?: BillingItem) =>
+      !!r?.productId || (invoiceType === 'quotation' && (r?.productName || '').trim() !== '')
     const last = items[items.length - 1]
-    if (last?.productId) {
-      setItems((prev) => (prev[prev.length - 1]?.productId ? [...prev, createEmptyItem()] : prev))
+    if (hasContent(last)) {
+      setItems((prev) => (hasContent(prev[prev.length - 1]) ? [...prev, createEmptyItem()] : prev))
     }
-  }, [items, selectedCustomer])
+  }, [items, selectedCustomer, invoiceType])
 
   // ── Calculations ──────────────────────────────────────
   const totals = useMemo(() => {
@@ -3878,7 +3966,11 @@ export default function NewSalePage() {
     })
 
     const delivery = Math.max(0, Number(deliveryCharge) || 0)
-    const rawTotal = taxableAmount + totalCgst + totalSgst + delivery
+    // Extra charges are non-taxable add-ons (like Delivery): summed and folded
+    // into the pre-rounding total. Blank-label rows still count if they carry an
+    // amount; the save-time validation requires a label.
+    const chargesTotal = additionalCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0)
+    const rawTotal = taxableAmount + totalCgst + totalSgst + delivery + chargesTotal
     const rounded = Math.round(rawTotal)
     const roundOff = rounded - rawTotal
 
@@ -3890,10 +3982,11 @@ export default function NewSalePage() {
       sgst: totalSgst,
       igst: 0,
       deliveryCharge: delivery,
+      additionalChargesTotal: chargesTotal,
       roundOff,
       grandTotal: rounded,
     }
-  }, [items, deliveryCharge, invoiceType])
+  }, [items, deliveryCharge, additionalCharges, invoiceType])
 
   // ── Pending credit check (max 3 open UNPAID/PARTIAL invoices) ──
   // The block guards against taking on NEW credit debt. Editing an existing
@@ -4048,6 +4141,7 @@ export default function NewSalePage() {
     sgst: totals.sgst,
     igst: 0,
     deliveryCharge: totals.deliveryCharge,
+    additionalCharges: cleanCharges(additionalCharges),
     roundOff: totals.roundOff,
     grandTotal: totals.grandTotal,
     paymentMode: previewMode as Invoice['paymentMode'],
@@ -4079,7 +4173,7 @@ export default function NewSalePage() {
       setCustomerSearch('')
       setPaymentMode('CREDIT')
       setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
-      setDeliveryCharge(0)
+      setDeliveryCharge(0); setAdditionalCharges([])
       toast.success(editingInvoiceId ? 'Edit cancelled — started a new sale' : 'Started a new sale')
     }
     // Reset the remaining sale context regardless of the branch above.
@@ -4116,7 +4210,7 @@ export default function NewSalePage() {
     setCustomerSearch('')
     setPaymentMode('CREDIT')
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
-    setDeliveryCharge(0)
+    setDeliveryCharge(0); setAdditionalCharges([])
     setBillingType('retail')
     setInvoiceType('invoice')
     setEnableCourier(false)
@@ -4142,7 +4236,7 @@ export default function NewSalePage() {
     setCustomerSearch('')
     setPaymentMode('CREDIT')
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
-    setDeliveryCharge(0)
+    setDeliveryCharge(0); setAdditionalCharges([])
     setEnableCourier(false)
     setEditingInvoiceId(null)
     setEditingInvoiceNumber(null)
@@ -4398,6 +4492,7 @@ export default function NewSalePage() {
         sgst: Number(totals.sgst) || 0,
         igst: 0,
         deliveryCharge: Number(totals.deliveryCharge) || 0,
+        additionalCharges: cleanCharges(additionalCharges),
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: 0,
@@ -4559,6 +4654,27 @@ export default function NewSalePage() {
         toast.error('Type at least one product name for the quotation')
         return
       }
+      // A named line with no quantity would be SILENTLY DROPPED (only qty>0
+      // lines are saved), so the quote could go out missing a product without
+      // the operator noticing. Block instead — they must fill the qty or remove
+      // the line. Checks the raw items (activeItems already excludes qty 0).
+      const noQty = items.find(
+        (it) => (it.productName || '').trim() !== '' && !(Number(it.quantity) > 0),
+      )
+      if (noQty) {
+        toast.error(`Enter a quantity for "${noQty.productName}" (or remove the line).`)
+        return
+      }
+      // Every quoted line must carry a price. A quotation with a ₹0 rate (or a
+      // ₹0 amount) is meaningless — there's nothing to quote — so block the save
+      // until each named line has a rate entered.
+      const unpriced = activeItems.find(
+        (it) => (it.productName || '').trim() !== '' && !(Number(it.rate) > 0),
+      )
+      if (unpriced) {
+        toast.error(`Enter a rate for "${unpriced.productName}" — a quotation can't have a ₹0 line.`)
+        return
+      }
     }
 
     setIsSubmitting(true)
@@ -4625,6 +4741,7 @@ export default function NewSalePage() {
         sgst: Number(totals.sgst) || 0,
         igst: 0,
         deliveryCharge: Number(totals.deliveryCharge) || 0,
+        additionalCharges: cleanCharges(additionalCharges),
         roundOff: Number(totals.roundOff) || 0,
         grandTotal: Number(totals.grandTotal) || 0,
         amountPaid: computedAmountPaid,
@@ -4693,6 +4810,7 @@ export default function NewSalePage() {
           cgst: Number(totals.cgst) || 0,
           sgst: Number(totals.sgst) || 0,
           deliveryCharge: Number(totals.deliveryCharge) || 0,
+          additionalCharges: cleanCharges(additionalCharges),
           total: Number(totals.grandTotal) || 0,
           ...(activeBranchId && { branchId: activeBranchId }),
           items: activeItems.map(item => ({
@@ -5290,7 +5408,7 @@ export default function NewSalePage() {
           horizontally on its own (it carries min-w-225 + overflow-x-auto), so the
           header and order-summary stay put instead of the whole page scrolling. */}
       <div className="h-screen-z w-full overflow-x-auto overflow-y-hidden bg-background">
-      <div className="flex flex-col h-full w-full max-w-480 mx-auto px-2 pt-2 sm:px-3 md:px-4 md:pt-3 lg:px-6">
+      <div className="flex flex-col h-full w-full pt-2">
         {/* Quotation source banner */}
         {quotationSource && (
           <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/6 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -5326,8 +5444,13 @@ export default function NewSalePage() {
               TABLE ACTION AREA (Aligned with Table Card)
           ═══════════════════════════════════════════════════ */}
           <div className="flex-1 min-w-0 flex flex-col gap-2 md:flex-row md:items-stretch md:gap-2 lg:gap-3">
-            {/* Mobile row 1: search + add item button */}
-            <div className="flex items-center gap-2 md:contents">
+            {/* Top product search — REMOVED from the UI. It duplicated the
+                in-table row product search (same add-to-bill behaviour, no
+                invoice/quotation-specific use) and was crowding the customer /
+                salesperson area. Hidden rather than deleted so the Alt+S focus,
+                keyboard-nav and click-outside wiring stay intact and it's a
+                one-line restore if ever needed. */}
+            <div className="hidden">
               {/* responsive: percentages only kick in at lg+; at md the search shares the row with customer 50/50 */}
               <div ref={heroSearchContainerRef} className="flex-1 min-w-0 md:basis-1/2 md:min-w-0 lg:basis-auto lg:w-[42%] lg:flex-none relative">
               <div className="relative">
@@ -6456,23 +6579,12 @@ export default function NewSalePage() {
               </button>
               </div>
 
-              {/* Right-end controls — only on Products tab */}
+              {/* Right-end controls — only on Products tab. The global "Show
+                  purchase history" toggle was removed: each product row has its
+                  own history icon (the ↺ badge) that expands its purchases
+                  below, so a master switch was redundant. */}
               {tableView === 'products' && (
                 <div className="hidden sm:flex shrink-0 items-center gap-3 pb-1.5">
-                  <label
-                    htmlFor="show-inline-history"
-                    className="inline-flex shrink-0 items-center gap-2 cursor-pointer select-none"
-                    title="Show or hide each product's past purchase history under its row"
-                  >
-                    <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
-                      Show purchase history
-                    </span>
-                    <Switch
-                      id="show-inline-history"
-                      checked={showInlineHistory}
-                      onCheckedChange={setShowInlineHistory}
-                    />
-                  </label>
                   <ColumnsToggle columns={BILLING_COLUMNS} visible={billingCols.visible} onToggle={billingCols.toggle} onReset={billingCols.reset} />
                 </div>
               )}
@@ -6536,7 +6648,6 @@ export default function NewSalePage() {
                                   onRemove={removeItem}
                                   customerLastRates={customerLastRates}
                                   productPurchases={productPurchases}
-                                  showInlineHistory={showInlineHistory}
                                   onRequestAddProduct={openAddProductForm}
                                   // Batches already taken by OTHER rows — disabled in this
                                   // row's batch picker so one batch can't be billed on two
@@ -7445,6 +7556,15 @@ export default function NewSalePage() {
                 <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   <Receipt className="h-3.5 w-3.5" />
                   Order Summary
+                  {/* Adds a new custom charge (Commission, Handling, …) — the rows
+                      themselves live under the summary columns below. */}
+                  <button
+                    type="button"
+                    onClick={addCharge}
+                    className="inline-flex items-center gap-0.5 rounded normal-case tracking-normal text-[11px] font-semibold text-primary transition-colors hover:text-primary/80"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add charge
+                  </button>
                   <span className="ml-auto inline-flex items-center gap-1 font-semibold tabular-nums">
                     <Package className="h-3 w-3" />
                     {activeItemCount} item{activeItemCount !== 1 ? 's' : ''}
@@ -7536,6 +7656,49 @@ export default function NewSalePage() {
                     )}
                   </div>
                 </div>
+
+                {/* Additional charges (Commission, Handling, …) — user-labeled
+                    non-taxable add-ons folded into the total like Delivery. Added
+                    via the "Add charge" button in the Order Summary header above;
+                    rows render here under the summary columns. */}
+                {additionalCharges.length > 0 && (
+                  <div className="mt-2.5 flex flex-col gap-1.5 w-full max-w-sm">
+                    {additionalCharges.map((c) => (
+                      <div key={c.id} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={c.label}
+                          onChange={(e) => updateCharge(c.id, { label: e.target.value })}
+                          placeholder="Charge name"
+                          className="h-6 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <span className="text-[11px] text-muted-foreground">₹</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                          value={c.amount === 0 ? '' : c.amount}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            const n = v === '' ? 0 : parseFloat(v)
+                            updateCharge(c.id, { amount: Number.isFinite(n) ? n : 0 })
+                          }}
+                          placeholder="0.00"
+                          className="h-6 w-16 rounded-md border border-border/60 bg-background px-1.5 text-right font-mono text-[13px] tabular-nums focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeCharge(c.id)}
+                          aria-label="Remove charge"
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* ── Payment (invoices only) — fills the space freed by the
@@ -7699,6 +7862,51 @@ export default function NewSalePage() {
                           />
                         </div>
                       </div>
+
+                      {/* Additional charges (Commission, Handling, …) — user-
+                          labeled, non-taxable add-ons, each folded into the
+                          total exactly like Delivery. */}
+                      {additionalCharges.map((c) => (
+                        <div key={c.id} className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={c.label}
+                            onChange={(e) => updateCharge(c.id, { label: e.target.value })}
+                            placeholder="Charge name"
+                            className="h-7 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <span className="text-[11px] text-muted-foreground">₹</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.01"
+                            value={c.amount === 0 ? '' : c.amount}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              const n = v === '' ? 0 : parseFloat(v)
+                              updateCharge(c.id, { amount: Number.isFinite(n) ? n : 0 })
+                            }}
+                            placeholder="0.00"
+                            className="h-7 w-20 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeCharge(c.id)}
+                            aria-label="Remove charge"
+                            className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={addCharge}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary transition-colors hover:text-primary/80"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add charge
+                      </button>
 
                       {/* Courier toggle — invoices only. On save, snapshots the
                           invoice into the Delivery Tracking module. */}
@@ -7964,6 +8172,7 @@ export default function NewSalePage() {
                           { label: 'Taxable Value', value: formatCurrency(prev.taxableAmount) },
                           ...(prev.cgst > 0 ? [{ label: 'CGST', value: formatCurrency(prev.cgst) }, { label: 'SGST', value: formatCurrency(prev.sgst) }] : []),
                           ...(Number(prev.deliveryCharge) > 0 ? [{ label: 'Delivery / Packaging', value: formatCurrency(Number(prev.deliveryCharge)) }] : []),
+                          ...((prev.additionalCharges ?? []).filter((c: any) => Number(c.amount) !== 0).map((c: any) => ({ label: c.label || 'Charge', value: formatCurrency(Number(c.amount) || 0) }))),
                           ...(prev.roundOff !== 0 ? [{ label: 'Round Off', value: `${prev.roundOff > 0 ? '+' : ''}${prev.roundOff.toFixed(2)}`, dim: true }] : []),
                         ].map((row: any) => (
                           <div key={row.label} className="flex justify-between text-sm">

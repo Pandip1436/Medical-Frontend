@@ -14,6 +14,7 @@ import {
   XCircle,
   Package,
   Share2,
+  Download,
   Filter,
   BarChart3,
 } from 'lucide-react'
@@ -66,7 +67,7 @@ import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
-import { shareQuotationViaWhatsApp } from '@/lib/pdf/quotationPdf'
+import { shareQuotationViaWhatsApp, downloadQuotationPdf } from '@/lib/pdf/quotationPdf'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { QuotationSplitView } from './components/QuotationSplitView'
@@ -99,6 +100,7 @@ export interface Quotation {
   cgst: number
   sgst: number
   deliveryCharge: number
+  additionalCharges?: { label: string; amount: number }[]
   total: number
   status: QuotationStatus
 }
@@ -311,6 +313,9 @@ export default function QuotationsPage() {
         cgst: Number(qt.cgst) || 0,
         sgst: Number(qt.sgst) || 0,
         deliveryCharge: Number(qt.deliveryCharge) || 0,
+        additionalCharges: Array.isArray(qt.additionalCharges)
+          ? qt.additionalCharges.map((c: any) => ({ label: String(c?.label ?? ''), amount: Number(c?.amount) || 0 }))
+          : [],
         total: Number(qt.total) || 0,
         status: qt.status as QuotationStatus,
       }))
@@ -363,6 +368,7 @@ export default function QuotationsPage() {
       customerName: qt.customerName,
       customerPhone: qt.customerPhone ?? '',
       deliveryCharge: Number(qt.deliveryCharge) || 0,
+      additionalCharges: qt.additionalCharges ?? [],
       items: qt.items.map((it) => ({
         productName: it.name,
         quantity: it.qty,
@@ -1169,6 +1175,11 @@ export default function QuotationsPage() {
                             onClick: () => shareQuotationViaWhatsApp(qt, phoneFor(qt)),
                             disabled: qt.status === 'REJECTED'
                           },
+                          {
+                            label: 'Download PDF',
+                            icon: <Download className="h-4 w-4" />,
+                            onClick: () => downloadQuotationPdf(qt),
+                          },
                         ]}
                       />
                     </TableCell>
@@ -1300,6 +1311,9 @@ export default function QuotationsPage() {
                     (Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) ? { label: 'Taxable', value: Number(detailQt.subtotal) - Number(detailQt.cgst) - Number(detailQt.sgst) } : null,
                     (Number(detailQt.cgst) > 0 || Number(detailQt.sgst) > 0) ? { label: 'CGST + SGST', value: Number(detailQt.cgst) + Number(detailQt.sgst) } : null,
                     Number(detailQt.deliveryCharge) > 0 ? { label: 'Delivery', value: Number(detailQt.deliveryCharge) } : null,
+                    ...((detailQt.additionalCharges ?? [])
+                      .filter((c) => (c?.label ?? '').trim() !== '' && Number(c?.amount) !== 0)
+                      .map((c) => ({ label: c.label || 'Charge', value: Number(c.amount) || 0 }))),
                   ].filter(Boolean) as Array<{ label: string; value: number }>).map((row) => (
                     <div key={row.label} className="flex items-center gap-1">
                       <span className="text-[11px] text-muted-foreground">{row.label}</span>
@@ -1359,6 +1373,14 @@ export default function QuotationsPage() {
                       <span className="sm:hidden">Convert</span>
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => downloadQuotationPdf(detailQt)}
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </Button>
                   <Button
                     variant="outline"
                     className="gap-2"

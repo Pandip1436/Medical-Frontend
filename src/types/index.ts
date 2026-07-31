@@ -216,6 +216,7 @@ export interface Invoice {
   sgst: number
   igst: number
   deliveryCharge?: number
+  additionalCharges?: { label: string; amount: number }[]
   roundOff: number
   grandTotal: number
   paymentMode: 'CASH' | 'CARD' | 'UPI' | 'CREDIT' | 'SPLIT'
@@ -398,6 +399,7 @@ export interface Quotation {
   cgst: number
   sgst: number
   deliveryCharge?: number
+  additionalCharges?: { label: string; amount: number }[]
   total: number
   validUntil?: string
   notes?: string

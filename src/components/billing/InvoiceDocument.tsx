@@ -47,6 +47,9 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
       : []),
     ...(num(invoice.igst) > 0 ? [{ label: 'IGST', value: formatCurrency(num(invoice.igst)) }] : []),
     ...(num(invoice.deliveryCharge) > 0 ? [{ label: 'Delivery / Packaging', value: formatCurrency(num(invoice.deliveryCharge)) }] : []),
+    ...((invoice.additionalCharges ?? [])
+      .filter((c) => (c?.label ?? '').trim() !== '' && Number(c?.amount) !== 0)
+      .map((c) => ({ label: c.label || 'Charge', value: formatCurrency(Number(c.amount) || 0) }))),
     ...(num(invoice.roundOff) !== 0
       ? [{ label: 'Round Off', value: `${num(invoice.roundOff) > 0 ? '+' : ''}${num(invoice.roundOff).toFixed(2)}`, dim: true }]
       : []),

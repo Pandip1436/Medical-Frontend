@@ -1,81 +1,50 @@
 import { registerSW } from 'virtual:pwa-register'
-import { toast } from 'sonner'
 
-// How often to ask the browser to re-check for a new service worker while
-// the app stays open (e.g. a desk/reception instance left open all day).
-// Without this, an update deployed mid-session only surfaces the next time
-// the tab/app is fully closed and reopened.
-const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
+// Backstop poll interval for a tab that stays open AND focused across a deploy
+// (rare — during a maintenance window staff are usually away from the tab, and
+// the focus/visibility checks below catch that case instantly). Kept short so
+// even a continuously-focused tab lands on the new build within a minute.
+const UPDATE_CHECK_INTERVAL_MS = 60 * 1000 // 1 minute
 
-// Once an update is waiting, how long the user must be inactive before it
-// applies itself. Long enough that we're confident they've stepped away from
-// any in-progress form (billing / GRN entry) rather than just pausing to
-// think — any real activity resets the countdown, so we never reload mid-edit.
-const IDLE_REFRESH_MS = 3 * 60 * 1000 // 3 minutes
-
-// User-activity signals that reset the idle countdown. `scroll` catches
-// long-page reading; pointermove/wheel catch mouse use without clicking.
-const ACTIVITY_EVENTS = [
-  'pointerdown',
-  'keydown',
-  'pointermove',
-  'wheel',
-  'touchstart',
-  'scroll',
-] as const
-
-// Manual registration (vite.config.ts sets injectRegister: null) so we can
-// drive the update ourselves: a new version applies automatically once the
-// user is idle, with a "Refresh now" toast for anyone who wants it sooner.
+// Manual registration (vite.config.ts sets injectRegister: null) so we control
+// the update ourselves. Policy: apply a new version and reload IMMEDIATELY —
+// no toast, no prompt. Deploys roll out silently and every open tab lands on
+// the new build on its own.
+//
+// Making it effectively instant for a maintenance-window deploy:
+//   • a fresh page load always gets the latest build;
+//   • a tab regaining focus / becoming visible (staff resuming after the hold)
+//     checks right then, so it reloads onto the new build immediately;
+//   • a 1-minute poll backs up the edge case of a tab left open AND focused.
+// Browsers can't let the server push a reload to an open tab, so the tab has
+// to check — these three triggers make that as close to instant as possible.
+//
+// Safe to reload without warning: the two long-lived data-entry forms persist
+// their in-progress draft and restore it on load — the billing cart
+// (NewSalePage → localStorage) and the purchase-entry draft (GRNPage) — so an
+// auto-reload mid-entry doesn't lose work.
 export function registerPwa() {
   const updateSW = registerSW({
     onNeedRefresh() {
-      let idleTimer = 0
-      let applied = false
-
-      // Reset the idle countdown on any activity.
-      function bump() {
-        window.clearTimeout(idleTimer)
-        idleTimer = window.setTimeout(apply, IDLE_REFRESH_MS)
-      }
-      function cleanup() {
-        window.clearTimeout(idleTimer)
-        for (const ev of ACTIVITY_EVENTS) window.removeEventListener(ev, bump)
-      }
-      // Activate the waiting service worker and reload onto the new version.
-      // Guarded so the idle timer and the "Refresh now" button can't both fire.
-      function apply() {
-        if (applied) return
-        applied = true
-        cleanup()
-        void updateSW(true)
-      }
-
-      bump() // start the countdown immediately (from the moment the update lands)
-      for (const ev of ACTIVITY_EVENTS) {
-        window.addEventListener(ev, bump, { passive: true })
-      }
-
-      toast('A new version of PBIMS is available', {
-        description: "It'll refresh automatically once you're idle.",
-        duration: Infinity,
-        action: {
-          label: 'Refresh now',
-          onClick: apply,
-        },
-      })
+      // A newer service worker is waiting — activate it and reload straight
+      // away so users are always on the just-deployed version.
+      void updateSW(true)
     },
     onRegisteredSW(_url, registration) {
       if (!registration) return
-      // Check for a newer version immediately on app open, so a just-deployed
-      // update surfaces its toast right away instead of waiting for the first
-      // 30-minute sweep (or the browser's own opaque revalidation timing).
-      registration.update().catch(() => {})
-      setInterval(() => {
-        // A failed check (e.g. offline) just retries next interval — no need
-        // to surface it, the user isn't blocked on anything.
-        registration.update().catch(() => {})
-      }, UPDATE_CHECK_INTERVAL_MS)
+      const check = () => registration.update().catch(() => {})
+
+      // Check immediately on app open.
+      check()
+      // Backstop poll.
+      setInterval(check, UPDATE_CHECK_INTERVAL_MS)
+      // The instant a tab regains focus or becomes visible again — e.g. staff
+      // resuming after a maintenance-window deploy — check right away so the
+      // new build is picked up and auto-reloaded without waiting for the poll.
+      window.addEventListener('focus', check)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check()
+      })
     },
   })
 }
