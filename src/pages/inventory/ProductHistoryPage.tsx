@@ -269,7 +269,9 @@ export default function ProductHistoryPage() {
       purchaseReturnQty: b.purchaseReturnedQty ?? 0,
       salesReturnQty: b.salesReturnedQty ?? 0,
       adjustedQty: b.adjustedQty ?? 0,
-      sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
+      // Batch's own sale rate (set at receipt) is the authoritative selling
+      // price; fall back to the last actual sale rate, then MRP for legacy rows.
+      sellingPrice: Number(b.sellingRate) || lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
   }, [batches, salesRows, selectedProduct, history])
 

@@ -254,7 +254,9 @@ export function ProductDetailContent({ productId }: { productId: string }) {
       purchaseReturnQty: b.purchaseReturnedQty ?? 0,
       salesReturnQty: b.salesReturnedQty ?? 0,
       adjustedQty: b.adjustedQty ?? 0,
-      sellingPrice: lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
+      // The batch's own sale rate (set at receipt) is the authoritative selling
+      // price; fall back to the last actual sale rate, then MRP for legacy rows.
+      sellingPrice: Number(b.sellingRate) || lastSale.get(b.batchNumber)?.rate || Number(b.mrp) || 0,
     }))
   }, [detail.batches, detail.product, salesRows])
 
@@ -614,12 +616,12 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                       emerald: { card: 'bg-emerald-500/15 ring-1 ring-emerald-500/40', text: 'text-emerald-700 dark:text-emerald-400' },
                     }
                     return [
+                      { label: 'Purchase Rate', value: formatCurrencyFull(detail.product.purchaseRate), tone: 'amber' },
                       { label: 'MRP', value: formatCurrencyFull(detail.product.mrp), tone: 'sky' },
                       { label: 'Selling Rate', value: formatCurrencyFull(detail.product.sellingRate), tone: 'emerald' },
-                      { label: 'Purchase Rate', value: formatCurrencyFull(detail.product.purchaseRate), tone: 'amber' },
-                      { label: 'Taxable', value: formatCurrencyFull(taxable), tone: undefined },
-                      { label: gstRate ? `GST (${gstRate}%)` : 'GST', value: formatCurrencyFull(gst), tone: undefined },
-                      { label: 'Net Amount', value: formatCurrencyFull(rate), tone: undefined },
+                      { label: 'Purchase Taxable', value: formatCurrencyFull(taxable), tone: undefined },
+                      { label: gstRate ? `Purchase GST (${gstRate}%)` : 'Purchase GST', value: formatCurrencyFull(gst), tone: undefined },
+                      { label: 'Purchase Net Amount', value: formatCurrencyFull(rate), tone: undefined },
                     ].map(m => ({ ...m, t: m.tone ? TONE[m.tone] : undefined }))
                   })().map(m => (
                     <div key={m.label} className={cn('rounded-md p-2', m.t?.card)}>

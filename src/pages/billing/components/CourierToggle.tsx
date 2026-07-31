@@ -34,8 +34,9 @@ export function CourierToggle({ invoice }: { invoice: Invoice }) {
       if (on) {
         const res = await api.post('/delivery', { invoiceId: invoice.id })
         setDelivery(res.data)
+        // Stay on the invoice — the "Track" link (revealed once enabled) is there
+        // for anyone who wants to jump to Delivery Tracking.
         toast.success('Courier tracking enabled')
-        navigate(`/delivery/tracking?id=${res.data.id}`)
       } else if (delivery) {
         await api.delete(`/delivery/${delivery.id}`)
         setDelivery(null)

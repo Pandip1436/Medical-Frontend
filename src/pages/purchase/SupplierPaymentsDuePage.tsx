@@ -313,7 +313,9 @@ export default function SupplierPaymentsDuePage() {
         })}
       </div>
 
-      {/* ── Filters ── */}
+      {/* ── Search first, then the quick status filters — all on ONE row. The
+             chips sit to the right of the search (actionNode) rather than inside
+             the collapsible Filters panel. ── */}
       <DataTableFilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -321,24 +323,24 @@ export default function SupplierPaymentsDuePage() {
         resultsCount={rows.length}
         activeFilterCount={activeFilterCount}
         onClearFilters={clearFilters}
-      >
-        <div className="col-span-full grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex flex-wrap gap-1.5">
+        compactActionsRow
+        actionNode={
+          <div className="flex flex-wrap items-center gap-1.5">
             {STATUS_OPTIONS.map((opt) => (
               <Button
                 key={opt.value}
                 type="button"
                 size="sm"
                 variant={statusFilter === opt.value ? 'default' : 'outline'}
-                className="h-8 text-xs"
+                className="h-8 shrink-0 text-xs"
                 onClick={() => setStatusFilter(opt.value as StatusFilter)}
               >
                 {opt.label}
               </Button>
             ))}
           </div>
-        </div>
-      </DataTableFilterBar>
+        }
+      />
 
       {/* ── Body ── */}
       {isLoading ? (
@@ -451,7 +453,7 @@ export default function SupplierPaymentsDuePage() {
                             d.tone === 'amber' && 'text-amber-600 dark:text-amber-400',
                             d.tone === 'muted' && 'text-muted-foreground',
                           )}>
-                            {d.text}{!row.explicitDueDate && ' · est.'}
+                            {d.text}
                           </span>
                         </div>
                       </TableCell>

@@ -276,6 +276,9 @@ export interface GRNItem {
   // the tax for the detail view / PDF. 0 on legacy rows (pre-inclusive-pricing).
   gstPercent?: number
   damageQty?: number
+  // Per-batch sale rate captured at receipt (lives on the Batch, surfaced by the
+  // GRN detail endpoint so the edit form reloads the saved value, not the master).
+  sellingRate?: number | null
 }
 
 export interface GRN {

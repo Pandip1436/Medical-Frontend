@@ -346,6 +346,18 @@ export function GRNDetailContent({
   const damagedItems   = grn.items.filter(i => (i.damageQty ?? 0) > 0)
   const hasPO          = !!grn.poId
 
+  // Colour-code the Due Date by urgency, but only while money is still owed:
+  // overdue → rose, due within 7 days → amber, upcoming → blue. Paid PEs stay
+  // neutral (nothing to chase).
+  const dueDateValue = grn.effectiveDueDate ?? grn.dueDate
+  const dueDateClass = (() => {
+    if (!dueDateValue || balanceDue <= 0.01) return ''
+    const days = Math.ceil((new Date(dueDateValue).getTime() - Date.now()) / 86_400_000)
+    if (days < 0) return 'text-rose-600 dark:text-rose-400 font-semibold'
+    if (days <= 7) return 'text-amber-600 dark:text-amber-400 font-semibold'
+    return 'text-blue-600 dark:text-blue-400 font-semibold'
+  })()
+
   // Find sibling GRNs against the same PO (supplementary deliveries)
   const siblingGrns = grn.poId
     ? allGrns.filter(g => g.poId === grn.poId && g.id !== grn.id)
@@ -690,9 +702,8 @@ export function GRNDetailContent({
           { label: 'Supplier', value: grn.supplierName, icon: <Truck className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'PE Date', value: formatDate(grn.date), icon: <Calendar className="h-3 w-3 text-muted-foreground/60" /> },
           { label: 'Invoice #', value: grn.supplierInvoiceNo || '—', icon: <FileText className="h-3 w-3 text-muted-foreground/60" /> },
-          { label: 'Invoice Type', value: grn.isReplacement ? 'Replacement' : isSupplementary ? 'Supplementary' : hasPO ? 'Against PO' : 'Direct Entry' },
           { label: 'Invoice Date', value: grn.supplierInvoiceDate ? formatDate(grn.supplierInvoiceDate) : '—' },
-          { label: 'Due Date', value: (grn.effectiveDueDate ?? grn.dueDate) ? formatDate((grn.effectiveDueDate ?? grn.dueDate)!) : '—', icon: <CalendarClock className="h-3 w-3 text-muted-foreground/60" /> },
+          { label: 'Due Date', value: dueDateValue ? formatDate(dueDateValue) : '—', icon: <CalendarClock className="h-3 w-3 text-muted-foreground/60" />, valueClass: dueDateClass },
           { label: 'Invoice Amount', value: formatCurrency(grn.supplierInvoiceAmount || 0) },
         ].map((c, i) => (
           <div key={c.label} className={cn(
@@ -705,7 +716,7 @@ export function GRNDetailContent({
               {c.icon}
               {c.label}
             </p>
-            <p className="mt-0.5 text-sm font-medium truncate" title={c.value}>{c.value}</p>
+            <p className={cn('mt-0.5 text-sm font-medium truncate', (c as { valueClass?: string }).valueClass)} title={c.value}>{c.value}</p>
           </div>
         ))}
       </div>

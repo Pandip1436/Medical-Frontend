@@ -289,7 +289,7 @@ function formatDetail(n: Notification, resolvePhone: PhoneResolver): Detail {
       const m = message.match(/^(.+?)\s+—\s+₹([\d,.]+)\s+payable(?:\s+·\s+PE\s+(\S+))?/i)
       if (m) {
         const days = (n.entityState as { daysOutstanding?: unknown } | null)?.daysOutstanding
-        const pending = typeof days === 'number' && days > 0 ? ` · Pending ${days}d` : ''
+        const pending = typeof days === 'number' ? (days > 0 ? ` · ${days}d overdue` : ' · Due today') : ''
         return {
           lead: m[1],
           rest: `₹${m[2]} payable${m[3] ? ` · PE ${m[3].replace(/\.$/, '')}` : ''}${pending}`,
@@ -379,7 +379,7 @@ const CLUSTER_COLUMNS: Partial<Record<ClusterKey, ColumnDef[]>> = {
   SUPPLIER_PAYMENT_DUE: [
     { key: 'supplier',  label: 'Supplier' },
     { key: 'amount',    label: 'Payable',     align: 'right', className: 'font-medium tabular-nums', width: 'w-24 sm:w-32' },
-    { key: 'pending',   label: 'Pending',     align: 'right', className: 'tabular-nums', width: 'w-28', hideOnMobile: true },
+    { key: 'pending',   label: 'Overdue',     align: 'right', className: 'tabular-nums', width: 'w-28', hideOnMobile: true },
   ],
   EXPIRY: [
     { key: 'product',   label: 'Product' },
@@ -464,11 +464,13 @@ function parseClusterRow(n: Notification, resolvePhone: PhoneResolver): Record<s
     }
     case 'SUPPLIER_PAYMENT_DUE': {
       // "<supplier> — ₹<amount> payable · PE <grnNo>. [grnId:…]"
-      // No due date for supplier dues — "pending" is the age since the supplier
-      // invoice date (days the payable has been outstanding).
+      // The backend only raises this once the payable is PAST its effective due
+      // date (GRN.dueDate, else supplier-invoice date + the credit term), so
+      // `daysOutstanding` is days OVERDUE: 0 = due today, N = N days overdue.
+      const overdue = state.daysOutstanding as number | undefined
       const pending =
-        typeof state.daysOutstanding === 'number' && state.daysOutstanding > 0
-          ? `${state.daysOutstanding}d`
+        typeof overdue === 'number'
+          ? overdue > 0 ? `${overdue}d` : 'Today'
           : '—'
       const m = message.match(/^(.+?)\s+—\s+₹([\d,.]+)\s+payable/i)
       const supplier = (state.supplierName as string) || m?.[1]

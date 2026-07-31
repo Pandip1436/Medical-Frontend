@@ -24,6 +24,7 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   Wallet,
   Phone,
@@ -210,6 +211,10 @@ export default function GRNPage() {
   const editMode = !!grnId
   const [editGrnNumber, setEditGrnNumber] = useState('')
   const editPrefilled = useRef(false)
+  // `${productId}::${batchNumber}` keys for the batches THIS GRN originally
+  // created. In edit mode those batches are already in stock, so re-using them
+  // on their own lines must NOT trip the "batch already exists" warning.
+  const originalGrnBatchKeysRef = useRef<Set<string>>(new Set())
 
   // Source selection — defaults to Direct Entry because most pharmacies
   // receive stock without a pre-existing PO (over-the-counter restocks,
@@ -234,6 +239,7 @@ export default function GRNPage() {
   const [supplierResultsLoading, setSupplierResultsLoading] = useState(false)
   const [supplierResultsHasMore, setSupplierResultsHasMore] = useState(true)
   const supplierDropdownScrollRef = useRef<HTMLDivElement>(null)
+  const supplierSearchInputRef = useRef<HTMLInputElement>(null)
   const supplierFetchAbort = useRef<AbortController | null>(null)
 
   // Debounced fetch when search query changes or dropdown opens
@@ -305,6 +311,9 @@ export default function GRNPage() {
 
   // Supplier invoice
   const [invoiceNo, setInvoiceNo] = useState('')
+  // Surfaces the "invoice number is required" inline error only after the field
+  // is touched / a Review is attempted — not on a pristine form.
+  const [invoiceNoTouched, setInvoiceNoTouched] = useState(false)
   const [invoiceDate, setInvoiceDate] = useState('')
   const [invoiceAmount, setInvoiceAmount] = useState<number>(0)
   // Invoice Amount auto-fills from the computed line total until the operator
@@ -631,11 +640,29 @@ export default function GRNPage() {
               expiryDate: it.expiryDate ? String(it.expiryDate).slice(0, 10) : '',
               purchaseRate: Number(it.purchaseRate) || 0,
               mrp: Number(it.mrp) || 0,
-              sellingRate: products.find((p) => p.id === it.productId)?.sellingRate ?? 0,
+              // Prefer the sale rate saved on this GRN's batch; fall back to the
+              // product master only for legacy rows that never stored one.
+              sellingRate: it.sellingRate ?? products.find((p) => p.id === it.productId)?.sellingRate ?? 0,
               shortSupply: ordered > 0 && received < ordered,
             } as GRNFormItem
           })
         )
+        // Remember this GRN's own batches so editing them doesn't false-flag as
+        // "batch already exists" (they're in stock precisely because of this GRN).
+        originalGrnBatchKeysRef.current = new Set(
+          ((grn.items ?? []) as GRNItem[])
+            .filter((it) => it.productId && it.batchNumber)
+            .map((it) => `${it.productId}::${String(it.batchNumber).trim().toLowerCase()}`),
+        )
+        // Derive the (read-only) payment state so the Payment panel reflects what
+        // was actually paid at receipt. Editing the paid amount isn't offered here.
+        {
+          const paid = Number(grn.amountPaid) || 0
+          const invAmt = Number(grn.supplierInvoiceAmount) || 0
+          if (paid <= 0.01) { setPayChoice('CREDIT'); setPaidAmount(0) }
+          else if (invAmt > 0 && paid >= invAmt - 0.01) { setPayChoice('PAID'); setPaidAmount(invAmt) }
+          else { setPayChoice('PARTIAL'); setPaidAmount(paid) }
+        }
       } catch {
         toast.error('Failed to load Purchase Entry for editing')
         navigate('/purchase/grn-list')
@@ -899,7 +926,12 @@ export default function GRNPage() {
   const isBatchDuplicate = (item: GRNFormItem) => {
     const bn = item.batchNumber?.trim().toLowerCase()
     if (!bn || !item.productId) return false
-    const inStock = stockBatches.some(
+    // In edit mode, a batch this GRN itself created is legitimately in stock —
+    // re-using it on its own line isn't an in-stock clash (but a genuine
+    // duplicate ACROSS two lines of this entry is still flagged below).
+    const isOwnOriginalBatch =
+      editMode && originalGrnBatchKeysRef.current.has(`${item.productId}::${bn}`)
+    const inStock = !isOwnOriginalBatch && stockBatches.some(
       (b) => b.productId === item.productId && (b.batchNumber || '').trim().toLowerCase() === bn,
     )
     const dupOnGrn = grnItems.filter(
@@ -941,6 +973,14 @@ export default function GRNPage() {
       toast.error('Fix the pricing errors first — purchase rate ≤ MRP, and sale rate between purchase cost and MRP.')
       return
     }
+    // Supplier invoice number is required — surface the inline error and block
+    // the move to Review if it's missing (non-replacement entries).
+    if (!replacementReturnId && !invoiceNo.trim()) {
+      setInvoiceNoTouched(true)
+      toast.error('Supplier invoice number is required')
+      focusVisibleGrnField('[data-field="invoiceNumber"]')
+      return
+    }
     setShowConfirm(true)
   }
 
@@ -969,7 +1009,9 @@ export default function GRNPage() {
     }
     // Credit/partial receipts leave a balance on the supplier's outstanding —
     // require a due date so it can be chased. Paid-in-full has no balance.
-    if (!isReplacementFlow && payChoice !== 'PAID' && !dueDate) {
+    // Create-only: the payment section (and its due-date field) isn't shown when
+    // editing an existing GRN, so this requirement must not gate an edit.
+    if (!editMode && !isReplacementFlow && payChoice !== 'PAID' && !dueDate) {
       toast.error('Please set a payment due date for the credit amount')
       return
     }
@@ -1035,7 +1077,9 @@ export default function GRNPage() {
         supplierInvoiceNo: effectiveInvoiceNo,
         supplierInvoiceDate: effectiveInvoiceDate,
         // Credit due date — only sent when a balance stays on outstanding.
-        dueDate: !isReplacementFlow && payChoice !== 'PAID' && dueDate ? new Date(dueDate).toISOString() : undefined,
+        // Edit mode keeps the due date editable regardless of the (read-only)
+        // payment status; on create it only applies to a credit/partial balance.
+        dueDate: !isReplacementFlow && (editMode || payChoice !== 'PAID') && dueDate ? new Date(dueDate).toISOString() : undefined,
         supplierInvoiceAmount: Number(invoiceAmount) || 0,
         totalAmount: Number(gstBreakdown.total) || 0,
         status: 'RECEIVED',
@@ -1073,7 +1117,9 @@ export default function GRNPage() {
         })
         setShowConfirm(false)
         draft.clear()
-        navigate('/purchase/grn-list')
+        // Return to THIS entry's detail (not the list's default selection) so the
+        // user lands back on the Purchase Entry they just edited.
+        navigate(`/purchase/grn-list?grnId=${grnId}`)
         return
       }
 
@@ -1226,7 +1272,25 @@ export default function GRNPage() {
   // Rendered in the header row on desktop and in the workspace on mobile.
   function renderSupplierSelector() {
     return directSupplierId ? (
-      <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2">
+      // Click the selected supplier to change it — reopens the search picker.
+      // (Not clickable while editing an existing GRN: its supplier is fixed.)
+      <button
+        type="button"
+        disabled={editMode}
+        title={editMode ? undefined : 'Click to change supplier'}
+        onClick={() => {
+          if (editMode) return
+          setDirectSupplierId('')
+          setDirectSupplierName('')
+          setSupplierSearch('')
+          setSupplierDropdownOpen(true)
+          setTimeout(() => supplierSearchInputRef.current?.focus(), 0)
+        }}
+        className={cn(
+          'flex w-full items-center justify-between gap-2 rounded-lg border border-border/60 bg-background px-3 py-2 text-left transition-colors',
+          !editMode && 'cursor-pointer hover:border-primary/40 hover:bg-muted/30',
+        )}
+      >
         <div className="min-w-0">
           <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Selected supplier</p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
@@ -1238,19 +1302,12 @@ export default function GRNPage() {
             )}
           </div>
         </div>
-        {!editMode && (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => { setDirectSupplierId(''); setDirectSupplierName(''); setSupplierSearch('') }}
-          >
-            ✕ Change
-          </button>
-        )}
-      </div>
+        {!editMode && <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
+      </button>
     ) : (
       <div className="relative">
         <Input
+          ref={supplierSearchInputRef}
           icon={<Search />}
           placeholder="Search and select supplier..."
           value={supplierSearch}
@@ -1356,12 +1413,16 @@ export default function GRNPage() {
               </Label>
               <Input
                 data-field="invoiceNumber"
-                className="h-8 font-mono text-xs"
+                className={cn('h-8 font-mono text-xs', !replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
                 placeholder="e.g. INV-2025-001"
                 value={invoiceNo}
                 onChange={(e) => setInvoiceNo(e.target.value)}
+                onBlur={() => setInvoiceNoTouched(true)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
               />
+              {!replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && (
+                <p className="text-[10px] font-medium text-rose-600 dark:text-rose-400">Invoice number is required</p>
+              )}
             </div>
             <div className="space-y-2">
               <div className="space-y-1">
@@ -1403,6 +1464,20 @@ export default function GRNPage() {
             </div>
           </div>
         </div>
+
+        {/* Edit mode: the credit due date stays editable (the full payment
+            section below is create-only, but the outstanding due date can change). */}
+        {editMode && !replacementReturnId && (
+          <>
+            <Separator className="bg-border/50" />
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Due Date
+              </Label>
+              <DatePicker dataField="dueDate" className="h-9 text-sm" value={dueDate} onChange={setDueDate} />
+            </div>
+          </>
+        )}
 
         {/* ── Payment at receipt ── (create-only, not for replacements) */}
         {!editMode && !replacementReturnId && (
@@ -1617,20 +1692,28 @@ export default function GRNPage() {
           on the same row as the invoice fields; moved out of the bottom bar ── */}
       <div className="hidden lg:flex flex-wrap shrink-0 items-end gap-3 border-b border-border/40 bg-muted/10 px-6 py-2 dark:bg-muted/5">
         {sourceType === 'direct' && (
-          <div className="w-96 shrink-0 self-end">
+          // In edit mode the supplier box flexes to absorb the leftover row
+          // width so the full name shows, while the Due Date field + List/Card
+          // toggle still fit on this one row (min-w-0 lets an extreme name
+          // truncate rather than wrap the toggle).
+          <div className={cn('self-end', editMode ? 'flex-1 min-w-0' : 'w-96 shrink-0')}>
             {renderSupplierSelector()}
           </div>
         )}
-        <div className="w-56 space-y-1">
+        <div className={cn('space-y-1', editMode ? 'w-44' : 'w-56')}>
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice No{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
           <Input
             data-field="invoiceNumber"
-            className="h-8 font-mono text-xs"
+            className={cn('h-8 font-mono text-xs', !replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
             placeholder="e.g. INV-2025-001"
             value={invoiceNo}
             onChange={(e) => setInvoiceNo(e.target.value)}
+            onBlur={() => setInvoiceNoTouched(true)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
           />
+          {!replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && (
+            <p className="text-[10px] font-medium leading-tight text-rose-600 dark:text-rose-400">Invoice number is required</p>
+          )}
         </div>
         <div className="w-44 space-y-1">
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
@@ -1661,6 +1744,14 @@ export default function GRNPage() {
             </p>
           )}
         </div>
+        {/* Edit mode: the credit due date stays editable here (the full payment
+            section is create-only, but the outstanding due date can be revised). */}
+        {editMode && !replacementReturnId && (
+          <div className="w-44 space-y-1">
+            <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Due Date</Label>
+            <DatePicker dataField="dueDate" className="h-8 text-xs" value={dueDate} onChange={setDueDate} />
+          </div>
+        )}
         {/* Card / List view toggle — last in the invoice row */}
         <div className="ml-auto flex shrink-0 items-center self-end rounded-lg border border-border/60 bg-muted/30 p-0.5">
           <button type="button" onClick={() => setItemView('list')} className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-2 text-[11px] font-semibold transition-all', itemViewMode === 'list' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
@@ -2133,14 +2224,16 @@ export default function GRNPage() {
                 <div className="relative flex-1">
                 <Input
                   icon={<Search />}
-                  placeholder="Search products to add..."
+                  // Enforce the flow: pick a supplier first, then add products.
+                  disabled={!directSupplierId}
+                  placeholder={directSupplierId ? 'Search products to add...' : 'Select a supplier first to add products'}
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
-                  onFocus={() => setProductFocused(true)}
-                  onClick={() => setProductFocused(true)}
+                  onFocus={() => { if (directSupplierId) setProductFocused(true) }}
+                  onClick={() => { if (directSupplierId) setProductFocused(true) }}
                   onBlur={() => setTimeout(() => setProductFocused(false), 200)}
                 />
-                {(productFocused || productSearch.trim()) && (
+                {directSupplierId && (productFocused || productSearch.trim()) && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -2674,6 +2767,45 @@ export default function GRNPage() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ── Region 2 (edit mode): Payment — read-only. The paid amount is
+                fixed once received; adjust it via Supplier Outstanding / Payments
+                Due. Only the credit due date (in the header) stays editable. ── */}
+            {editMode && !replacementReturnId && (
+              <div className="flex-1 min-w-0 p-2.5 space-y-2">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Payment
+                </div>
+                <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Status</p>
+                    <Badge variant={payChoice === 'PAID' ? 'success' : payChoice === 'PARTIAL' ? 'warning' : 'secondary'} size="sm">
+                      {payChoice === 'PAID' ? 'Paid in full' : payChoice === 'PARTIAL' ? 'Partial' : 'Credit'}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Amount Paid</p>
+                    <p className="font-mono text-xs font-semibold tabular-nums">{formatCurrency(effectivePaid)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Balance</p>
+                    <p className="font-mono text-xs font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                      {formatCurrency(Math.max(0, (Number(invoiceAmount) || 0) - effectivePaid))}
+                    </p>
+                  </div>
+                  {payChoice !== 'PAID' && dueDate && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Due Date</p>
+                      <p className="font-mono text-xs font-medium tabular-nums">{new Date(dueDate).toLocaleDateString('en-IN')}</p>
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Read-only — record or adjust payments from Supplier Outstanding / Payments Due. The due date above stays editable.
+                </p>
               </div>
             )}
 

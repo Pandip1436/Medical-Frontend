@@ -4808,14 +4808,15 @@ export default function NewSalePage() {
         }
 
         // Where to land after saving:
-        //  • Editing an existing invoice → back to the invoice list (the edit
-        //    flow starts from there, so returning there is expected).
+        //  • Editing an existing invoice → back to THAT invoice's detail (not the
+        //    list's default selection) so the user lands on the bill they edited.
         //  • A brand-new bill → STAY on New Sale, reset to a blank bill so the
         //    operator can immediately start the next one (POS-style). The print
         //    (if auto-print is on) is a full-screen overlay; closing it lands
         //    them on the fresh blank sale, ready to go.
         if (wasEditing) {
-          navigate('/billing/sales')
+          const editedId = savedInvoice?.id ?? editingInvoiceId
+          navigate(editedId ? `/billing/sales?view=split&invoiceId=${editedId}` : '/billing/sales')
         } else {
           resetToBlankSale()
           navigate('/billing/new') // clear any ?editId/?from params from the URL
