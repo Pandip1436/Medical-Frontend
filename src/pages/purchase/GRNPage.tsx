@@ -311,9 +311,6 @@ export default function GRNPage() {
 
   // Supplier invoice
   const [invoiceNo, setInvoiceNo] = useState('')
-  // Surfaces the "invoice number is required" inline error only after the field
-  // is touched / a Review is attempted — not on a pristine form.
-  const [invoiceNoTouched, setInvoiceNoTouched] = useState(false)
   const [invoiceDate, setInvoiceDate] = useState('')
   const [invoiceAmount, setInvoiceAmount] = useState<number>(0)
   // Invoice Amount auto-fills from the computed line total until the operator
@@ -973,14 +970,6 @@ export default function GRNPage() {
       toast.error('Fix the pricing errors first — purchase rate ≤ MRP, and sale rate between purchase cost and MRP.')
       return
     }
-    // Supplier invoice number is required — surface the inline error and block
-    // the move to Review if it's missing (non-replacement entries).
-    if (!replacementReturnId && !invoiceNo.trim()) {
-      setInvoiceNoTouched(true)
-      toast.error('Supplier invoice number is required')
-      focusVisibleGrnField('[data-field="invoiceNumber"]')
-      return
-    }
     setShowConfirm(true)
   }
 
@@ -1413,16 +1402,12 @@ export default function GRNPage() {
               </Label>
               <Input
                 data-field="invoiceNumber"
-                className={cn('h-8 font-mono text-xs', !replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
+                className="h-8 font-mono text-xs"
                 placeholder="e.g. INV-2025-001"
                 value={invoiceNo}
                 onChange={(e) => setInvoiceNo(e.target.value)}
-                onBlur={() => setInvoiceNoTouched(true)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
               />
-              {!replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && (
-                <p className="text-[10px] font-medium text-rose-600 dark:text-rose-400">Invoice number is required</p>
-              )}
             </div>
             <div className="space-y-2">
               <div className="space-y-1">
@@ -1704,16 +1689,12 @@ export default function GRNPage() {
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice No{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
           <Input
             data-field="invoiceNumber"
-            className={cn('h-8 font-mono text-xs', !replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && 'border-rose-400 focus-visible:ring-rose-400')}
+            className="h-8 font-mono text-xs"
             placeholder="e.g. INV-2025-001"
             value={invoiceNo}
             onChange={(e) => setInvoiceNo(e.target.value)}
-            onBlur={() => setInvoiceNoTouched(true)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusVisibleGrnField('[data-field="invoiceDate"]') } }}
           />
-          {!replacementReturnId && invoiceNoTouched && !invoiceNo.trim() && (
-            <p className="text-[10px] font-medium leading-tight text-rose-600 dark:text-rose-400">Invoice number is required</p>
-          )}
         </div>
         <div className="w-44 space-y-1">
           <Label className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Invoice Date{!replacementReturnId && <span className="text-rose-500"> *</span>}</Label>
@@ -2165,7 +2146,7 @@ export default function GRNPage() {
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-64 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
+                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-56 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
                     <div onScroll={handleProductDropdownScroll} className="min-h-0 flex-1 overflow-y-auto">
                     {filteredProducts.map((p) => (
@@ -2237,7 +2218,7 @@ export default function GRNPage() {
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-64 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
+                    className="absolute left-0 right-0 top-full z-50 mt-1.5 flex max-h-56 flex-col overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg"
                   >
                     <div onScroll={handleProductDropdownScroll} className="min-h-0 flex-1 overflow-y-auto">
                     {filteredProducts.map((p) => (

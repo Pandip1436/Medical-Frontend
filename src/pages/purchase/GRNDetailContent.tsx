@@ -344,7 +344,6 @@ export function GRNDetailContent({
   const totalShort     = grn.items.reduce((s, i) => s + Math.max(0, i.orderedQty - i.receivedQty), 0)
   const shortItems     = grn.items.filter(i => i.orderedQty > 0 && i.receivedQty < i.orderedQty)
   const damagedItems   = grn.items.filter(i => (i.damageQty ?? 0) > 0)
-  const hasPO          = !!grn.poId
 
   // Colour-code the Due Date by urgency, but only while money is still owed:
   // overdue → rose, due within 7 days → amber, upcoming → blue. Paid PEs stay
@@ -537,8 +536,7 @@ export function GRNDetailContent({
     </div>
     <div class="print-meta">
       Printed: ${new Date().toLocaleDateString('en-IN')}<br/>
-      ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}<br/>
-      <span class="badge ${hasPO ? '' : 'badge-green'}">${hasPO ? 'Against PO' : 'Direct Entry'}</span>
+      ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
     </div>
   </div>
   <div class="info-row">
