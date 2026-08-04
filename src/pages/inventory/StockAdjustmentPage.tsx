@@ -629,8 +629,19 @@ export default function StockAdjustmentPage() {
               </div>
             </aside>
 
-            {/* ── Main: search + list + detail panel ── */}
-            <section className="flex min-h-0 flex-1 flex-row">
+            {/* ── Main: search + list + detail panel ──
+                min-w-0 is load-bearing. As a flex item this section defaults to
+                min-width:auto, i.e. its own min-content width — and that is the
+                list column's min-content (search box + count) PLUS the detail
+                panel's rigid lg:w-md/xl:w-lg, because `min-w-0` on the list only
+                lets that column shrink once the section has a width; it does not
+                shrink the section's own min-content. On a laptop the two add up
+                to more than the card, so the section overflowed and the panel —
+                the last child — hung past the card's edge, where overflow-hidden
+                sliced the close button, the reason chevron and the footer's
+                "Add to adjustment". With min-w-0 the section takes the width it
+                is given and the list column absorbs the difference. */}
+            <section className="flex min-h-0 min-w-0 flex-1 flex-row">
               {/* List column */}
               <div className={cn(
                 'flex min-w-0 flex-1 flex-col',
@@ -744,7 +755,12 @@ export default function StockAdjustmentPage() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: 24, opacity: 0 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className="flex min-w-0 flex-1 flex-col bg-background lg:w-md lg:flex-none lg:border-l lg:border-border/60 xl:w-lg"
+                    // lg:flex-none makes the panel rigid, so on a short section
+                    // it would push past the card instead of shrinking. The
+                    // max-width caps it at a share of the section (no effect at
+                    // normal desktop widths, where 55% exceeds w-md/w-lg) so the
+                    // panel can never overflow and get its controls clipped.
+                    className="flex min-w-0 flex-1 flex-col bg-background lg:w-md lg:max-w-[55%] lg:flex-none lg:border-l lg:border-border/60 xl:w-lg"
                   >
                     {selectedRow.kind === 'history' ? (
                       <HistoryDetailPanel

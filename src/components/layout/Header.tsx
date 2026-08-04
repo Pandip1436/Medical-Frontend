@@ -121,7 +121,11 @@ export function Header({ breadcrumbs }: HeaderProps) {
       {/* Left: Hamburger (mobile) + Breadcrumbs */}
       <div className="flex items-center gap-3">
         {/* Logo — shown on mobile/tablet where the side rail (which carries the
-            logo) is hidden. Hidden at xl+ once the sidebar returns on desktop. */}
+            logo) is hidden. Hidden at lg+ once the sidebar returns on desktop.
+            The whole header switches to its desktop layout at lg (1024px), NOT
+            xl (1280px): browser zoom shrinks the CSS viewport, so a 1366px
+            laptop reports ~1242px at 110% and an xl gate would strip the search
+            pill, branch switcher and username off a plain desktop. */}
         <a
           href={hashHref('/dashboard')}
           onClick={(e) => {
@@ -129,7 +133,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
             e.preventDefault()
             routerNavigate('/dashboard')
           }}
-          className="flex items-center gap-2 xl:hidden"
+          className="flex items-center gap-2 lg:hidden"
         >
           <img
             src="/logo.png"
@@ -151,7 +155,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
         {/* Breadcrumbs - hidden on mobile only. Lightweight enough (unlike the
             search pill/branch switcher/username below) to fit alongside the
-            docked icon rail on tablet, so it stays at md rather than xl. */}
+            docked icon rail on tablet, so it stays at md rather than lg. */}
         <nav className="hidden items-center gap-1 text-sm md:flex">
           {breadcrumbs.map((crumb, index) => (
             <div key={index} className="flex items-center gap-1">
@@ -185,7 +189,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 rounded-full hover:bg-accent xl:hidden"
+          className="h-8 w-8 rounded-full hover:bg-accent lg:hidden"
           onClick={() => setMobileSearchOpen(true)}
           aria-label="Search"
         >
@@ -200,7 +204,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-linear-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow xl:flex"
+                  className="hidden h-8 items-center gap-1.5 rounded-full border-border/60 bg-linear-to-b from-muted/30 to-muted/60 px-3 text-xs font-medium shadow-sm transition-all hover:shadow lg:flex"
                 >
                   <Building2 className="h-3.5 w-3.5 text-primary" />
                   <span className="max-w-30 truncate">{activeBranch.name}</span>
@@ -228,7 +232,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium xl:flex">
+            <div className="hidden h-8 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 text-xs font-medium lg:flex">
               <Building2 className="h-3.5 w-3.5 text-primary" />
               <span className="max-w-30 truncate">{activeBranch.name}</span>
             </div>
@@ -309,7 +313,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
 
         <Separator
           orientation="vertical"
-          className="mx-1 hidden h-5 xl:block"
+          className="mx-1 hidden h-5 lg:block"
         />
 
         {/* User Menu */}
@@ -332,7 +336,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
                   {user ? getInitials(user.name) : '?'}
                 </AvatarFallback>
               </Avatar>
-              <span className="hidden text-sm font-medium xl:inline-block">
+              <span className="hidden text-sm font-medium lg:inline-block">
                 {user?.name}
               </span>
             </Button>
@@ -395,7 +399,7 @@ export function Header({ breadcrumbs }: HeaderProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-60 bg-background/97 backdrop-blur-md xl:hidden"
+            className="fixed inset-0 z-60 bg-background/97 backdrop-blur-md lg:hidden"
           >
             <div className="flex h-14 items-center gap-2 border-b border-border/40 px-4">
               <HeaderSearch mobileMode />

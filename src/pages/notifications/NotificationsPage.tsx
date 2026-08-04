@@ -977,8 +977,17 @@ export default function NotificationsPage() {
               </div>
             </aside>
 
-            {/* ── Main: list (now full width with no detail pane) ── */}
-            <section className="flex min-h-0 flex-1 flex-col">
+            {/* ── Main: list (now full width with no detail pane) ──
+                min-w-0 is load-bearing: as a flex item this pane's min-width
+                defaults to `auto` (its content's min-content width), so a wide
+                row — a long notification message, a cluster table — stretches
+                the pane past the card instead of letting the inner scroll
+                containers handle it. Everything past the edge is then silently
+                clipped by the Card's overflow-hidden and `main`'s
+                overflow-x-hidden, which is what cut the "Newest first" sort
+                button in half. The sibling split-view panes bound this the same
+                way. min-h-0 does the equivalent job for the vertical scroll. */}
+            <section className="flex min-h-0 min-w-0 flex-1 flex-col">
 
               {/* Search row — wraps on the narrowest phones so the view toggles
                   drop to a second line instead of squashing the search box. */}
@@ -1437,12 +1446,20 @@ function ClusterTable({
   onDelete: (id: string) => void
 }) {
   const columns = getClusterColumns(clusterKey)
+  // overflow-x-hidden, not auto: under table-fixed the table is exactly as wide
+  // as its pane, so a horizontal scrollbar could only ever come from a cell's
+  // content spilling a few pixels — scrolling the whole feed sideways to reveal
+  // them is worse than clipping them.
   return (
-    <div className="overflow-x-auto">
-      {/* table-auto (no table-fixed): columns size to content so short
-          values don't get stretched into wide empty bands. Explicit widths
-          on the numeric/short columns still apply via the `width` class. */}
-      <table className="w-full border-collapse">
+    <div className="overflow-x-hidden">
+      {/* table-fixed: the layout is driven by the `width` classes on the short
+          columns, and the single column without one (customer/supplier/product/
+          detail) absorbs whatever is left. Auto layout can't be used here —
+          these cells `truncate`, i.e. white-space: nowrap, so under auto layout
+          each column's min-content is its FULL untruncated text and the table
+          grows past the pane, which is what produced the horizontal scrollbar.
+          Fixed layout gives the cell a real width to truncate against. */}
+      <table className="w-full table-fixed border-collapse">
         <thead>
           <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
             <th className="w-6 px-2 py-2.5 sm:px-3" aria-hidden></th>
@@ -1459,8 +1476,8 @@ function ClusterTable({
                 {c.label}
               </th>
             ))}
-            <th className="w-16 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
-            <th className="w-10 px-2 py-2.5 sm:w-20 sm:px-3" aria-hidden></th>
+            <th className="w-20 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
+            <th className="w-16 px-2 py-2.5 sm:w-28 sm:px-2" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — one global order so the sort toggle (newest/oldest)
@@ -1624,13 +1641,13 @@ function ClusterRow({
       })}
 
       {/* When */}
-      <td className="w-16 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-24 sm:px-3">
+      <td className="w-20 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-28 sm:px-3">
         {timeAgo(n.timestamp)}
       </td>
 
       {/* Actions — always visible on touch; hover-revealed on lg+ */}
       <td
-        className="w-10 px-1 py-2 align-middle text-right sm:w-20 sm:px-3"
+        className="w-16 px-1 py-2 align-middle text-right sm:w-28 sm:px-2"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
@@ -1727,9 +1744,17 @@ function AllTable({
       [clusterId]: (prev[clusterId] ?? CLUSTER_PAGE_SIZE) + CLUSTER_PAGE_SIZE,
     }))
   }
+  // overflow-x-hidden — see ClusterTable: the fixed layout already fits, so any
+  // residual spill is clipped rather than turned into a sideways scroll of the
+  // entire notification feed.
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse">
+    <div className="overflow-x-hidden">
+      {/* table-fixed so the feed always fits its pane: the four short columns
+          take their `w-*` widths and Notification absorbs the rest. Under auto
+          layout the message cell's `sm:truncate` (white-space: nowrap) made its
+          min-content the full message length, so a single long notification
+          widened the whole table and forced a horizontal scrollbar. */}
+      <table className="w-full table-fixed border-collapse">
         <thead>
           <tr className="sticky top-0 z-10 border-y border-border/50 bg-gradient-to-b from-muted/70 to-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 shadow-sm backdrop-blur-md">
             <th className="w-6 px-2 py-2.5 sm:px-3" aria-hidden></th>
@@ -1737,8 +1762,8 @@ function AllTable({
               <span className="hidden sm:inline">Type</span>
             </th>
             <th className="px-2 py-2.5 text-left sm:px-3">Notification</th>
-            <th className="w-16 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
-            <th className="w-10 px-2 py-2.5 sm:w-20 sm:px-3" aria-hidden></th>
+            <th className="w-20 px-2 py-2.5 text-right sm:w-28 sm:px-3">When</th>
+            <th className="w-16 px-2 py-2.5 sm:w-28 sm:px-2" aria-hidden></th>
           </tr>
         </thead>
         {/* Flat list — clustering still bundles 5+ same-type alerts, but
@@ -1865,11 +1890,13 @@ function AllClusterRow({
       {/* Type icon + label, bigger + bolder so the bundle row reads as a
           heading. Label hides on phones (icon only) to save width. */}
       <td className="w-10 px-2 py-3 align-middle sm:w-36 sm:px-3">
-        <span className="inline-flex items-center gap-2.5">
+        {/* max-w-full + min-w-0 so the bold label truncates inside the fixed
+            column instead of widening the table (see AllRow). */}
+        <span className="inline-flex max-w-full items-center gap-2.5">
           <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', cfg.tone)}>
             <Icon className="h-4 w-4" />
           </span>
-          <span className="hidden truncate text-sm font-semibold text-foreground sm:inline">{cfg.label}</span>
+          <span className="hidden min-w-0 truncate text-sm font-semibold text-foreground sm:inline">{cfg.label}</span>
         </span>
       </td>
 
@@ -1884,7 +1911,7 @@ function AllClusterRow({
       </td>
 
       {/* Bulk action — only shown when expanded so the collapsed row stays clean */}
-      <td className="w-12 px-2 py-3 align-middle text-right sm:w-28 sm:px-3" onClick={(e) => e.stopPropagation()}>
+      <td className="w-20 px-2 py-3 align-middle text-right sm:w-28 sm:px-3" onClick={(e) => e.stopPropagation()}>
         {isExpanded && unresolvedIds.length > 0 && (
           <button
             type="button"
@@ -1898,7 +1925,7 @@ function AllClusterRow({
       </td>
 
       {/* Chevron — bigger to match the new row height */}
-      <td className="w-8 px-2 py-3 align-middle text-right sm:w-20 sm:px-3">
+      <td className="w-16 px-2 py-3 align-middle text-right sm:w-28 sm:px-2">
         <ChevronDown
           className={cn('inline-block h-4 w-4 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
           aria-hidden
@@ -1978,11 +2005,15 @@ function AllRow({
       {/* Type — icon (always) + label (sm+ only, fixed width so labels line up).
           When indented, push right so child items visually nest. */}
       <td className={cn('w-10 px-2 py-2 align-middle sm:w-36 sm:px-3', indented && 'pl-4 sm:pl-8')}>
-        <span className="inline-flex items-center gap-2">
+        {/* max-w-full + min-w-0: the label is a flex item, so without them its
+            min-width stays `auto` (the full label width), `truncate` never
+            fires, and a long label pushes past the fixed column — the leak that
+            kept a horizontal scrollbar on the list. */}
+        <span className="inline-flex max-w-full items-center gap-2">
           <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-md', cfg.tone)}>
             <Icon className="h-3 w-3" />
           </span>
-          <span className="hidden truncate text-[12px] text-foreground/80 sm:inline">{cfg.label}</span>
+          <span className="hidden min-w-0 truncate text-[12px] text-foreground/80 sm:inline">{cfg.label}</span>
         </span>
       </td>
 
@@ -1996,13 +2027,13 @@ function AllRow({
       </td>
 
       {/* When */}
-      <td className="w-16 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-28 sm:px-3">
+      <td className="w-20 whitespace-nowrap px-2 py-2 align-middle text-right text-[10px] tabular-nums text-muted-foreground/70 sm:w-28 sm:px-3">
         {timeAgo(n.timestamp)}
       </td>
 
       {/* Actions — always visible on touch; hover-revealed on lg+ */}
       <td
-        className="w-10 px-1 py-2 align-middle text-right sm:w-20 sm:px-3"
+        className="w-16 px-1 py-2 align-middle text-right sm:w-28 sm:px-2"
         onClick={(e) => e.stopPropagation()}
       >
         <span className="inline-flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">

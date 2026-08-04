@@ -101,13 +101,13 @@ export function HeaderSearch({ mobileMode = false }: { mobileMode?: boolean }) {
   const showNoResults = hasQuery && !isQueryTooShort && !masterLoading && masterCount === 0
 
   return (
-    <div ref={containerRef} className={mobileMode ? 'relative flex-1' : 'relative hidden xl:block'}>
+    <div ref={containerRef} className={mobileMode ? 'relative flex-1' : 'relative hidden lg:block'}>
       <Command
         shouldFilter={false}
         loop
         className={cn(
           'flex items-center gap-2.5 rounded-full border h-10 px-4',
-          mobileMode ? 'w-full' : 'w-72 lg:w-80',
+          mobileMode ? 'w-full' : 'w-64 xl:w-80',
           'border-border bg-background shadow-sm',
           'transition-all hover:border-primary/40 hover:shadow',
           open && 'border-primary/50 ring-2 ring-primary/15 shadow-md',
