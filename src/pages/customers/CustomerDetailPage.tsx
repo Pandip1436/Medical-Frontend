@@ -67,6 +67,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { DocumentPreviewDialog } from '@/components/shared/DocumentPreviewDialog'
 import { CustomerFormDialog, type CustomerFormValues } from '@/components/shared/CustomerFormDialog'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import {
@@ -1655,6 +1656,7 @@ function RxTabContent({
   const [validUntil, setValidUntil] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewTitle, setPreviewTitle] = useState('Document')
   // Prescription queued for deletion — drives the ConfirmDialog (null = closed).
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1781,7 +1783,7 @@ function RxTabContent({
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {url && (
-                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => { setPreviewUrl(url); setPreviewTitle(rx.doctorName || 'Document') }} aria-label="Preview">
                             <Eye className="h-4 w-4" />
                           </Button>
                         )}
@@ -1838,7 +1840,7 @@ function RxTabContent({
                     <TableCell className="px-3 py-2.5 text-right">
                       <div className="inline-flex items-center gap-1">
                         {url && (
-                          <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                          <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => { setPreviewUrl(url); setPreviewTitle(rx.doctorName || 'Document') }} aria-label="Preview">
                             <Eye className="h-4 w-4" />
                           </Button>
                         )}
@@ -1940,25 +1942,7 @@ function RxTabContent({
       </Dialog>
 
       {/* Preview dialog */}
-      <Dialog open={!!previewUrl} onOpenChange={(open) => { if (!open) setPreviewUrl(null) }}>
-        <DialogContent className="max-w-3xl rounded-2xl p-0 overflow-hidden">
-          <DialogHeader className="px-5 pt-5 pb-3">
-            <DialogTitle className="flex items-center justify-between">
-              Prescription Preview
-              <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewUrl(null)} aria-label="Close">
-                <X className="h-4 w-4" />
-              </Button>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="bg-muted/20 max-h-[75vh] overflow-auto">
-            {previewUrl && (previewUrl.toLowerCase().endsWith('.pdf') ? (
-              <iframe src={previewUrl} className="w-full h-[75vh]" title="Prescription" />
-            ) : (
-              <img src={previewUrl} alt="Prescription" className="w-full h-auto" />
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DocumentPreviewDialog url={previewUrl} title={previewTitle} onClose={() => setPreviewUrl(null)} />
 
       {/* Delete confirmation — replaces the native window.confirm() */}
       <ConfirmDialog

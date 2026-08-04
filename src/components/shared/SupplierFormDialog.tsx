@@ -299,7 +299,7 @@ export function SupplierFormDialog({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col h-dvh overflow-hidden"
+        className="p-0 gap-0 w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl flex flex-col overflow-hidden"
       >
         {/* Header — title on the left, section progress on the right. */}
         <SheetHeader className="px-6 pt-5 pb-4 border-b border-border/40 shrink-0 bg-muted/20">
@@ -346,7 +346,7 @@ export function SupplierFormDialog({
         </SheetHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div data-sheet-body className="flex-1 min-h-0 overflow-y-auto">
 
             {/* ── Identity & Contact ── */}
             <div className="scroll-mt-2">
@@ -582,7 +582,7 @@ export function SupplierFormDialog({
                       Add Files
                       <input
                         type="file"
-                        className="sr-only"
+                        className="hidden"
                         accept="image/jpeg,image/png,image/webp,application/pdf"
                         multiple
                         onChange={(e) => { addDocFiles(e.target.files); e.target.value = '' }}
@@ -639,7 +639,7 @@ export function SupplierFormDialog({
           </div>{/* end scrollable body */}
 
           {/* Sticky footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
+          <div data-sheet-footer className="flex items-center justify-end gap-2 border-t border-border/40 bg-background px-6 py-4 shrink-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>

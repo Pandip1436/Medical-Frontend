@@ -28,7 +28,11 @@ export default defineConfig({
       // prompt, no toast, no stale tab left behind.
       registerType: 'autoUpdate',
       injectRegister: null, // registered manually in src/main.tsx so we own *when* updates are checked for (see src/lib/pwa.ts)
-      devOptions: { enabled: true, suppressWarnings: true },
+      // Keep the service worker OUT of dev. A dev SW regenerates constantly and,
+      // paired with our update-on-focus + auto-reload policy, reloads the tab
+      // onto a stale cached shell whenever the window regains focus (e.g. after
+      // the native file-picker closes) — showing a blank screen with no error.
+      devOptions: { enabled: false, suppressWarnings: true },
       manifest: {
         name: 'PBIMS - Hospital Suppliers',
         short_name: 'PBIMS',

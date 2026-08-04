@@ -175,6 +175,31 @@ const customerSchema = z.object({
 
 type CustomerFormValues = z.input<typeof customerSchema>
 
+// Pristine defaults for a brand-new customer. Kept as a shared constant so the
+// form init and the "Add Customer" handler reset to the exact same blank shape —
+// otherwise editing a customer (which reset()s the form to that customer's
+// values, making them RHF's new defaults) leaks those values into a later Add.
+const BLANK_CUSTOMER_DEFAULTS: CustomerFormValues = {
+  name: '',
+  phone: '',
+  type: 'RETAIL',
+  email: '',
+  address: '',
+  gstin: '',
+  dlNumber: '',
+  registrationNumber: '',
+  referredBy: '',
+  source: '',
+  notes: '',
+  contactPerson: '',
+  bankAccountName: '',
+  bankName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+  bankUpiId: '',
+  whatsappOptIn: true,
+}
+
 // ─────────────────────────────────────────────────────────────
 // Type badge color mapping (2026 variants)
 // ─────────────────────────────────────────────────────────────
@@ -452,7 +477,7 @@ export default function CustomersPage() {
   // re-trigger and routeSearch stays in sync.
   useEffect(() => {
     if (urlParams.get('add') !== '1') return
-    setAddDialogOpen(true)
+    handleOpenAdd()
     const fromSplit = urlParams.get('fromSplit')
     if (fromSplit) setReturnToSplitId(fromSplit)
     const params = new URLSearchParams(routeSearch)
@@ -775,26 +800,7 @@ export default function CustomersPage() {
   // Form
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
-    defaultValues: {
-      name: '',
-      phone: '',
-      type: 'RETAIL',
-      email: '',
-      address: '',
-      gstin: '',
-      dlNumber: '',
-      registrationNumber: '',
-      referredBy: '',
-      source: '',
-      notes: '',
-      contactPerson: '',
-      bankAccountName: '',
-      bankName: '',
-      bankAccountNumber: '',
-      bankIfsc: '',
-      bankUpiId: '',
-      whatsappOptIn: true,
-    },
+    defaultValues: BLANK_CUSTOMER_DEFAULTS,
   })
 
   // Live "already used" check for GSTIN / drug licence — flags a taken value
@@ -854,6 +860,21 @@ export default function CustomersPage() {
       // (matches the schema default of true).
       whatsappOptIn: (customer as { whatsappOptIn?: boolean }).whatsappOptIn ?? true,
     })
+    setDocFiles([])
+    setDocPreviews([])
+    setRxFiles([])
+    setRxPreviews([])
+    setPhoneCheckError('')
+    setEmailCheckError('')
+    setAddDialogOpen(true)
+  }
+
+  // Open the drawer for a NEW customer. Must force-reset to blank defaults —
+  // a prior edit leaves the last customer's values as RHF's defaults, so simply
+  // opening the drawer would show that customer's data (with duplicate errors).
+  const handleOpenAdd = () => {
+    setEditingCustomer(null)
+    form.reset(BLANK_CUSTOMER_DEFAULTS)
     setDocFiles([])
     setDocPreviews([])
     setRxFiles([])
@@ -1247,7 +1268,7 @@ export default function CustomersPage() {
               <Upload className="mr-1.5 h-4 w-4" />
               Import
             </Button>
-            <Button size="sm" className="w-full sm:w-auto" onClick={() => setAddDialogOpen(true)}>
+            <Button size="sm" className="w-full sm:w-auto" onClick={handleOpenAdd}>
               <Plus className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Add Customer</span>
               <span className="sm:hidden">Add</span>
@@ -1382,7 +1403,7 @@ export default function CustomersPage() {
                   onAction={
                     searchQuery || activeFilterCount > 0
                       ? () => { clearFilters(); setSearchQuery('') }
-                      : () => setAddDialogOpen(true)
+                      : handleOpenAdd
                   }
                 />
               )}
@@ -1509,7 +1530,7 @@ export default function CustomersPage() {
                         onAction={
                           searchQuery || activeFilterCount > 0
                             ? () => { clearFilters(); setSearchQuery('') }
-                            : () => setAddDialogOpen(true)
+                            : handleOpenAdd
                         }
                       />
                     </TableCell>
@@ -1653,7 +1674,7 @@ export default function CustomersPage() {
         {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
         <SheetContent
           side="right"
-          className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 gap-0 flex flex-col h-dvh overflow-hidden"
+          className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 gap-0 flex flex-col overflow-hidden"
         >
           <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
             <SheetTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</SheetTitle>
@@ -1662,7 +1683,7 @@ export default function CustomersPage() {
             </p>
           </SheetHeader>
           <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0">
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+            <div data-sheet-body className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
               {/* Row 1: Name + Phone */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1912,7 +1933,7 @@ export default function CustomersPage() {
                       Add Files
                       <input
                         type="file"
-                        className="sr-only"
+                        className="hidden"
                         accept="image/jpeg,image/png,image/webp,application/pdf"
                         multiple
                         ref={multiFileInputRef}
@@ -1971,7 +1992,7 @@ export default function CustomersPage() {
                     Add Files
                     <input
                       type="file"
-                      className="sr-only"
+                      className="hidden"
                       accept="image/jpeg,image/png,image/webp,application/pdf"
                       multiple
                       onChange={(e) => handleRxFiles(e.target.files)}
@@ -2013,7 +2034,7 @@ export default function CustomersPage() {
               </div>
 
             </div>
-            <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
+            <div data-sheet-footer className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">
               <Button type="button" variant="outline" onClick={() => { setEditingCustomer(null); form.reset(); setDocFiles([]); setDocPreviews([]); setRxFiles([]); setRxPreviews([]); setPhoneCheckError(''); setEmailCheckError(''); setAddDialogOpen(false); returnToSplitIfNeeded() }}>Cancel</Button>
               <Button
                 type="submit"

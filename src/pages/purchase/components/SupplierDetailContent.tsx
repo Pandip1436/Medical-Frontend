@@ -32,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { DocumentsOverviewCard } from '@/components/shared/DocumentsOverviewCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -547,6 +548,9 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                           </OverviewSection>
                         )}
                       </div>
+                      {/* Documents live on the linked customer twin (this is the
+                          same party), so read them from there. */}
+                      <DocumentsOverviewCard customerId={sup?.customerId} />
                     </CardContent>
                   </Card>
                 ) : null}

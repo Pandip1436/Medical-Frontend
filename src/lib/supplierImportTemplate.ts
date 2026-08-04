@@ -89,6 +89,18 @@ export interface ParsedSupplier {
   payments: ParsedPayment[]
   activities: ParsedActivity[]
   batches: ParsedBatch[]
+  prescriptions: ParsedSupplierDocument[] // uploaded documents (re-attached to the twin)
+}
+
+// A supplier document row from the Documents sheet. Documents physically live on
+// the supplier's linked CUSTOMER twin as Prescription rows; on import we re-attach
+// each to that twin. The file itself already lives in R2 — imageUrl is its link.
+export interface ParsedSupplierDocument {
+  sourceRow: number
+  doctorName: string // document title
+  notes?: string
+  validUntil?: string
+  imageUrl?: string
 }
 
 export interface ParsedBatch {
@@ -214,6 +226,7 @@ export interface ParseResult {
   orphanPayments: number
   orphanActivities: number
   orphanBatches: number
+  orphanDocuments: number
   errors: ParseError[]
   exportMetadata?: ExportMetadata
 }
@@ -229,6 +242,7 @@ type SheetName =
   | 'Payments'
   | 'Activities'
   | 'Batches'
+  | 'Documents'
   | 'Instructions'
 
 // ─── Column schemas (single source of truth) ─────────────────────────────────
@@ -732,6 +746,7 @@ export async function parseSupplierImportWorkbook(
       payments: [],
       activities: [],
       batches: [],
+      prescriptions: [],
     }
     suppliers.push(s)
     if (s.supplierCode) {
@@ -1116,6 +1131,55 @@ export async function parseSupplierImportWorkbook(
     })
   })
 
+  // ── Documents (uploaded files → re-attached to the supplier's customer twin) ──
+  let orphanDocuments = 0
+  const documentRows = readSheetByName<Record<string, unknown>>(wb, 'Documents')
+  documentRows.forEach((raw, idx) => {
+    const rowNum = idx + 2
+    const code = toStr(raw.supplier_code)
+    if (!code) {
+      // A blank code with any real content is a linking error; a fully blank row is ignored.
+      if (toStr(raw.doctor_name) || toStr(raw.image_url)) {
+        errors.push({
+          sheet: 'Documents',
+          row: rowNum,
+          field: 'supplier_code',
+          message: 'supplier_code is required to link this document.',
+        })
+      }
+      return
+    }
+    const supplier = byCode.get(code)
+    if (!supplier) {
+      orphanDocuments++
+      errors.push({
+        sheet: 'Documents',
+        row: rowNum,
+        field: 'supplier_code',
+        message: `supplier_code "${code}" not found in Suppliers sheet — document skipped.`,
+      })
+      return
+    }
+    // doctor_name is the document title and is required (matches the Prescription model).
+    const doctorName = toStr(raw.doctor_name)
+    if (!doctorName) {
+      errors.push({
+        sheet: 'Documents',
+        row: rowNum,
+        field: 'doctor_name',
+        message: 'doctor_name (document title) is required.',
+      })
+      return
+    }
+    supplier.prescriptions.push({
+      sourceRow: rowNum,
+      doctorName,
+      notes: toOptionalStr(raw.notes),
+      validUntil: toISODate(raw.valid_until),
+      imageUrl: toOptionalStr(raw.image_url),
+    })
+  })
+
   // ── Batches ──
   let orphanBatches = 0
   const batchRows = readSheetByName<Record<string, unknown>>(wb, 'Batches')
@@ -1186,6 +1250,7 @@ export async function parseSupplierImportWorkbook(
     orphanPayments: 0,
     orphanActivities: 0,
     orphanBatches: 0,
+    orphanDocuments: 0,
   }
 
   // Fallback 1: MARG ERP "address book" (multi-row party blocks). Checked
@@ -1201,7 +1266,7 @@ export async function parseSupplierImportWorkbook(
         abSuppliers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           gstin: p.gstin, drugLicense: p.dlNumber,
-          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [], prescriptions: [],
         })
       }
       if (abSuppliers.length > 0) {
@@ -1230,7 +1295,7 @@ export async function parseSupplierImportWorkbook(
         ptSuppliers.push({
           sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
           email: p.email, gstin: p.gstin, drugLicense: p.dlNumber,
-          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [], prescriptions: [],
         })
       }
       if (ptSuppliers.length > 0) {
@@ -1267,7 +1332,7 @@ export async function parseSupplierImportWorkbook(
           contactPerson: v.contactPerson, email: v.email, gstin: v.gstin,
           drugLicense: v.drugLicense, address: v.address,
           openingBalance: toOptionalNumber(v.openingBalance),
-          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [],
+          purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [], prescriptions: [],
         })
       }
       if (looseSuppliers.length > 0) {
@@ -1284,6 +1349,7 @@ export async function parseSupplierImportWorkbook(
     orphanPayments,
     orphanActivities,
     orphanBatches,
+    orphanDocuments,
     errors,
     exportMetadata,
   }
@@ -1293,6 +1359,7 @@ export async function parseSupplierImportWorkbook(
 
 interface ExportSupplierInput {
   id: string
+  customerId?: string | null // linked customer twin — documents hang off this
   name: string
   phone: string
   alternatePhone?: string | null
@@ -1427,6 +1494,22 @@ interface ExportBatchInput {
   purchaseRate: number | string
 }
 
+// Uploaded documents (GST cert, drug licence, bank proof, prescriptions).
+// Stored as Prescription rows on the linked customer twin; the file lives in
+// R2 and imageUrl carries its link.
+interface ExportSupplierDocumentInput {
+  id: string
+  customerId: string
+  doctorName?: string | null // used as the document title
+  notes?: string | null
+  validUntil?: string | Date | null
+  imageUrl?: string | null
+}
+
+// Documents sheet columns — mirror the customer export's Prescriptions sheet,
+// but keyed by supplier_code instead of customer_code.
+const DOCUMENT_COLUMNS = ['supplier_code', 'doctor_name', 'notes', 'valid_until', 'image_url'] as const
+
 export interface SupplierExportPayload {
   suppliers: ExportSupplierInput[]
   purchaseOrders: ExportPurchaseOrderInput[]
@@ -1438,6 +1521,7 @@ export interface SupplierExportPayload {
   payments: ExportSupplierPaymentInput[]
   activities: ExportSupplierActivityInput[]
   batches: ExportBatchInput[]
+  prescriptions?: ExportSupplierDocumentInput[] // supplier documents (via twin)
 }
 
 function isoDate(v: string | Date | null | undefined): string {
@@ -1499,6 +1583,13 @@ export function exportSuppliersToWorkbook(
   })
   const grnNumberById = new Map<string, string>()
   payload.grns.forEach((g) => grnNumberById.set(g.id, g.grnNumber))
+  // Documents hang off the supplier's linked customer twin, so map the twin's
+  // customerId → the supplier's S00x code to place each document on the right row.
+  const codeForCustomerId = new Map<string, string>()
+  payload.suppliers.forEach((s) => {
+    const code = codeFor.get(s.id)
+    if (s.customerId && code) codeForCustomerId.set(s.customerId, code)
+  })
 
   // Per-supplier money, computed live from non-replacement GRNs — the exact
   // same basis as the Suppliers list (withLiveOutstanding): Total = Σ invoice,
@@ -1724,6 +1815,17 @@ export function exportSuppliersToWorkbook(
   addSheet('Payments',         paymentRows,  PAYMENT_COLUMNS,   SHEET_COLORS.payments)
   addSheet('Activities',       activityRows, ACTIVITY_COLUMNS,  SHEET_COLORS.activities)
   addSheet('Batches',          batchRows,    BATCH_COLUMNS,     SHEET_COLORS.batches)
+
+  // Documents — each uploaded file's R2 link, linked to its supplier via the
+  // twin customerId. Mirrors the customer export's Prescriptions sheet.
+  const documentRows = (payload.prescriptions ?? []).map((doc) => ({
+    supplier_code: codeForCustomerId.get(doc.customerId) ?? '',
+    doctor_name: doc.doctorName ?? '',
+    notes: doc.notes ?? '',
+    valid_until: isoDate(doc.validUntil),
+    image_url: doc.imageUrl ?? '',
+  }))
+  addSheet('Documents',        documentRows, DOCUMENT_COLUMNS,  SHEET_COLORS.prescriptions)
 
   const date = new Date()
   const stamp = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`

@@ -14,7 +14,10 @@ installChunkErrorRecovery()
 // Warm the PDF logo cache so invoice / GRN / PO prints embed it without a wait.
 void preloadPdfLogo()
 
-registerPwa()
+// Register the service worker only in production builds. In dev a SW causes
+// stale-shell blank screens on window refocus (see src/lib/pwa.ts) and offers
+// no benefit.
+if (import.meta.env.PROD) registerPwa()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -76,6 +76,8 @@ import {
 
 import { navigate, useRoute } from '@/lib/router'
 import api, { API_SERVER_URL } from '@/lib/api'
+import { DocumentsOverviewCard } from '@/components/shared/DocumentsOverviewCard'
+import { DocumentPreviewDialog } from '@/components/shared/DocumentPreviewDialog'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import type { Customer } from '@/types'
 import { useCustomerDetail, CUSTOMER_TAB_PAGE_SIZE, type TabRange } from '@/hooks/useCustomerDetail'
@@ -590,6 +592,11 @@ export function CustomerDetailContent({ customerId, onRequestEdit }: CustomerDet
                           </OverviewSection>
                         )}
                       </div>
+                      {/* Uploaded documents (address proof, prescriptions, …) —
+                          viewable here as well as in the Document tab. Fetch by
+                          id rather than reusing the lazy rxList (which is only
+                          populated once the Document tab is opened). */}
+                      <DocumentsOverviewCard customerId={cust?.id} />
                     </CardContent>
                   </Card>
                 ) : null}
@@ -1588,6 +1595,7 @@ function RxTabContent({
   const [validUntil, setValidUntil] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewTitle, setPreviewTitle] = useState('Document')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -1707,14 +1715,14 @@ function RxTabContent({
                   <div key={rx.id} className="rounded-xl border border-border/40 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
+                        <div className="truncate text-sm font-medium">
                           {rx.doctorName ? <Badge variant="secondary" size="sm">{rx.doctorName}</Badge> : '—'}
-                        </p>
+                        </div>
                         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{rx.createdAt ? formatDate(rx.createdAt) : '—'}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {url && (
-                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                          <Button size="icon-sm" variant="ghost" className="h-8 w-8" onClick={() => { setPreviewUrl(url); setPreviewTitle(rx.doctorName || 'Document') }} aria-label="Preview">
                             <Eye className="h-4 w-4" />
                           </Button>
                         )}
@@ -1761,7 +1769,7 @@ function RxTabContent({
                       <TableCell className="px-3 py-2.5 text-right">
                         <div className="inline-flex items-center gap-1">
                           {url && (
-                            <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewUrl(url)} aria-label="Preview">
+                            <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => { setPreviewUrl(url); setPreviewTitle(rx.doctorName || 'Document') }} aria-label="Preview">
                               <Eye className="h-4 w-4" />
                             </Button>
                           )}
@@ -1852,25 +1860,7 @@ function RxTabContent({
       </Dialog>
 
       {/* Preview dialog */}
-      <Dialog open={!!previewUrl} onOpenChange={(open) => { if (!open) setPreviewUrl(null) }}>
-        <DialogContent className="max-w-3xl rounded-2xl p-0 overflow-hidden">
-          <DialogHeader className="px-5 pt-5 pb-3">
-            <DialogTitle className="flex items-center justify-between">
-              Prescription Preview
-              <Button size="icon-sm" variant="ghost" className="h-7 w-7" onClick={() => setPreviewUrl(null)} aria-label="Close">
-                <X className="h-4 w-4" />
-              </Button>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="bg-muted/20 max-h-[75vh] overflow-auto">
-            {previewUrl && (previewUrl.toLowerCase().endsWith('.pdf') ? (
-              <iframe src={previewUrl} className="w-full h-[75vh]" title="Prescription" />
-            ) : (
-              <img src={previewUrl} alt="Prescription" className="w-full h-auto" />
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DocumentPreviewDialog url={previewUrl} title={previewTitle} onClose={() => setPreviewUrl(null)} />
 
       {/* Delete confirmation */}
       <ConfirmDialog

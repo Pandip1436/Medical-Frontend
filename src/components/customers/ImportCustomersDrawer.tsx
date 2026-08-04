@@ -79,7 +79,7 @@ interface ImportRowError {
 }
 
 interface ImportRowWarning extends ImportRowError {
-  kind: 'duplicate' | 'missing-link' | 'coerced'
+  kind: 'duplicate' | 'missing-link' | 'coerced' | 'skipped-history'
 }
 
 interface ImportDuplicateMatch {
@@ -101,6 +101,13 @@ interface ImportSummary {
   quotationItems: { created: number }
   creditNotes: { created: number; skipped: number; failed: number }
   creditNoteItems: { created: number }
+  // Totals for history dropped because a duplicate row was SKIPped (see the
+  // backend's warnSkippedHistory). Drives the "re-run as UPDATE" prompt so a
+  // supplier-first import can't silently lose a wholesale customer's ledger.
+  skippedHistory: { parties: number; invoices: number; payments: number; creditNotes: number }
+  // Bare supplier-created wholesale twins whose history we imported onto them
+  // (instead of skipping) — drives the green "no wholesale ledger lost" note.
+  adoptedTwins: number
   openingBalanceApplied: number
 }
 
@@ -253,6 +260,7 @@ export function ImportCustomersDrawer({
         name: c.name,
         phone: c.phone,
         alternatePhone: c.alternatePhone,
+        contactPerson: c.contactPerson,
         email: c.email,
         address: c.address,
         type: c.type,
@@ -264,6 +272,11 @@ export function ImportCustomersDrawer({
         gstin: c.gstin,
         dlNumber: c.dlNumber,
         registrationNumber: c.registrationNumber,
+        bankAccountName: c.bankAccountName,
+        bankName: c.bankName,
+        bankAccountNumber: c.bankAccountNumber,
+        bankIfsc: c.bankIfsc,
+        bankUpiId: c.bankUpiId,
         notes: c.notes,
         whatsappOptIn: c.whatsappOptIn,
         whatsappNumber: c.whatsappNumber,
@@ -749,6 +762,32 @@ function PreviewStage({
             {summary.openingBalanceApplied > 0
               ? ` Total opening balance: ${formatCurrency(summary.openingBalanceApplied)}.`
               : ''}
+          </p>
+        </div>
+      ) : null}
+
+      {/* Loud prompt: SKIP is about to drop existing parties' history (invoices/
+          payments). This is exactly how a supplier-first import silently loses a
+          wholesale customer's ledger — steer the user to UPDATE before commit. */}
+      {summary && summary.skippedHistory.parties > 0 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {summary.skippedHistory.parties} existing {summary.skippedHistory.parties === 1 ? 'party is' : 'parties are'} being skipped along with their history — {summary.skippedHistory.invoices} invoices and {summary.skippedHistory.payments} payments will NOT be imported.
+          </p>
+          <p className="mt-1 pl-5">
+            Many of these are wholesale customers that already exist as supplier-linked records. Switch <span className="font-semibold">On duplicate</span> to <span className="font-semibold">Update</span> below to bring their history in.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Reassurance: bare supplier-linked twins had their history imported onto
+          them rather than dropped — so a supplier-first import lost no ledger. */}
+      {summary && summary.adoptedTwins > 0 ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <p className="font-medium flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            {summary.adoptedTwins} wholesale {summary.adoptedTwins === 1 ? 'customer' : 'customers'} already existed as supplier-linked records — their history was imported onto them, so nothing was excluded.
           </p>
         </div>
       ) : null}

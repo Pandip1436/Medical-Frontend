@@ -261,6 +261,7 @@ export function ImportSuppliersDrawer({
         payments: s.payments,
         activities: s.activities,
         batches: s.batches,
+        prescriptions: s.prescriptions,
       })),
     }),
     [],

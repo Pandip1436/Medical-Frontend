@@ -31,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { DocumentsOverviewCard } from '@/components/shared/DocumentsOverviewCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -657,6 +658,8 @@ export default function SupplierDetailPage() {
                         )}
                       </OverviewSection>
                     </div>
+                    {/* Documents live on the linked customer twin. */}
+                    <DocumentsOverviewCard customerId={sup?.customerId} />
                   </CardContent>
                 </Card>
               ) : null}

@@ -63,6 +63,7 @@ export interface ParsedCustomer {
   name: string
   phone: string
   alternatePhone?: string
+  contactPerson?: string
   email?: string
   address?: string
   type?: CustomerType
@@ -74,6 +75,11 @@ export interface ParsedCustomer {
   gstin?: string
   dlNumber?: string
   registrationNumber?: string
+  bankAccountName?: string
+  bankName?: string
+  bankAccountNumber?: string
+  bankIfsc?: string
+  bankUpiId?: string
   notes?: string
   whatsappOptIn?: boolean
   whatsappNumber?: string
@@ -210,6 +216,9 @@ export interface ParsedPrescription {
   doctorName: string
   notes?: string
   validUntil?: string
+  // R2 link to the uploaded file. Exported so the document reference survives an
+  // export→re-import; the file itself already lives in R2 (not re-uploaded).
+  imageUrl?: string
 }
 
 export interface ParseError {
@@ -261,6 +270,7 @@ const CUSTOMER_COLUMNS = [
   'name',
   'phone',
   'alternate_phone',
+  'contact_person',
   'email',
   'address',
   'type',
@@ -272,6 +282,12 @@ const CUSTOMER_COLUMNS = [
   'referred_by',
   'credit_limit',
   'opening_balance',
+  // Bank details (populated for WHOLESALE customers, who are also suppliers).
+  'bank_account_name',
+  'bank_name',
+  'bank_account_number',
+  'bank_ifsc',
+  'bank_upi_id',
   'whatsapp_opt_in',
   'whatsapp_number',
   'notes',
@@ -362,6 +378,7 @@ const PRESCRIPTION_COLUMNS = [
   'doctor_name',
   'notes',
   'valid_until',
+  'image_url',
 ] as const
 
 const QUOTATION_COLUMNS = [
@@ -425,6 +442,7 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   name: 'Asha Medical Stores',
   phone: '9876543210',
   alternate_phone: '',
+  contact_person: 'Asha R.',
   email: 'asha@example.com',
   address: '12, MG Road, Bengaluru',
   type: 'WHOLESALE',
@@ -438,6 +456,11 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   referred_by: '',
   credit_limit: 50000,
   opening_balance: 12500,
+  bank_account_name: 'Asha Medical Stores',
+  bank_name: 'HDFC Bank',
+  bank_account_number: '50100123456789',
+  bank_ifsc: 'HDFC0000123',
+  bank_upi_id: 'asha@okhdfcbank',
   whatsapp_opt_in: 'TRUE',
   whatsapp_number: '',
   notes: 'Imported from legacy system',
@@ -530,6 +553,9 @@ const SAMPLE_PRESCRIPTION_ROW: Record<string, string | number> = {
   doctor_name: 'Dr. R. Kumar',
   notes: '',
   valid_until: '2026-10-01',
+  // Leave blank on a fresh import (attach files from the customer page). On
+  // EXPORT this carries the R2 link of the uploaded document.
+  image_url: '',
 }
 
 const SAMPLE_QUOTATION_ROW: Record<string, string | number> = {
@@ -612,7 +638,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['', ''],
   ['Sheet: Activities', 'Optional. REQUIRED per row: customer_code, type.'],
   ['', ''],
-  ['Sheet: Prescriptions', 'Optional. REQUIRED per row: customer_code. File uploads are not supported here — attach docs from the customer page after import.'],
+  ['Sheet: Prescriptions', 'Optional. REQUIRED per row: customer_code. To attach a NEW file, upload it from the customer page (Document tab) after import. On EXPORT the image_url column carries the R2 link of each existing document, and that link is preserved on re-import.'],
   ['', ''],
   ['Sheet: Quotations', 'Optional. REQUIRED: customer_code. `quotation_ref` links its line items; fill quotation_number to match the stored copy.'],
   ['Sheet: Quotation Items', 'Optional. REQUIRED per row: quotation_ref.'],
@@ -815,6 +841,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       name,
       phone,
       alternatePhone: toOptionalStr(raw.alternate_phone),
+      contactPerson: toOptionalStr(raw.contact_person),
       email: toOptionalStr(raw.email),
       address: toOptionalStr(raw.address),
       type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
@@ -826,6 +853,11 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       gstin: toOptionalStr(raw.gstin),
       dlNumber: toOptionalStr(raw.dl_number),
       registrationNumber: toOptionalStr(raw.registration_number),
+      bankAccountName: toOptionalStr(raw.bank_account_name),
+      bankName: toOptionalStr(raw.bank_name),
+      bankAccountNumber: toOptionalStr(raw.bank_account_number),
+      bankIfsc: toOptionalStr(raw.bank_ifsc),
+      bankUpiId: toOptionalStr(raw.bank_upi_id),
       notes: toOptionalStr(raw.notes),
       whatsappOptIn: toBool(raw.whatsapp_opt_in),
       whatsappNumber: toOptionalStr(raw.whatsapp_number),
@@ -1095,6 +1127,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       doctorName,
       notes: toOptionalStr(raw.notes),
       validUntil: toISODate(raw.valid_until),
+      imageUrl: toOptionalStr(raw.image_url),
     })
   })
 
@@ -1460,6 +1493,7 @@ interface ExportCustomerInput {
   name: string
   phone: string
   alternatePhone?: string | null
+  contactPerson?: string | null
   email?: string | null
   address?: string | null
   type?: string | null
@@ -1471,6 +1505,11 @@ interface ExportCustomerInput {
   gstin?: string | null
   dlNumber?: string | null
   registrationNumber?: string | null
+  bankAccountName?: string | null
+  bankName?: string | null
+  bankAccountNumber?: string | null
+  bankIfsc?: string | null
+  bankUpiId?: string | null
   notes?: string | null
   whatsappOptIn?: boolean | null
   whatsappNumber?: string | null
@@ -1552,6 +1591,7 @@ interface ExportPrescriptionInput {
   doctorName: string
   notes?: string | null
   validUntil?: string | Date | null
+  imageUrl?: string | null
 }
 
 interface ExportQuotationInput {
@@ -1711,6 +1751,7 @@ export function exportCustomersToWorkbook(
       name: c.name,
       phone: c.phone,
       alternate_phone: c.alternatePhone ?? '',
+      contact_person: c.contactPerson ?? '',
       email: c.email ?? '',
       address: c.address ?? '',
       type: c.type ?? '',
@@ -1721,6 +1762,11 @@ export function exportCustomersToWorkbook(
       referred_by: c.referredBy ?? '',
       credit_limit: num(c.creditLimit),
       opening_balance: num(c.currentOutstanding),
+      bank_account_name: c.bankAccountName ?? '',
+      bank_name: c.bankName ?? '',
+      bank_account_number: c.bankAccountNumber ?? '',
+      bank_ifsc: c.bankIfsc ?? '',
+      bank_upi_id: c.bankUpiId ?? '',
       whatsapp_opt_in: c.whatsappOptIn === false ? 'FALSE' : 'TRUE',
       whatsapp_number: c.whatsappNumber ?? '',
       notes: c.notes ?? '',
@@ -1811,6 +1857,7 @@ export function exportCustomersToWorkbook(
     doctor_name: rx.doctorName,
     notes: rx.notes ?? '',
     valid_until: isoDate(rx.validUntil),
+    image_url: rx.imageUrl ?? '',
   }))
 
   const quotationRows = payload.quotations.map((q) => ({
@@ -1895,7 +1942,7 @@ export function exportCustomersToWorkbook(
     ['Sheet: Payments', 'Past receipts. receipt_number is the dedupe key.'],
     ['Sheet: Refunds', 'Past cash refunds, linked to credit notes by credit_note_no. refund_number is the dedupe key.'],
     ['Sheet: Activities', 'Call / WhatsApp / Email / Note / Reminder log.'],
-    ['Sheet: Prescriptions', 'Doctor + validity. File uploads not supported via this round-trip.'],
+    ['Sheet: Prescriptions', 'Doctor + validity + image_url (R2 link to the uploaded file). The link round-trips on re-import; new files are attached from the customer page.'],
     ['Sheet: Quotations', 'Past quotes. quotation_number is the dedupe key.'],
     ['Sheet: Credit Notes', 'Returns / credit notes linked to invoices by invoice_number.'],
   ])
