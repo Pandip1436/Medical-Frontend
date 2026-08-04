@@ -62,18 +62,48 @@ function stepperIndex(status: DeliveryStatus): number {
   return STEPPER.indexOf(folded)
 }
 
-// The browser (and Tesseract, which decodes through it) can't read every
-// "image/*" type — notably HEIC/HEIF from iPhones and TIFF. A successful decode
-// here means OCR can run; a failure means the format is unsupported and we
-// should tell the user instead of feeding Tesseract undecodable bytes.
-async function canDecodeImage(file: File): Promise<boolean> {
-  if (typeof createImageBitmap !== 'function') return true // no way to check → let OCR try
+// Decode + orientation-normalise a receipt image before OCR.
+//
+// Two things this guards against:
+//  1. Undecodable formats. Not every "image/*" type can be read here — notably
+//     HEIC/HEIF from iPhones and TIFF. A failed decode means we should tell the
+//     user instead of feeding Tesseract bytes it can't use.
+//  2. EXIF rotation. A phone camera stores landscape pixels plus an "orientation"
+//     tag; browsers apply that tag when DISPLAYING the image, but Tesseract
+//     decodes the raw pixels and ignores it. So a photo that looks upright in the
+//     preview can reach OCR rotated 90°, which reduces the read to noise.
+//     Redrawing through a canvas with `imageOrientation: 'from-image'` bakes the
+//     rotation into the pixels, so what the user sees is what gets OCR'd.
+//
+// Returns the normalised blob plus its displayed dimensions, or null if the
+// image can't be decoded. Width/height come back as 0 when the browser gives us
+// no way to inspect the image — callers must not treat that as portrait.
+async function prepareReceiptImage(
+  file: File,
+): Promise<{ blob: Blob; width: number; height: number } | null> {
+  if (typeof createImageBitmap !== 'function') return { blob: file, width: 0, height: 0 }
+
+  let bitmap: ImageBitmap
   try {
-    const bitmap = await createImageBitmap(file)
-    bitmap.close()
-    return true
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
   } catch {
-    return false
+    return null // unsupported format (HEIC/HEIF, TIFF, corrupt file)
+  }
+
+  const { width, height } = bitmap
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return { blob: file, width, height } // no canvas → OCR the original
+    ctx.drawImage(bitmap, 0, 0)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.95),
+    )
+    return { blob: blob ?? file, width, height }
+  } finally {
+    bitmap.close()
   }
 }
 
@@ -157,7 +187,8 @@ export default function DeliveryTrackingPage() {
     // check but can't be decoded here, so OCR would only produce noise (and the
     // preview would break too). Verify the image decodes first, and guide the
     // user to a supported format on failure.
-    if (!(await canDecodeImage(file))) {
+    const prepared = await prepareReceiptImage(file)
+    if (!prepared) {
       setReceiptPreview(null)
       toast.error(
         'Couldn’t read this image — the format may be unsupported (e.g. an iPhone HEIC photo). Please upload a clear JPG, PNG or WebP image, or a screenshot of the receipt.',
@@ -165,11 +196,23 @@ export default function DeliveryTrackingPage() {
       )
       return
     }
-    setReceiptPreview(URL.createObjectURL(file))
+    // Preview and OCR both use the orientation-corrected image, so the fields
+    // are read from exactly the picture shown on screen.
+    setReceiptPreview(URL.createObjectURL(prepared.blob))
+    // Orientation check: a portrait shot usually means the receipt is rotated or
+    // cropped, which is the most common cause of a poor read. Warn rather than
+    // block — a portrait photo can still OCR fine, and refusing it would leave
+    // the user with no way to proceed.
+    if (prepared.width > 0 && prepared.height > prepared.width) {
+      toast.warning(
+        'That looks like a portrait photo. A landscape shot of the receipt reads best — please double-check the auto-filled fields.',
+        { duration: 6000 },
+      )
+    }
     setOcrRunning(true)
     setOcrProgress(0)
     try {
-      const result = await extractCourierReceipt(file, (p) => setOcrProgress(p))
+      const result = await extractCourierReceipt(prepared.blob, (p) => setOcrProgress(p))
       setOcrText(result.rawText)
       // Auto-fill only the fields we confidently detected; never clobber a
       // value the user already typed with an empty detection.
@@ -662,7 +705,7 @@ export default function DeliveryTrackingPage() {
                     {receiptName ? <ImageIcon className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
                   </div>
                   <p className="text-sm font-medium">{receiptName ?? 'Upload courier receipt'}</p>
-                  <p className="text-xs text-muted-foreground">JPG, PNG or WebP — a clear, upright photo</p>
+                  <p className="text-xs text-muted-foreground">JPG, PNG or WebP — a clear, landscape photo</p>
                 </button>
               )}
 
@@ -688,7 +731,7 @@ export default function DeliveryTrackingPage() {
                 <p className="mb-1 font-semibold text-foreground/80">For the best auto-read:</p>
                 <ul className="list-disc space-y-0.5 pl-4">
                   <li>Use a <span className="font-medium">JPG, PNG or WebP</span> image (not PDF).</li>
-                  <li>Keep the receipt <span className="font-medium">flat and upright</span>, filling the frame.</li>
+                  <li>Keep the receipt <span className="font-medium">flat and landscape</span>, filling the frame.</li>
                   <li>Make sure the <span className="font-medium">courier name and tracking number</span> are sharp and well-lit.</li>
                   <li><span className="font-medium">iPhone HEIC</span> photos aren’t supported — set Camera → Formats to “Most Compatible”, or upload a screenshot/JPG.</li>
                 </ul>
