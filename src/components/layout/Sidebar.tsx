@@ -272,10 +272,17 @@ export function Sidebar({ currentPath }: SidebarProps) {
   const mobileOpen = mobileSidebarOpen
   const setMobileOpen = setMobileSidebarOpen
   const [moreSheetOpen, setMoreSheetOpen] = useState(false)
-  // Hover-to-expand is always on for a real docked desktop rail — the rail
-  // stays collapsed and expands on mouse-over. It never applies to the
-  // touch/tablet bottom-bar shell or the narrow-window click overlay.
-  const hoverMode = !isMobile && !isTabletTouch
+  // Hover-to-expand applies to every docked rail driven by a mouse — the rail
+  // stays collapsed and expands on mouse-over. Only the touch/tablet bottom-bar
+  // shell is excluded.
+  //
+  // Deliberately NOT gated on window width. Width is the wrong test for a
+  // pointer behaviour: what matters is whether there's a mouse, and touch
+  // devices are already routed to the bottom-bar shell above. Gating it on
+  // `isTabletTouch` (non-touch windows under 1280 CSS px) meant browser zoom
+  // silently killed hover — at 110% zoom a 1366px screen reports ~1242 CSS px,
+  // so the same desktop that hovered fine at 100% lost the handlers entirely.
+  const hoverMode = !isMobile
 
   // Keyboard shortcut: [ to toggle sidebar
   useEffect(() => {
@@ -813,9 +820,14 @@ export function Sidebar({ currentPath }: SidebarProps) {
   // Its width animates between the slim rail and the full width; AppLayout
   // keeps the content margin pinned at the rail width, so the expanded rail
   // overlays the page instead of pushing it.
-  const dockedCollapsed = isTabletTouch ? true : hoverMode ? !hovered : sidebarCollapsed
-  const dockedWidth = isTabletTouch ? '4rem' : hoverMode ? (hovered ? '16.25rem' : '4rem') : sidebarWidth
-  const tabletOverlayOpen = isTabletTouch && !sidebarCollapsed
+  // hoverMode is checked FIRST: a narrow non-touch window is now a hover rail
+  // like any other desktop, so it must not fall into the always-collapsed
+  // compact branch below.
+  const dockedCollapsed = hoverMode ? !hovered : isTabletTouch ? true : sidebarCollapsed
+  const dockedWidth = hoverMode ? (hovered ? '16.25rem' : '4rem') : isTabletTouch ? '4rem' : sidebarWidth
+  // The click-to-open overlay is the fallback for when hover isn't available —
+  // it must not double up with a rail that already expands on mouse-over.
+  const tabletOverlayOpen = isTabletTouch && !hoverMode && !sidebarCollapsed
 
   return (
     <TooltipProvider delayDuration={0}>

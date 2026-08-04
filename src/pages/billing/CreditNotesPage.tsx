@@ -262,6 +262,11 @@ export default function CreditNotesPage() {
   const [splitLoading, setSplitLoading] = useState(false)
   // Ref to track in-flight requests so filter-change resets don't double-append
   const splitFetchIdRef = useRef(0)
+  // Bumped to force a re-fetch of page 1. Resetting `splitPage` to 1 can't do it
+  // on its own: after approving a credit note we're already on page 1, so the
+  // setState is a no-op, the fetch effect never re-runs, and the list stays at
+  // the empty state the refresh just cleared (every tab count reading 0).
+  const [splitRefreshKey, setSplitRefreshKey] = useState(0)
 
   const loadFilterPrefs = useFilterPrefsStore((s) => s.loadFromServer)
   useEffect(() => { loadFilterPrefs() }, [loadFilterPrefs])
@@ -350,13 +355,13 @@ export default function CreditNotesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, dateFrom, dateTo, searchQuery, selectedSettlement, selectedStatus, selectedCustomer, selectedReason])
 
-  // Fetch when splitPage advances (page=1 reset is handled above — the effect
-  // below will also fire because splitPage resets to 1 which re-triggers)
+  // Fetch when splitPage advances, when the filters change (fetchSplitPage is
+  // rebuilt), or when something asks for an explicit refresh (splitRefreshKey —
+  // the only trigger that works when we're already sitting on page 1).
   useEffect(() => {
     const id = splitFetchIdRef.current
     fetchSplitPage(splitPage, id)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [splitPage, fetchSplitPage])
+  }, [splitPage, fetchSplitPage, splitRefreshKey])
 
   // Deep-link support: the detail is now its own page. Legacy links that land
   // on the list with `?id=<id>` (Customer Detail → Credit Notes tab,
@@ -758,6 +763,11 @@ export default function CreditNotesPage() {
               setSplitItems([])
               setSplitTotal(0)
               setSplitPage(1)
+              setSplitRefreshKey((k) => k + 1)
+              // The KPI tiles read the separately-fetched `creditNotes` array,
+              // so without this the header still shows the pre-approval pending
+              // count and totals.
+              fetchCreditNotes()
             }}
             isCardFieldVisible={cardCols.isVisible}
             tabsNode={

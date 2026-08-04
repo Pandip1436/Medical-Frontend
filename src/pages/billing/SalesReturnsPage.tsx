@@ -360,7 +360,6 @@ export default function SalesReturnsPage() {
   const draft = useFormDraft<ReturnDraftSnapshot>(`sales-return-draft:${activeBranchId ?? 'none'}`)
 
   // Restore once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const saved = draft.load()
     if (!saved?.selectedCustomer) return
@@ -370,8 +369,45 @@ export default function SalesReturnsPage() {
     setCustomerSearch(saved.customerSearch)
     setReturnItems(saved.returnItems)
     setSettlementOption(saved.settlementOption)
+    // The settlement options are gated on the customer's outstanding balance,
+    // which lives in its own state and is otherwise only set by
+    // handleSelectCustomer. Without seeding it here a restored return came back
+    // with "Adjust Against Outstanding" greyed out — the very option the draft
+    // had selected — and "Refund to Customer" wrongly offered instead.
+    setCustomerOutstanding(Number(saved.selectedCustomer.currentOutstanding ?? 0))
     toast.info('Restored your in-progress return')
+  // Mount-only by design — re-running on `draft` identity would re-restore.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Re-read the live outstanding whenever a customer is in play. The seeded
+  // value (from the customer list payload, or from a draft that may be hours
+  // old) can be stale if they've paid or been invoiced since — and it decides
+  // which settlement methods are selectable, so it has to be current.
+  useEffect(() => {
+    const customerId = selectedCustomer?.id
+    if (!customerId) return
+    let cancelled = false
+    api
+      .get(`/customers/${customerId}`)
+      .then((res) => {
+        if (cancelled) return
+        const live = Number(res.data?.currentOutstanding ?? 0)
+        setCustomerOutstanding(live)
+        // Keep the selection legal: the card for the other option is disabled
+        // under these same conditions, so leaving it selected would strand the
+        // form on a choice the user can't see selected or change back to.
+        setSettlementOption((opt) => {
+          if (opt === 'adjust' && live <= 0) return 'refund'
+          if (opt === 'refund' && live > 0) return 'adjust'
+          return opt
+        })
+      })
+      .catch(() => {
+        // Keep the seeded value — better a slightly stale balance than none.
+      })
+    return () => { cancelled = true }
+  }, [selectedCustomer?.id])
 
   // Save snapshot on every change.
   useEffect(() => {

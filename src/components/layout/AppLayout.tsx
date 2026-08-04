@@ -108,10 +108,11 @@ export default function AppLayout({
 
   // rem (not px) so the sidebar scales with the display-scale font-size.
   const sidebarWidth = sidebarCollapsed ? '4rem' : '16rem'
-  // Hover-to-expand (desktop only, always on): the docked rail stays slim and
-  // the expanded state overlays the page, so the content margin must stay pinned
-  // at the rail width — never widen with the hover expansion.
-  const hoverPinned = !isMobile && !isTabletTouch
+  // Hover-to-expand (any mouse-driven window, always on): the docked rail stays
+  // slim and the expanded state overlays the page, so the content margin must
+  // stay pinned at the rail width — never widen with the hover expansion.
+  // Mirrors Sidebar's `hoverMode`; keep the two in step.
+  const hoverPinned = !isMobile
 
   // POS-style routes use full viewport with no global header/padding
   const isFullViewport = currentPath === '/billing/new'
