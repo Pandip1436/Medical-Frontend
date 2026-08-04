@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { isChunkLoadError, recoverFromChunkError } from '@/lib/chunkRecovery'
 
 interface Props {
   children: ReactNode
@@ -8,25 +9,57 @@ interface Props {
 interface State {
   hasError: boolean
   error: Error | null
+  /** A stale-build chunk failure — we're reloading onto the new build. */
+  updating: boolean
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null }
+  state: State = { hasError: false, error: null, updating: false }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error }
+    // A failed lazy import isn't an app bug — it means this shell was built
+    // against chunks the server no longer has. Show "updating", not "broken".
+    return { hasError: true, error, updating: isChunkLoadError(error) }
   }
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     if (import.meta.env.DEV) {
       console.error('[ErrorBoundary]', error, info)
     }
+    if (isChunkLoadError(error)) {
+      void recoverFromChunkError().then((reloading) => {
+        // Guard suppressed the reload (we already tried recently) — fall back
+        // to the normal error screen rather than sitting on a stuck spinner.
+        if (!reloading) this.setState({ updating: false })
+      })
+    }
   }
 
-  reset = () => window.location.reload()
+  /**
+   * "Try again" after a chunk failure has to bypass the reload guard and purge
+   * the stale service-worker cache — a plain reload() would just re-serve the
+   * same broken shell.
+   */
+  reset = () => {
+    if (isChunkLoadError(this.state.error)) {
+      void recoverFromChunkError({ force: true })
+      return
+    }
+    window.location.reload()
+  }
 
   render() {
     if (!this.state.hasError) return this.props.children
+
+    if (this.state.updating) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
+          <p className="text-sm text-muted-foreground">Updating to the latest version…</p>
+        </div>
+      )
+    }
+
     if (this.props.fallback) return this.props.fallback
 
     return (

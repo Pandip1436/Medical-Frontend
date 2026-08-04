@@ -23,8 +23,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'prompt',
-      injectRegister: null, // registered manually in src/main.tsx so we control the update ourselves: silent auto-apply + reload, no toast/prompt (see src/lib/pwa.ts)
+      // Deploys roll out on their own: a new service worker takes over as soon
+      // as it is found and the plugin reloads the page onto the new build. No
+      // prompt, no toast, no stale tab left behind.
+      registerType: 'autoUpdate',
+      injectRegister: null, // registered manually in src/main.tsx so we own *when* updates are checked for (see src/lib/pwa.ts)
       devOptions: { enabled: true, suppressWarnings: true },
       manifest: {
         name: 'PBIMS - Hospital Suppliers',
@@ -48,6 +51,21 @@ export default defineConfig({
         // response (wrong stock, wrong price) is worse than a failed request.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallbackDenylist: [/^\/api\//],
+        // Delete precaches from superseded builds. Without this, every deploy
+        // leaves its full chunk set behind; the total grows until the browser
+        // evicts the whole origin's storage — taking the CURRENT build's chunks
+        // with it, which strands the tab on "Failed to fetch dynamically
+        // imported module" (see src/lib/chunkRecovery.ts).
+        cleanupOutdatedCaches: true,
+        // registerType: 'autoUpdate' normally sets these two implicitly, but
+        // only when injectRegister is left at its default — we set it to null
+        // for manual registration, so pin them here rather than depend on that
+        // interaction. Without skipWaiting a new worker sits idle behind the
+        // old one and the site never actually updates; without clientsClaim the
+        // post-update reload can still be served by the old worker's precached
+        // index.html.
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: /\/api\/v\d+\//,

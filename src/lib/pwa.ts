@@ -6,12 +6,22 @@ import { registerSW } from 'virtual:pwa-register'
 // even a continuously-focused tab lands on the new build within a minute.
 const UPDATE_CHECK_INTERVAL_MS = 60 * 1000 // 1 minute
 
-// Manual registration (vite.config.ts sets injectRegister: null) so we control
-// the update ourselves. Policy: apply a new version and reload IMMEDIATELY —
-// no toast, no prompt. Deploys roll out silently and every open tab lands on
-// the new build on its own.
+// Update policy: fully automatic. vite.config.ts sets registerType:
+// 'autoUpdate', so a newly-deployed service worker skips waiting, activates
+// immediately, and the plugin reloads the page onto the new build itself. No
+// toast, no prompt — deploys roll out silently and every open tab lands on the
+// new build on its own.
 //
-// Making it effectively instant for a maintenance-window deploy:
+// Because of that, this module deliberately does NOT pass onNeedRefresh and
+// does not call the returned updateSW(): in autoUpdate mode the plugin never
+// fires onNeedRefresh, and updateSW() is a no-op — it only sends the
+// skip-waiting message in 'prompt' mode. Wiring those up here would look like
+// it was driving the update while actually doing nothing.
+//
+// What this module does own is *when* the browser looks for a new worker.
+// That part is not automatic: a long-lived tab would otherwise only check on
+// navigation, so a deploy could go unnoticed for hours. Making it effectively
+// instant for a maintenance-window deploy:
 //   • a fresh page load always gets the latest build;
 //   • a tab regaining focus / becoming visible (staff resuming after the hold)
 //     checks right then, so it reloads onto the new build immediately;
@@ -24,12 +34,7 @@ const UPDATE_CHECK_INTERVAL_MS = 60 * 1000 // 1 minute
 // (NewSalePage → localStorage) and the purchase-entry draft (GRNPage) — so an
 // auto-reload mid-entry doesn't lose work.
 export function registerPwa() {
-  const updateSW = registerSW({
-    onNeedRefresh() {
-      // A newer service worker is waiting — activate it and reload straight
-      // away so users are always on the just-deployed version.
-      void updateSW(true)
-    },
+  registerSW({
     onRegisteredSW(_url, registration) {
       if (!registration) return
       const check = () => registration.update().catch(() => {})

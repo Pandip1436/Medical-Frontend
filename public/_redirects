@@ -1,1 +1,15 @@
+# SPA fallback: HTML5 History routing means /dashboard, /billing/new etc. are
+# not real files — every unknown path has to serve the app shell.
+#
+# Caveat worth knowing: this catch-all also swallows requests for hashed chunks
+# that no longer exist (after a deploy, a client on a stale index.html asks for
+# assets/DashboardPage-<oldhash>.js). Instead of a 404 it gets index.html with
+# Content-Type: text/html, and the browser reports "Expected a
+# JavaScript-or-Wasm module script but the server responded with a MIME type of
+# text/html". Cloudflare Pages does not support a 404 status in _redirects, so
+# it cannot be excluded here — src/lib/chunkRecovery.ts detects that exact
+# failure at runtime and reloads onto the current build instead.
+#
+# Real files still win over this rule: an existing /assets/* file is served
+# normally and never rewritten.
 /*    /index.html   200
