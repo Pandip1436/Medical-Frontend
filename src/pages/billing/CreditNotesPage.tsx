@@ -161,7 +161,7 @@ function CreditNoteStatusTabs({ tab, onChange, counts }: {
   counts: Record<CreditNoteTabKey, number>
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {CREDIT_NOTE_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -179,7 +179,7 @@ function CreditNoteStatusTabs({ tab, onChange, counts }: {
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.badgeColor : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.badgeColor : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}
@@ -393,6 +393,10 @@ export default function CreditNotesPage() {
   const exitSplitView = useCallback(() => {
     navigate('/billing/credit-notes?view=table')
   }, [])
+
+  // Stable identity so the split view's infinite-scroll observer isn't rebuilt
+  // on every render.
+  const loadMoreSplit = useCallback(() => setSplitPage((p) => p + 1), [])
 
   // Master data — for filters that should list ALL options
   const { customers, fetchMasterData } = useMasterDataStore()
@@ -742,7 +746,10 @@ export default function CreditNotesPage() {
             loading={splitLoading && splitPage === 1}
             loadingMore={splitLoading && splitPage > 1}
             hasMore={splitItems.length < splitTotal && !splitLoading}
-            onLoadMore={() => setSplitPage((p) => p + 1)}
+            onLoadMore={loadMoreSplit}
+            total={splitTotal}
+            searchValue={searchQuery}
+            onSearchChange={(val) => { setSearchQuery(val); setSplitPage(1) }}
             selectedCreditNoteId={selectedCreditNoteId}
             onSelectCreditNote={selectCreditNote}
             onExitSplitView={exitSplitView}

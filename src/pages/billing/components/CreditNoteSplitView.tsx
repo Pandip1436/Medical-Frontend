@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Receipt } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { useCreditNoteDetail } from '../hooks/useCreditNoteDetail'
 import { CreditNoteCompactCard } from './CreditNoteCompactCard'
 import { CreditNoteDetailContent } from '../CreditNoteDetailContent'
@@ -20,6 +21,12 @@ interface CreditNoteSplitViewProps {
   loadingMore?: boolean
   hasMore?: boolean
   onLoadMore?: () => void
+  /** Total matches across ALL pages (server count) — shown in the count strip. */
+  total?: number
+  /** Server-side search (the `q` param) so search spans the full dataset, not
+      just the pages already loaded into `creditNotes`. */
+  searchValue: string
+  onSearchChange: (v: string) => void
   selectedCreditNoteId: string | null
   onSelectCreditNote: (id: string | null) => void
   onExitSplitView: () => void
@@ -35,6 +42,9 @@ export function CreditNoteSplitView({
   loadingMore,
   hasMore,
   onLoadMore,
+  total,
+  searchValue,
+  onSearchChange,
   selectedCreditNoteId,
   onSelectCreditNote,
   onExitSplitView,
@@ -43,53 +53,20 @@ export function CreditNoteSplitView({
   isCardFieldVisible,
   isCardFieldRight,
 }: CreditNoteSplitViewProps) {
-  const [localSearch, setLocalSearch] = useState('')
   const detail = useCreditNoteDetail(selectedCreditNoteId)
 
   // ── Infinite scroll sentinel ──
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const pendingLoadRef = useRef(false)
+  useInfiniteScrollSentinel(sentinelRef, { hasMore, onLoadMore, itemCount: creditNotes.length })
 
-  useEffect(() => {
-    if (!loadingMore) pendingLoadRef.current = false
-  }, [loadingMore])
-
-  useEffect(() => {
-    if (!hasMore || !onLoadMore || !sentinelRef.current) return
-    const el = sentinelRef.current
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !pendingLoadRef.current) {
-          pendingLoadRef.current = true
-          onLoadMore()
-        }
-      },
-      { threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, onLoadMore])
-
-  // When the list changes (filter/tab applied), keep the selection if it's
-  // still visible; otherwise snap to the first item in the new list.
+  // When the list changes (filter/tab/search applied), keep the selection if
+  // it's still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (creditNotes.length === 0) return
     if (selectedCreditNoteId && creditNotes.some(cn => cn.id === selectedCreditNoteId)) return
     onSelectCreditNote(creditNotes[0].id)
   }, [creditNotes])
-
-  const displayed = useMemo(() => {
-    const q = localSearch.trim().toLowerCase()
-    if (!q) return creditNotes
-    return creditNotes.filter(
-      (cn) =>
-        cn.creditNoteNo.toLowerCase().includes(q) ||
-        cn.customerName.toLowerCase().includes(q) ||
-        cn.invoiceNumber.toLowerCase().includes(q),
-    )
-  }, [creditNotes, localSearch])
 
   const rightContent = detail.creditNote ? (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -127,16 +104,16 @@ export function CreditNoteSplitView({
 
   return (
     <SplitViewShell
-      searchValue={localSearch}
-      onSearchChange={setLocalSearch}
+      searchValue={searchValue}
+      onSearchChange={onSearchChange}
       searchPlaceholder="Search credit notes…"
-      resultCount={displayed.length}
+      resultCount={total ?? creditNotes.length}
       resultLabel="credit note"
       loading={loading}
       tabsNode={tabsNode}
       cards={
         <>
-          {displayed.map((cn) => (
+          {creditNotes.map((cn) => (
             <CreditNoteCompactCard
               key={cn.id}
               creditNote={cn}

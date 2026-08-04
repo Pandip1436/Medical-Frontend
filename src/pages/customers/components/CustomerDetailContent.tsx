@@ -181,9 +181,14 @@ const TYPE_BADGE_VARIANT: Record<string, 'success' | 'purple' | 'warning' | 'sec
 
 interface CustomerDetailContentProps {
   customerId: string
+  // When provided (split view), Edit opens the page's shared rich Add/Edit form
+  // instead of this component's own basic dialog — so add and edit look
+  // identical, mirroring the supplier form. Omitted on the standalone detail
+  // page, which falls back to the built-in dialog.
+  onRequestEdit?: (customer: Customer) => void
 }
 
-export function CustomerDetailContent({ customerId }: CustomerDetailContentProps) {
+export function CustomerDetailContent({ customerId, onRequestEdit }: CustomerDetailContentProps) {
   const d = useCustomerDetail(customerId)
   const { path, search } = useRoute()
   const TAB_KEYS = ['overview', 'ledger', 'activity', 'invoices', 'creditNotes', 'payments', 'quotations', 'rx'] as const
@@ -412,8 +417,9 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
             </DropdownMenu>
           )
         })()}
-        {/* Edit button */}
-        <Button size="sm" variant="outline" onClick={() => setEditOpen(true)} disabled={!cust}>
+        {/* Edit button — routes to the page's shared rich form in split view
+            (onRequestEdit), else opens the built-in dialog. */}
+        <Button size="sm" variant="outline" onClick={() => { if (onRequestEdit && cust) onRequestEdit(cust as Customer); else setEditOpen(true) }} disabled={!cust}>
           <Edit2 className="mr-1.5 h-3.5 w-3.5" />Edit
         </Button>
       </div>
@@ -1084,13 +1090,17 @@ export function CustomerDetailContent({ customerId }: CustomerDetailContentProps
         </Tabs>
       </div>
 
-      {/* Edit dialog */}
-      <CustomerFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        editingCustomer={cust as Customer | null}
-        onSaved={handleEditSaved}
-      />
+      {/* Built-in edit dialog — only used when the parent doesn't supply its own
+          rich form (i.e. the standalone detail page). In split view the page's
+          shared Add/Edit form is used instead (see onRequestEdit). */}
+      {!onRequestEdit && (
+        <CustomerFormDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          editingCustomer={cust as Customer | null}
+          onSaved={handleEditSaved}
+        />
+      )}
 
       {/* Activity dialog */}
       <SupplierActivityDialog

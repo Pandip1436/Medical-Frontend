@@ -146,7 +146,7 @@ function QuotationStatusTabs({ tab, onChange, counts }: {
   counts: Record<QuotationTabKey, number>
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {QUOTATION_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -164,7 +164,7 @@ function QuotationStatusTabs({ tab, onChange, counts }: {
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.badgeColor : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.badgeColor : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}
@@ -288,7 +288,9 @@ export default function QuotationsPage() {
   const fetchQuotations = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/quotations')
+      // Fully client-side page (list + stats + search over the loaded array),
+      // so load the FULL set — the old default cap of 200 truncated both.
+      const res = await api.get('/quotations?take=10000')
       const raw: any[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
       const mapped: Quotation[] = raw.map((qt: any) => ({
         id: qt.id,

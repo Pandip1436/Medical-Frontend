@@ -67,6 +67,7 @@ export interface ParsedSupplier {
   supplierCode?: string
   name: string
   phone: string
+  alternatePhone?: string
   contactPerson?: string
   email?: string
   gstin?: string
@@ -74,6 +75,12 @@ export interface ParsedSupplier {
   address?: string
   paymentTerms?: PaymentTerms
   bankDetails?: string
+  bankAccountName?: string
+  bankName?: string
+  bankAccountNumber?: string
+  bankIfsc?: string
+  bankUpiId?: string
+  notes?: string
   isActive?: boolean
   openingBalance?: number
   purchaseOrders: ParsedPurchaseOrder[]
@@ -230,13 +237,21 @@ const SUPPLIER_COLUMNS = [
   'supplier_code',
   'name',
   'phone',
+  'alternate_phone',
   'contact_person',
   'email',
   'gstin',
   'drug_license',
   'address',
   'payment_terms',
+  // Legacy free-text bank field (kept for back-compat) + the structured fields.
   'bank_details',
+  'bank_account_name',
+  'bank_name',
+  'bank_account_number',
+  'bank_ifsc',
+  'bank_upi_id',
+  'notes',
   'is_active',
   'opening_balance',
 ] as const
@@ -358,6 +373,7 @@ const SAMPLE_SUPPLIER_ROW: Record<string, string | number> = {
   supplier_code: 'S001',
   name: 'MedTech Distributors',
   phone: '9988776655',
+  alternate_phone: '9988776600',
   contact_person: 'R. Mehta',
   email: 'orders@medtech-dist.example',
   gstin: '29ABCDE5678F1Z9',
@@ -365,6 +381,12 @@ const SAMPLE_SUPPLIER_ROW: Record<string, string | number> = {
   address: '45, Industrial Estate, Bengaluru, KA 560058',
   payment_terms: 'NET_30',
   bank_details: 'HDFC Bank · A/c 50100123456789 · IFSC HDFC0000123',
+  bank_account_name: 'MedTech Distributors',
+  bank_name: 'HDFC Bank',
+  bank_account_number: '50100123456789',
+  bank_ifsc: 'HDFC0000123',
+  bank_upi_id: 'medtech@okhdfcbank',
+  notes: 'Preferred for surgical consumables',
   is_active: 'TRUE',
   opening_balance: 18000,
 }
@@ -495,6 +517,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['', ''],
   ['Sheet: Suppliers  (mandatory)', 'REQUIRED: name, phone.  Recommended: supplier_code (needed to attach any POs/GRNs/payments below), gstin, payment_terms, opening_balance.'],
   ['   ↳ read-only columns', 'total_purchases, paid_amount, outstanding are REFERENCE ONLY — auto-filled on export and IGNORED on import. Leave them blank; the real balance comes from opening_balance + the GRNs / Payments sheets.'],
+  ['   ↳ bank details (optional)', 'bank_account_name, bank_name, bank_account_number (9–18 digits), bank_ifsc (e.g. HDFC0001234), bank_upi_id (name@bank). The legacy free-text bank_details column is still accepted. alternate_phone and notes are also optional.'],
   ['', ''],
   ['Sheet: Purchase Orders', 'Optional. REQUIRED: supplier_code.  Recommended: po_number (original PO no.), date, total_amount. `po_ref` links its line items; leave po_number blank to auto-generate.'],
   ['Sheet: PO Items', 'Optional. REQUIRED per row: po_ref, product_name.'],
@@ -683,6 +706,7 @@ export async function parseSupplierImportWorkbook(
       supplierCode: toOptionalStr(raw.supplier_code),
       name,
       phone,
+      alternatePhone: toOptionalStr(raw.alternate_phone),
       contactPerson: toOptionalStr(raw.contact_person),
       email: toOptionalStr(raw.email),
       gstin: toOptionalStr(raw.gstin),
@@ -694,6 +718,12 @@ export async function parseSupplierImportWorkbook(
         'NET_60',
       ] as const),
       bankDetails: toOptionalStr(raw.bank_details),
+      bankAccountName: toOptionalStr(raw.bank_account_name),
+      bankName: toOptionalStr(raw.bank_name),
+      bankAccountNumber: toOptionalStr(raw.bank_account_number),
+      bankIfsc: toOptionalStr(raw.bank_ifsc),
+      bankUpiId: toOptionalStr(raw.bank_upi_id),
+      notes: toOptionalStr(raw.notes),
       isActive: toBool(raw.is_active),
       openingBalance: toOptionalNumber(raw.opening_balance),
       purchaseOrders: [],
@@ -1265,6 +1295,7 @@ interface ExportSupplierInput {
   id: string
   name: string
   phone: string
+  alternatePhone?: string | null
   contactPerson?: string | null
   email?: string | null
   gstin?: string | null
@@ -1272,6 +1303,12 @@ interface ExportSupplierInput {
   address?: string | null
   paymentTerms?: string | null
   bankDetails?: string | null
+  bankAccountName?: string | null
+  bankName?: string | null
+  bankAccountNumber?: string | null
+  bankIfsc?: string | null
+  bankUpiId?: string | null
+  notes?: string | null
   isActive?: boolean | null
   currentOutstanding?: number | string | null
 }
@@ -1489,6 +1526,7 @@ export function exportSuppliersToWorkbook(
       supplier_code: codeFor.get(s.id) ?? '',
       name: s.name,
       phone: s.phone,
+      alternate_phone: s.alternatePhone ?? '',
       contact_person: s.contactPerson ?? '',
       email: s.email ?? '',
       gstin: s.gstin ?? '',
@@ -1496,6 +1534,12 @@ export function exportSuppliersToWorkbook(
       address: s.address ?? '',
       payment_terms: s.paymentTerms ?? '',
       bank_details: s.bankDetails ?? '',
+      bank_account_name: s.bankAccountName ?? '',
+      bank_name: s.bankName ?? '',
+      bank_account_number: s.bankAccountNumber ?? '',
+      bank_ifsc: s.bankIfsc ?? '',
+      bank_upi_id: s.bankUpiId ?? '',
+      notes: s.notes ?? '',
       is_active: s.isActive === false ? 'FALSE' : 'TRUE',
       opening_balance: num(s.currentOutstanding),
       total_purchases: totalPurchases,

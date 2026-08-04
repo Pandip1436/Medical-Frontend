@@ -151,7 +151,7 @@ function StatusTabs({
   // tabsNode wrapper (shared with every other page). Here we keep the compact
   // inline layout with overflow-x-auto so it never clips when space is tight.
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {STATUS_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -172,7 +172,7 @@ function StatusTabs({
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.countClass : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.countClass : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}
@@ -269,7 +269,10 @@ export default function SalesListPage() {
   const fetchInvoices = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await api.get('/billing')
+      // This page is fully client-side (period filter, stat cards, tab counts
+      // and search all run over the loaded array), so it must load the FULL set
+      // — the old default cap of 200 silently truncated the list AND the stats.
+      const res = await api.get('/billing?take=10000')
       setInvoices(res.data.data || res.data)
     } catch (error) {
       toast.error('Failed to load invoices')

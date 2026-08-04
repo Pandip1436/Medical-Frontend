@@ -58,3 +58,24 @@ export const requiredDrugLicense = () =>
     .min(4, 'Drug license number too short')
     .max(DL_MAX, `Drug license number too long (max ${DL_MAX})`)
     .regex(DL_REGEX, DL_MESSAGE)
+
+// ── Bank detail validators (shared by Supplier + wholesale Customer forms) ──
+// Indian bank account numbers are numeric and run 9–18 digits across banks.
+export const BANK_ACCOUNT_REGEX = /^\d{9,18}$/
+export const BANK_ACCOUNT_MESSAGE = 'Account number must be 9–18 digits'
+// Standard 11-char IFSC: 4 letters (bank), '0', 6 alphanumerics (branch).
+export const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/
+export const IFSC_MESSAGE = 'Invalid IFSC (e.g. HDFC0001234)'
+// UPI VPA: <handle>@<provider> — allow letters/digits/._- on both sides.
+export const UPI_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z0-9.\-_]{2,64}$/
+export const UPI_MESSAGE = 'Invalid UPI ID (e.g. name@bank)'
+
+// All optional — blank allowed; if present, must match the format.
+export const optionalBankAccount = () =>
+  z.string().trim().regex(BANK_ACCOUNT_REGEX, BANK_ACCOUNT_MESSAGE).or(z.literal('')).optional()
+
+export const optionalIfsc = () =>
+  z.string().trim().regex(IFSC_REGEX, IFSC_MESSAGE).or(z.literal('')).optional()
+
+export const optionalUpi = () =>
+  z.string().trim().regex(UPI_REGEX, UPI_MESSAGE).or(z.literal('')).optional()

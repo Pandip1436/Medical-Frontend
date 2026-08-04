@@ -161,7 +161,9 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
   type SupplierTab = typeof TAB_KEYS[number]
   const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
   const [activeTab, setActiveTab] = useState<SupplierTab>(
-    (TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as SupplierTab) : 'overview',
+    // 'pos' tab is hidden (Purchase Orders module disabled) — deep links to it
+    // fall back to Overview.
+    (TAB_KEYS as readonly string[]).includes(tabFromUrl) && tabFromUrl !== 'pos' ? (tabFromUrl as SupplierTab) : 'overview',
   )
   // Mirror the active tab into the URL so browser Back — e.g. returning from a
   // PE (GRN) detail page — restores the same tab in this split view. Only
@@ -413,8 +415,8 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                 { value: 'overview', label: 'Overview', icon: Building2 },
                 { value: 'ledger', label: 'Ledger', icon: FileText },
                 { value: 'activity', label: 'Activity', icon: MessageSquare },
-                { value: 'pos', label: 'POs', icon: ClipboardList },
-                { value: 'grns', label: 'PEs', icon: Receipt },
+                // POs tab hidden — the Purchase Orders module is disabled.
+                { value: 'grns', label: 'Purchase Entry', icon: Receipt },
                 { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                 { value: 'batches', label: 'Batches', icon: Layers },
               ].map((t) => (
@@ -521,7 +523,17 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                               )
                             }
                           />
-                          {sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />}
+                          {(sup.bankAccountName || sup.bankName || sup.bankAccountNumber || sup.bankIfsc || sup.bankUpiId) ? (
+                            <>
+                              {sup.bankAccountName && <Row label="A/c Holder" value={sup.bankAccountName} />}
+                              {sup.bankName && <Row label="Bank" value={sup.bankName} />}
+                              {sup.bankAccountNumber && <Row label="A/c No." value={sup.bankAccountNumber} mono />}
+                              {sup.bankIfsc && <Row label="IFSC" value={sup.bankIfsc} mono />}
+                              {sup.bankUpiId && <Row label="UPI" value={sup.bankUpiId} mono />}
+                            </>
+                          ) : (
+                            sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />
+                          )}
                         </OverviewSection>
 
                         {kpis.length > 0 && (

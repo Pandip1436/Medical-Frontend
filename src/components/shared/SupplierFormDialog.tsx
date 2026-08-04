@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { requiredGstin, requiredDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { requiredGstin, requiredDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX, optionalBankAccount, optionalIfsc, optionalUpi } from '@/lib/validators'
 import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
-import { Truck } from 'lucide-react'
+import { Truck, Upload, X, FileText, FileImage } from 'lucide-react'
 
 import {
   Sheet,
@@ -19,13 +19,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import api from '@/lib/api'
 import type { Supplier } from '@/types'
@@ -41,10 +34,22 @@ export const supplierFormSchema = z.object({
   gstin: requiredGstin(),
   drugLicense: requiredDrugLicense(),
   address: z.string().min(10, 'Address is required'),
-  paymentTerms: z.enum(['NET_30', 'NET_45', 'NET_60'], {
-    message: 'Select payment terms',
-  }),
-  bankDetails: z.string().optional(),
+  // Alternate phone (optional) — parity with the customer form.
+  alternatePhone: z
+    .string()
+    .trim()
+    .optional()
+    .refine(
+      (v) => !v || /^[6-9]\d{9}$/.test(v),
+      'Enter a valid 10-digit Indian mobile number',
+    ),
+  // Structured bank details (all optional, format-checked when present).
+  bankAccountName: z.string().optional(),
+  bankName: z.string().optional(),
+  bankAccountNumber: optionalBankAccount(),
+  bankIfsc: optionalIfsc(),
+  bankUpiId: optionalUpi(),
+  notes: z.string().optional(),
   // Supplier-level consent for low-stock WhatsApp alerts. Defaults to true so
   // existing suppliers participate as soon as the WHATSAPP_LOW_STOCK_ENABLED
   // flag flips on. Toggle off for suppliers who prefer phone calls.
@@ -71,8 +76,13 @@ const EMPTY_VALUES: SupplierFormValues = {
   gstin: '',
   drugLicense: '',
   address: '',
-  paymentTerms: 'NET_30',
-  bankDetails: '',
+  alternatePhone: '',
+  bankAccountName: '',
+  bankName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+  bankUpiId: '',
+  notes: '',
   whatsappOptIn: true,
   whatsappNumber: '',
 }
@@ -108,10 +118,21 @@ export function SupplierFormDialog({
   })
   const { errors, isSubmitting } = formState
 
+  // Address-proof / documents to upload. Stored in R2 against the supplier's
+  // linked customer twin (the same real-world party) via /prescriptions/upload,
+  // reusing the existing document pipeline.
+  const [docFiles, setDocFiles] = useState<File[]>([])
+  const addDocFiles = (files: FileList | null) => {
+    if (!files) return
+    setDocFiles((prev) => [...prev, ...Array.from(files)])
+  }
+  const removeDocFile = (idx: number) => setDocFiles((prev) => prev.filter((_, i) => i !== idx))
+
   // Whenever the dialog opens or the editing target changes, reset the form
   // with the right values. Keeps create- and edit-modes from leaking state.
   useEffect(() => {
     if (!open) return
+    setDocFiles([])
     setPhoneDupWarning('')
     setEmailDupWarning('')
     if (editingSupplier) {
@@ -123,8 +144,13 @@ export function SupplierFormDialog({
         gstin: editingSupplier.gstin,
         drugLicense: editingSupplier.drugLicense,
         address: editingSupplier.address,
-        paymentTerms: editingSupplier.paymentTerms,
-        bankDetails: editingSupplier.bankDetails || '',
+        alternatePhone: editingSupplier.alternatePhone ?? '',
+        bankAccountName: editingSupplier.bankAccountName ?? '',
+        bankName: editingSupplier.bankName ?? '',
+        bankAccountNumber: editingSupplier.bankAccountNumber ?? '',
+        bankIfsc: editingSupplier.bankIfsc ?? '',
+        bankUpiId: editingSupplier.bankUpiId ?? '',
+        notes: editingSupplier.notes ?? '',
         // `whatsappOptIn` / `whatsappNumber` came in with the new low-stock
         // WhatsApp pipeline. Older Supplier rows may not have them yet —
         // default opt-in to true to match the DB default.
@@ -135,8 +161,6 @@ export function SupplierFormDialog({
       reset(EMPTY_VALUES)
     }
   }, [open, editingSupplier, reset])
-
-  const paymentTermsValue = watch('paymentTerms')
 
   // Live "already used" check — flags a taken GSTIN / drug licence as the user
   // types (debounced), so they don't have to submit to find out.
@@ -192,14 +216,35 @@ export function SupplierFormDialog({
       // reason ourselves (e.g. "Another supplier already uses GSTIN … in this
       // branch") rather than a generic failure message.
       const opts = { suppressGlobalToast: true } as Record<string, unknown>
+      // The party's documents live on the linked customer twin. On edit we
+      // already have its id; on create the API returns it.
+      let twinCustomerId: string | null | undefined = editingSupplier?.customerId
       if (editingSupplier) {
         await api.patch(`/suppliers/${editingSupplier.id}`, data, opts)
         toast.success(`Supplier "${data.name}" updated successfully`)
         onSaved?.(data, 'update')
       } else {
-        await api.post('/suppliers', data, opts)
+        const res = await api.post('/suppliers', data, opts)
+        twinCustomerId = (res.data?.customerId as string | undefined) ?? null
         toast.success(`Supplier "${data.name}" added successfully`)
         onSaved?.(data, 'create')
+      }
+      // Upload address-proof documents to R2 (via the customer-twin document
+      // pipeline). Best-effort — never block the save on an upload hiccup.
+      if (docFiles.length) {
+        if (twinCustomerId) {
+          for (const file of docFiles) {
+            try {
+              const fd = new FormData()
+              fd.append('file', file)
+              fd.append('customerId', twinCustomerId)
+              fd.append('doctorName', 'Supplier Document')
+              await api.post('/prescriptions/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+            } catch { /* keep going; the supplier itself saved fine */ }
+          }
+        } else {
+          toast.message('Supplier saved — document upload skipped (no linked customer record).')
+        }
       }
       onOpenChange(false)
     } catch (err: unknown) {
@@ -240,13 +285,14 @@ export function SupplierFormDialog({
   const identityError = !!(errors.name || errors.contactPerson || errors.phone || errors.email || errors.address)
   const regulatoryFilled = !!watch('gstin') && !!watch('drugLicense')
   const regulatoryError = !!(errors.gstin || errors.drugLicense)
-  const paymentFilled = !!watch('paymentTerms')
-  const paymentError = !!(errors.paymentTerms || errors.whatsappNumber)
+  // "Bank & Messaging" is entirely optional, so it counts as "filled" as long as
+  // it has no validation errors (e.g. a bad WhatsApp number).
+  const bankError = !!(errors.whatsappNumber || errors.alternatePhone)
 
   const sections = [
     { value: 'identity', label: 'Identity', filled: identityFilled, error: identityError },
     { value: 'regulatory', label: 'Regulatory', filled: regulatoryFilled, error: regulatoryError },
-    { value: 'payment', label: 'Payment', filled: paymentFilled, error: paymentError },
+    { value: 'bank', label: 'Bank', filled: !bankError, error: bankError },
   ]
 
   return (
@@ -364,6 +410,22 @@ export function SupplierFormDialog({
 
                 <div className="space-y-2">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Alternate Phone
+                  </Label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="Optional 10-digit number"
+                    {...register('alternatePhone')}
+                    onChange={(e) => setValue('alternatePhone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                  />
+                  {errors.alternatePhone && (
+                    <p className="text-xs text-destructive">{errors.alternatePhone.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Address <span className="text-rose-500">*</span>
                   </Label>
                   <Textarea placeholder="Full address" rows={2} {...register('address')} />
@@ -416,43 +478,116 @@ export function SupplierFormDialog({
               </div>
             </div>
 
-            {/* ── Payment & Messaging ── */}
+            {/* ── Bank & Messaging ── */}
             <div className="scroll-mt-2 border-t border-border/40">
               <div className="px-6 pt-5 pb-2 border-b border-border/40 bg-background sticky top-0 z-10">
-                <h3 className="text-sm font-semibold">Payment & Messaging</h3>
+                <h3 className="text-sm font-semibold">Bank & Messaging</h3>
               </div>
               <div className="p-6 pb-8 space-y-4">
+                {/* Structured bank details — all optional (for paying the supplier). */}
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Account Holder Name
+                  </Label>
+                  <Input placeholder="Name as per bank account" {...register('bankAccountName')} />
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Payment Terms <span className="text-rose-500">*</span>
+                      Bank Name
                     </Label>
-                    <Select
-                      value={paymentTermsValue}
-                      onValueChange={(val) =>
-                        setValue('paymentTerms', val as 'NET_30' | 'NET_45' | 'NET_60', {
-                          shouldValidate: true,
-                        })
-                      }
-                    >
-                      <SelectTrigger className="rounded-xl">
-                        <SelectValue placeholder="Select payment terms" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NET_30">Net 30</SelectItem>
-                        <SelectItem value="NET_45">Net 45</SelectItem>
-                        <SelectItem value="NET_60">Net 60</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.paymentTerms && (
-                      <p className="text-xs text-destructive">{errors.paymentTerms.message}</p>
-                    )}
+                    <Input placeholder="e.g. HDFC Bank" {...register('bankName')} />
                   </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Bank Details
+                      Account Number
                     </Label>
-                    <Input placeholder="Bank, A/c, IFSC (optional)" {...register('bankDetails')} />
+                    <Input
+                      className="font-mono"
+                      inputMode="numeric"
+                      maxLength={18}
+                      placeholder="9–18 digit account number"
+                      {...register('bankAccountNumber')}
+                      onChange={(e) => setValue('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18), { shouldValidate: true, shouldDirty: true })}
+                    />
+                    {errors.bankAccountNumber && <p className="text-xs text-destructive">{errors.bankAccountNumber.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      IFSC Code
+                    </Label>
+                    <Input
+                      className="font-mono uppercase"
+                      maxLength={11}
+                      placeholder="e.g. HDFC0001234"
+                      {...register('bankIfsc')}
+                      onChange={(e) => setValue('bankIfsc', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11), { shouldValidate: true, shouldDirty: true })}
+                    />
+                    {errors.bankIfsc && <p className="text-xs text-destructive">{errors.bankIfsc.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      UPI ID
+                    </Label>
+                    <Input
+                      placeholder="name@bank (optional)"
+                      {...register('bankUpiId')}
+                      onChange={(e) => setValue('bankUpiId', e.target.value.replace(/\s/g, ''), { shouldValidate: true, shouldDirty: true })}
+                    />
+                    {errors.bankUpiId && <p className="text-xs text-destructive">{errors.bankUpiId.message}</p>}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Notes
+                  </Label>
+                  <Textarea placeholder="Any internal notes about this supplier (optional)" rows={2} {...register('notes')} />
+                </div>
+
+                {/* Address Proof & Documents — uploaded to R2 (via the shared
+                    customer-twin document pipeline). */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Address Proof & Documents
+                    </Label>
+                    {docFiles.length > 0 && (
+                      <span className="text-[10px] text-muted-foreground">{docFiles.length} file{docFiles.length !== 1 ? 's' : ''} selected</span>
+                    )}
+                  </div>
+                  {docFiles.length > 0 && (
+                    <div className="space-y-1.5">
+                      {docFiles.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+                          <div className="flex h-8 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{file.name}</span>
+                          <button type="button" onClick={() => removeDocFile(idx)}
+                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full hover:bg-rose-100 hover:text-rose-600 transition">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border/50 bg-muted/10 py-5">
+                    <div className="flex h-10 w-14 items-center justify-center rounded-lg border-2 border-border/40 bg-muted/30">
+                      <FileImage className="h-5 w-5 text-muted-foreground/50" />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground text-center">Upload GST certificate, drug license, bank proof, etc.</p>
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/40 transition shadow-sm">
+                      <Upload className="h-3.5 w-3.5 text-amber-500" />
+                      Add Files
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept="image/jpeg,image/png,image/webp,application/pdf"
+                        multiple
+                        onChange={(e) => { addDocFiles(e.target.files); e.target.value = '' }}
+                      />
+                    </label>
                   </div>
                 </div>
 

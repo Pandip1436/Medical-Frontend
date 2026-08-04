@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Truck } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { SupplierCompactCard } from './SupplierCompactCard'
 import { SupplierDetailContent } from './SupplierDetailContent'
 import type { Supplier } from '@/types'
@@ -11,6 +12,12 @@ interface SupplierSplitViewProps {
   loadingMore?: boolean
   hasMore?: boolean
   onLoadMore?: () => void
+  /** Total matches across ALL pages (server count) — shown in the count strip. */
+  total?: number
+  /** Server-side search (the `q` param) so search spans the full directory,
+      not just the pages already loaded into `suppliers`. */
+  searchValue: string
+  onSearchChange: (v: string) => void
   selectedSupplierId: string | null
   onSelectSupplier: (id: string | null) => void
   onExitSplitView: () => void
@@ -26,6 +33,9 @@ export function SupplierSplitView({
   loadingMore,
   hasMore,
   onLoadMore,
+  total,
+  searchValue,
+  onSearchChange,
   selectedSupplierId,
   onSelectSupplier,
   onExitSplitView,
@@ -34,53 +44,17 @@ export function SupplierSplitView({
   isCardFieldVisible,
   isCardFieldRight,
 }: SupplierSplitViewProps) {
-  const [localSearch, setLocalSearch] = useState('')
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const pendingLoadRef = useRef(false)
+  useInfiniteScrollSentinel(sentinelRef, { hasMore, onLoadMore, itemCount: suppliers.length })
 
-  // Reset the guard when the in-flight load finishes
-  useEffect(() => {
-    if (!loadingMore) pendingLoadRef.current = false
-  }, [loadingMore])
-
-  // Infinite scroll — trigger onLoadMore when sentinel enters viewport.
-  // deps intentionally exclude suppliers.length to prevent cascade-loading.
-  useEffect(() => {
-    if (!hasMore || !onLoadMore || !sentinelRef.current) return
-    const el = sentinelRef.current
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !pendingLoadRef.current) {
-          pendingLoadRef.current = true
-          onLoadMore()
-        }
-      },
-      { threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, onLoadMore])
-
-  // When the list changes (filter/tab applied), keep the selection if it's
-  // still visible; otherwise snap to the first item in the new list.
+  // When the list changes (filter/tab/search applied), keep the selection if
+  // it's still visible; otherwise snap to the first item in the new list.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (suppliers.length === 0) return
     if (selectedSupplierId && suppliers.some(s => s.id === selectedSupplierId)) return
     onSelectSupplier(suppliers[0].id)
   }, [suppliers])
-
-  const displayed = useMemo(() => {
-    const q = localSearch.trim().toLowerCase()
-    if (!q) return suppliers
-    return suppliers.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.phone?.toLowerCase().includes(q) ||
-        s.gstin?.toLowerCase().includes(q),
-    )
-  }, [suppliers, localSearch])
 
   const selectedSupplier = useMemo(
     () => suppliers.find((s) => s.id === selectedSupplierId) ?? null,
@@ -93,16 +67,16 @@ export function SupplierSplitView({
 
   return (
     <SplitViewShell
-      searchValue={localSearch}
-      onSearchChange={setLocalSearch}
+      searchValue={searchValue}
+      onSearchChange={onSearchChange}
       searchPlaceholder="Search suppliers…"
-      resultCount={displayed.length}
+      resultCount={total ?? suppliers.length}
       resultLabel="supplier"
       loading={loading}
       tabsNode={tabsNode}
       cards={
         <>
-          {displayed.map((s) => (
+          {suppliers.map((s) => (
             <SupplierCompactCard
               key={s.id}
               supplier={s}

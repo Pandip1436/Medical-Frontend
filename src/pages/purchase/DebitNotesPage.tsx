@@ -116,7 +116,7 @@ function DebitNoteStatusTabs({ tab, onChange, counts }: {
   counts: Record<string, number>
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {STATUS_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -134,7 +134,7 @@ function DebitNoteStatusTabs({ tab, onChange, counts }: {
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.countClass : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.countClass : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}

@@ -24,7 +24,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
-      injectRegister: null, // registered manually in src/main.tsx so we can drive the update toast
+      injectRegister: null, // registered manually in src/main.tsx so we control the update ourselves: silent auto-apply + reload, no toast/prompt (see src/lib/pwa.ts)
       devOptions: { enabled: true, suppressWarnings: true },
       manifest: {
         name: 'PBIMS - Hospital Suppliers',

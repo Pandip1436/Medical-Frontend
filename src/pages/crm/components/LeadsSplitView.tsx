@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 
 import { LeadCompactCard } from './LeadCompactCard'
 import { LeadDetailHeader } from './LeadDetailHeader'
@@ -77,7 +78,7 @@ export function LeadsSplitView({
   const [editOpen, setEditOpen] = useState(false)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const pendingLoadRef = useRef(false)
+  useInfiniteScrollSentinel(sentinelRef, { hasMore: list.hasMore, onLoadMore: list.loadMore, itemCount: list.allData.length })
 
   // useLeadsList only consumes `tab` as the initial value, so push every
   // subsequent change from the parent into the rail's internal state.
@@ -99,28 +100,6 @@ export function LeadsSplitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list.data])
 
-  // Reset the "pending" guard once a loadMore request finishes.
-  useEffect(() => {
-    if (!list.loadingMore) pendingLoadRef.current = false
-  }, [list.loadingMore])
-
-  // IntersectionObserver: fire loadMore when the sentinel scrolls into view.
-  useEffect(() => {
-    if (!list.hasMore || !list.loadMore || !sentinelRef.current) return
-    const el = sentinelRef.current
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !pendingLoadRef.current) {
-          pendingLoadRef.current = true
-          list.loadMore()
-        }
-      },
-      { threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list.hasMore, list.loadMore])
 
   const handleDelete = () => {
     setDeleteConfirmOpen(true)

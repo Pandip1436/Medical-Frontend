@@ -78,8 +78,19 @@ export interface Customer {
   gstin?: string
   dlNumber?: string
   notes?: string
+  // Shared "party" fields — captured on the WHOLESALE customer form and synced
+  // with the linked supplier twin.
+  contactPerson?: string | null
+  bankAccountName?: string | null
+  bankName?: string | null
+  bankAccountNumber?: string | null
+  bankIfsc?: string | null
+  bankUpiId?: string | null
   createdAt: string
   isActive?: boolean            // false = soft-disabled (deactivated)
+  // Present (with an id) when this wholesale customer is linked to a supplier
+  // twin — the same real-world party appearing in both directories.
+  linkedSupplier?: { id: string } | null
   pendingCreditCount?: number   // number of CREDIT/PARTIAL invoices
   totalAmount?: number          // sum of grandTotal across real invoices
   paidAmount?: number           // sum of amountPaid across real invoices
@@ -94,8 +105,23 @@ export interface Supplier {
   gstin: string
   drugLicense: string
   address: string
-  paymentTerms: 'NET_30' | 'NET_45' | 'NET_60'
+  // Removed from the Add-Supplier form; still on the model (defaults NET_30) and
+  // shown in the list column, so keep it optional here.
+  paymentTerms?: 'NET_30' | 'NET_45' | 'NET_60'
+  // Legacy single free-text bank field (superseded by the structured fields).
   bankDetails?: string
+  // Structured bank details.
+  bankAccountName?: string | null
+  bankName?: string | null
+  bankAccountNumber?: string | null
+  bankIfsc?: string | null
+  bankUpiId?: string | null
+  // Parity with the customer form.
+  alternatePhone?: string | null
+  notes?: string | null
+  // Linked wholesale-customer twin (same real-world party). Set when this
+  // supplier mirrors a customer; edits sync across the pair.
+  customerId?: string | null
   isActive: boolean
   branchId?: string | null
   // Each supplier row is branch-scoped, so this field is naturally that

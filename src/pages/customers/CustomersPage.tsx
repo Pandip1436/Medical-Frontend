@@ -6,7 +6,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX } from '@/lib/validators'
+import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX, optionalBankAccount, optionalIfsc, optionalUpi } from '@/lib/validators'
 import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
 import { toast } from 'sonner'
 import {
@@ -145,6 +145,14 @@ const customerSchema = z.object({
   referredBy: z.string().optional(),
   source: z.string().optional(),
   notes: z.string().optional(),
+  // Shared "party" fields — shown for WHOLESALE (a wholesale customer is also a
+  // supplier) and synced to the linked supplier twin.
+  contactPerson: z.string().optional(),
+  bankAccountName: z.string().optional(),
+  bankName: z.string().optional(),
+  bankAccountNumber: optionalBankAccount(),
+  bankIfsc: optionalIfsc(),
+  bankUpiId: optionalUpi(),
   // Toggle whether this customer receives transactional WhatsApp messages
   // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
   // can switch off if a customer explicitly opts out.
@@ -779,6 +787,12 @@ export default function CustomersPage() {
       referredBy: '',
       source: '',
       notes: '',
+      contactPerson: '',
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNumber: '',
+      bankIfsc: '',
+      bankUpiId: '',
       whatsappOptIn: true,
     },
   })
@@ -830,6 +844,12 @@ export default function CustomersPage() {
       referredBy: customer.referredBy ?? '',
       source: customer.source ?? '',
       notes: customer.notes ?? '',
+      contactPerson: customer.contactPerson ?? '',
+      bankAccountName: customer.bankAccountName ?? '',
+      bankName: customer.bankName ?? '',
+      bankAccountNumber: customer.bankAccountNumber ?? '',
+      bankIfsc: customer.bankIfsc ?? '',
+      bankUpiId: customer.bankUpiId ?? '',
       // Legacy customers with null/undefined whatsappOptIn → treat as opted in
       // (matches the schema default of true).
       whatsappOptIn: (customer as { whatsappOptIn?: boolean }).whatsappOptIn ?? true,
@@ -850,6 +870,8 @@ export default function CustomersPage() {
       if (editingCustomer) {
         await api.patch(`/customers/${editingCustomer.id}`, values)
         customerId = editingCustomer.id
+        // Remount the split-view detail so it reflects the edit immediately.
+        setRefreshToken((t) => t + 1)
         toast.success(`Customer "${values.name}" updated`)
       } else {
         const result = await addCustomerAction(values) as { approvalRequested?: boolean; id?: string } | undefined
@@ -1057,6 +1079,15 @@ export default function CustomersPage() {
             isCardFieldVisible={cardCols.isVisible}
             searchValue={searchQuery}
             onSearchChange={setSearchQuery}
+            onRequestEdit={(c) => {
+              // The rich Add/Edit Sheet only renders in table view, so mirror the
+              // "Add Customer" flow: open the edit, remember where we came from,
+              // and switch to table view so the Sheet is mounted.
+              handleOpenEdit(c)
+              setReturnToSplitId(c.id)
+              navigate('/customers?view=table')
+            }}
+            detailRefreshKey={refreshToken}
             tabsNode={
               <CustomerPaymentTabs
                 tab={payTab}
@@ -1622,7 +1653,7 @@ export default function CustomersPage() {
         {/* Side-drawer — full-width on mobile, fixed 640px on sm+ */}
         <SheetContent
           side="right"
-          className="w-full sm:max-w-160 p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 gap-0 flex flex-col h-dvh overflow-hidden"
         >
           <SheetHeader className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0 space-y-0">
             <SheetTitle>{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</SheetTitle>
@@ -1719,6 +1750,63 @@ export default function CustomersPage() {
                     {form.formState.errors.dlNumber && <p className="text-xs text-rose-500">{form.formState.errors.dlNumber.message}</p>}
                   </div>
                 </div>
+              )}
+
+              {/* WHOLESALE also = a supplier — capture the supplier-parity fields
+                  (contact person + bank details). These sync to the linked
+                  supplier twin. */}
+              {form.watch('type') === 'WHOLESALE' && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Contact Person <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                    <Input {...form.register('contactPerson')} placeholder="Primary contact name" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Account Holder Name <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                    <Input {...form.register('bankAccountName')} placeholder="Name as per bank account" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bank Name <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                      <Input {...form.register('bankName')} placeholder="e.g. HDFC Bank" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Account Number <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                      <Input
+                        className="font-mono"
+                        inputMode="numeric"
+                        maxLength={18}
+                        placeholder="9–18 digit account number"
+                        {...form.register('bankAccountNumber')}
+                        error={!!form.formState.errors.bankAccountNumber}
+                        onChange={(e) => form.setValue('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18), { shouldValidate: true, shouldDirty: true })}
+                      />
+                      {form.formState.errors.bankAccountNumber && <p className="text-xs text-rose-500">{form.formState.errors.bankAccountNumber.message}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">IFSC Code <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                      <Input
+                        className="font-mono uppercase"
+                        maxLength={11}
+                        placeholder="e.g. HDFC0001234"
+                        {...form.register('bankIfsc')}
+                        error={!!form.formState.errors.bankIfsc}
+                        onChange={(e) => form.setValue('bankIfsc', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11), { shouldValidate: true, shouldDirty: true })}
+                      />
+                      {form.formState.errors.bankIfsc && <p className="text-xs text-rose-500">{form.formState.errors.bankIfsc.message}</p>}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">UPI ID <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                      <Input
+                        {...form.register('bankUpiId')}
+                        placeholder="name@bank"
+                        error={!!form.formState.errors.bankUpiId}
+                        onChange={(e) => form.setValue('bankUpiId', e.target.value.replace(/\s/g, ''), { shouldValidate: true, shouldDirty: true })}
+                      />
+                      {form.formState.errors.bankUpiId && <p className="text-xs text-rose-500">{form.formState.errors.bankUpiId.message}</p>}
+                    </div>
+                  </div>
+                </>
               )}
 
               {/* Row 3b: Registration Number — DOCTOR only */}

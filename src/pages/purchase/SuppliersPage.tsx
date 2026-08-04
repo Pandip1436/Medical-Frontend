@@ -121,7 +121,7 @@ function SupplierPaymentTabs({ tab, onChange, counts }: {
   counts: Record<SupplierPayTabKey, number>
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/[0.02]">
+    <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {SUPPLIER_PAY_TABS.map((t) => {
         const active = tab === t.key
         return (
@@ -139,7 +139,7 @@ function SupplierPaymentTabs({ tab, onChange, counts }: {
             <span
               className={cn(
                 'rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums transition-colors',
-                active ? t.badgeColor : 'bg-foreground/[0.06] text-muted-foreground',
+                active ? t.badgeColor : 'bg-foreground/6 text-muted-foreground',
               )}
             >
               {counts[t.key] ?? 0}
@@ -194,6 +194,10 @@ export default function SuppliersPage() {
   const exitSplitView = useCallback(() => {
     navigate('/purchase/suppliers?view=table')
   }, [])
+
+  // Stable identity so the split view's IntersectionObserver isn't torn down
+  // and rebuilt on every render (which was defeating infinite scroll).
+  const loadMore = useCallback(() => setCurrentPage((p) => p + 1), [])
   // Master store is kept only for the directory-wide stats cards (counts that
   // don't change with filters), and for the importSuppliers action.
   const {
@@ -605,7 +609,10 @@ export default function SuppliersPage() {
             loading={isLoading && currentPage === 1}
             loadingMore={isLoading && currentPage > 1}
             hasMore={allSuppliers.length < totalSuppliers && !isLoading}
-            onLoadMore={() => setCurrentPage((p) => p + 1)}
+            onLoadMore={loadMore}
+            total={totalSuppliers}
+            searchValue={searchQuery}
+            onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
             selectedSupplierId={selectedSupplierId}
             onSelectSupplier={selectSupplier}
             onExitSplitView={exitSplitView}

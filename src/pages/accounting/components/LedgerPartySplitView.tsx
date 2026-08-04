@@ -3,6 +3,7 @@ import { Users } from 'lucide-react'
 import { useRoute } from '@/lib/router'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { CustomerCompactCard } from '@/pages/customers/components/CustomerCompactCard'
 import { SupplierCompactCard } from '@/pages/purchase/components/SupplierCompactCard'
 import { LedgerPartyTypeTabs } from './LedgerPartyTypeTabs'
@@ -97,26 +98,11 @@ export function LedgerPartySplitView({
   }
 
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const pendingLoadRef = useRef(false)
-  useEffect(() => {
-    if (!activeResults.loading) pendingLoadRef.current = false
-  }, [activeResults.loading])
-  useEffect(() => {
-    if (!activeResults.hasMore || !sentinelRef.current) return
-    const el = sentinelRef.current
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !pendingLoadRef.current) {
-          pendingLoadRef.current = true
-          activeResults.loadMore()
-        }
-      },
-      { threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeResults.hasMore, browseType])
+  useInfiniteScrollSentinel(sentinelRef, {
+    hasMore: activeResults.hasMore,
+    onLoadMore: activeResults.loadMore,
+    itemCount: activeResults.items.length,
+  })
 
   const rightContent = selectedPartyId && selectedPartyType ? (
     <LedgerDetailContent key={selectedPartyId} partyId={selectedPartyId} partyType={selectedPartyType} />

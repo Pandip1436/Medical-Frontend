@@ -172,7 +172,8 @@ export default function SupplierDetailPage() {
   type SupplierTab = typeof SUP_TAB_KEYS[number]
   const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
   const [activeTab, setActiveTab] = useState<SupplierTab>(
-    (SUP_TAB_KEYS as readonly string[]).includes(tabFromUrl) ? (tabFromUrl as SupplierTab) : 'overview',
+    // 'pos' tab is hidden (Purchase Orders module disabled) — deep links fall back.
+    (SUP_TAB_KEYS as readonly string[]).includes(tabFromUrl) && tabFromUrl !== 'pos' ? (tabFromUrl as SupplierTab) : 'overview',
   )
   // Keep the active tab in the URL so browser Back — e.g. returning from a PE
   // (GRN) detail page — restores the same tab instead of resetting to Overview.
@@ -407,8 +408,8 @@ export default function SupplierDetailPage() {
                   { value: 'overview', label: 'Overview', icon: Building2 },
                   { value: 'ledger', label: 'Ledger', icon: FileText },
                   { value: 'activity', label: 'Activity', icon: MessageSquare },
-                  { value: 'pos', label: 'POs', icon: ClipboardList },
-                  { value: 'grns', label: 'PEs', icon: Receipt },
+                  // POs tab hidden — the Purchase Orders module is disabled.
+                  { value: 'grns', label: 'Purchase Entry', icon: Receipt },
                   { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                   { value: 'batches', label: 'Batches', icon: Layers },
                 ].map((t) => (
@@ -643,7 +644,17 @@ export default function SupplierDetailPage() {
                         />
                         <Row label="Total Returns" value={pickKpi(kpis, 'Total Returns')} mono />
                         <Row label="Open POs" value={pickKpi(kpis, 'Open POs')} mono />
-                        {sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />}
+                        {(sup.bankAccountName || sup.bankName || sup.bankAccountNumber || sup.bankIfsc || sup.bankUpiId) ? (
+                          <>
+                            {sup.bankAccountName && <Row label="A/c Holder" value={sup.bankAccountName} />}
+                            {sup.bankName && <Row label="Bank" value={sup.bankName} />}
+                            {sup.bankAccountNumber && <Row label="A/c No." value={sup.bankAccountNumber} mono />}
+                            {sup.bankIfsc && <Row label="IFSC" value={sup.bankIfsc} mono />}
+                            {sup.bankUpiId && <Row label="UPI" value={sup.bankUpiId} mono />}
+                          </>
+                        ) : (
+                          sup.bankDetails && <Row label="Bank" value={sup.bankDetails} mono />
+                        )}
                       </OverviewSection>
                     </div>
                   </CardContent>

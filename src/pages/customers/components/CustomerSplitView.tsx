@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Users } from 'lucide-react'
 import { SplitViewShell } from '@/components/shared/SplitViewShell'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { CustomerCompactCard } from './CustomerCompactCard'
 import { CustomerDetailContent } from './CustomerDetailContent'
 import type { Customer } from '@/types'
@@ -23,6 +24,11 @@ interface CustomerSplitViewProps {
   // `q` query and paginates the matches.
   searchValue?: string
   onSearchChange?: (v: string) => void
+  // Route the detail's Edit to the page's shared rich Add/Edit form (so add and
+  // edit are identical). Bumping detailRefreshKey remounts the detail to pick up
+  // edits saved through that form.
+  onRequestEdit?: (customer: Customer) => void
+  detailRefreshKey?: number
 }
 
 export function CustomerSplitView({
@@ -40,34 +46,11 @@ export function CustomerSplitView({
   isCardFieldRight,
   searchValue = '',
   onSearchChange,
+  onRequestEdit,
+  detailRefreshKey = 0,
 }: CustomerSplitViewProps) {
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const pendingLoadRef = useRef(false)
-
-  // Reset the guard when the in-flight load finishes
-  useEffect(() => {
-    if (!loadingMore) pendingLoadRef.current = false
-  }, [loadingMore])
-
-  // Infinite scroll — trigger onLoadMore when sentinel enters viewport.
-  // deps intentionally exclude customers.length: reconnecting on every page
-  // load would fire the observer immediately and cascade-load all pages.
-  useEffect(() => {
-    if (!hasMore || !onLoadMore || !sentinelRef.current) return
-    const el = sentinelRef.current
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !pendingLoadRef.current) {
-          pendingLoadRef.current = true
-          onLoadMore()
-        }
-      },
-      { threshold: 0 },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, onLoadMore])
+  useInfiniteScrollSentinel(sentinelRef, { hasMore, onLoadMore, itemCount: customers.length })
 
   // When the list changes (filter/tab applied), keep the selection if it's
   // still visible; otherwise snap to the first item in the new list.
@@ -84,7 +67,11 @@ export function CustomerSplitView({
   )
 
   const rightContent = selectedCustomer ? (
-    <CustomerDetailContent customerId={selectedCustomer.id} />
+    <CustomerDetailContent
+      key={`${selectedCustomer.id}:${detailRefreshKey}`}
+      customerId={selectedCustomer.id}
+      onRequestEdit={onRequestEdit}
+    />
   ) : null
 
   return (
