@@ -2692,7 +2692,7 @@ export default function NewSalePage() {
     additionalCharges: AdditionalCharge[]
     enableCourier: boolean
     linkedLeadId: string | null
-    quotationSource: { id: string; number: string; customerName: string } | null
+    quotationSource: { id: string; number: string; customerName: string; customerPhone?: string } | null
     replacementSource: { creditNoteId: string; creditNoteNo: string; customerName: string } | null
     editingDraftId: string | null
     editingInvoiceId: string | null
@@ -2802,7 +2802,7 @@ export default function NewSalePage() {
   // Declared here (earlier than the auto-draft snapshot that also needs
   // them) because the quotation/replacement resolution effect further down
   // depends on both in its dependency array.
-  const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string } | null>(null)
+  const [quotationSource, setQuotationSource] = useState<{ id: string; number: string; customerName: string; customerPhone?: string } | null>(null)
   const [replacementSource, setReplacementSource] = useState<{ creditNoteId: string; creditNoteNo: string; customerName: string } | null>(null)
 
   // Derive salesperson from selected customer's referredBy field
@@ -2930,6 +2930,30 @@ export default function NewSalePage() {
       setEditStockCredit({})
       toast.info('Edit cancelled — starting a new sale for this customer')
     }
+    // Switching to a DIFFERENT party invalidates any conversion context this
+    // bill was opened with. That context isn't cosmetic: on save, quotationSource
+    // marks its quotation CONVERTED and replacementSource settles its credit
+    // note — both would land on the wrong party's record if the operator
+    // re-pointed the bill at someone else. linkedLeadId has the same problem.
+    //
+    // Identity is compared by NAME, not id, on purpose: the quotation→invoice
+    // flow for a stub customer ends by CREATING the master record and selecting
+    // it through this same helper. That's the same party with a brand-new id, so
+    // an id comparison would drop the conversion link exactly when it's needed.
+    const samePartyName = (a?: string, b?: string) =>
+      (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase()
+    const switchingParty = !!selectedCustomer && !samePartyName(selectedCustomer.name, c.name)
+    if (switchingParty) {
+      if (quotationSource) {
+        setQuotationSource(null)
+        toast.info(`Quotation ${quotationSource.number} unlinked — this bill is for a different customer`)
+      }
+      if (replacementSource) {
+        setReplacementSource(null)
+        toast.info(`Replacement for ${replacementSource.creditNoteNo} unlinked — this bill is for a different customer`)
+      }
+      setLinkedLeadId(null)
+    }
     setSelectedCustomer(c)
     // Land on Products, not Invoice History: picking a customer is the start of
     // billing them, so the catalogue is what's needed next. Their history is one
@@ -2951,7 +2975,7 @@ export default function NewSalePage() {
     if (qtStored) {
       try {
         const qt = JSON.parse(qtStored)
-        setQuotationSource({ id: qt.quotationId, number: qt.quotationNumber, customerName: qt.customerName })
+        setQuotationSource({ id: qt.quotationId, number: qt.quotationNumber, customerName: qt.customerName, customerPhone: qt.customerPhone || undefined })
         if (qt.deliveryCharge !== undefined) setDeliveryCharge(Number(qt.deliveryCharge) || 0)
         setAdditionalCharges(coerceCharges(qt.additionalCharges))
         // Conversion → invoice. Two paths:
@@ -3097,14 +3121,45 @@ export default function NewSalePage() {
     let cancelled = false
 
     ;(async () => {
-      // 1) Resolve the customer by name (one focused query, not full catalog)
-      try {
-        const cRes = await api.get('/customers', { params: { q: src.customerName, take: 5 } })
-        const cData = Array.isArray(cRes.data) ? cRes.data : (cRes.data?.data ?? [])
-        const matched = cData.find((c: Customer) => c.name.toLowerCase() === src.customerName.toLowerCase())
-          ?? cData[0]
-        if (matched && !cancelled) setSelectedCustomer(matched)
-      } catch { /* non-blocking */ }
+      // 1) Resolve the customer.
+      //
+      // Skipped entirely when one is already selected: the prefill effect above
+      // resolves the quotation's customerId against the master store, and an id
+      // is authoritative. This search is only the fallback for a quotation that
+      // carries a name/phone but no id.
+      //
+      // Matching is deliberately strict — phone (a unique key) first, then an
+      // exact name. There is NO "take the first result" fallback: `q` is a fuzzy
+      // server search, so position 0 is an arbitrary customer that merely looked
+      // similar, and selecting it silently billed the wrong party. If nothing
+      // matches confidently we leave the field empty and say so; the operator
+      // picking from the dropdown is far cheaper than an invoice raised against
+      // someone else's account.
+      if (!selectedCustomerRef.current) {
+        try {
+          const wantedPhone = (src === quotationSource ? quotationSource?.customerPhone : '')?.replace(/\D/g, '') ?? ''
+          const wantedName = src.customerName.trim().toLowerCase()
+          const cRes = await api.get('/customers', {
+            params: { q: wantedPhone || src.customerName, take: 5 },
+          })
+          const cData: Customer[] = Array.isArray(cRes.data) ? cRes.data : (cRes.data?.data ?? [])
+          const matched =
+            (wantedPhone
+              ? cData.find((c) => (c.phone ?? '').replace(/\D/g, '') === wantedPhone)
+              : undefined)
+            ?? cData.find((c) => c.name.trim().toLowerCase() === wantedName)
+          if (!cancelled) {
+            if (matched) {
+              setSelectedCustomer(matched)
+            } else {
+              toast.warning(
+                `Couldn't match "${src.customerName}" to a saved customer — please select them before saving.`,
+                { duration: 6000 },
+              )
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
 
       // 2) Resolve each item's product by name and merge its batches into the store
       const currentItems = items
@@ -3113,8 +3168,14 @@ export default function NewSalePage() {
         try {
           const pRes = await api.get('/products', { params: { q: it.productName, take: 5 } })
           const pData = Array.isArray(pRes.data) ? pRes.data : (pRes.data?.data ?? [])
-          const product = pData.find((p: Product) => p.name.toLowerCase() === it.productName.toLowerCase())
-            ?? pData[0]
+          // Exact name only — no positional fallback. `q` is a fuzzy search, so
+          // pData[0] is whatever looked closest, and silently swapping in a
+          // different MEDICINE is a dispensing error, not a UI annoyance. An
+          // unmatched row keeps its quotation name and empty batch, which is
+          // what prompts the operator to pick the right product.
+          const product = pData.find(
+            (p: Product) => p.name.trim().toLowerCase() === it.productName.trim().toLowerCase(),
+          )
           if (!product) return it
           syncProductBatchesIntoStore(product)
           const productBatches = useMasterDataStore.getState().batches
