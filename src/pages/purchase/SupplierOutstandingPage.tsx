@@ -856,7 +856,17 @@ export default function SupplierOutstandingPage() {
                   size="sm"
                   className="flex-1 gap-2"
                   onClick={() => {
-                    navigate('/purchase/grn-list')
+                    // Deep-link to one of THIS supplier's PEs. Navigating to the
+                    // bare list instead let it fall back to its own default
+                    // selection, which lands on some unrelated supplier's entry.
+                    // Prefer the PE the user ticked; otherwise open the first
+                    // open PE listed above (the only one, in the common case).
+                    const targetGrnId = selectedGrnId ?? drawerGrns[0]?.id ?? null
+                    navigate(
+                      targetGrnId
+                        ? `/purchase/grn-list?grnId=${targetGrnId}`
+                        : '/purchase/grn-list',
+                    )
                     setSelectedRow(null)
                   }}
                 >
