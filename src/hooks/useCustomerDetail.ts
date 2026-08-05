@@ -193,6 +193,10 @@ export function useCustomerDetail(customerId: string | null) {
   // Ledger date range (debounced refetch)
   const [ledgerFrom, setLedgerFrom] = useState('')
   const [ledgerTo, setLedgerTo] = useState('')
+  // Row order. The server owns this (it paginates the ledger), so flipping it
+  // client-side would only reorder the 10 rows of the current page and leave
+  // the newest transactions stranded on the last one.
+  const [ledgerOrder, setLedgerOrder] = useState<'asc' | 'desc'>('desc')
 
   // Abort tracking for the two critical-path requests.
   const customerAbortRef = useRef<AbortController | null>(null)
@@ -267,15 +271,28 @@ export function useCustomerDetail(customerId: string | null) {
           to: ledgerTo,
           skip,
           take: CUSTOMER_TAB_PAGE_SIZE,
+          order: ledgerOrder,
         })}`
         const res = await api.get(path, { signal: controller.signal })
-        setLedger({ data: res.data, loading: false, error: null })
+        // "Newest first" (desc) walks the ledger newest-block-first, so page 1
+        // holds the most recent transactions — but the server hands them back
+        // newest→oldest. Reverse each page so rows read oldest→newest WITHIN the
+        // page, i.e. the latest transactions sit on page 1 yet list
+        // chronologically (like the last page of a printed statement). Per-row
+        // balances are unaffected — each row already carries its own cumulative
+        // balance, so flipping display order keeps every figure correct.
+        const data = res.data
+        if (ledgerOrder === 'desc' && Array.isArray(data?.tableData)) {
+          setLedger({ data: { ...data, tableData: [...data.tableData].reverse() }, loading: false, error: null })
+        } else {
+          setLedger({ data, loading: false, error: null })
+        }
       } catch (err: any) {
         if (isCanceled(err)) return
         setLedger((s) => ({ data: s.data, loading: false, error: err?.message ?? 'Failed to load ledger' }))
       }
     },
-    [customerId, ledgerFrom, ledgerTo],
+    [customerId, ledgerFrom, ledgerTo, ledgerOrder],
   )
 
   // On mount / customerId change: fire both critical fetches in parallel and
@@ -302,7 +319,9 @@ export function useCustomerDetail(customerId: string | null) {
     if (!customerId) return
     const handle = setTimeout(() => { void fetchLedger(1) }, 300)
     return () => clearTimeout(handle)
-  }, [customerId, ledgerFrom, ledgerTo, fetchLedger])
+    // ledgerOrder rides along via fetchLedger's identity — a flip re-fetches
+    // from page 1, which is what "newest first" has to mean.
+  }, [customerId, ledgerFrom, ledgerTo, ledgerOrder, fetchLedger])
 
   // ── Activity mutators (optimistic, then reconcile via refresh) ──
   const createActivity = useCallback(
@@ -379,6 +398,8 @@ export function useCustomerDetail(customerId: string | null) {
       to: ledgerTo,
       setFrom: setLedgerFrom,
       setTo: setLedgerTo,
+      order: ledgerOrder,
+      setOrder: setLedgerOrder,
       fetchPage: fetchLedgerPage,
       setPage: setLedgerPage,
       refetch: refetchLedger,

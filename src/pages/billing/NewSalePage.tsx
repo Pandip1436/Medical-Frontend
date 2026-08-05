@@ -4654,6 +4654,27 @@ export default function NewSalePage() {
       return;
     }
 
+    // Restriction: a PHARMACIST may not sell an invoice line below its batch's
+    // purchase cost (a loss sale) — the same "Below cost" threshold the rate
+    // cell warns on, now enforced as a hard block. Admins (and other roles) can
+    // override. Quotations are exempt, and legacy batches with no cost on file
+    // (purchaseRate 0) are skipped.
+    if (invoiceType !== 'quotation' && isPharmacist) {
+      const belowCostItems = activeItems.filter((i) => {
+        if (!i.batchId) return false
+        const cost = Number(batches.find((b) => b.id === i.batchId)?.purchaseRate ?? 0)
+        return cost > 0 && Number(i.rate) < cost - 0.01
+      })
+      if (belowCostItems.length > 0) {
+        const names = belowCostItems.map((i) => i.productName).filter(Boolean).join(', ')
+        toast.error(
+          `Sales rate is below the purchase cost for ${names || 'a line'}. Set the rate at or above the purchase rate to continue.`,
+          { duration: 6000 },
+        )
+        return
+      }
+    }
+
     if (!selectedCustomer) {
       toast.error('Please select a customer before saving')
       setShowCustomerDropdown(true)

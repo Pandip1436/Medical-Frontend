@@ -55,6 +55,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { usePageSize } from '@/hooks/usePageSize'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { SupplierFormDialog, type SupplierFormValues } from '@/components/shared/SupplierFormDialog'
+import { SupplierDocumentsTab } from './components/SupplierDocumentsTab'
 import {
   SupplierActivityDialog,
   type SupplierActivity,
@@ -169,7 +170,7 @@ export default function SupplierDetailPage() {
   const supplierId = new URLSearchParams(search).get('supplierId') ?? ''
 
   const d = useSupplierDetail(supplierId)
-  const SUP_TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches'] as const
+  const SUP_TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches', 'documents'] as const
   type SupplierTab = typeof SUP_TAB_KEYS[number]
   const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
   const [activeTab, setActiveTab] = useState<SupplierTab>(
@@ -413,6 +414,7 @@ export default function SupplierDetailPage() {
                   { value: 'grns', label: 'Purchase Entry', icon: Receipt },
                   { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                   { value: 'batches', label: 'Batches', icon: Layers },
+                  { value: 'documents', label: 'Documents', icon: FileText },
                 ].map((t) => (
                   <TabsTrigger
                     key={t.value}
@@ -1084,6 +1086,12 @@ export default function SupplierDetailPage() {
               </div>
             )}
           </TabsContent>
+
+          {/* Documents — stored against the supplier's linked customer twin
+              (same party), the pipeline SupplierFormDialog already uploads to. */}
+          <TabsContent value="documents" className="m-0 h-full flex flex-col">
+            <SupplierDocumentsTab customerId={sup?.customerId} />
+          </TabsContent>
         </div>
         </Tabs>
       </div>
@@ -1125,7 +1133,7 @@ function pickKpi(kpis: Kpi[], label: string): string {
 
 /** Right-aligned record count text for the slim strip under the tabs. */
 function currentTabCountLabel(
-  activeTab: 'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches',
+  activeTab: 'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches' | 'documents',
   ledgerCount: number,
   posCount: number,
   grnsCount: number,

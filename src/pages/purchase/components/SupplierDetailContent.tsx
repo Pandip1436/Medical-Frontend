@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { DocumentsOverviewCard } from '@/components/shared/DocumentsOverviewCard'
+import { SupplierDocumentsTab } from './SupplierDocumentsTab'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -158,7 +159,7 @@ interface SupplierDetailContentProps {
 export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps) {
   const d = useSupplierDetail(supplierId)
   const { path, search } = useRoute()
-  const TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches'] as const
+  const TAB_KEYS = ['overview', 'ledger', 'activity', 'pos', 'grns', 'dns', 'batches', 'documents'] as const
   type SupplierTab = typeof TAB_KEYS[number]
   const tabFromUrl = new URLSearchParams(search).get('tab') ?? ''
   const [activeTab, setActiveTab] = useState<SupplierTab>(
@@ -303,7 +304,13 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
   useEffect(() => { setGrnsPage(1) }, [grnsPeriod])
   useEffect(() => { setDnsPage(1) }, [dnsPeriod])
 
-  const ledgerPaged = ledgerRows.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize)
+  // Ledger rows arrive ascending (oldest → newest). Chunk from the NEWEST end so
+  // page 1 holds the most recent transactions while each page still reads
+  // oldest → newest within itself (mirrors the customer ledger — the newest
+  // activity lands on the first page, like the latest page of a statement).
+  // Slicing a contiguous ascending block keeps every row's running balance correct.
+  const ledgerEnd = ledgerRows.length - (ledgerPage - 1) * ledgerPageSize
+  const ledgerPaged = ledgerRows.slice(Math.max(0, ledgerEnd - ledgerPageSize), ledgerEnd)
   const posPaged = posFiltered.slice((posPage - 1) * posPageSize, posPage * posPageSize)
   const grnsPaged = grnsFiltered.slice((grnsPage - 1) * grnsPageSize, grnsPage * grnsPageSize)
   const dnsPaged = dnsFiltered.slice((dnsPage - 1) * dnsPageSize, dnsPage * dnsPageSize)
@@ -420,6 +427,7 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                 { value: 'grns', label: 'Purchase Entry', icon: Receipt },
                 { value: 'dns', label: 'Debit Notes', icon: RotateCcw },
                 { value: 'batches', label: 'Batches', icon: Layers },
+                { value: 'documents', label: 'Documents', icon: FileText },
               ].map((t) => (
                 <TabsTrigger
                   key={t.value}
@@ -1026,6 +1034,12 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                 </div>
               )}
             </TabsContent>
+
+            {/* Documents — stored against the supplier's linked customer twin
+                (same party), the pipeline SupplierFormDialog already uploads to. */}
+            <TabsContent value="documents" className="m-0 h-full flex flex-col">
+              <SupplierDocumentsTab customerId={sup?.customerId} />
+            </TabsContent>
           </div>
         </Tabs>
       </div>
@@ -1066,7 +1080,7 @@ function pickKpi(kpis: Array<{ label: string; value: string | number }>, label: 
 }
 
 function currentTabCountLabel(
-  activeTab: 'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches',
+  activeTab: 'overview' | 'ledger' | 'activity' | 'pos' | 'grns' | 'dns' | 'batches' | 'documents',
   ledgerCount: number,
   posCount: number,
   grnsCount: number,

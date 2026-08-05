@@ -4,6 +4,7 @@ import {
   CheckCircle2, XCircle, Clock, UserPlus, CreditCard,
   RotateCcw, Truck, RefreshCw, ListFilter, ChevronRight, Search,
   AlertTriangle, ArrowLeft, Phone, SlidersHorizontal, ArrowUpDown,
+  PackagePlus, CalendarClock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -27,7 +28,7 @@ import { isAdminish } from '@/types'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
 // ─── Types ────────────────────────────────────────────────────
-type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'INVENTORY_ADJUSTMENT'
+type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'INVENTORY_ADJUSTMENT' | 'PURCHASE_ENTRY'
 type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 type TypeKey = ApprovalType | 'all'
 type StatusKey = ApprovalStatus | 'all'
@@ -53,6 +54,7 @@ const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; acce
   { key: 'SALES_RETURN',    label: 'Sales Return',    icon: RotateCcw,  accent: 'text-rose-600 dark:text-rose-400' },
   { key: 'PURCHASE_RETURN', label: 'Purchase Return', icon: Truck,      accent: 'text-purple-600 dark:text-purple-400' },
   { key: 'INVENTORY_ADJUSTMENT', label: 'Stock Adjustment', icon: SlidersHorizontal, accent: 'text-cyan-600 dark:text-cyan-400' },
+  { key: 'PURCHASE_ENTRY',  label: 'Purchase Entry',  icon: PackagePlus, accent: 'text-emerald-600 dark:text-emerald-400' },
 ]
 
 const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; tone: string; border: string }> = {
@@ -61,6 +63,7 @@ const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; t
   SALES_RETURN:    { label: 'Sales Return',    icon: RotateCcw,  tone: 'text-rose-600 dark:text-rose-400 bg-rose-500/10',     border: 'border-l-rose-500' },
   PURCHASE_RETURN: { label: 'Purchase Return', icon: Truck,      tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10', border: 'border-l-purple-500' },
   INVENTORY_ADJUSTMENT: { label: 'Stock Adjustment', icon: SlidersHorizontal, tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10', border: 'border-l-cyan-500' },
+  PURCHASE_ENTRY:  { label: 'Purchase Entry',  icon: PackagePlus, tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10', border: 'border-l-emerald-500' },
 }
 
 const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
@@ -89,6 +92,11 @@ function inlineSummary(req: ApprovalRequest): string {
       const n = Array.isArray(p.items) ? p.items.length : 0
       return [`${n} batch${n === 1 ? '' : 'es'}`, p.requestedByName].filter(Boolean).join(' · ')
     }
+    case 'PURCHASE_ENTRY': {
+      const n = Array.isArray(p.nearExpiryItems) ? p.nearExpiryItems.length : 0
+      return [p.supplierName, p.supplierInvoiceNo, `${n} near-expiry item${n === 1 ? '' : 's'}`]
+        .filter(Boolean).join(' · ')
+    }
   }
 }
 
@@ -99,6 +107,7 @@ function searchHaystack(req: ApprovalRequest): string {
     p.name, p.customerName, p.supplierName,
     p.phone, p.invoiceNumber, p.reason,
     p.grandTotal, p.totalAmount,
+    p.supplierInvoiceNo,
   ].filter(Boolean).map(String).join(' ').toLowerCase()
 }
 
@@ -164,7 +173,7 @@ export default function ApprovalsPage() {
   const typeCounts = useMemo(() => {
     const base = statusFilter === 'all' ? allRequests : allRequests.filter(r => r.status === statusFilter)
     const counts: Record<TypeKey, number> = {
-      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0, INVENTORY_ADJUSTMENT: 0,
+      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0, INVENTORY_ADJUSTMENT: 0, PURCHASE_ENTRY: 0,
     }
     for (const r of base) counts[r.type]++
     return counts
@@ -869,7 +878,62 @@ function PayloadDetail({
           </Field>
         </div>
       )
+    case 'PURCHASE_ENTRY':
+      return (
+        <div className="space-y-4">
+          <div className={gridCls}>
+            <Field label="Supplier"><span className="font-semibold">{payload.supplierName || '—'}</span></Field>
+            <Field label="Supplier Invoice #"><span className="font-mono">{payload.supplierInvoiceNo || '—'}</span></Field>
+            {payload.supplierInvoiceAmount != null && (
+              <Field label="Invoice Amount">{formatCurrency(payload.supplierInvoiceAmount)}</Field>
+            )}
+            <Field label="Requested By">{payload.requestedByName || '—'}</Field>
+          </div>
+          <NearExpiryItemsCard items={Array.isArray(payload.nearExpiryItems) ? payload.nearExpiryItems : []} />
+        </div>
+      )
   }
+}
+
+// Near-expiry lines that triggered the Purchase Entry approval — the whole reason
+// this request exists, so the reviewer sees exactly which batches are close to expiry.
+function NearExpiryItemsCard({ items }: { items: any[] }) {
+  if (items.length === 0) return null
+  const fmt = (d: any) => {
+    if (!d) return '—'
+    const dt = new Date(d)
+    return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-amber-300/50 dark:border-amber-500/30">
+      <div className="flex items-center gap-2 border-b border-amber-300/50 bg-amber-500/10 px-4 py-2.5 dark:border-amber-500/30">
+        <CalendarClock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+          Near-Expiry Items ({items.length})
+        </p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-8">#</TableHead>
+            <TableHead>Product</TableHead>
+            <TableHead>Batch</TableHead>
+            <TableHead className="text-right">Expiry</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((it, i) => (
+            <TableRow key={i}>
+              <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+              <TableCell className="text-sm font-medium">{it.productName ?? '—'}</TableCell>
+              <TableCell className="text-sm"><span className="font-mono">{it.batchNumber ?? '—'}</span></TableCell>
+              <TableCell className="text-right text-sm font-semibold text-amber-600 dark:text-amber-400">{fmt(it.expiryDate)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }
 
 // The products being returned — full line-item table + tax/total breakdown so

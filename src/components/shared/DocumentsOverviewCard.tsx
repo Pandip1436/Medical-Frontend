@@ -36,25 +36,41 @@ export function DocumentsOverviewCard({
   title?: string
 }) {
   const [fetched, setFetched] = useState<OverviewDoc[] | null>(null)
+  const [forbidden, setForbidden] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewTitle, setPreviewTitle] = useState('Document')
 
   useEffect(() => {
     if (documents !== undefined || !customerId) return
-    let cancelled = false
+    const controller = new AbortController()
+    setForbidden(false)
     api
-      .get(`/prescriptions?customerId=${customerId}`)
+      // Documents live behind the customer-prescription endpoint, which not
+      // every role that can open a supplier may read (e.g. INVENTORY_MANAGER).
+      // suppressGlobalToast keeps that expected 403 from surfacing as a
+      // "Forbidden resource" toast on every supplier Overview visit — the card
+      // hides itself instead (below).
+      .get(`/prescriptions?customerId=${customerId}`, {
+        signal: controller.signal,
+        suppressGlobalToast: true,
+      } as never)
       .then((res) => {
-        if (cancelled) return
         const list = (res.data?.data ?? res.data ?? []) as OverviewDoc[]
         setFetched(Array.isArray(list) ? list : [])
       })
-      .catch(() => { if (!cancelled) setFetched([]) })
-    return () => { cancelled = true }
+      .catch((err) => {
+        if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return
+        if (err?.response?.status === 403) setForbidden(true)
+        setFetched([])
+      })
+    return () => controller.abort()
   }, [documents, customerId])
 
   // Nothing to show for a supplier with no linked customer twin.
   if (documents === undefined && !customerId) return null
+  // Hide the card entirely rather than claiming "no documents uploaded" to a
+  // user who simply isn't allowed to see them.
+  if (forbidden) return null
 
   const docs = documents ?? fetched ?? []
   const loading = documents === undefined && fetched === null

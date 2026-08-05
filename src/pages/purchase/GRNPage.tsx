@@ -1115,6 +1115,21 @@ export default function GRNPage() {
       const grnRes = await api.post('/grn', payload)
       const savedGrn = grnRes.data
 
+      // Near-expiry guard: if any line's expiry is within 6 months, a non-admin's
+      // Purchase Entry is filed as an approval request instead of being created.
+      // No GRN exists yet — surface that and return to the list.
+      if (savedGrn?.approvalRequested) {
+        const n = savedGrn.nearExpiryCount ?? 0
+        toast.success('Sent for admin approval', {
+          description: `${n} ${n === 1 ? 'item is' : 'items are'} within 6 months of expiry. This Purchase Entry will be created once an admin approves it.`,
+          duration: 7000,
+        })
+        setShowConfirm(false)
+        draft.clear()
+        navigate('/purchase/grn-list')
+        return
+      }
+
       // If this GRN is receiving replacement goods for a purchase return, link them
       if (replacementReturnId && savedGrn?.id) {
         try {

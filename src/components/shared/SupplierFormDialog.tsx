@@ -233,14 +233,28 @@ export function SupplierFormDialog({
       // pipeline). Best-effort — never block the save on an upload hiccup.
       if (docFiles.length) {
         if (twinCustomerId) {
+          // The upload endpoint is ADMIN/PHARMACIST-only, so roles that may
+          // otherwise manage suppliers (e.g. INVENTORY_MANAGER) get a 403 here.
+          // Suppress the generic "Forbidden resource" toast and report the
+          // skipped uploads once, after the loop.
+          let denied = false
           for (const file of docFiles) {
             try {
               const fd = new FormData()
               fd.append('file', file)
               fd.append('customerId', twinCustomerId)
               fd.append('doctorName', 'Supplier Document')
-              await api.post('/prescriptions/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-            } catch { /* keep going; the supplier itself saved fine */ }
+              await api.post('/prescriptions/upload', fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                suppressGlobalToast: true,
+              } as Record<string, unknown>)
+            } catch (uploadErr: unknown) {
+              // keep going; the supplier itself saved fine
+              if ((uploadErr as { response?: { status?: number } })?.response?.status === 403) denied = true
+            }
+          }
+          if (denied) {
+            toast.message("Supplier saved — documents weren't uploaded (your role can't attach documents).")
           }
         } else {
           toast.message('Supplier saved — document upload skipped (no linked customer record).')
