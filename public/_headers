@@ -10,7 +10,26 @@
 # them hard. Everything unhashed (the HTML shell, the service worker, the
 # manifest) must revalidate every time, otherwise a browser can keep serving an
 # index.html that points at chunk hashes a later deploy has already removed.
+#
+# IMPORTANT — precedence: Cloudflare Pages applies EVERY matching rule and, when
+# two rules set the same header, the LAST matching rule wins. So the broad
+# no-cache catch-all comes FIRST and the immutable /assets/* rule comes LAST,
+# letting hashed bundles keep their long cache while everything else revalidates.
 
+# The app shell for EVERY route — never cache. This must be a catch-all, not just
+# `/` and `/index.html`: an SPA deep link (e.g. /crm/leads) is served the shell
+# under THAT path, and _headers matches the request path — so a `/index.html`-
+# only rule leaves deep-link HTML on the default policy. A stale shell there is
+# exactly what strands a client on a build whose chunk hashes are already gone
+# ("Failed to fetch dynamically imported module"). Covers /sw.js and
+# /manifest.webmanifest too — a stale sw.js can never hand over to a new one.
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Immutable content-hashed bundles — most specific rule, and last, so it wins
+# over the catch-all above. A changed file always gets a new URL, so caching
+# these forever is safe.
+#
 # Caveat: when the SPA catch-all in _redirects answers a request for a deleted
 # chunk with index.html, that HTML body picks up this immutable header too. It
 # is harmless in practice — that URL belongs to a build that no longer exists,
@@ -18,20 +37,3 @@
 # never request again.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
-
-# The app shell — never cache. This is the file that decides which chunk
-# hashes the browser asks for, so a stale copy here is what strands a client on
-# a build that no longer exists.
-/
-  Cache-Control: public, max-age=0, must-revalidate
-
-/index.html
-  Cache-Control: public, max-age=0, must-revalidate
-
-# Service worker + PWA metadata: a stale sw.js can never hand over to a new
-# one, which would pin a device to an old build indefinitely.
-/sw.js
-  Cache-Control: public, max-age=0, must-revalidate
-
-/manifest.webmanifest
-  Cache-Control: public, max-age=0, must-revalidate

@@ -4,7 +4,7 @@ import { registerSW } from 'virtual:pwa-register'
 // (rare — during a maintenance window staff are usually away from the tab, and
 // the focus/visibility checks below catch that case instantly). Kept short so
 // even a continuously-focused tab lands on the new build within a minute.
-const UPDATE_CHECK_INTERVAL_MS = 60 * 1000 // 1 minute
+const UPDATE_CHECK_INTERVAL_MS = 30 * 1000 // 1 minute
 
 // Update policy: fully automatic. vite.config.ts sets registerType:
 // 'autoUpdate', so a newly-deployed service worker skips waiting, activates
