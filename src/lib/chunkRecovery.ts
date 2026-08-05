@@ -22,6 +22,14 @@ const RELOAD_STAMP_KEY = 'pbims-chunk-recovery-at'
 const RELOAD_WINDOW_MS = 60 * 1000
 const CACHE_BUST_PARAM = '_v'
 
+// One chunk failure now reaches recovery twice: the vite:preloadError listener
+// starts it, and the rethrown error reaches the boundary a moment later. The
+// purge is async, so the second call would otherwise hit the reload guard,
+// report "suppressed", and drop the boundary onto the error screen while the
+// reload it's waiting for is already in flight. This flag lets the second
+// caller know a reload is coming and to keep showing "Updating…".
+let reloadInFlight = false
+
 /**
  * Does this error mean "the JS chunk I asked for isn't there / isn't JS"?
  *
@@ -47,7 +55,15 @@ export function isChunkLoadError(error: unknown): boolean {
     /Failed to load module script/i.test(message) ||
     /expected a javascript(-or-wasm)? module script/i.test(message) ||
     // Vite's CSS preload helper
-    /Unable to preload CSS/i.test(message)
+    /Unable to preload CSS/i.test(message) ||
+    // Second-order form of the same failure: when the module never loads,
+    // React.lazy is handed an undefined module object and blows up reading
+    // `.default` off it. The message names no chunk, so this pattern is the
+    // only thing tying it back to a stale build — without it the failure
+    // reaches the boundary as a generic app crash and nothing recovers.
+    // (Chrome/Firefox wording, then Safari's.)
+    /Cannot read propert(?:y|ies) of undefined \(reading '?default'?\)/i.test(message) ||
+    /undefined is not an object \(evaluating '.*\.default'\)/i.test(message)
   )
 }
 
@@ -94,9 +110,14 @@ async function purgeStaleShell() {
  * fall back to showing an error instead of silently doing nothing.
  */
 export async function recoverFromChunkError({ force = false } = {}): Promise<boolean> {
+  // A reload is already on its way — report success so the caller keeps the
+  // "updating" state rather than falling through to the error screen.
+  if (reloadInFlight) return true
+
   const now = Date.now()
   if (!force && now - readStamp() < RELOAD_WINDOW_MS) return false
   writeStamp(now)
+  reloadInFlight = true
 
   await purgeStaleShell()
 
@@ -129,8 +150,23 @@ export function installChunkErrorRecovery() {
 
   // Vite fires this when a modulepreload for a lazy route fails — this is the
   // boot-time version of the failure, before any component renders.
-  window.addEventListener('vite:preloadError', (event) => {
-    event.preventDefault() // stop Vite from rethrowing; we handle it by reloading
+  //
+  // Deliberately NOT calling event.preventDefault() here. Vite's preload helper
+  // is `return baseModule().catch(reportPreloadError)`, and reportPreloadError
+  // only rethrows when the event was left un-prevented. Preventing it makes the
+  // catch swallow the error and return undefined, so the import() *resolves
+  // with undefined* — React.lazy then dies on `undefined.default`, a TypeError
+  // that names no chunk and reads like an app bug. Letting Vite rethrow keeps
+  // the real "failed to load module script" error attached to the import, so
+  // the error boundary can identify it and show "Updating…" instead of
+  // "Something went wrong".
+  //
+  // Recovery still starts here rather than waiting for the rethrow: purging the
+  // service worker and caches is async, so kicking it off at the earliest
+  // signal gets the reload going sooner. The rethrown error is handled below
+  // (unhandledrejection) or by the boundary; recoverFromChunkError's own guard
+  // makes the duplicate call a no-op.
+  window.addEventListener('vite:preloadError', () => {
     void recoverFromChunkError()
   })
 
