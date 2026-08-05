@@ -13,13 +13,28 @@
 // version. The fix is to throw away the stale shell — drop the caches, drop the
 // service worker, and reload from the network onto the current build.
 //
-// A reload guard is essential here. If the reload lands on the same stale shell
+// A reload guard is essential here: if the reload lands on the same stale shell
 // (e.g. an unrevalidated CDN edge copy) an unguarded handler would spin the tab
-// in an infinite reload loop, which is worse than the error screen. So we
-// recover at most once per RELOAD_WINDOW_MS and otherwise let the error surface.
+// in an infinite reload loop, which is worse than the error screen.
+//
+// The guard counts ATTEMPTS rather than using a time window. A time window gets
+// this wrong in the common case: recovery reloads the tab, the app comes back
+// healthy, the user navigates a few seconds later and hits a second stale route
+// — still inside the window, so recovery is refused and the user is shown a
+// hard error even though the first reload worked perfectly. What actually
+// distinguishes "the reload didn't help" from "a fresh failure after a reload
+// that did" is whether the app managed to run at all in between, so that is
+// what we measure: `consecutive` is cleared once the app has been alive and
+// quiet for SETTLE_MS, and only an unbroken run of failures trips the limit.
+//
+// MAX_TOTAL bounds the pathological case where a page reliably fails just after
+// the settle timer clears the counter, which would otherwise loop forever. At
+// most MAX_TOTAL reloads happen per tab session, no matter what.
 
-const RELOAD_STAMP_KEY = 'pbims-chunk-recovery-at'
-const RELOAD_WINDOW_MS = 60 * 1000
+const RECOVERY_STATE_KEY = 'pbims-chunk-recovery'
+const MAX_CONSECUTIVE = 3
+const MAX_TOTAL = 6
+const SETTLE_MS = 10 * 1000
 const CACHE_BUST_PARAM = '_v'
 
 // One chunk failure now reaches recovery twice: the vite:preloadError listener
@@ -67,17 +82,34 @@ export function isChunkLoadError(error: unknown): boolean {
   )
 }
 
-function readStamp(): number {
+interface RecoveryState {
+  /** Reloads since the app last managed to run cleanly. Resets on success. */
+  consecutive: number
+  /** Reloads in this tab session, ever. Never resets — the loop backstop. */
+  total: number
+}
+
+function readState(): RecoveryState {
   try {
-    return Number(sessionStorage.getItem(RELOAD_STAMP_KEY)) || 0
+    const raw = sessionStorage.getItem(RECOVERY_STATE_KEY)
+    if (!raw) return { consecutive: 0, total: 0 }
+    const parsed = JSON.parse(raw) as Partial<RecoveryState>
+    return {
+      consecutive: Number(parsed.consecutive) || 0,
+      total: Number(parsed.total) || 0,
+    }
   } catch {
-    return 0 // storage blocked (private mode / partitioned) — allow the attempt
+    // Storage blocked (private mode / partitioned) or corrupt — treat as a
+    // clean slate and allow the attempt. Losing the guard is better than
+    // refusing to recover at all; the reload itself is still bounded by
+    // whether the failure keeps happening.
+    return { consecutive: 0, total: 0 }
   }
 }
 
-function writeStamp(at: number) {
+function writeState(state: RecoveryState) {
   try {
-    sessionStorage.setItem(RELOAD_STAMP_KEY, String(at))
+    sessionStorage.setItem(RECOVERY_STATE_KEY, JSON.stringify(state))
   } catch {
     /* no-op */
   }
@@ -106,27 +138,39 @@ async function purgeStaleShell() {
 /**
  * Drop the stale shell and reload onto the current build.
  *
- * Returns false when the reload guard suppressed the attempt, so callers can
- * fall back to showing an error instead of silently doing nothing.
+ * Returns false only when the guard has given up after repeated failures, so
+ * callers can surface a "couldn't update" screen instead of a stuck spinner.
+ * Pass force for a user-initiated retry — that bypasses the limits, since a
+ * person clicking a button is not a reload loop.
  */
 export async function recoverFromChunkError({ force = false } = {}): Promise<boolean> {
   // A reload is already on its way — report success so the caller keeps the
   // "updating" state rather than falling through to the error screen.
   if (reloadInFlight) return true
 
-  const now = Date.now()
-  if (!force && now - readStamp() < RELOAD_WINDOW_MS) return false
-  writeStamp(now)
+  const state = readState()
+  if (!force && (state.consecutive >= MAX_CONSECUTIVE || state.total >= MAX_TOTAL)) {
+    return false
+  }
+
+  writeState({ consecutive: state.consecutive + 1, total: state.total + 1 })
   reloadInFlight = true
 
   await purgeStaleShell()
 
+  // If reloading this exact route has already failed once, the route itself may
+  // be what cannot load. Fall back to the app root, which only needs the entry
+  // chunk — far more likely to come back healthy than the deep route that just
+  // died, and the user lands in a working app rather than on an error screen.
+  const retryingSameRouteFailed = state.consecutive >= 1
+  const target = new URL(retryingSameRouteFailed ? '/' : window.location.href, window.location.origin)
+
   // A plain reload() can still be answered from the HTTP cache with the same
   // stale index.html. A changing query string guarantees a fresh document; the
   // param is stripped again on the next boot (see installChunkErrorRecovery).
-  const url = new URL(window.location.href)
-  url.searchParams.set(CACHE_BUST_PARAM, String(now))
-  window.location.replace(url.toString())
+  target.searchParams.set(CACHE_BUST_PARAM, String(Date.now()))
+
+  window.location.replace(target.toString())
   return true
 }
 
@@ -147,6 +191,19 @@ export function installChunkErrorRecovery() {
   } catch {
     /* no-op */
   }
+
+  // If the app is still standing after SETTLE_MS, whatever recovery happened
+  // worked — clear the consecutive counter so a *later*, unrelated stale chunk
+  // (a different lazy route, a deploy an hour from now) gets a full set of
+  // attempts again. Without this the counter only ever climbs, and the second
+  // stale route a user meets in a session is met with an error screen instead
+  // of a reload. `total` deliberately survives, bounding runaway loops.
+  window.setTimeout(() => {
+    if (reloadInFlight) return // a recovery is mid-flight; this run did not settle
+    const state = readState()
+    if (state.consecutive === 0) return
+    writeState({ ...state, consecutive: 0 })
+  }, SETTLE_MS)
 
   // Vite fires this when a modulepreload for a lazy route fails — this is the
   // boot-time version of the failure, before any component renders.
