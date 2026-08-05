@@ -2923,6 +2923,11 @@ export default function NewSalePage() {
       toast.info('Edit cancelled — starting a new sale for this customer')
     }
     setSelectedCustomer(c)
+    // Land on Products, not Invoice History: picking a customer is the start of
+    // billing them, so the catalogue is what's needed next. Their history is one
+    // tab away. Only this manual-pick path switches — the restore flows (edit /
+    // repurchase / quotation / draft snapshot) keep whichever tab they were on.
+    setTableView('products')
     setItems([createEmptyItem()])
     // A fresh bill starts clean — clear any values carried over from a prior
     // bill or a restored auto-draft (delivery fee, courier toggle, amount paid /
@@ -3538,10 +3543,13 @@ export default function NewSalePage() {
       sessionStorage.getItem('quotation_prefill') ||
       sessionStorage.getItem('repurchase_items')
     )
-    // A conversion arrives with its cart pre-loaded, so land on the Products
-    // tab (the cart) — not the default Customer History tab — so the operator
-    // sees the items straight away.
-    if (isConversion) setTableView('products')
+    // EVERY prefill flow (edit, draft, duplicate, lead, quotation conversion,
+    // re-purchase) arrives with its cart already loaded, so land on the Products
+    // tab — the cart — instead of Customer History, and the operator sees the
+    // items straight away. This also matches the focus behaviour below, which
+    // already puts the caret in the product search for these flows: focusing a
+    // field on a tab the user couldn't see was the inconsistency.
+    if (hasPrefillFlow) setTableView('products')
     setTimeout(() => {
       if (isConversion) return
       if (selectedCustomer || hasPrefillFlow) heroSearchRef.current?.focus()
@@ -5733,10 +5741,12 @@ export default function NewSalePage() {
                             key={cust.id}
                             className="cursor-pointer px-3 py-2.5 hover:bg-accent/60 transition-colors"
                             onClick={() => {
+                              // No setTableView here — selectCustomerFresh picks
+                              // the landing tab (Products). Setting it after the
+                              // call silently overrode that choice.
                               selectCustomerFresh(cust)
                               setCustomerSearch('')
                               setShowCustomerDropdown(false)
-                              setTableView('customer-history')
                             }}
                           >
                             <div className="flex items-center gap-2">
