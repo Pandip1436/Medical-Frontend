@@ -49,12 +49,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Precache the app shell (built JS/CSS/HTML/fonts) so the app installs
-        // and launches offline. API calls are intentionally left uncached
-        // below — this is a live billing/inventory system, so a stale cached
-        // response (wrong stock, wrong price) is worse than a failed request.
+        // Precache the app shell (built JS/CSS/fonts/icons) so the app installs
+        // and launches fast. API calls are intentionally left uncached below —
+        // this is a live billing/inventory system, so a stale cached response
+        // (wrong stock, wrong price) is worse than a failed request.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallbackDenylist: [/^\/api\//],
         // Delete precaches from superseded builds. Without this, every deploy
         // leaves its full chunk set behind; the total grows until the browser
         // evicts the whole origin's storage — taking the CURRENT build's chunks
@@ -66,14 +65,38 @@ export default defineConfig({
         // for manual registration, so pin them here rather than depend on that
         // interaction. Without skipWaiting a new worker sits idle behind the
         // old one and the site never actually updates; without clientsClaim the
-        // post-update reload can still be served by the old worker's precached
-        // index.html.
+        // post-update reload can still be served by the old worker's shell.
         skipWaiting: true,
         clientsClaim: true,
+        // CRITICAL — do NOT use the precache-based SPA fallback. In generateSW
+        // mode `navigateFallback` registers a cache-first NavigationRoute that
+        // runs BEFORE runtimeCaching, so every navigation is served the
+        // *precached* index.html. After a deploy that precached shell points at
+        // chunk hashes the new build has removed → "Failed to fetch dynamically
+        // imported module" → a stuck worker pins the client to a dead build.
+        // We instead handle navigations network-first in runtimeCaching below.
+        navigateFallback: null,
         runtimeCaching: [
           {
             urlPattern: /\/api\/v\d+\//,
             handler: 'NetworkOnly',
+          },
+          {
+            // App shell — NETWORK-FIRST. Every navigation (hard load / refresh /
+            // deep link) re-fetches the freshly deployed index.html, which
+            // references the CURRENT chunk hashes, instead of replaying a stale
+            // precached copy. This is the fix for a stuck service worker pinning
+            // a client to an old build: even an out-of-date worker fetches fresh
+            // HTML on every navigation. Falls back to the runtime cache only
+            // when the network is unavailable (offline).
+            urlPattern: ({ request }: { request: Request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'app-shell',
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
           },
         ],
       },
