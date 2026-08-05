@@ -25,6 +25,7 @@ import { EnumSelect } from '@/components/shared/EnumSelect'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
+import { describeSendSkip } from '@/lib/whatsappSendResult'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
@@ -320,7 +321,7 @@ export default function CustomerInvoicesPage() {
       if (data?.status === 'SENT') {
         toast.success('WhatsApp message sent')
       } else if (data?.status === 'SKIPPED') {
-        toast.warning('Not sent — customer has no phone, has opted out of WhatsApp, or auto-send is disabled')
+        toast.warning(describeSendSkip(data?.reason, data?.detail))
       } else {
         toast.error(data?.errorMessage ? `WhatsApp send failed: ${data.errorMessage}` : 'WhatsApp send failed')
       }

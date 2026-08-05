@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { downloadInvoicePdf, printInvoicePdf } from '@/lib/pdf/invoicePdf'
+import { describeSendSkip } from '@/lib/whatsappSendResult'
 import { InvoiceDocument } from '@/components/billing/InvoiceDocument'
 import {
   printReceipt, downloadReceiptPdf,
@@ -71,7 +72,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
       if (data?.status === 'SENT') {
         toast.success('WhatsApp message sent')
       } else if (data?.status === 'SKIPPED') {
-        toast.warning('Not sent — customer has no phone, has opted out of WhatsApp, or auto-send is disabled')
+        toast.warning(describeSendSkip(data?.reason, data?.detail))
       } else {
         toast.error(data?.errorMessage ? `WhatsApp send failed: ${data.errorMessage}` : 'WhatsApp send failed')
       }
