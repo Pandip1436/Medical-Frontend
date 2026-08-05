@@ -2901,6 +2901,14 @@ export default function NewSalePage() {
   const itemsRef = useRef(items)
   itemsRef.current = items
 
+  // Same idea for the customer: the mount effect decides on a 100ms timer
+  // whether to pop the customer picker, and a `selectedCustomer` read there is
+  // frozen at its mount value (null) — the auto-draft restore and the async
+  // prefill lookups all land after it. Reading the ref sees what's actually
+  // selected by the time the timer fires.
+  const selectedCustomerRef = useRef(selectedCustomer)
+  selectedCustomerRef.current = selectedCustomer
+
   // Explicit user-driven customer selection starts a fresh bill: switching to
   // (or creating) a customer clears the cart so the previous customer's items
   // don't carry over. Restore flows (edit / repurchase / quotation / snapshot)
@@ -3202,28 +3210,39 @@ export default function NewSalePage() {
   // panel + a Back button. Quotations skip payment, so they stay on 'summary'.
   const [checkoutStep, setCheckoutStep] = useState<'summary' | 'payment'>('summary')
 
+  // Did this page open for an explicit prefill (edit / draft / duplicate / lead
+  // / quotation conversion / re-purchase)?
+  //
+  // Captured in a useState initializer — i.e. during the FIRST RENDER, before
+  // any effect runs. That timing is the whole point: the quotation and
+  // re-purchase hand-offs arrive through sessionStorage, and the effect that
+  // consumes them deletes the keys. Every effect that re-read those keys
+  // afterwards therefore saw nothing and concluded "no prefill" — which is why
+  // Repurchase landed on Customer History with the customer picker popped open,
+  // and why the auto-draft restore fired on top of the re-purchased items.
+  const [openedWithPrefill] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return !!(
+      params.get('from') ||
+      params.get('editId') ||
+      params.get('draftId') ||
+      params.get('duplicateId') ||
+      params.get('leadId') ||
+      sessionStorage.getItem('quotation_prefill') ||
+      sessionStorage.getItem('repurchase_items')
+    )
+  })
+
   // ── Auto-draft restore (run once on mount, after state is initialized) ──
   // Skip restoration if the page is opened for an explicit prefill (draftId,
   // duplicateId, editId, leadId, quotation conversion, or re-purchase) —
   // those paths already populate the cart from their own source of truth.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const hasExplicitPrefill = !!(
-      params.get('draftId') ||
-      params.get('duplicateId') ||
-      params.get('editId') ||
-      params.get('leadId') ||
-      // `?from=quotation` (or replacement) conversions: the quotation-restore
-      // effect above removes `quotation_prefill` before this effect runs, so we
-      // can't rely on that key here — the `from` URL param is what persists and
-      // must suppress the auto-draft restore, otherwise the draft overwrites the
-      // just-loaded quotation items.
-      params.get('from') ||
-      sessionStorage.getItem('quotation_prefill') ||
-      sessionStorage.getItem('repurchase_items')
-    )
-    if (hasExplicitPrefill) return
+    // `openedWithPrefill` was captured during the first render, before the
+    // hand-off keys were consumed. Re-reading sessionStorage here would miss a
+    // re-purchase (its key is already deleted by then) and let the auto-draft
+    // restore overwrite the items that were just loaded.
+    if (openedWithPrefill) return
 
     try {
       const stored = localStorage.getItem(AUTO_DRAFT_KEY)
@@ -3282,7 +3301,10 @@ export default function NewSalePage() {
       // Corrupted snapshot — drop it
       localStorage.removeItem(AUTO_DRAFT_KEY)
     }
-  }, [])
+  // openedWithPrefill is set once during the first render and never changes,
+  // so listing it keeps the linter happy without re-running the restore.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openedWithPrefill])
 
   // ── Auto-draft save (mirrors cart state to localStorage on every change) ──
   useEffect(() => {
@@ -3535,25 +3557,33 @@ export default function NewSalePage() {
     // customer AND the line items already loaded, so just land on the Products
     // tab as-is: don't focus the product search or open any picker.
     const isConversion = !!params.get('from')
-    const hasPrefillFlow = isConversion || !!(
-      params.get('editId') ||
-      params.get('draftId') ||
-      params.get('duplicateId') ||
-      params.get('leadId') ||
-      sessionStorage.getItem('quotation_prefill') ||
-      sessionStorage.getItem('repurchase_items')
-    )
+    // openedWithPrefill (not a fresh sessionStorage read): by the time this
+    // effect runs the re-purchase / quotation hand-off keys have already been
+    // consumed and deleted, so reading them here reported "no prefill" — which
+    // popped the customer picker over an already-chosen customer.
     // EVERY prefill flow (edit, draft, duplicate, lead, quotation conversion,
     // re-purchase) arrives with its cart already loaded, so land on the Products
     // tab — the cart — instead of Customer History, and the operator sees the
     // items straight away. This also matches the focus behaviour below, which
     // already puts the caret in the product search for these flows: focusing a
     // field on a tab the user couldn't see was the inconsistency.
-    if (hasPrefillFlow) setTableView('products')
+    if (openedWithPrefill) setTableView('products')
     setTimeout(() => {
       if (isConversion) return
-      if (selectedCustomer || hasPrefillFlow) heroSearchRef.current?.focus()
-      else setShowCustomerDropdown(true)
+      // selectedCustomerRef, not selectedCustomer: this effect runs once on
+      // mount, so its closure holds the customer as it was THEN (always null).
+      // An auto-draft restore — or any async customer lookup — resolves inside
+      // this 100ms window, and reading the stale closure popped the picker on
+      // top of a sale that already had its customer.
+      const hasCustomer = !!selectedCustomerRef.current
+      if (hasCustomer || openedWithPrefill) {
+        // The cart is already populated, so the operator's next action is
+        // adding a product — show that tab and put the caret in its search.
+        setTableView('products')
+        heroSearchRef.current?.focus()
+      } else {
+        setShowCustomerDropdown(true)
+      }
     }, 100)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
