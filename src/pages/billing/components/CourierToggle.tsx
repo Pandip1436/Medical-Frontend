@@ -32,18 +32,32 @@ export function CourierToggle({ invoice }: { invoice: Invoice }) {
     setToggling(true)
     try {
       if (on) {
-        const res = await api.post('/delivery', { invoiceId: invoice.id })
+        // suppressGlobalToast: we render our own role-aware message below, so the
+        // generic interceptor toast ("Forbidden resource") must not fire too.
+        const res = await api.post('/delivery', { invoiceId: invoice.id }, { suppressGlobalToast: true } as any)
         setDelivery(res.data)
         // Stay on the invoice — the "Track" link (revealed once enabled) is there
         // for anyone who wants to jump to Delivery Tracking.
         toast.success('Courier tracking enabled')
       } else if (delivery) {
-        await api.delete(`/delivery/${delivery.id}`)
+        await api.delete(`/delivery/${delivery.id}`, { suppressGlobalToast: true } as any)
         setDelivery(null)
         toast.success('Courier tracking disabled')
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to update courier tracking')
+      // Disabling courier is admin-only (enabling isn't), so a pharmacist toggling
+      // OFF gets a 403 — surface a clear reason instead of the generic
+      // "Forbidden resource". The Switch stays ON because we never cleared
+      // `delivery` on failure.
+      if (err?.response?.status === 403) {
+        toast.error(
+          on
+            ? 'You don’t have permission to enable courier tracking.'
+            : 'Only an admin can disable courier tracking.',
+        )
+      } else {
+        toast.error(err?.response?.data?.message ?? 'Failed to update courier tracking')
+      }
     } finally {
       setToggling(false)
     }

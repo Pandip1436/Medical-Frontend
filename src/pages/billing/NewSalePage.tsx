@@ -2630,6 +2630,17 @@ export default function NewSalePage() {
               }
             }
             setEditStockCredit(credit)
+            // Restore the courier toggle to the invoice's saved state: an
+            // existing delivery-tracking record means courier is ON. Without
+            // this the edit screen always opened with Courier OFF even for a
+            // shipped invoice (mismatching the invoice detail page).
+            api.get(`/delivery/invoice/${editId}`, { suppressGlobalToast: true } as any)
+              .then((r) => {
+                const has = !!r.data?.id
+                setEnableCourier(has)
+                setExistingDeliveryId(has ? r.data.id : null)
+              })
+              .catch(() => { /* tracking is optional / not permitted — leave OFF */ })
           }
           if (inv.billingType) setBillingType(String(inv.billingType).toLowerCase() as typeof billingType)
           if (inv.deliveryCharge !== undefined) setDeliveryCharge(Number(inv.deliveryCharge) || 0)
@@ -2966,6 +2977,7 @@ export default function NewSalePage() {
     // payment references) so they don't leak onto the new customer's sale.
     setDeliveryCharge(0); setAdditionalCharges([])
     setEnableCourier(false)
+    setExistingDeliveryId(null)
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
   }
 
@@ -3240,6 +3252,10 @@ export default function NewSalePage() {
   // When on, the saved invoice is pushed into the Delivery Tracking module and
   // the user is taken straight to its tracking page after save.
   const [enableCourier, setEnableCourier] = useState(false)
+  // When editing an invoice that already has a courier-tracking record, this
+  // holds that record's id so (a) the toggle can open in its saved ON state and
+  // (b) turning it OFF during the edit removes the tracking record on save.
+  const [existingDeliveryId, setExistingDeliveryId] = useState<string | null>(null)
 
   // Declared here (rather than further down, where each is otherwise used)
   // so the auto-draft snapshot below can include them without a
@@ -4279,6 +4295,7 @@ export default function NewSalePage() {
     setBillingType('retail')
     setInvoiceType('invoice')
     setEnableCourier(false)
+    setExistingDeliveryId(null)
     setLinkedLeadId(null)
     setQuotationSource(null)
     setReplacementSource(null)
@@ -4313,6 +4330,7 @@ export default function NewSalePage() {
     setBillingType('retail')
     setInvoiceType('invoice')
     setEnableCourier(false)
+    setExistingDeliveryId(null)
     setLinkedLeadId(null)
     setQuotationSource(null)
     setReplacementSource(null)
@@ -4337,6 +4355,7 @@ export default function NewSalePage() {
     setPaymentDetails({ amountReceived: 0, cardLast4: '', cardRef: '', upiRef: '', creditDueDate: '', splits: [] })
     setDeliveryCharge(0); setAdditionalCharges([])
     setEnableCourier(false)
+    setExistingDeliveryId(null)
     setEditingInvoiceId(null)
     setEditingInvoiceNumber(null)
     setEditStockCredit({})
@@ -5032,16 +5051,22 @@ export default function NewSalePage() {
         localStorage.removeItem(AUTO_DRAFT_KEY)
         fetchMasterData()
 
-        // Courier toggle — push the saved invoice into the Delivery Tracking
-        // module. Best-effort: the record is created in the background but we
-        // stay on the billing flow and return to the Sales list rather than
-        // jumping to the tracking page.
-        if (courierWanted && savedInvoice?.id) {
+        // Courier toggle — reconcile the delivery-tracking record with the
+        // toggle. Enabling is idempotent (the backend re-opens an existing
+        // record rather than duplicating), so re-saving an already-tracked
+        // invoice is a no-op; turning the toggle OFF during an edit removes the
+        // record so the edit page and the invoice detail stay in sync.
+        if (savedInvoice?.id) {
           try {
-            await api.post('/delivery', { invoiceId: savedInvoice.id })
-            toast.success('Added to Delivery Tracking')
+            if (courierWanted) {
+              await api.post('/delivery', { invoiceId: savedInvoice.id })
+              if (!existingDeliveryId) toast.success('Added to Delivery Tracking')
+            } else if (existingDeliveryId) {
+              await api.delete(`/delivery/${existingDeliveryId}`)
+              toast.success('Courier tracking removed')
+            }
           } catch {
-            toast.error('Invoice saved, but enabling courier tracking failed. Open the invoice to retry.')
+            toast.error('Invoice saved, but updating courier tracking failed. Open the invoice to retry.')
           }
         }
 

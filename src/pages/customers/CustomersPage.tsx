@@ -737,20 +737,26 @@ export default function CustomersPage() {
   // against /customers/import/* endpoints and pulls in full customer history
   // (invoices, payments, activities, prescriptions) in one transaction.
 
-  // Salespersons for "Referred by" dropdown
+  // Salespersons for the "Referred by" dropdown (Add/Edit form only). Gate the
+  // fetch by role: /salespersons is limited to ADMIN/PHARMACIST/SALESPERSON, so
+  // firing it for e.g. an ACCOUNTANT 403s — which the browser logs to the
+  // console even though we handle it. Only request it for roles that (a) can
+  // read the endpoint and (b) can actually manage customers, so no 403 is ever
+  // emitted for anyone else.
+  const canLoadSalespersons = useAuthStore((s) => {
+    const r = s.user?.role
+    return r === 'ADMIN' || r === 'SUPER_ADMIN' || r === 'PHARMACIST'
+  })
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   useEffect(() => {
-    // Best-effort: only fills the "Referred by" dropdown in the Add/Edit form.
-    // Roles that can't manage customers (e.g. ACCOUNTANT) aren't authorized for
-    // /salespersons and get a 403 — suppress the global toast so a handled,
-    // non-fatal fetch doesn't surface a "Forbidden resource" error to them.
+    if (!canLoadSalespersons) return
     api.get('/salespersons', { params: { branchId: undefined }, suppressGlobalToast: true } as any)
       .then((res) => {
         const list = (res.data || []) as { id: string; name: string; isActive: boolean }[]
         setSalespersons(list.filter((s) => s.isActive).map((s) => ({ id: s.id, name: s.name })))
       })
       .catch(() => {})
-  }, [])
+  }, [canLoadSalespersons])
 
   // Camera scan state
   const [scanOpen, setScanOpen] = useState(false)

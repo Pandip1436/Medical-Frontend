@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import api from '@/lib/api'
+import { useAuthStore } from '@/stores/authStore'
 import type { Customer } from '@/types'
 
 // Shared schema — mirrors the inline customerSchema in CustomersPage so both
@@ -170,12 +171,17 @@ export function CustomerFormDialog({
     ],
   })
 
-  // Load the salesperson list once the dialog opens.
+  // Load the salesperson list once the dialog opens. Gate by role: /salespersons
+  // is limited to ADMIN/PHARMACIST/SALESPERSON, so firing it for another role
+  // (e.g. ACCOUNTANT) 403s — which the browser logs to the console even though
+  // it's handled. Only request it for the roles that can actually reach it.
+  const canLoadSalespersons = useAuthStore((s) => {
+    const r = s.user?.role
+    return r === 'ADMIN' || r === 'SUPER_ADMIN' || r === 'PHARMACIST'
+  })
   useEffect(() => {
-    if (!open) return
+    if (!open || !canLoadSalespersons) return
     api
-      // Best-effort dropdown fill; roles without /salespersons access (e.g.
-      // ACCOUNTANT) get a 403 that's handled below — suppress the global toast.
       .get('/salespersons', { suppressGlobalToast: true } as any)
       .then((res) => {
         const list: Array<{ name?: string }> = Array.isArray(res.data)
@@ -187,7 +193,7 @@ export function CustomerFormDialog({
         setSalespersonNames(names)
       })
       .catch(() => setSalespersonNames([]))
-  }, [open])
+  }, [open, canLoadSalespersons])
 
   useEffect(() => {
     if (!open) return
