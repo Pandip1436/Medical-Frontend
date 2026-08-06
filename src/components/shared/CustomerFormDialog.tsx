@@ -174,7 +174,9 @@ export function CustomerFormDialog({
   useEffect(() => {
     if (!open) return
     api
-      .get('/salespersons')
+      // Best-effort dropdown fill; roles without /salespersons access (e.g.
+      // ACCOUNTANT) get a 403 that's handled below — suppress the global toast.
+      .get('/salespersons', { suppressGlobalToast: true } as any)
       .then((res) => {
         const list: Array<{ name?: string }> = Array.isArray(res.data)
           ? res.data

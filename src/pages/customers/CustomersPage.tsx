@@ -740,7 +740,11 @@ export default function CustomersPage() {
   // Salespersons for "Referred by" dropdown
   const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([])
   useEffect(() => {
-    api.get('/salespersons', { params: { branchId: undefined } })
+    // Best-effort: only fills the "Referred by" dropdown in the Add/Edit form.
+    // Roles that can't manage customers (e.g. ACCOUNTANT) aren't authorized for
+    // /salespersons and get a 403 — suppress the global toast so a handled,
+    // non-fatal fetch doesn't surface a "Forbidden resource" error to them.
+    api.get('/salespersons', { params: { branchId: undefined }, suppressGlobalToast: true } as any)
       .then((res) => {
         const list = (res.data || []) as { id: string; name: string; isActive: boolean }[]
         setSalespersons(list.filter((s) => s.isActive).map((s) => ({ id: s.id, name: s.name })))
