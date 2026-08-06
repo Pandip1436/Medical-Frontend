@@ -225,6 +225,17 @@ export function SupplierFormDialog({
         onSaved?.(data, 'update')
       } else {
         const res = await api.post('/suppliers', data, opts)
+        // Inventory Managers can't create suppliers directly — the backend files
+        // an admin approval instead. No supplier (or customer twin) exists yet,
+        // so surface that and stop before the document-upload step below.
+        if (res.data?.approvalRequested) {
+          toast.success(
+            `Approval request sent to admin. Supplier "${data.name}" will be created once approved.`,
+            { duration: 6000 },
+          )
+          onOpenChange(false)
+          return
+        }
         twinCustomerId = (res.data?.customerId as string | undefined) ?? null
         toast.success(`Supplier "${data.name}" added successfully`)
         onSaved?.(data, 'create')

@@ -4,7 +4,7 @@ import {
   CheckCircle2, XCircle, Clock, UserPlus, CreditCard,
   RotateCcw, Truck, RefreshCw, ListFilter, ChevronRight, Search,
   AlertTriangle, ArrowLeft, Phone, SlidersHorizontal, ArrowUpDown,
-  PackagePlus, CalendarClock,
+  PackagePlus, CalendarClock, Building2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -28,7 +28,7 @@ import { isAdminish } from '@/types'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 
 // ─── Types ────────────────────────────────────────────────────
-type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'INVENTORY_ADJUSTMENT' | 'PURCHASE_ENTRY'
+type ApprovalType = 'NEW_CUSTOMER' | 'CREDIT_BILL' | 'SALES_RETURN' | 'PURCHASE_RETURN' | 'INVENTORY_ADJUSTMENT' | 'PURCHASE_ENTRY' | 'NEW_SUPPLIER'
 type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 type TypeKey = ApprovalType | 'all'
 type StatusKey = ApprovalStatus | 'all'
@@ -55,6 +55,7 @@ const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; acce
   { key: 'PURCHASE_RETURN', label: 'Purchase Return', icon: Truck,      accent: 'text-purple-600 dark:text-purple-400' },
   { key: 'INVENTORY_ADJUSTMENT', label: 'Stock Adjustment', icon: SlidersHorizontal, accent: 'text-cyan-600 dark:text-cyan-400' },
   { key: 'PURCHASE_ENTRY',  label: 'Purchase Entry',  icon: PackagePlus, accent: 'text-emerald-600 dark:text-emerald-400' },
+  { key: 'NEW_SUPPLIER',    label: 'New Supplier',    icon: Building2,   accent: 'text-teal-600 dark:text-teal-400' },
 ]
 
 const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; tone: string; border: string }> = {
@@ -64,6 +65,7 @@ const typeConfig: Record<ApprovalType, { label: string; icon: typeof UserPlus; t
   PURCHASE_RETURN: { label: 'Purchase Return', icon: Truck,      tone: 'text-purple-600 dark:text-purple-400 bg-purple-500/10', border: 'border-l-purple-500' },
   INVENTORY_ADJUSTMENT: { label: 'Stock Adjustment', icon: SlidersHorizontal, tone: 'text-cyan-600 dark:text-cyan-400 bg-cyan-500/10', border: 'border-l-cyan-500' },
   PURCHASE_ENTRY:  { label: 'Purchase Entry',  icon: PackagePlus, tone: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10', border: 'border-l-emerald-500' },
+  NEW_SUPPLIER:    { label: 'New Supplier',    icon: Building2,   tone: 'text-teal-600 dark:text-teal-400 bg-teal-500/10',      border: 'border-l-teal-500' },
 }
 
 const STATUS_FILTERS: { key: StatusKey; label: string }[] = [
@@ -79,6 +81,8 @@ function inlineSummary(req: ApprovalRequest): string {
   switch (req.type) {
     case 'NEW_CUSTOMER':
       return [p.name, p.phone].filter(Boolean).join(' · ')
+    case 'NEW_SUPPLIER':
+      return [p.name, p.contactPerson, p.phone].filter(Boolean).join(' · ')
     case 'CREDIT_BILL':
       return [p.customerName, p.invoiceNumber, p.grandTotal != null && formatCurrency(p.grandTotal)]
         .filter(Boolean).join(' · ')
@@ -104,7 +108,7 @@ function searchHaystack(req: ApprovalRequest): string {
   const p = req.payload || {}
   return [
     req.requestedBy?.name,
-    p.name, p.customerName, p.supplierName,
+    p.name, p.customerName, p.supplierName, p.contactPerson,
     p.phone, p.invoiceNumber, p.reason,
     p.grandTotal, p.totalAmount,
     p.supplierInvoiceNo,
@@ -173,7 +177,7 @@ export default function ApprovalsPage() {
   const typeCounts = useMemo(() => {
     const base = statusFilter === 'all' ? allRequests : allRequests.filter(r => r.status === statusFilter)
     const counts: Record<TypeKey, number> = {
-      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0, INVENTORY_ADJUSTMENT: 0, PURCHASE_ENTRY: 0,
+      all: base.length, NEW_CUSTOMER: 0, CREDIT_BILL: 0, SALES_RETURN: 0, PURCHASE_RETURN: 0, INVENTORY_ADJUSTMENT: 0, PURCHASE_ENTRY: 0, NEW_SUPPLIER: 0,
     }
     for (const r of base) counts[r.type]++
     return counts
@@ -839,6 +843,19 @@ function PayloadDetail({
           {payload.email && <Field label="Email">{payload.email}</Field>}
           {payload.type && <Field label="Type">{payload.type}</Field>}
           {payload.creditLimit > 0 && <Field label="Credit Limit">{formatCurrency(payload.creditLimit)}</Field>}
+        </div>
+      )
+    case 'NEW_SUPPLIER':
+      // The supplier doesn't exist yet — this request creates it, so no link.
+      return (
+        <div className={gridCls}>
+          <Field label="Company"><span className="font-semibold">{payload.name}</span></Field>
+          {payload.contactPerson && <Field label="Contact Person">{payload.contactPerson}</Field>}
+          <Field label="Phone">{payload.phone || '—'}</Field>
+          {payload.email && <Field label="Email">{payload.email}</Field>}
+          {payload.gstin && <Field label="GSTIN"><span className="font-mono">{payload.gstin}</span></Field>}
+          {payload.drugLicense && <Field label="Drug License"><span className="font-mono">{payload.drugLicense}</span></Field>}
+          {payload.address && <Field label="Address" wide>{payload.address}</Field>}
         </div>
       )
     case 'CREDIT_BILL':
