@@ -98,9 +98,10 @@ export const rolePermissions: Record<string, string[]> = {
     '/reminders',
     '/reminders/detail',
     '/notifications',
-    // Read-only: requestors open their own approval requests from the
-    // "Request approved/rejected" notification. Approve/Reject stay admin-only
-    // (enforced in the page + backend); the detail view is permitted here.
+    // Requesters can open the Approvals module to track their OWN requests'
+    // status (backend scopes non-admins to their own rows). Approve/Reject stay
+    // admin-only (enforced in the page + backend).
+    '/admin/approvals',
     '/admin/approvals/detail',
   ],
   INVENTORY_MANAGER: [

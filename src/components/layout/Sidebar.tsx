@@ -83,7 +83,11 @@ const navigationGroups: NavGroup[] = [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Notifications', icon: Bell, href: '/notifications', hiddenForRoles: ['SALESPERSON'] },
       { label: 'Reminders', icon: CalendarClock, href: '/reminders' },
-      { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals', adminOnly: true },
+      // Not adminOnly: requesters (Pharmacist / Inventory Manager) can open the
+      // module to track their OWN requests' status — the backend scopes them to
+      // their own rows and Approve/Reject stay admin-only. Visibility is driven
+      // by the /admin/approvals route permission below.
+      { label: 'Approvals', icon: ShieldCheck, href: '/admin/approvals' },
       { label: 'Quick Sale', icon: Zap, href: '/billing/new', action: true },
     ],
   },
