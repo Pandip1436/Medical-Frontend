@@ -200,7 +200,10 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   addCustomer: async (data: any) => {
     set({ isLoading: true })
     try {
-      const res = await api.post('/customers', data)
+      // suppressGlobalToast: the only caller (CustomersPage.handleSaveCustomer)
+      // renders its own role-aware error (e.g. a 403 for a role that can't add
+      // customers), so the generic "Forbidden resource" toast must not fire too.
+      const res = await api.post('/customers', data, { suppressGlobalToast: true } as any)
       const result = res.data
       // If backend queued for approval, don't add to local state
       if (result?.approvalRequested) {

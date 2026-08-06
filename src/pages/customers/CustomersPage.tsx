@@ -899,7 +899,7 @@ export default function CustomersPage() {
     try {
       let customerId: string
       if (editingCustomer) {
-        await api.patch(`/customers/${editingCustomer.id}`, values)
+        await api.patch(`/customers/${editingCustomer.id}`, values, { suppressGlobalToast: true } as any)
         customerId = editingCustomer.id
         // Remount the split-view detail so it reflects the edit immediately.
         setRefreshToken((t) => t + 1)
@@ -953,6 +953,18 @@ export default function CustomersPage() {
       returnToSplitIfNeeded()
       refetchAll()
     } catch (err: unknown) {
+      // A 403 means this role can't add/edit customers (only ADMIN/PHARMACIST
+      // can). Surface a clear reason instead of the backend's raw "Forbidden
+      // resource" — e.g. an ACCOUNTANT who opened the form from the list.
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 403) {
+        toast.error(
+          editingCustomer
+            ? 'You don’t have permission to edit customers. Contact an admin.'
+            : 'You don’t have permission to add customers. Contact an admin.',
+        )
+        return
+      }
       // Pin duplicate conflicts (GSTIN / Drug License / phone) to their field so
       // they show inline; anything else falls back to a toast.
       const raw = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
