@@ -109,16 +109,29 @@ const ORDINAL = (n: number) => {
 }
 
 // ─── Time math ────────────────────────────────────────────────
+// Last calendar day of a given month (month is 0-indexed).
+function lastDayOf(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate()
+}
+// The day a reminder actually lands on in a given month — clamped to that
+// month's length so day 29–31 falls on the end of short months (day 31 → Feb 28
+// / Apr 30) instead of overflowing into the next month. Mirrors the scheduler.
+function effectiveDayInMonth(dayOfMonth: number, year: number, month: number): number {
+  return Math.min(dayOfMonth, lastDayOf(year, month))
+}
+
 // Reminders recur monthly on `dayOfMonth`. Compute the next concrete due date
-// from today: this month if the day hasn't passed yet, otherwise next month.
+// from today: this month if the day hasn't passed yet, otherwise next month —
+// each clamped to the target month's last day.
 function nextDueDate(dayOfMonth: number, today: Date = new Date()): Date {
   const year = today.getFullYear()
   const month = today.getMonth()
   const todayDay = today.getDate()
-  if (dayOfMonth >= todayDay) {
-    return new Date(year, month, dayOfMonth)
+  const thisMonthDay = effectiveDayInMonth(dayOfMonth, year, month)
+  if (thisMonthDay >= todayDay) {
+    return new Date(year, month, thisMonthDay)
   }
-  return new Date(year, month + 1, dayOfMonth)
+  return new Date(year, month + 1, effectiveDayInMonth(dayOfMonth, year, month + 1))
 }
 
 // Local (not UTC) yyyy-MM-dd — matches what DatePicker emits/consumes.
@@ -141,8 +154,11 @@ function hasContactThisMonth(r: Reminder, today: Date = new Date()): boolean {
 }
 
 // "Skipped" = day already passed this month and we never logged a contact.
+// Uses the clamped effective day so an end-of-month reminder isn't wrongly
+// treated as "not yet due" on the last day of a short month.
 function isSkipped(r: Reminder, today: Date = new Date()): boolean {
-  return r.dayOfMonth < today.getDate() && !hasContactThisMonth(r, today)
+  const effDay = effectiveDayInMonth(r.dayOfMonth, today.getFullYear(), today.getMonth())
+  return effDay < today.getDate() && !hasContactThisMonth(r, today)
 }
 
 // "Done for the cycle" = the most recent contact is TALKED this calendar month.
@@ -928,8 +944,11 @@ function ReminderDetailPanel({
   onDelete: () => void
   onContactLogged: () => void
 }) {
-  const todayDay = new Date().getDate()
-  const isDueToday = r.dayOfMonth === todayDay
+  const now = new Date()
+  const todayDay = now.getDate()
+  // Clamp so an end-of-month reminder reads "Today" on the last day of a short
+  // month (e.g. day 31 on Feb 28).
+  const isDueToday = effectiveDayInMonth(r.dayOfMonth, now.getFullYear(), now.getMonth()) === todayDay
   const customerType = (r.customer.type as CustomerType) in typeTone
     ? (r.customer.type as CustomerType)
     : 'RETAIL'

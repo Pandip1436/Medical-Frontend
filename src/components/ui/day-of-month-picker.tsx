@@ -194,6 +194,11 @@ export const DayOfMonthPicker = React.forwardRef<HTMLInputElement, DayOfMonthPic
               Capped at 28 so it lands in every month — pick 28 for end-of-month.
             </p>
           )}
+          {maxDay >= 29 && (
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Days 29–31 fall on the last day of shorter months (e.g. 31 → Feb 28).
+            </p>
+          )}
         </PopoverContent>
       </Popover>
       {invalidMessage && (

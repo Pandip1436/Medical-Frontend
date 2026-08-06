@@ -5,11 +5,11 @@ import { z } from 'zod'
 // Settings, New Sale quick-add, …) validates these identically.
 
 // Highest day a monthly customer reminder can be set to. Mirrors the server-side
-// cap in reminders.service.ts: 29–31 are missing from some months (Feb every
-// year, the 31st in four others), so a reminder on those days wouldn't fire
-// reliably. 28 is the "end of month" choice. Used by the Reminders page and the
-// New Sale quick-reminder dialog.
-export const MAX_REMINDER_DAY = 28
+// cap in reminders.service.ts. Days 29–31 don't exist in every month, so they
+// CLAMP to the month's last day when firing (e.g. day 31 → Feb 28 / Apr 30) —
+// both the scheduler (findDueToday) and the UI's next-due calc handle that.
+// Used by the Reminders page and the New Sale quick-reminder dialog.
+export const MAX_REMINDER_DAY = 31
 
 // Standard 15-char Indian GSTIN: 2-digit state code, 5 letters (PAN), 4 digits,
 // 1 letter (PAN), 1 alphanumeric (entity), 'Z', 1 alphanumeric (checksum).
