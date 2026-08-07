@@ -39,7 +39,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useIsTouchCompact, useIsCompactChrome } from '@/hooks/useMediaQuery'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { rolePermissions } from '@/App'
-import { userRoles, primaryRole, isAdminish } from '@/types'
+import { userRoles, primaryRole, isAdminish, isSuperAdmin } from '@/types'
 import {
   Tooltip,
   TooltipContent,
@@ -54,6 +54,10 @@ interface NavItem {
   icon: LucideIcon
   href: string
   adminOnly?: boolean
+  // Only SUPER_ADMIN sees this — hidden from branch admins (role ADMIN). Used
+  // for cross-branch management (e.g. Branches) that a single-branch admin
+  // shouldn't touch.
+  superAdminOnly?: boolean
   // Roles for which this item is hidden from the sidebar even though the
   // page itself stays accessible (e.g. Notifications is reached via the
   // header bell for salespersons, so the sidebar entry is decluttered).
@@ -161,7 +165,7 @@ const navigationGroups: NavGroup[] = [
   {
     title: 'SETTINGS',
     items: [
-      { label: 'Branches', icon: Building2, href: '/branches', adminOnly: true },
+      { label: 'Branches', icon: Building2, href: '/branches', superAdminOnly: true },
       { label: 'User Management', icon: Users, href: '/users', adminOnly: true },
       { label: 'Audit Trail', icon: ShieldCheck, href: '/audit-trail', adminOnly: true },
       { label: 'Settings', icon: Settings, href: '/settings', adminOnly: true },
@@ -340,6 +344,10 @@ export function Sidebar({ currentPath }: SidebarProps) {
           // Per-role sidebar hide — page stays accessible (e.g. reached via
           // the header bell), only the nav entry is removed for these roles.
           if (item.hiddenForRoles && userRoles(user).some((r) => item.hiddenForRoles!.includes(r))) return false
+          // Super-admin-only (e.g. Branches): hidden from branch admins. Checked
+          // BEFORE the admin short-circuit below, which otherwise shows a branch
+          // admin every item.
+          if (item.superAdminOnly && !isSuperAdmin(user)) return false
           if (allowedPaths === null) return true // Admin: all items
           if (item.adminOnly) return false // non-admin never sees adminOnly items
           return allowedPaths.has(item.href)

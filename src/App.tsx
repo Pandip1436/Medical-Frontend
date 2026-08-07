@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { useRoute, navigate, getRouteConfig } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
-import { userRoles, primaryRole, isAdminish, type User } from '@/types'
+import { userRoles, primaryRole, isAdminish, isSuperAdmin, type User } from '@/types'
 import { useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useUiScale } from '@/hooks/useUiScale'
 import { Toaster } from 'sonner'
@@ -179,9 +179,16 @@ export const rolePermissions: Record<string, string[]> = {
   ],
 }
 
+// Routes reserved for SUPER_ADMIN — a branch-scoped ADMIN must not reach them
+// even via a direct URL (cross-branch management like the Branches directory).
+const SUPER_ADMIN_ONLY_PATHS = new Set<string>(['/branches'])
+
 // A user may reach a path if ANY of their roles grants it. ADMIN / SUPER_ADMIN
 // see everything; other roles contribute the union of their allowed routes.
 function canAccess(user: User | null | undefined, path: string): boolean {
+  // Super-admin-only paths are off-limits to branch admins before the admin
+  // short-circuit below (which would otherwise grant every path to any admin).
+  if (SUPER_ADMIN_ONLY_PATHS.has(path)) return isSuperAdmin(user)
   if (isAdminish(user)) return true
   const roles = userRoles(user)
   if (roles.length === 0) return false
