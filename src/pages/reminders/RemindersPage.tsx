@@ -82,6 +82,13 @@ const STATUS_CONFIG: Record<ContactStatus, { label: string; variant: any; icon: 
   STOPPED:             { label: 'Stopped',         variant: 'destructive', icon: Ban },
 }
 
+// Statuses a user can pick when logging a contact — the actual call outcomes.
+// STATUS_CONFIG above also holds display-only statuses that must NOT appear in
+// the dropdown: WHATSAPP_AUTO_SENT is written by the auto-send listener (and the
+// contact-log API rejects it — "status must be one of…"), and STOPPED is set via
+// the dedicated "Stop reminders" action, not a manual log.
+const LOGGABLE_STATUSES: ContactStatus[] = ['TALKED', 'NOT_RESPONDED', 'DENIED', 'NEED_TO_TALK', 'SCHEDULED']
+
 const TYPE_FOLDERS: { key: TypeKey; label: string; icon: typeof ListFilter; accent: string }[] = [
   { key: 'all',       label: 'All',       icon: ListFilter,   accent: 'text-foreground' },
   { key: 'RETAIL',    label: 'Retail',    icon: Store,        accent: 'text-blue-600 dark:text-blue-400' },
@@ -1262,7 +1269,7 @@ function ReminderDetailPanel({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(STATUS_CONFIG) as ContactStatus[]).map(k => {
+                    {LOGGABLE_STATUSES.map(k => {
                       const cfg = STATUS_CONFIG[k]
                       const SIcon = cfg.icon
                       return (
