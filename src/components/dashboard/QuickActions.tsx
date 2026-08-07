@@ -16,7 +16,7 @@ const itemVariants: Variants = {
 
 const ACTIONS = [
   { label: 'New Sale',     shortcut: 'Ctrl+N', icon: Zap,         iconBg: 'bg-blue-500/15',    iconColor: 'text-blue-600 dark:text-blue-400',       href: '/billing/new' },
-  { label: 'New Purchase', shortcut: 'F2',    icon: ShoppingCart, iconBg: 'bg-purple-500/15',  iconColor: 'text-purple-600 dark:text-purple-400',   href: '/purchase/orders' },
+  { label: 'New Purchase', shortcut: 'F2',    icon: ShoppingCart, iconBg: 'bg-purple-500/15',  iconColor: 'text-purple-600 dark:text-purple-400',   href: '/purchase/grn' },
   { label: 'Add Product',  shortcut: '',      icon: Package,      iconBg: 'bg-emerald-500/15', iconColor: 'text-emerald-600 dark:text-emerald-400', href: '/inventory/products' },
   { label: 'Add Customer', shortcut: '',      icon: UserPlus,     iconBg: 'bg-amber-500/15',   iconColor: 'text-amber-600 dark:text-amber-400',     href: '/customers' },
 ]

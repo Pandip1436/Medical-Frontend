@@ -48,7 +48,7 @@ export function useKeyboardShortcuts(shortcuts: ShortcutMap) {
 const GLOBAL_SHORTCUTS: ShortcutMap = {
   'ctrl+n': () => navigate('/billing/new'),
   f1: () => navigate('/billing/new'),
-  f2: () => navigate('/purchase/orders'),
+  f2: () => navigate('/purchase/grn'),
 }
 
 export function useGlobalShortcuts() {
