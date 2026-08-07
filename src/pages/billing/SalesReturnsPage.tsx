@@ -414,7 +414,19 @@ export default function SalesReturnsPage() {
     draft.save({ currentStep, direction, selectedCustomer, customerSearch, returnItems, settlementOption })
   }, [currentStep, direction, selectedCustomer, customerSearch, returnItems, settlementOption])
 
-  const creditNoteNumber = useMemo(() => generateInvoiceNumber('CN', 12), [])
+  // Real next credit-note number (non-consuming preview from the server). The
+  // authoritative number is assigned at creation; this just shows the correct
+  // upcoming one instead of a hardcoded placeholder. Refetched whenever the user
+  // lands on the Credit Note step so it reflects the current sequence.
+  const [creditNoteNumber, setCreditNoteNumber] = useState(() => generateInvoiceNumber('CN', 1))
+  useEffect(() => {
+    if (currentStep !== 3) return
+    let active = true
+    api.get('/credit-notes/next-number', { suppressGlobalToast: true } as never)
+      .then((r) => { if (active && r.data?.number) setCreditNoteNumber(r.data.number) })
+      .catch(() => { /* keep the placeholder — non-fatal */ })
+    return () => { active = false }
+  }, [currentStep])
 
   // ── Navigation ──
   const goToStep = (step: number) => {

@@ -318,7 +318,19 @@ export default function PurchaseReturnsPage() {
     return settlementOption
   }, [settlementOption, supplierOutstanding])
 
-  const debitNoteNumber = useMemo(() => `HS/DN/2025-26/${String(Math.floor(Math.random() * 900 + 100)).padStart(5, '0')}`, [])
+  // Real next debit-note number (non-consuming preview from the server). The
+  // authoritative number is assigned at creation; this replaces the old random
+  // placeholder. Refetched whenever the user lands on the Debit Note step so it
+  // reflects the current sequence.
+  const [debitNoteNumber, setDebitNoteNumber] = useState('…')
+  useEffect(() => {
+    if (currentStep !== 3) return
+    let active = true
+    api.get('/purchase-returns/next-number', { suppressGlobalToast: true } as never)
+      .then((r) => { if (active && r.data?.number) setDebitNoteNumber(r.data.number) })
+      .catch(() => { /* keep the placeholder — non-fatal */ })
+    return () => { active = false }
+  }, [currentStep])
 
   // goToStep needs current `currentStep` to compute direction, but we don't
   // want effects below to re-fire whenever currentStep changes. Read via ref
