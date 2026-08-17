@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -26,6 +26,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { PhoneListField } from '@/components/shared/PhoneListField'
+import { WhatsAppNumberField } from '@/components/shared/WhatsAppNumberField'
+import {
+  isMobileNumber,
+  isValidPhone,
+  normalizePartyPhones,
+  phoneDigits,
+  phonesForForm,
+  primaryOf,
+} from '@/lib/phones'
 import api from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { Customer } from '@/types'
@@ -36,16 +46,20 @@ import type { Customer } from '@/types'
 export const customerFormSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    phone: z
-      .string()
-      .min(10, 'Phone must be 10 digits')
-      .max(10, 'Phone must be 10 digits')
-      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
-    alternatePhone: z
-      .string()
-      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number')
-      .or(z.literal(''))
-      .optional(),
+    // The list is the source of truth; `phone` below is its primary, mirrored
+    // for the server and for older callers that still read a single number.
+    // Validation is per-entry rather than "10 digits starting 6-9" because a
+    // customer may legitimately have only a landline — see lib/phones.ts.
+    phones: z
+      .array(
+        z.object({
+          number: z.string(),
+          label: z.enum(['MOBILE', 'LANDLINE', 'OFFICE', 'HOME', 'OTHER']),
+          isPrimary: z.boolean(),
+        }),
+      )
+      .min(1, 'At least one phone number is required'),
+    phone: z.string().optional(),
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
     email: z.string().email('Invalid email').or(z.literal('')).optional(),
     address: z.string().min(1, 'Address is required'),
@@ -60,8 +74,38 @@ export const customerFormSchema = z
     // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
     // can switch off if a customer explicitly opts out.
     whatsappOptIn: z.boolean().optional(),
+    // Which number WhatsApp goes to. Blank = the default (the first
+    // WhatsApp-capable number in the list). Anything set must be a mobile —
+    // WhatsApp won't deliver to a landline, and storing one here would fail
+    // silently at send time. Uses the same isMobileNumber rule the field
+    // validates against live, so the two can't drift.
+    whatsappNumber: z
+      .string()
+      .optional()
+      .refine((v) => !v || !v.trim() || isMobileNumber(v), 'Enter a valid 10-digit Indian mobile number'),
   })
   .superRefine((data, ctx) => {
+    // Validate each entered number and require at least one. Errors are pinned
+    // to the row that caused them so PhoneListField can show them inline.
+    const entered = (data.phones ?? []).filter((p) => p.number.trim() !== '')
+    if (entered.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['phones', 0, 'number'], message: 'At least one phone number is required' })
+    }
+    ;(data.phones ?? []).forEach((p, i) => {
+      const num = p.number.trim()
+      if (!num) return
+      if (!isValidPhone(num)) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Enter a valid phone number' })
+        return
+      }
+      if (p.label === 'MOBILE' && !isMobileNumber(num)) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Not a valid 10-digit Indian mobile — change the label to Landline if that is right' })
+      }
+      const dupOf = entered.findIndex((o) => phoneDigits(o.number) === phoneDigits(num))
+      if (dupOf >= 0 && entered[dupOf] !== p) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'This number is already listed above' })
+      }
+    })
     if (data.type === 'WHOLESALE') {
       if (!data.gstin || data.gstin.trim() === '') {
         ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
@@ -81,8 +125,8 @@ export type CustomerFormValues = z.input<typeof customerFormSchema>
 
 const EMPTY_VALUES: CustomerFormValues = {
   name: '',
+  phones: [{ number: '', label: 'MOBILE', isPrimary: true }],
   phone: '',
-  alternatePhone: '',
   type: 'RETAIL',
   email: '',
   address: '',
@@ -94,6 +138,7 @@ const EMPTY_VALUES: CustomerFormValues = {
   creditLimit: 0,
   notes: '',
   whatsappOptIn: true,
+  whatsappNumber: '',
 }
 
 // How the customer was acquired. Optional, free-form-ish — kept as a fixed
@@ -200,8 +245,10 @@ export function CustomerFormDialog({
     if (editingCustomer) {
       reset({
         name: editingCustomer.name,
+        // Falls back to the legacy phone + alternatePhone pair for customers
+        // saved before `phones` existed, so editing one doesn't lose a number.
+        phones: phonesForForm(editingCustomer),
         phone: editingCustomer.phone,
-        alternatePhone: editingCustomer.alternatePhone ?? '',
         type: editingCustomer.type,
         email: editingCustomer.email ?? '',
         address: editingCustomer.address ?? '',
@@ -216,6 +263,7 @@ export function CustomerFormDialog({
         // saved before this column existed will be null/undefined — treat
         // those as opted-in (matches the schema default).
         whatsappOptIn: (editingCustomer as any).whatsappOptIn ?? true,
+        whatsappNumber: (editingCustomer as any).whatsappNumber ?? '',
       })
     } else {
       reset(EMPTY_VALUES)
@@ -223,8 +271,35 @@ export function CustomerFormDialog({
   }, [open, editingCustomer, reset])
 
   const typeValue = watch('type')
+  const phonesValue = watch('phones')
+  const whatsappOptInValue = watch('whatsappOptIn')
 
-  async function onSubmit(values: CustomerFormValues) {
+  // Zod reports per-entry issues at phones[i].number; PhoneListField wants them
+  // keyed by row index so it can render each under its own input.
+  const phoneRowErrors = useMemo(() => {
+    const out: Record<number, string | undefined> = {}
+    const arr = errors.phones as unknown as Array<{ number?: { message?: string } }> | undefined
+    if (Array.isArray(arr)) {
+      arr.forEach((e, i) => { if (e?.number?.message) out[i] = e.number.message })
+    } else if (typeof (errors.phones as { message?: string } | undefined)?.message === 'string') {
+      out[0] = (errors.phones as { message?: string }).message
+    }
+    return out
+  }, [errors.phones])
+
+  async function onSubmit(raw: CustomerFormValues) {
+    // Normalise the list once here — drops blank rows, collapses duplicates and
+    // guarantees a single primary — then mirror that primary into `phone`. The
+    // server re-runs the same normalisation; doing it here too keeps the
+    // optimistic UI (onSaved) showing what was actually saved.
+    const phones = normalizePartyPhones(raw.phones)
+    const values: CustomerFormValues = {
+      ...raw,
+      phones,
+      phone: primaryOf(phones) ?? '',
+      // ' ' is WhatsAppNumberField's "Other number, not typed yet" state.
+      whatsappNumber: (raw.whatsappNumber ?? '').trim(),
+    }
     setSubmitting(true)
     try {
       const mode: 'create' | 'update' = editingCustomer ? 'update' : 'create'
@@ -305,36 +380,24 @@ export function CustomerFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Phone
-              </Label>
-              <Input
-                placeholder="10-digit phone number"
-                inputMode="numeric"
-                maxLength={10}
-                {...register('phone')}
-                // Accept digits only, capped at 10 (overrides register's onChange).
-                onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+          {/* One or more numbers, one of them primary. Replaces the old
+              Phone + Alternate Phone pair — customers routinely have a mobile
+              plus a shop landline, and some have only a landline. */}
+          <Controller
+            control={control}
+            name="phones"
+            render={({ field }) => (
+              <PhoneListField
+                value={field.value ?? []}
+                onChange={field.onChange}
+                errors={phoneRowErrors}
+                disabled={submitting}
               />
-              {errors.phone && <p className="text-xs text-destructive">{errors.phone.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Alternate Phone (optional)
-              </Label>
-              <Input
-                placeholder="10-digit alternate"
-                inputMode="numeric"
-                maxLength={10}
-                {...register('alternatePhone')}
-                // Accept digits only, capped at 10 (overrides register's onChange).
-                onChange={(e) => setValue('alternatePhone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
-              />
-              {errors.alternatePhone && <p className="text-xs text-destructive">{errors.alternatePhone.message}</p>}
-            </div>
-          </div>
+            )}
+          />
+          {typeof errors.phone?.message === 'string' && (
+            <p className="text-xs text-destructive">{errors.phone.message}</p>
+          )}
 
           <div className="space-y-2">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -485,11 +548,28 @@ export function CustomerFormDialog({
                 Send WhatsApp messages to this customer
               </Label>
               <p className="text-xs text-muted-foreground">
-                Invoices and payment QR codes will be auto-delivered to the phone number above.
-                Turn off if the customer prefers not to receive WhatsApp messages.
+                Invoices and payment QR codes will be auto-delivered on WhatsApp.
+                Turn off if the customer prefers not to receive them.
               </p>
             </div>
           </div>
+
+          {/* Which of the numbers above WhatsApp goes to. Only meaningful when
+              messaging is on, so it follows the toggle. */}
+          {whatsappOptInValue !== false && (
+            <Controller
+              control={control}
+              name="whatsappNumber"
+              render={({ field }) => (
+                <WhatsAppNumberField
+                  phones={phonesValue ?? []}
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  disabled={submitting}
+                />
+              )}
+            />
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>

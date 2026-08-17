@@ -568,11 +568,11 @@ export function ImportLeadsDrawer({
         <SheetHeader className="shrink-0 border-b border-border/40 px-5 py-4 pr-12">
           <SheetTitle className="flex items-center gap-2 text-base font-semibold">
             <FileText className="h-4 w-4 text-muted-foreground" />
-            <span>Import Leads from CSV</span>
+            <span>Import Leads</span>
           </SheetTitle>
           <p className="text-xs text-muted-foreground">
-            Upload a CSV, confirm the column mapping, and start the import — all
-            in one place.
+            Upload a CSV or Excel file, confirm the column mapping, and start
+            the import — all in one place.
           </p>
         </SheetHeader>
 
@@ -585,8 +585,8 @@ export function ImportLeadsDrawer({
             <div className="space-y-5">
               {/* Section 1: File upload */}
               <Section
-                title="1. Upload CSV"
-                subtitle="Drag-and-drop or browse a .csv file (max 25 MB)."
+                title="1. Upload file"
+                subtitle="Drag-and-drop or browse a .csv or .xlsx file (max 25 MB)."
                 accessory={
                   <Button
                     variant="outline"
@@ -802,7 +802,7 @@ function UploadBlock({
       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
         <UploadIcon className="h-4 w-4 text-muted-foreground" />
       </div>
-      <p className="text-sm font-medium">Drag &amp; drop a CSV file here</p>
+      <p className="text-sm font-medium">Drag &amp; drop a CSV or Excel file here</p>
       <p className="text-xs text-muted-foreground">
         or <span className="text-primary hover:underline">browse from your computer</span>
       </p>

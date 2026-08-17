@@ -163,7 +163,10 @@ const navigationGroups: NavGroup[] = [
     ],
   },
   {
-    title: 'SETTINGS',
+    // Named ADMINISTRATION rather than SETTINGS: the group holds branch, user
+    // and audit management alongside the Settings page, and having the group
+    // and one of its items share the name "Settings" read as a duplicate.
+    title: 'ADMINISTRATION',
     items: [
       { label: 'Branches', icon: Building2, href: '/branches', superAdminOnly: true },
       { label: 'User Management', icon: Users, href: '/users', adminOnly: true },

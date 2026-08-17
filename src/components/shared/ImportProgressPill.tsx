@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { CheckCircle2, Loader2, XCircle, X, ArrowRight } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, XCircle, X, ArrowRight } from 'lucide-react'
 import { useImportStore } from '@/stores/importStore'
 import { ImportProgressBar } from '@/components/shared/ImportProgressBar'
 import { navigate } from '@/lib/router'
@@ -31,11 +31,20 @@ export function ImportProgressPill() {
   const error = useImportStore((s) => s.error)
   const dismiss = useImportStore((s) => s.dismiss)
 
-  // Auto-dismiss the success/error card a few seconds after it settles.
+  // "Failed" and "partly imported" are different outcomes and the operator has
+  // to act differently on each. A run where 2,000 of 2,700 rows landed is not
+  // a failure, and calling it one invites a full re-import of a file that has
+  // mostly already committed.
+  const partial = !!error && !!result
+  const failed = !!error && !result
+
+  // Auto-dismiss the SUCCESS card a few seconds after it settles. A run that
+  // lost rows stays until the operator dismisses it — self-erasing after eight
+  // seconds is how a partial import gets mistaken for a clean one.
   useEffect(() => {
-    if (active) return
-    if (!result && !error) return
-    const id = setTimeout(() => dismiss(), error ? 8000 : 5000)
+    if (active || error) return
+    if (!result) return
+    const id = setTimeout(() => dismiss(), 5000)
     return () => clearTimeout(id)
   }, [active, result, error, dismiss])
 
@@ -70,17 +79,21 @@ export function ImportProgressPill() {
         <div className="mb-1.5 flex items-center gap-2">
           {active ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-600" />
-          ) : error ? (
+          ) : failed ? (
             <XCircle className="h-4 w-4 shrink-0 text-rose-600" />
+          ) : partial ? (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
           ) : (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
           )}
           <span className="flex-1 truncate text-xs font-semibold">
             {active
               ? `Importing ${label.toLowerCase()}…`
-              : error
+              : failed
                 ? `${label} import failed`
-                : `${label} import complete`}
+                : partial
+                  ? `${label} import incomplete`
+                  : `${label} import complete`}
           </span>
           {!active && (
             <button
@@ -100,7 +113,18 @@ export function ImportProgressPill() {
         {active ? (
           <ImportProgressBar done={done} total={total} />
         ) : error ? (
-          <p className="text-[11px] text-rose-600 dark:text-rose-400">{error}</p>
+          <p
+            className={
+              'text-[11px] ' +
+              (partial
+                ? 'text-amber-700 dark:text-amber-400'
+                : 'text-rose-600 dark:text-rose-400')
+            }
+          >
+            {partial
+              ? `${done.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} rows imported. ${error}`
+              : error}
+          </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
             Done — {total.toLocaleString('en-IN')} row{total === 1 ? '' : 's'} processed.

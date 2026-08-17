@@ -239,6 +239,7 @@ export function ImportSuppliersDrawer({
         supplierCode: s.supplierCode,
         name: s.name,
         phone: s.phone,
+        phones: s.phones,
         alternatePhone: s.alternatePhone,
         contactPerson: s.contactPerson,
         email: s.email,

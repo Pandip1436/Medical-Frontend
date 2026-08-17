@@ -1,3 +1,5 @@
+import type { PartyPhone } from '@/lib/phones'
+
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'PHARMACIST' | 'INVENTORY_MANAGER' | 'ACCOUNTANT' | 'SALESPERSON' | 'DELIVERY'
 
 export interface UserBranchRef {
@@ -65,7 +67,11 @@ export interface Salesperson {
 export interface Customer {
   id: string
   name: string
+  /** PRIMARY number, mirrored from the `phones` entry flagged primary. */
   phone: string
+  /** Every number for this customer — see lib/phones.ts for the shape + rules. */
+  phones?: PartyPhone[] | null
+  /** @deprecated Superseded by `phones`, which is backfilled from it. */
   alternatePhone?: string
   email?: string
   address?: string
@@ -116,7 +122,9 @@ export interface Supplier {
   bankAccountNumber?: string | null
   bankIfsc?: string | null
   bankUpiId?: string | null
-  // Parity with the customer form.
+  /** Every number for this supplier — same shape and rules as Customer.phones. */
+  phones?: PartyPhone[] | null
+  /** @deprecated Superseded by `phones`, which is backfilled from it. */
   alternatePhone?: string | null
   notes?: string | null
   // Linked wholesale-customer twin (same real-world party). Set when this
@@ -147,6 +155,8 @@ export interface Category {
 
 export interface Product {
   id: string
+  /** Operator's own item code (MARG ItemCode / supplier SKU). Unique per branch when set. */
+  productCode?: string | null
   name: string
   genericName: string
   saltComposition?: string

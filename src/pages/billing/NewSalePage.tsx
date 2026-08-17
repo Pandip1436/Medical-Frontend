@@ -112,7 +112,7 @@ import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
 import { isAdminish } from '@/types'
-import { printInvoicePdf, shareInvoiceViaWhatsApp } from '@/lib/pdf/invoicePdf'
+import { printInvoicePdf } from '@/lib/pdf/invoicePdf'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 
@@ -5117,10 +5117,6 @@ export default function NewSalePage() {
         } else {
           toast.info('Add items and select a customer to preview invoice')
         }
-      } else if (e.key === 'F9') {
-        e.preventDefault()
-        if (lastSavedInvoice) shareInvoiceViaWhatsApp(lastSavedInvoice)
-        else toast.info('Save invoice first before sharing')
       } else if (e.key === 'F10') {
         e.preventDefault()
         holdCurrentBill()

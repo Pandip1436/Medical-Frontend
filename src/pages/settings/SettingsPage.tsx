@@ -21,6 +21,8 @@ import {
   Hash,
   Loader2,
   Trash2,
+  MessageCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -83,6 +85,7 @@ const settingsSections: SettingsSection[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, description: 'Company details & invoicing' },
   { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PE formats' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
+  { id: 'whatsapp', label: 'WhatsApp Messages', icon: MessageCircle, description: 'Automatic customer & supplier messages', adminOnly: true },
   { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
 ]
@@ -303,6 +306,7 @@ export default function SettingsPage() {
                 {activeSection === 'business' && <BusinessProfileSection />}
                 {activeSection === 'numbering' && <NumberingSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
+                {activeSection === 'whatsapp' && isAdmin && <WhatsAppMessagesSection />}
                 {activeSection === 'integrations' && isAdmin && <IntegrationsSection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
@@ -310,6 +314,143 @@ export default function SettingsPage() {
           </ScrollArea>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Section: WhatsApp Messages
+// ─────────────────────────────────────────────────────────────
+
+type WhatsAppFlagKey =
+  | 'invoiceAutoSend'
+  | 'paymentReceipt'
+  | 'saleReminder'
+  | 'lowStock'
+  | 'orderDispatched'
+
+// Order here is the order shown on screen — customer-facing messages first,
+// then supplier-facing, then the one that isn't wired to any button yet.
+const WHATSAPP_FLAGS: { key: WhatsAppFlagKey; title: string; description: string }[] = [
+  {
+    key: 'invoiceAutoSend',
+    title: 'Invoice with payment QR',
+    description: 'Sent to the customer automatically when a credit or partly-paid invoice is saved, and by the "Send WhatsApp" button.',
+  },
+  {
+    key: 'paymentReceipt',
+    title: 'Payment receipt',
+    description: 'Sent when a payment is recorded — at billing, from the invoice page, or when an online UPI payment is confirmed.',
+  },
+  {
+    key: 'saleReminder',
+    title: 'Monthly sale reminder',
+    description: 'Sent to the customer on the day their reminder falls due, once per month.',
+  },
+  {
+    key: 'lowStock',
+    title: 'Low-stock alert to supplier',
+    description: 'Sent to the supplier who last delivered a product when its stock falls to the minimum. Goes to suppliers, not customers.',
+  },
+  // 'orderDispatched' is deliberately NOT listed — the dispatch notice isn't in
+  // use yet and nothing in the UI triggers it. The backend flag still exists and
+  // still defaults to OFF, so the endpoint stays disabled; add a row back here
+  // when the feature is actually wired up.
+]
+
+function WhatsAppMessagesSection() {
+  const [flags, setFlags] = useState<Record<WhatsAppFlagKey, boolean> | null>(null)
+  const [masterEnabled, setMasterEnabled] = useState(true)
+  const [savingKey, setSavingKey] = useState<WhatsAppFlagKey | null>(null)
+
+  useEffect(() => {
+    api.get('/whatsapp/automation')
+      .then((res) => {
+        setFlags(res.data.flags)
+        setMasterEnabled(res.data.masterEnabled)
+      })
+      .catch(() => toast.error('Could not load WhatsApp message settings'))
+  }, [])
+
+  const toggle = async (key: WhatsAppFlagKey, next: boolean) => {
+    if (!flags) return
+    const previous = flags
+    // Optimistic — the switch should feel instant; we roll back if the save fails.
+    setFlags({ ...flags, [key]: next })
+    setSavingKey(key)
+    try {
+      const res = await api.put('/whatsapp/automation', { [key]: next })
+      setFlags(res.data.flags)
+      setMasterEnabled(res.data.masterEnabled)
+      toast.success(`${WHATSAPP_FLAGS.find(f => f.key === key)?.title} ${next ? 'enabled' : 'disabled'}`)
+    } catch {
+      setFlags(previous)
+      toast.error('Could not save — the setting was not changed')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <MessageCircle className="h-4 w-4" />
+            </div>
+            <div>
+              <CardTitle>Automatic WhatsApp Messages</CardTitle>
+              <CardDescription>
+                Choose which messages the system sends on its own. Changes apply within 30 seconds.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* When the server-side master switch is off, every toggle below is
+              inert. Say so plainly rather than letting the screen look broken. */}
+          {!masterEnabled && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-foreground">All WhatsApp sending is switched off on the server</p>
+                <p className="text-xs text-muted-foreground">
+                  These toggles are saved but have no effect until the master switch
+                  (<code className="text-[11px]">WHATSAPP_AUTO_SEND_ENABLED</code>) is turned back on by your developer.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!flags ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading…</span>
+            </div>
+          ) : (
+            WHATSAPP_FLAGS.map((f) => (
+              <div
+                key={f.key}
+                className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 transition-colors dark:bg-muted/10"
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">{f.title}</p>
+                  <p className="text-xs text-muted-foreground">{f.description}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {savingKey === f.key && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  <Switch
+                    checked={flags[f.key]}
+                    disabled={savingKey !== null}
+                    onCheckedChange={(v) => void toggle(f.key, v)}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -53,6 +53,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
+import { clampAmountInput, roundMoney } from '@/lib/amountInput'
 import { navigate, useRoute } from '@/lib/router'
 import api from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -870,13 +871,25 @@ export default function GRNPage() {
   const receivedItems = grnItems.filter((i) => i.receivedQty > 0)
   const totalItems = receivedItems.length
   const totalQty = receivedItems.reduce((s, i) => s + i.receivedQty + (i.freeQty || 0), 0)
-  const totalValue = receivedItems.reduce((s, i) => s + i.receivedQty * i.purchaseRate, 0)
+  // Rounded to paise — raw float accumulation produces values like
+  // 100 × 4200.23 = 420022.99999999994, which then becomes an un-typeable
+  // payment cap and leaks into the invoice amount.
+  const totalValue = roundMoney(receivedItems.reduce((s, i) => s + i.receivedQty * i.purchaseRate, 0))
 
   // Auto-fill the supplier Invoice Amount with the line total as items change,
   // unless the operator has manually overridden it.
   useEffect(() => {
     if (!invoiceAmountEditedRef.current) setInvoiceAmount(totalValue)
   }, [totalValue, invoiceAmountEdited])
+
+  // Keep a partial payment under the invoice when the invoice itself moves —
+  // editing a rate or removing a row can drop the total below an amount that
+  // was valid when it was typed.
+  useEffect(() => {
+    const cap = roundMoney(invoiceAmount)
+    setPaidAmount((prev) => (cap > 0 && prev > cap ? cap : prev))
+  }, [invoiceAmount])
+
   const shortSupplyCount = grnItems.filter((i) => i.shortSupply).length
   
   // Real GST calculation per-item based on master product data. Purchase rate
@@ -945,6 +958,19 @@ export default function GRNPage() {
       : payChoice === 'PARTIAL'
         ? Math.min(Number(paidAmount) || 0, Number(invoiceAmount) || 0)
         : 0
+
+  // A partial payment can never exceed the invoice — anything above it is a
+  // typo, and letting it through showed a ₹0 balance while the saved amount was
+  // silently clamped. Cap at entry instead so the field and the balance agree,
+  // and so the field stops accepting keystrokes once it sits at the full amount.
+  function handlePaidAmountChange(el: HTMLInputElement) {
+    const cap = roundMoney(invoiceAmount)
+    const { value, clamped } = clampAmountInput(el, { min: 0, max: cap > 0 ? cap : undefined })
+    setPaidAmount(value ?? 0)
+    if (clamped && value === cap) {
+      toast.error(`Amount paid cannot exceed the invoice total of ${formatCurrency(cap)}`, { id: 'paid-over-invoice' })
+    }
+  }
 
   // Mark every price field of every product row as touched so all pending
   // pricing errors surface at once (used when Review is attempted).
@@ -1448,7 +1474,7 @@ export default function GRNPage() {
                   className="h-9 font-mono text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   placeholder="0.00"
                   value={invoiceAmount || ''}
-                  onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
+                  onChange={(e) => { setInvoiceAmount(clampAmountInput(e.currentTarget, { min: 0 }).value ?? 0); setInvoiceAmountEdited(true) }}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
                 />
                 {/* Must equal the calculated Total Value to confirm — blocks submission. */}
@@ -1536,7 +1562,7 @@ export default function GRNPage() {
                         value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
                         disabled={payChoice === 'PAID'}
                         max={invoiceAmount || undefined}
-                        onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value) || 0))}
+                        onChange={(e) => handlePaidAmountChange(e.currentTarget)}
                       />
                     </div>
                     <div className="space-y-1">
@@ -1727,7 +1753,7 @@ export default function GRNPage() {
             )}
             placeholder="0.00"
             value={invoiceAmount || ''}
-            onChange={(e) => { setInvoiceAmount(Math.max(0, Number(e.target.value) || 0)); setInvoiceAmountEdited(true) }}
+            onChange={(e) => { setInvoiceAmount(clampAmountInput(e.currentTarget, { min: 0 }).value ?? 0); setInvoiceAmountEdited(true) }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusFirstProduct() } }}
           />
           {/* Must equal the calculated Total Value to confirm — blocks submission. */}
@@ -2718,7 +2744,7 @@ export default function GRNPage() {
                           value={payChoice === 'PAID' ? (invoiceAmount || '') : (paidAmount || '')}
                           disabled={payChoice === 'PAID'}
                           max={invoiceAmount || undefined}
-                          onChange={(e) => setPaidAmount(Math.max(0, Number(e.target.value) || 0))}
+                          onChange={(e) => handlePaidAmountChange(e.currentTarget)}
                         />
                       </div>
                       <div className="space-y-1">

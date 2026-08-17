@@ -12,6 +12,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { PHONE_LABEL_TEXT, phonesForForm } from '@/lib/phones'
 
 // The four document kinds a product-history row can point at.
 export type ProductDocType = 'invoice' | 'grn' | 'credit-note' | 'purchase-return'
@@ -173,7 +174,12 @@ function DocumentBody({
   const partyFields: { label: string; value: string }[] = []
   const pushParty = (label: string, value: any) => { if (value) partyFields.push({ label, value: String(value) }) }
   pushParty('Phone', party?.phone ?? doc.customerPhone)
-  pushParty('Alt. Phone', party?.alternatePhone)
+  // Any numbers beyond the primary, labelled — replaces the single "Alt. Phone"
+  // line. phonesForForm falls back to phone + alternatePhone for parties saved
+  // before the list existed, so older documents lose nothing.
+  phonesForForm(party)
+    .filter((p) => !p.isPrimary && p.number.trim() !== '')
+    .forEach((p) => pushParty(PHONE_LABEL_TEXT[p.label], p.number))
   pushParty('Email', party?.email)
   pushParty('GSTIN', party?.gstin ?? doc.customerGstin)
   pushParty('Address', party?.address ?? doc.customerAddress)

@@ -88,6 +88,16 @@ import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { navigate, useRoute } from '@/lib/router'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
+import { PhoneListField } from '@/components/shared/PhoneListField'
+import { WhatsAppNumberField } from '@/components/shared/WhatsAppNumberField'
+import {
+  isMobileNumber,
+  isValidPhone,
+  normalizePartyPhones,
+  phoneDigits,
+  phonesForForm,
+  primaryOf,
+} from '@/lib/phones'
 import { CustomerSplitView } from './components/CustomerSplitView'
 
 // ─────────────────────────────────────────────────────────────
@@ -131,11 +141,20 @@ const CUSTOMER_SOURCES = [
 
 const customerSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  phone: z
-    .string()
-    .min(10, 'Phone must be 10 digits')
-    .max(10, 'Phone must be 10 digits')
-    .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+  // The list is the source of truth; `phone` is its primary, mirrored for the
+  // server and for callers that still read a single number. Validation is
+  // per-entry rather than "10 digits starting 6-9" because a customer may have
+  // only a landline — see lib/phones.ts.
+  phones: z
+    .array(
+      z.object({
+        number: z.string(),
+        label: z.enum(['MOBILE', 'LANDLINE', 'OFFICE', 'HOME', 'OTHER']),
+        isPrimary: z.boolean(),
+      }),
+    )
+    .min(1, 'At least one phone number is required'),
+  phone: z.string().optional(),
   type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
   email: z.string().email('Invalid email').or(z.literal('')).optional(),
   address: z.string().min(1, 'Address is required'),
@@ -157,7 +176,37 @@ const customerSchema = z.object({
   // (invoice PDF + payment QR via Meta Cloud API). Defaults to true; user
   // can switch off if a customer explicitly opts out.
   whatsappOptIn: z.boolean().optional(),
+  // Which number WhatsApp goes to. Blank = the default (first WhatsApp-capable
+  // number in the list). See WhatsAppNumberField.
+  // Anything set must be a mobile — WhatsApp won't deliver to a landline, and
+  // storing one here would fail silently at send time. Uses the same
+  // isMobileNumber rule the field validates against live, so the two can't drift.
+  whatsappNumber: z
+    .string()
+    .optional()
+    .refine((v) => !v || !v.trim() || isMobileNumber(v), 'Enter a valid 10-digit Indian mobile number'),
 }).superRefine((data, ctx) => {
+  // Validate each entered number and require at least one. Errors are pinned to
+  // the row that caused them so PhoneListField can show them inline.
+  const entered = (data.phones ?? []).filter((p) => p.number.trim() !== '')
+  if (entered.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['phones', 0, 'number'], message: 'At least one phone number is required' })
+  }
+  ;(data.phones ?? []).forEach((p, i) => {
+    const num = p.number.trim()
+    if (!num) return
+    if (!isValidPhone(num)) {
+      ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Enter a valid phone number' })
+      return
+    }
+    if (p.label === 'MOBILE' && !isMobileNumber(num)) {
+      ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Not a valid 10-digit Indian mobile — change the label to Landline if that is right' })
+    }
+    const dupOf = entered.findIndex((o) => phoneDigits(o.number) === phoneDigits(num))
+    if (dupOf >= 0 && entered[dupOf] !== p) {
+      ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'This number is already listed above' })
+    }
+  })
   if (data.type === 'WHOLESALE') {
     if (!data.gstin || data.gstin.trim() === '') {
       ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
@@ -181,6 +230,7 @@ type CustomerFormValues = z.input<typeof customerSchema>
 // values, making them RHF's new defaults) leaks those values into a later Add.
 const BLANK_CUSTOMER_DEFAULTS: CustomerFormValues = {
   name: '',
+  phones: [{ number: '', label: 'MOBILE', isPrimary: true }],
   phone: '',
   type: 'RETAIL',
   email: '',
@@ -198,6 +248,7 @@ const BLANK_CUSTOMER_DEFAULTS: CustomerFormValues = {
   bankIfsc: '',
   bankUpiId: '',
   whatsappOptIn: true,
+  whatsappNumber: '',
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -553,10 +604,15 @@ export default function CustomersPage() {
     setRxPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
+
   // Phone duplicate check
   const [phoneCheckError, setPhoneCheckError] = useState('')
   const [phoneChecking, setPhoneChecking] = useState(false)
 
+  // The duplicate check runs against the PRIMARY number, since that is what the
+  // server stores in `phone` and enforces uniqueness on. It used to fire from
+  // the single input's onBlur; with a list there is no single blur to hang it
+  // on, so a debounced effect below watches the primary instead.
   const checkPhoneDuplicate = async (phone: string) => {
     if (!/^\d{10}$/.test(phone)) { setPhoneCheckError(''); return }
     // Skip check if editing same customer
@@ -813,6 +869,35 @@ export default function CustomersPage() {
     defaultValues: BLANK_CUSTOMER_DEFAULTS,
   })
 
+  const watchedPhones = form.watch('phones')
+  const watchedWhatsappOptIn = form.watch('whatsappOptIn')
+
+  // Zod reports per-entry issues at phones[i].number; PhoneListField wants them
+  // keyed by row index so it can render each under its own input.
+  const phoneRowErrors = useMemo(() => {
+    const out: Record<number, string | undefined> = {}
+    const errs = form.formState.errors.phones as unknown
+    if (Array.isArray(errs)) {
+      ;(errs as Array<{ number?: { message?: string } }>).forEach((e, i) => {
+        if (e?.number?.message) out[i] = e.number.message
+      })
+    } else if (typeof (errs as { message?: string } | undefined)?.message === 'string') {
+      out[0] = (errs as { message?: string }).message
+    }
+    return out
+  }, [form.formState.errors.phones])
+
+  // Debounced so it fires once the operator stops typing, not per keystroke.
+  // Only the primary matters — the extra numbers aren't uniqueness-checked.
+  const primaryPhoneDigits = phoneDigits(primaryOf(normalizePartyPhones(watchedPhones)) ?? '')
+  useEffect(() => {
+    if (!addDialogOpen) return
+    if (!primaryPhoneDigits) { setPhoneCheckError(''); return }
+    const t = setTimeout(() => { void checkPhoneDuplicate(primaryPhoneDigits) }, 500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryPhoneDigits, addDialogOpen, editingCustomer?.id])
+
   // Live "already used" check for GSTIN / drug licence — flags a taken value
   // inline as the user types (debounced), not just on submit.
   const cpGstin = form.watch('gstin') ?? ''
@@ -850,6 +935,9 @@ export default function CustomersPage() {
     setEditingCustomer(customer)
     form.reset({
       name: customer.name,
+      // Falls back to the legacy phone + alternatePhone pair for customers saved
+      // before `phones` existed, so editing one doesn't lose a number.
+      phones: phonesForForm(customer),
       phone: customer.phone,
       type: customer.type,
       email: customer.email ?? '',
@@ -869,6 +957,7 @@ export default function CustomersPage() {
       // Legacy customers with null/undefined whatsappOptIn → treat as opted in
       // (matches the schema default of true).
       whatsappOptIn: (customer as { whatsappOptIn?: boolean }).whatsappOptIn ?? true,
+      whatsappNumber: (customer as { whatsappNumber?: string | null }).whatsappNumber ?? '',
     })
     setDocFiles([])
     setDocPreviews([])
@@ -894,8 +983,20 @@ export default function CustomersPage() {
     setAddDialogOpen(true)
   }
 
-  const handleSaveCustomer = async (values: CustomerFormValues) => {
+  const handleSaveCustomer = async (raw: CustomerFormValues) => {
     if (phoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
+    // Normalise the list once here — drops blank rows, collapses duplicates and
+    // guarantees a single primary — then mirror that primary into `phone`. The
+    // server re-runs the same normalisation; doing it here too keeps the
+    // optimistic list update showing what was actually saved.
+    const phones = normalizePartyPhones(raw.phones)
+    const values: CustomerFormValues = {
+      ...raw,
+      phones,
+      phone: primaryOf(phones) ?? '',
+      // ' ' is WhatsAppNumberField's "Other number, not typed yet" state.
+      whatsappNumber: (raw.whatsappNumber ?? '').trim(),
+    }
     try {
       let customerId: string
       if (editingCustomer) {
@@ -1707,33 +1808,32 @@ export default function CustomersPage() {
           <form onSubmit={form.handleSubmit(handleSaveCustomer)} className="flex flex-col flex-1 min-h-0">
             <div data-sheet-body className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
 
-              {/* Row 1: Name + Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
-                  <Input {...form.register('name')} placeholder="Customer name" error={!!form.formState.errors.name} />
-                  {form.formState.errors.name && <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Phone *{phoneChecking && <span className="ml-1 text-muted-foreground font-normal">checking…</span>}
-                  </Label>
-                  <Input
-                    {...form.register('phone')}
-                    placeholder="10-digit number"
-                    inputMode="numeric"
-                    pattern="[0-9]{10}"
-                    maxLength={10}
-                    autoComplete="tel"
-                    error={!!form.formState.errors.phone || !!phoneCheckError}
-                    // Accept digits only, capped at 10 (overrides register's onChange).
-                    onChange={(e) => form.setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
-                    onBlur={(e) => checkPhoneDuplicate(e.target.value)}
-                  />
-                  {form.formState.errors.phone && <p className="text-xs text-rose-500">{form.formState.errors.phone.message}</p>}
-                  {!form.formState.errors.phone && phoneCheckError && <p className="text-xs text-rose-500">{phoneCheckError}</p>}
-                </div>
+              {/* Row 1: Name */}
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
+                <Input {...form.register('name')} placeholder="Customer name" error={!!form.formState.errors.name} />
+                {form.formState.errors.name && <p className="text-xs text-rose-500">{form.formState.errors.name.message}</p>}
               </div>
+
+              {/* Row 1b: one or more numbers, one of them primary. Replaces the
+                  single Phone input — customers routinely have a mobile plus a
+                  shop landline, and some have only a landline. */}
+              <Controller
+                control={form.control}
+                name="phones"
+                render={({ field }) => (
+                  <PhoneListField
+                    value={field.value ?? []}
+                    onChange={(next) => {
+                      field.onChange(next)
+                      if (phoneCheckError) setPhoneCheckError('')
+                    }}
+                    errors={phoneRowErrors}
+                  />
+                )}
+              />
+              {phoneChecking && <p className="text-xs text-muted-foreground">Checking for duplicates…</p>}
+              {phoneCheckError && <p className="text-xs text-rose-500">{phoneCheckError}</p>}
 
               {/* Row 2: Type + Email (optional) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2049,11 +2149,27 @@ export default function CustomersPage() {
                     Send WhatsApp messages to this customer
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Invoices and payment QR codes will be auto-delivered to the phone number above.
-                    Turn off if the customer prefers not to receive WhatsApp messages.
+                    Invoices and payment QR codes will be auto-delivered on WhatsApp.
+                    Turn off if the customer prefers not to receive them.
                   </p>
                 </div>
               </div>
+
+              {/* Which of the numbers above WhatsApp goes to. Only meaningful
+                  when messaging is on, so it follows the toggle. */}
+              {watchedWhatsappOptIn !== false && (
+                <Controller
+                  control={form.control}
+                  name="whatsappNumber"
+                  render={({ field }) => (
+                    <WhatsAppNumberField
+                      phones={watchedPhones ?? []}
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              )}
 
             </div>
             <div data-sheet-footer className="shrink-0 flex items-center justify-end gap-3 px-5 py-3 bg-background border-t border-border/40">

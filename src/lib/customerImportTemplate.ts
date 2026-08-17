@@ -17,12 +17,65 @@ import {
   parseLooseSheet,
   type LooseAliasGroup,
 } from './excelTemplateFormat'
+import {
+  type PartyPhone,
+  collectPartyPhones,
+  normalizePartyPhones,
+  parsePhonesCell,
+  phonesFromLegacy,
+  primaryOf,
+  serializePhonesCell,
+} from './phones'
+
+/**
+ * Fold a row's separate phone columns into one list. Ordered mobile-first so
+ * normalizePartyPhones promotes a real mobile to primary when the row has one;
+ * a row with only an office landline still gets a valid primary from it.
+ *
+ * `phonesCell` is our own template's round-trip column and wins outright when
+ * present — it already carries the operator's chosen order and labels.
+ */
+function buildImportedPhones(v: {
+  phonesCell?: string
+  phone?: string
+  phoneOffice?: string
+  alternatePhone?: string
+  phoneHome?: string
+}): PartyPhone[] {
+  const roundTripped = parsePhonesCell(v.phonesCell)
+  if (roundTripped.length) return roundTripped
+  return collectPartyPhones([
+    { value: v.phone },
+    { value: v.alternatePhone },
+    { value: v.phoneOffice, label: 'OFFICE' },
+    { value: v.phoneHome, label: 'HOME' },
+  ])
+}
 
 // Synonyms for tolerant header-mapped import (other-ERP flat exports).
 const CUSTOMER_ALIAS_GROUPS: LooseAliasGroup[] = [
   { field: 'name', aliases: ['name', 'customer name', 'customer', 'party name', 'party', 'client', 'client name', 'account name', 'ledger name', 'ledger', 'account', 'buyer', 'buyer name'] },
-  { field: 'phone', aliases: ['phone', 'mobile', 'mobile no', 'mobile number', 'phone no', 'phone number', 'contact no', 'contact number', 'contact', 'telephone', 'tel', 'cell', 'mob', 'mob no', 'whatsapp'] },
-  { field: 'alternatePhone', aliases: ['alternate phone', 'alt phone', 'alternate mobile', 'alternate no', 'phone 2', 'mobile 2', 'second phone'] },
+  // A party's numbers arrive spread across several columns in other-ERP exports
+  // (mobile / phone1 / phone2 / resi, all present in the same sheet), and plenty
+  // of rows carry only a landline. Each column maps to its own field so the
+  // label survives the import; buildImportedPhones then folds them into one
+  // list. `fax` is deliberately unmapped — it can't be called or messaged.
+  //
+  // Order matters twice over: matchAliasField takes the first EXACT hit across
+  // groups, and the mobile group is listed first so a plain "phone" column is
+  // read as the mobile rather than being claimed by the landline group.
+  // 'contact' maps to the PERSON, not the number. In real address-book exports
+  // that column holds a salutation or a name ("Mr.", "R. Mehta") while the
+  // numbers live in mobile / phone1 / resi. It used to sit in the phone group,
+  // where — because each field can only be claimed once, by the leftmost column —
+  // it swallowed the phone slot and the real `mobile` column went unmapped:
+  // rows silently lost their mobile, and mobile-only rows were rejected outright.
+  // 'contact no' / 'contact number' stay with the phone group; they're unambiguous.
+  { field: 'contactPerson', aliases: ['contact person', 'contact name', 'contact', 'person', 'owner', 'proprietor', 'representative'] },
+  { field: 'phone', aliases: ['phone', 'mobile', 'mobile no', 'mobile number', 'phone no', 'phone number', 'contact no', 'contact number', 'cell', 'mob', 'mob no', 'whatsapp'] },
+  { field: 'phoneOffice', aliases: ['phone1', 'phone 1', 'telephone', 'tel', 'landline', 'land line', 'office', 'office no', 'office phone', 'shop', 'shop no'] },
+  { field: 'alternatePhone', aliases: ['phone2', 'alternate phone', 'alt phone', 'alternate mobile', 'alternate no', 'phone 2', 'mobile 2', 'second phone'] },
+  { field: 'phoneHome', aliases: ['resi', 'resi no', 'residence', 'residence no', 'residence phone', 'home', 'home no', 'home phone'] },
   { field: 'email', aliases: ['email', 'e mail', 'email id', 'mail', 'email address'] },
   { field: 'address', aliases: ['address', 'addr', 'location', 'full address', 'street', 'area', 'city', 'place', 'town'] },
   { field: 'type', aliases: ['type', 'customer type', 'category'] },
@@ -61,7 +114,11 @@ export interface ParsedCustomer {
   sourceRow: number
   customerCode?: string
   name: string
+  /** The primary number — mirrored from `phones`, kept for existing consumers. */
   phone: string
+  /** Every number found for this row, primary first. */
+  phones?: PartyPhone[]
+  /** @deprecated Superseded by `phones`; still read from legacy sheets. */
   alternatePhone?: string
   contactPerson?: string
   email?: string
@@ -269,6 +326,11 @@ const CUSTOMER_COLUMNS = [
   'customer_code',
   'name',
   'phone',
+  // Whole phone list, round-tripped as "MOBILE:9876543210|OFFICE:0431-3501965"
+  // (primary first). One column keeps every number AND its label, instead of
+  // losing everything past a fixed set of phone_1/phone_2 columns. `phone` and
+  // `alternate_phone` below stay readable for sheets written before this.
+  'phones',
   'alternate_phone',
   'contact_person',
   'email',
@@ -441,6 +503,7 @@ const SAMPLE_CUSTOMER_ROW: Record<string, string | number> = {
   customer_code: 'C001',
   name: 'Asha Medical Stores',
   phone: '9876543210',
+  phones: 'MOBILE:9876543210|OFFICE:080-25551234',
   alternate_phone: '',
   contact_person: 'Asha R.',
   email: 'asha@example.com',
@@ -775,13 +838,34 @@ function toISODate(v: unknown): string | undefined {
   return s
 }
 
+interface CoerceCtx {
+  errors: ParseError[]
+  sheet: SheetName
+  row: number
+  field: string
+}
+
+/**
+ * Blank means "apply the default" and stays silent. An unrecognised value used
+ * to be indistinguishable from blank, which mattered most on `type`: anything
+ * other than an exact RETAIL/WHOLESALE/DOCTOR fell back to RETAIL, so a
+ * wholesale customer was billed at retail rates with nothing reported.
+ */
 function normaliseEnum<T extends string>(
   raw: unknown,
   allowed: readonly T[],
+  ctx?: CoerceCtx,
 ): T | undefined {
   const s = toStr(raw).toUpperCase()
   if (!s) return undefined
-  return (allowed as readonly string[]).includes(s) ? (s as T) : undefined
+  if ((allowed as readonly string[]).includes(s)) return s as T
+  ctx?.errors.push({
+    sheet: ctx.sheet,
+    row: ctx.row,
+    field: ctx.field,
+    message: `"${toStr(raw)}" isn't a valid ${ctx.field}. Use one of: ${allowed.join(' · ')}. Leave blank to use the default.`,
+  })
+  return undefined
 }
 
 export async function parseCustomerImportWorkbook(file: File): Promise<ParseResult> {
@@ -821,7 +905,18 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
     const rowNum = idx + 2
 
     const name = toStr(raw.name)
-    const phone = toStr(raw.phone)
+    // Every phone column on the row folds into one list; `phone` is then the
+    // primary of that list rather than a column read on its own. A row whose
+    // only number sits in phone1 / resi is now importable — it used to be
+    // rejected as "Phone is required".
+    const phones = buildImportedPhones({
+      phonesCell: toStr(raw.phones),
+      phone: toStr(raw.phone),
+      phoneOffice: toStr(raw.phone_office),
+      alternatePhone: toStr(raw.alternate_phone),
+      phoneHome: toStr(raw.phone_home),
+    })
+    const phone = primaryOf(phones) ?? ''
 
     // Skip totally blank rows silently — empty workbook trailing rows are
     // common and shouldn't pollute the error list.
@@ -831,7 +926,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       errors.push({ sheet: 'Customers', row: rowNum, field: 'name', message: 'Name is required.' })
     }
     if (!phone) {
-      errors.push({ sheet: 'Customers', row: rowNum, field: 'phone', message: 'Phone is required.' })
+      errors.push({ sheet: 'Customers', row: rowNum, field: 'phone', message: 'At least one phone number is required.' })
     }
     if (!name || !phone) return
 
@@ -840,11 +935,14 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       customerCode: toOptionalStr(raw.customer_code),
       name,
       phone,
+      phones,
       alternatePhone: toOptionalStr(raw.alternate_phone),
       contactPerson: toOptionalStr(raw.contact_person),
       email: toOptionalStr(raw.email),
       address: toOptionalStr(raw.address),
-      type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
+      type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const, {
+        errors, sheet: 'Customers', row: rowNum, field: 'type',
+      }),
       source: toOptionalStr(raw.source),
       doctorRef: toOptionalStr(raw.doctor_ref),
       referredBy: toOptionalStr(raw.referred_by),
@@ -1447,15 +1545,24 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       const looseErrors: ParseError[] = []
       for (const { sourceRow, values: v } of rows) {
         const name = v.name ?? ''
-        const phone = v.phone ?? ''
+        // Same fold as the structured path — mobile / phone1 / phone2 / resi all
+        // land in one list, and the primary comes out of it.
+        const phones = buildImportedPhones({
+          phone: v.phone,
+          phoneOffice: v.phoneOffice,
+          alternatePhone: v.alternatePhone,
+          phoneHome: v.phoneHome,
+        })
+        const phone = primaryOf(phones) ?? ''
         if (!name && !phone) continue
         if (!name || !phone) {
-          looseErrors.push({ sheet: 'Customers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'Phone is required.' })
+          looseErrors.push({ sheet: 'Customers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'At least one phone number is required.' })
           continue
         }
         looseCustomers.push({
-          sourceRow, name, phone,
-          alternatePhone: v.alternatePhone, email: v.email, address: v.address,
+          sourceRow, name, phone, phones,
+          alternatePhone: v.alternatePhone, contactPerson: v.contactPerson,
+          email: v.email, address: v.address,
           type: normaliseEnum(v.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
           source: v.source, gstin: v.gstin, dlNumber: v.dlNumber,
           creditLimit: toOptionalNumber(v.creditLimit), openingBalance: toOptionalNumber(v.openingBalance),
@@ -1492,6 +1599,7 @@ interface ExportCustomerInput {
   id: string
   name: string
   phone: string
+  phones?: unknown
   alternatePhone?: string | null
   contactPerson?: string | null
   email?: string | null
@@ -1750,6 +1858,13 @@ export function exportCustomersToWorkbook(
       customer_code: codeFor.get(c.id) ?? '',
       name: c.name,
       phone: c.phone,
+      // Round-trips the whole list with labels. Falls back to the legacy pair so
+      // a customer written before `phones` existed still exports its numbers.
+      phones: serializePhonesCell(
+        normalizePartyPhones(c.phones).length
+          ? normalizePartyPhones(c.phones)
+          : phonesFromLegacy(c.phone, c.alternatePhone),
+      ),
       alternate_phone: c.alternatePhone ?? '',
       contact_person: c.contactPerson ?? '',
       email: c.email ?? '',

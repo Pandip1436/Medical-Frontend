@@ -48,6 +48,7 @@ import {
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { clampAmountInput } from '@/lib/amountInput'
 import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
@@ -787,21 +788,17 @@ export default function SupplierOutstandingPage() {
                       className="h-9 font-mono text-sm"
                       value={payAmount}
                       onChange={(e) => {
-                        const raw = e.target.value
                         // Hard-cap the input at the selected PR's balance — the
                         // backend rejects overpayment, but bouncing it on submit is
-                        // poor UX. Allow empty string so the user can clear.
-                        if (raw === '' || !selectedGrnId) {
-                          setPayAmount(raw)
+                        // poor UX. clampAmountInput also writes the capped value
+                        // back onto the element, so a field already sitting at the
+                        // balance stops accepting further digits instead of growing
+                        // while the state behind it stays put.
+                        if (!selectedGrnId) {
+                          setPayAmount(e.target.value)
                         } else {
-                          const num = parseFloat(raw)
-                          if (Number.isFinite(num) && num > selectedGrnBalance) {
-                            setPayAmount(selectedGrnBalance.toFixed(2))
-                          } else if (Number.isFinite(num) && num < 0) {
-                            setPayAmount('0')
-                          } else {
-                            setPayAmount(raw)
-                          }
+                          const { value } = clampAmountInput(e.currentTarget, { min: 0, max: selectedGrnBalance })
+                          setPayAmount(value === null ? '' : String(value))
                         }
                         setAmountAutoFilled(false)
                       }}

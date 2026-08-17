@@ -259,6 +259,7 @@ export function ImportCustomersDrawer({
         customerCode: c.customerCode,
         name: c.name,
         phone: c.phone,
+        phones: c.phones,
         alternatePhone: c.alternatePhone,
         contactPerson: c.contactPerson,
         email: c.email,

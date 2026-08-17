@@ -2,9 +2,6 @@ import { useState, useMemo, useEffect, useCallback, useRef, type ReactNode } fro
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Share2,
-  Copy,
-  RotateCcw,
   IndianRupee,
   CheckCircle2,
   Undo2,
@@ -70,8 +67,8 @@ import type { Invoice } from '@/types'
 import {
   downloadInvoicePdf,
   printInvoicePdf,
-  shareInvoiceViaWhatsApp,
 } from '@/lib/pdf/invoicePdf'
+import { describeSendSkip } from '@/lib/whatsappSendResult'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { navigate, useRoute } from '@/lib/router'
 import { InvoiceSplitView } from './components/InvoiceSplitView'
@@ -281,19 +278,44 @@ export default function SalesListPage() {
     }
   }, [])
 
-  // Look up the customer's phone from the master-data store so the WhatsApp
-  // share can target the correct contact. Walk-in/cash sales without a
-  // customerId fall through to a generic share (user picks the recipient).
-  const phoneFor = useCallback(
-    (inv: Invoice): string | undefined =>
-      inv.customerId ? customers.find(c => c.id === inv.customerId)?.phone : undefined,
-    [customers],
-  )
+  // No phone lookup needed any more: the backend resolves the recipient itself
+  // from the invoice's customer (whatsappNumber, else phone), so the client
+  // never has to guess. Removed with the old client-side share.
 
-  // Draft invoices have no finalized PDF, no real number to deliver, and no
-  // collected payment to return against — so Share/Duplicate/Return don't
-  // apply. They get a single "Resume" action that re-opens NewSalePage.
-  // Non-DRAFT rows keep the full action set.
+  // Send the invoice to the customer over WhatsApp through the BACKEND — the
+  // same path as the invoice detail page's "Send WhatsApp": server renders the
+  // PDF, attaches a fresh payment QR, and delivers an approved Meta template.
+  // This replaced the old client-side "Share", which only uploaded a PDF to
+  // /shared-files and opened wa.me for the operator to press send by hand.
+  //
+  // Guarded so a double-click can't fire two sends for the same row (the
+  // backend also throttles resends within 30s, but that surfaces as a warning
+  // toast rather than silence).
+  const [sendingWhatsAppId, setSendingWhatsAppId] = useState<string | null>(null)
+  const sendWhatsApp = useCallback(async (inv: Invoice) => {
+    if (sendingWhatsAppId) return
+    setSendingWhatsAppId(inv.id)
+    const toastId = toast.loading(`Sending ${inv.invoiceNumber} to ${inv.customerName}…`)
+    try {
+      const { data } = await api.post(`/billing/${inv.id}/send-whatsapp`)
+      if (data?.status === 'SENT') {
+        toast.success(`WhatsApp sent to ${inv.customerName}`, { id: toastId })
+      } else if (data?.status === 'SKIPPED') {
+        toast.warning(describeSendSkip(data?.reason, data?.detail), { id: toastId })
+      } else {
+        toast.error(data?.errorMessage ? `WhatsApp send failed: ${data.errorMessage}` : 'WhatsApp send failed', { id: toastId })
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to send WhatsApp message'
+      toast.error(msg, { id: toastId })
+    } finally {
+      setSendingWhatsAppId(null)
+    }
+  }, [sendingWhatsAppId])
+
+  // Draft invoices have no finalized PDF and no real number to deliver, so
+  // "Send WhatsApp" doesn't apply. They get a single "Resume" action that
+  // re-opens NewSalePage. Non-DRAFT rows keep the full action set.
   const actionsForInvoice = useCallback((inv: Invoice) => {
     if (inv.status === 'DRAFT') {
       return [
@@ -305,15 +327,18 @@ export default function SalesListPage() {
     // and RETURNED are terminal financial states. DRAFT goes through its own
     // "Resume editing" path higher up in this function.
     const canEdit = inv.status === 'UNPAID' || inv.status === 'PARTIAL'
+    // CANCELLED invoices are never delivered — the backend rejects them as
+    // INVOICE_NOT_ELIGIBLE, so don't offer the action at all.
+    const canSend = inv.status !== 'CANCELLED'
     return [
       ...(canEdit
         ? [{ label: 'Edit invoice', icon: <Pencil className="h-4 w-4" />, onClick: () => navigate(`/billing/new?editId=${inv.id}`) }]
         : []),
-      { label: 'Share', icon: <Share2 className="h-4 w-4" />, onClick: () => shareInvoiceViaWhatsApp(inv, phoneFor(inv)) },
-      { label: 'Duplicate', icon: <Copy className="h-4 w-4" />, onClick: () => navigate(`/billing/new?duplicateId=${inv.id}`) },
-      { label: 'Return', icon: <RotateCcw className="h-4 w-4" />, onClick: () => navigate(`/billing/returns?invoiceId=${inv.id}&invoiceNumber=${encodeURIComponent(inv.invoiceNumber)}`) },
+      ...(canSend
+        ? [{ label: 'Send WhatsApp', icon: <Send className="h-4 w-4" />, onClick: () => void sendWhatsApp(inv) }]
+        : []),
     ]
-  }, [phoneFor])
+  }, [sendWhatsApp])
 
   // DRAFT rows get a hard-delete (they have no financial impact); finalized
   // rows get a soft "Cancel" (status flip). Both open the premium confirm
@@ -1367,8 +1392,12 @@ export default function SalesListPage() {
                         <DataTableRowActions
                           onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                           onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
-                          onDelete={() => removeOrCancel(inv)}
-                          deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
+                          // Cancel intentionally omitted — cancelling an invoice
+                          // is a financial state change, too destructive to sit
+                          // one mis-click away in a dense list. DRAFT rows keep
+                          // "Discard" since a draft has no financial impact.
+                          onDelete={inv.status === 'DRAFT' ? () => removeOrCancel(inv) : undefined}
+                          deleteLabel={inv.status === 'DRAFT' ? 'Discard' : undefined}
                           customActions={actionsForInvoice(inv)}
                         />
                       </div>
@@ -1549,8 +1578,9 @@ export default function SalesListPage() {
                       <DataTableRowActions
                         onView={() => navigate(`/customers/invoices/detail?id=${inv.id}`)}
                         onPrint={inv.status === 'DRAFT' ? undefined : () => printInvoicePdf(inv)}
-                        onDelete={() => removeOrCancel(inv)}
-                        deleteLabel={inv.status === 'DRAFT' ? 'Discard' : 'Cancel'}
+                        // Cancel intentionally omitted — see the card-view copy above.
+                        onDelete={inv.status === 'DRAFT' ? () => removeOrCancel(inv) : undefined}
+                        deleteLabel={inv.status === 'DRAFT' ? 'Discard' : undefined}
                         customActions={actionsForInvoice(inv)}
                       />
                     </TableCell>

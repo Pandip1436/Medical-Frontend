@@ -46,7 +46,11 @@ import {
   parseProductImportWorkbook,
 } from '@/lib/productImportTemplate'
 import { ImportProgressBar } from '@/components/shared/ImportProgressBar'
-import { useImportStore, type ImportChunk } from '@/stores/importStore'
+import {
+  useImportStore,
+  type ChunkFailure,
+  type ImportChunk,
+} from '@/stores/importStore'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Backend result shape — mirrors backend/src/products/dto/import-products.dto.ts
@@ -137,24 +141,32 @@ const DUPLICATE_OPTIONS: Array<{
   {
     value: 'UPDATE',
     label: 'Update existing',
-    hint: "If a name matches, refresh that product's details from the file. New names are added.",
+    hint: "If a row matches an existing product, refresh that product's details from the file. Everything else is added.",
   },
   {
     value: 'UPDATE_ONLY',
     label: 'Update matches only',
-    hint: 'Update existing products by name; skip (don\'t add) any name that doesn\'t exist. Best for HSN/GST top-ups.',
+    hint: "Refresh matching products; skip (don't add) any row with no match. Best for HSN/GST top-ups.",
   },
   {
     value: 'SKIP',
     label: 'Skip duplicates',
-    hint: 'Leave matching products untouched. New names are added.',
+    hint: 'Leave matching products untouched. Everything else is added.',
   },
   {
     value: 'CREATE',
     label: 'Create new only',
-    hint: 'Refuse to import a row if the name is already used in this branch.',
+    hint: 'Refuse to import a row that matches an existing product.',
   },
 ]
+
+// The one place the match rule is spelled out, reused by both stages so the
+// wording can never drift between them. It mirrors resolveExisting() in
+// product-import.service.ts: the name must match, and the item codes must not
+// contradict each other — a blank code on either side still matches on name,
+// but two different codes mean two different products.
+const MATCH_RULE =
+  'A row matches an existing product when the names are the same and the item codes agree (a blank code on either side still matches on name). Same name, different item code = a separate product.'
 
 export function ImportProductsDrawer({
   open,
@@ -166,7 +178,16 @@ export function ImportProductsDrawer({
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ImportResult | null>(null)
+  // Why the preview is missing. Every pricing and duplicate warning is produced
+  // by the preview endpoint, so a failed preview means the operator is about to
+  // commit a catalogue with no checks at all — that has to be said out loud
+  // rather than left as a toast that has already faded.
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [commitResult, setCommitResult] = useState<ImportResult | null>(null)
+  const [chunkFailures, setChunkFailures] = useState<ChunkFailure[]>([])
+  // Rows in batches the run aborted before sending. Counting only the batches
+  // that came back with an error is what makes a 2,223-row loss read as "50".
+  const [notAttempted, setNotAttempted] = useState(0)
   // Import runs in importStore so it survives this drawer closing / navigation.
   const runImport = useImportStore((s) => s.run)
   const importEntity = useImportStore((s) => s.entity)
@@ -183,9 +204,17 @@ export function ImportProductsDrawer({
     setParseResult(null)
     setParseError(null)
     setPreviewResult(null)
+    setPreviewError(null)
     setCommitResult(null)
+    setChunkFailures([])
+    setNotAttempted(0)
     setDuplicateHandling('UPDATE')
     if (fileInputRef.current) fileInputRef.current.value = ''
+    // Deliberately NOT dismissing the global import store here. reset() runs
+    // 300ms after the drawer closes, and the floating progress pill exists
+    // precisely so the result outlives the drawer — clearing the store would
+    // wipe the pill the moment the user closes this. run() already zeroes
+    // done/total/result/failures when the next import starts, so nothing leaks.
   }, [])
 
   const closeDrawer = useCallback(() => {
@@ -212,6 +241,7 @@ export function ImportProductsDrawer({
   const runPreview = useCallback(
     async (parsed: ParseResult, handling: DuplicateHandling) => {
       try {
+        setPreviewError(null)
         const payload = buildPayload(parsed, handling, true)
         if (payload.products.length === 0) {
           setPreviewResult(null)
@@ -227,6 +257,7 @@ export function ImportProductsDrawer({
           (err as { response?: { data?: { message?: string } } })?.response
             ?.data?.message ??
           (err instanceof Error ? err.message : 'Failed to preview import')
+        setPreviewError(String(msg))
         toast.error(String(msg))
       }
     },
@@ -239,6 +270,7 @@ export function ImportProductsDrawer({
       setParseError(null)
       setParseResult(null)
       setPreviewResult(null)
+      setPreviewError(null)
       setStage('parsing')
       try {
         const parsed = await parseProductImportWorkbook(f)
@@ -325,13 +357,33 @@ export function ImportProductsDrawer({
           )
           onImported()
         },
+        onPartial: (merged, failures, notAttempted) => {
+          // Some batches may have committed. Refresh the list so the operator
+          // sees the rows that DID land, and keep the merged result for Done.
+          if (merged) {
+            setCommitResult(merged as ImportResult)
+            onImported()
+          }
+          setChunkFailures(failures)
+          setNotAttempted(notAttempted)
+        },
         onError: (msg) => toast.error(msg),
       })) as ImportResult
       setCommitResult(result)
+      setChunkFailures([])
+      setNotAttempted(0)
       setStage('done')
     } catch {
-      // Error toast already surfaced via onError; just return to the preview.
-      setStage('preview')
+      // A partial run still has a merged result worth showing — land on Done
+      // with the failure banner rather than dumping the operator back to a
+      // preview that says nothing about the rows that committed.
+      const { result: partial, failures } = useImportStore.getState()
+      if (partial && failures.length > 0) {
+        setCommitResult(partial as ImportResult)
+        setStage('done')
+      } else {
+        setStage('preview')
+      }
     }
   }, [buildPayload, duplicateHandling, onImported, parseResult, runImport])
 
@@ -395,6 +447,7 @@ export function ImportProductsDrawer({
               parsed={parseResult}
               parsedCounts={parsedCounts}
               previewResult={previewResult}
+              previewError={previewError}
               duplicateHandling={duplicateHandling}
               onChangeHandling={onChangeHandling}
             />
@@ -416,7 +469,11 @@ export function ImportProductsDrawer({
           ) : null}
 
           {stage === 'done' && commitResult ? (
-            <DoneStage result={commitResult} />
+            <DoneStage
+              result={commitResult}
+              failures={chunkFailures}
+              notAttempted={notAttempted}
+            />
           ) : null}
         </div>
 
@@ -557,12 +614,13 @@ function UploadStage({
 
       <div className="space-y-2">
         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          What if a product name already exists in this branch?
+          What if a row matches a product already in this branch?
         </Label>
         <DuplicateHandlingRadio
           value={duplicateHandling}
           onChange={onChangeHandling}
         />
+        <p className="text-[11px] text-muted-foreground">{MATCH_RULE}</p>
       </div>
 
       <div className="rounded-xl border border-border/40 bg-muted/20 p-3 text-xs space-y-2">
@@ -595,6 +653,7 @@ interface PreviewStageProps {
   parsed: ParseResult
   parsedCounts: { products: number; categories: number }
   previewResult: ImportResult | null
+  previewError: string | null
   duplicateHandling: DuplicateHandling
   onChangeHandling: (h: DuplicateHandling) => void
 }
@@ -603,6 +662,7 @@ function PreviewStage({
   parsed,
   parsedCounts,
   previewResult,
+  previewError,
   duplicateHandling,
   onChangeHandling,
 }: PreviewStageProps) {
@@ -615,6 +675,14 @@ function PreviewStage({
     ...parsed.errors,
     ...errors,
   ]
+
+  // Index once. The duplicates table used to run `parsed.products.find(...)`
+  // inside its map — with 2,298 duplicates over 2,723 products that is ~6.3M
+  // comparisons on every render of this section.
+  const productsByRow = useMemo(
+    () => new Map(parsed.products.map((p) => [p.sourceRow, p])),
+    [parsed.products],
+  )
 
   return (
     <>
@@ -644,6 +712,22 @@ function PreviewStage({
         <StatCard label="Categories" value={parsedCounts.categories} tone="blue" />
       </div>
 
+      {previewError ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Could not check this file before importing.
+          </p>
+          <p className="mt-1 pl-5">{previewError}</p>
+          <p className="mt-1 pl-5">
+            Every pricing, duplicate and missing-field warning comes from this
+            check, so importing now writes {parsedCounts.products} products with
+            none of them reviewed. Fix the file and re-upload, or import knowing
+            the checks were skipped.
+          </p>
+        </div>
+      ) : null}
+
       {summary ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
           <p className="font-medium flex items-center gap-1.5">
@@ -663,12 +747,13 @@ function PreviewStage({
 
       <div className="space-y-2">
         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          On duplicate (matched by name)
+          On duplicate (matched by name + item code)
         </Label>
         <DuplicateHandlingRadio
           value={duplicateHandling}
           onChange={onChangeHandling}
         />
+        <p className="text-[11px] text-muted-foreground">{MATCH_RULE}</p>
       </div>
 
       {duplicates.length > 0 ? (
@@ -687,10 +772,8 @@ function PreviewStage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {duplicates.map((d) => {
-                const fromFile = parsed.products.find(
-                  (p) => p.sourceRow === d.sourceRow,
-                )
+              {duplicates.slice(0, 50).map((d) => {
+                const fromFile = productsByRow.get(d.sourceRow)
                 return (
                   <TableRow key={`${d.sourceRow}-${d.existingProduct.id}`}>
                     <TableCell className="font-mono text-xs">
@@ -698,15 +781,14 @@ function PreviewStage({
                     </TableCell>
                     <TableCell className="text-xs">
                       <div className="font-medium">{fromFile?.name ?? '—'}</div>
-                      <div className="text-muted-foreground">
-                        {fromFile?.barcode ?? '—'}
+                      {/* The item code, not the barcode: code is half the match
+                          key, and barcode is unpopulated on every product. */}
+                      <div className="text-muted-foreground font-mono">
+                        {fromFile?.productCode ?? '—'}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs">
                       <div className="font-medium">{d.existingProduct.name}</div>
-                      <div className="text-muted-foreground">
-                        {d.existingProduct.barcode ?? '—'}
-                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -731,6 +813,11 @@ function PreviewStage({
               })}
             </TableBody>
           </Table>
+          {duplicates.length > 50 ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Showing first 50 of {duplicates.length} duplicate matches.
+            </p>
+          ) : null}
         </CollapsibleSection>
       ) : null}
 
@@ -789,11 +876,19 @@ function PreviewStage({
               </li>
             ))}
           </ul>
+          {warnings.length > 30 ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Showing first 30 of {warnings.length} warnings.
+            </p>
+          ) : null}
         </CollapsibleSection>
       ) : null}
 
+      {/* Deliberately NOT called "Preview": this is the browser's reading of
+          the spreadsheet, before the server has seen anything. The two panels
+          above it are the server's dry-run verdict. Different questions. */}
       <CollapsibleSection
-        title="Preview parsed data"
+        title="First 50 rows, as read from your file"
         tone="slate"
         icon={ChevronRight}
         defaultOpen
@@ -817,15 +912,72 @@ function PreviewStage({
 
 // ─── Done stage ─────────────────────────────────────────────────────────────
 
-function DoneStage({ result }: { result: ImportResult }) {
+function DoneStage({
+  result,
+  failures = [],
+  notAttempted = 0,
+}: {
+  result: ImportResult
+  failures?: ChunkFailure[]
+  /** Rows in batches the run aborted before sending — missing, but never rejected. */
+  notAttempted?: number
+}) {
   const s = result.summary
+  const partial = failures.length > 0
+  // Rejected rows AND rows we never got to. Reporting only the former is what
+  // turned a 2,223-row shortfall into a "50 rows" message.
+  const rejected = failures.reduce((n, f) => n + f.rows, 0)
+  const lostRows = rejected + notAttempted
   return (
     <div className="space-y-4">
-      <div className="flex flex-col items-center text-center gap-2 py-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950">
-          <CheckCircle2 className="h-7 w-7" />
+      {partial ? (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs text-rose-900 dark:border-rose-700 dark:bg-rose-950/40 dark:text-rose-200">
+          <p className="font-medium flex items-center gap-1.5">
+            <XCircle className="h-3.5 w-3.5 shrink-0" />
+            {lostRows.toLocaleString('en-IN')} row{lostRows === 1 ? '' : 's'} were
+            not imported — {failures.length} batch
+            {failures.length === 1 ? '' : 'es'} failed
+            {notAttempted > 0
+              ? `, and the run stopped before sending ${notAttempted.toLocaleString('en-IN')} more rows`
+              : ''}
+            .
+          </p>
+          <ul className="mt-1.5 space-y-0.5 pl-5">
+            {failures.slice(0, 10).map((f) => (
+              <li key={f.index}>
+                Batch {f.index + 1} ({f.rows} rows)
+                {f.status ? ` — HTTP ${f.status}` : ''}: {f.message}
+              </li>
+            ))}
+          </ul>
+          {failures.length > 10 ? (
+            <p className="pl-5 mt-1">…and {failures.length - 10} more.</p>
+          ) : null}
+          <p className="mt-1.5 pl-5 text-rose-800 dark:text-rose-300">
+            The counts below cover only what committed. Re-run the same file to
+            pick up the rest — rows already imported will match and update.
+          </p>
         </div>
-        <h3 className="text-lg font-semibold">Import complete</h3>
+      ) : null}
+
+      <div className="flex flex-col items-center text-center gap-2 py-6">
+        <div
+          className={
+            'flex h-14 w-14 items-center justify-center rounded-full ' +
+            (partial
+              ? 'bg-amber-100 text-amber-600 dark:bg-amber-950'
+              : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950')
+          }
+        >
+          {partial ? (
+            <AlertTriangle className="h-7 w-7" />
+          ) : (
+            <CheckCircle2 className="h-7 w-7" />
+          )}
+        </div>
+        <h3 className="text-lg font-semibold">
+          {partial ? 'Import finished incomplete' : 'Import complete'}
+        </h3>
         <p className="text-sm text-muted-foreground max-w-md">
           {s.products.created + s.products.updated} product
           {s.products.created + s.products.updated === 1 ? '' : 's'} processed.
@@ -865,6 +1017,48 @@ function DoneStage({ result }: { result: ImportResult }) {
               ))}
             </TableBody>
           </Table>
+          {result.errors.length > 50 ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Showing first 50 of {result.errors.length} errors.
+            </p>
+          ) : null}
+        </CollapsibleSection>
+      ) : null}
+
+      {/* Commit-time warnings only exist here — the preview cannot predict them
+          (a dropped item code, a branch claim). Without this section they were
+          returned by the server and shown to nobody. */}
+      {result.warnings.length > 0 ? (
+        <CollapsibleSection
+          title={`${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'} while importing`}
+          tone="amber"
+          icon={AlertTriangle}
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Row</TableHead>
+                <TableHead>Item code</TableHead>
+                <TableHead>Message</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {result.warnings.slice(0, 50).map((w, i) => (
+                <TableRow key={i}>
+                  <TableCell className="text-xs font-mono">{w.row}</TableCell>
+                  <TableCell className="text-xs font-mono">
+                    {w.productCode || '—'}
+                  </TableCell>
+                  <TableCell className="text-xs">{w.message}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {result.warnings.length > 50 ? (
+            <p className="text-xs text-muted-foreground mt-2">
+              Showing first 50 of {result.warnings.length} warnings.
+            </p>
+          ) : null}
         </CollapsibleSection>
       ) : null}
     </div>
@@ -987,7 +1181,8 @@ function PreviewProductTable({ products }: { products: ParsedProduct[] }) {
   if (products.length === 0)
     return <p className="text-xs text-muted-foreground py-2">No products.</p>
   return (
-    <Table>
+    <>
+      <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Code</TableHead>
@@ -1018,7 +1213,13 @@ function PreviewProductTable({ products }: { products: ParsedProduct[] }) {
           </TableRow>
         ))}
       </TableBody>
-    </Table>
+      </Table>
+      {products.length > 50 ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          Showing first 50 of {products.length} products.
+        </p>
+      ) : null}
+    </>
   )
 }
 
@@ -1030,25 +1231,32 @@ function PreviewCategoryTable({ categories }: { categories: ParsedCategory[] }) 
       </p>
     )
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead>Color</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {categories.slice(0, 50).map((c) => (
-          <TableRow key={c.sourceRow}>
-            <TableCell className="text-xs font-medium">{c.name}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">
-              {c.description ?? '—'}
-            </TableCell>
-            <TableCell className="text-xs font-mono">{c.color ?? '—'}</TableCell>
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead>Color</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {categories.slice(0, 50).map((c) => (
+            <TableRow key={c.sourceRow}>
+              <TableCell className="text-xs font-medium">{c.name}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {c.description ?? '—'}
+              </TableCell>
+              <TableCell className="text-xs font-mono">{c.color ?? '—'}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {categories.length > 50 ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          Showing first 50 of {categories.length} categories.
+        </p>
+      ) : null}
+    </>
   )
 }

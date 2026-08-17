@@ -48,6 +48,7 @@ import {
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { clampAmountInput } from '@/lib/amountInput'
 import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
@@ -587,16 +588,12 @@ export default function SupplierPaymentsDuePage() {
                       className="h-9 font-mono text-sm"
                       value={payAmount}
                       onChange={(e) => {
-                        const raw = e.target.value
-                        if (raw === '') { setPayAmount(''); return }
-                        const num = parseFloat(raw)
-                        if (Number.isFinite(num) && num > selectedRow.balance) {
-                          setPayAmount(selectedRow.balance.toFixed(2))
-                        } else if (Number.isFinite(num) && num < 0) {
-                          setPayAmount('0')
-                        } else {
-                          setPayAmount(raw)
-                        }
+                        // Capped at the row's balance. clampAmountInput writes the
+                        // capped value back onto the element too, so a field already
+                        // at the balance stops accepting further digits rather than
+                        // growing while the state behind it stays put.
+                        const { value } = clampAmountInput(e.currentTarget, { min: 0, max: selectedRow.balance })
+                        setPayAmount(value === null ? '' : String(value))
                       }}
                       min={0}
                       max={selectedRow.balance}

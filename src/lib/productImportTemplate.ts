@@ -2,14 +2,61 @@
 import * as XLSX from 'xlsx-js-style'
 import {
   type ExportMetadata,
+  type LooseAliasGroup,
   SHEET_COLORS,
   applyInstructionsFormatting,
   applySheetFormatting,
   buildExportMetadataRows,
+  parseLooseSheet,
   readExportMetadata,
 } from './excelTemplateFormat'
 
 export type { ExportMetadata }
+
+// Tolerant header map for flat product exports that aren't our template —
+// MARG/Marg-style item masters, supplier price lists, a plain sheet someone
+// typed by hand. Customers and suppliers already had this; products didn't, so
+// an ordinary one-sheet product list parsed to zero rows.
+//
+// Two matching rules from parseLooseSheet shape these lists: exact matches are
+// tried across every group before any substring match, and the first column to
+// claim a field keeps it. So no-space spellings ("hsncode", "itemcode") need
+// listing explicitly, and short generic aliases ("gst", "tax") are avoided —
+// they would substring-match SGST/CGST/OldTax and mis-assign the tax columns.
+const PRODUCT_ALIAS_GROUPS: LooseAliasGroup[] = [
+  // No bare 'item' / 'product' alias: substring matching is bidirectional, so
+  // 'item' would swallow an `ItemID` column sitting to the left of `Name` and
+  // claim the name field with a database id.
+  { field: 'name', aliases: ['name', 'product name', 'productname', 'item name', 'itemname', 'item description', 'itemdescription', 'description', 'particulars'] },
+  { field: 'productCode', aliases: ['item code', 'itemcode', 'product code', 'productcode', 'code', 'sku', 'article code'] },
+  { field: 'manufacturer', aliases: ['company', 'company name', 'companyname', 'manufacturer', 'mfr', 'mfg', 'make', 'brand', 'marketed by'] },
+  { field: 'genericName', aliases: ['generic name', 'genericname', 'generic', 'salt', 'salt name', 'molecule'] },
+  { field: 'saltComposition', aliases: ['salt composition', 'saltcomposition', 'composition'] },
+  { field: 'categoryName', aliases: ['category', 'category name', 'categoryname', 'group', 'group name', 'drug group'] },
+  { field: 'hsnCode', aliases: ['hsn code', 'hsncode', 'hsn', 'hsn sac', 'hsnsac'] },
+  { field: 'packSize', aliases: ['pack size', 'packsize', 'pack', 'packing', 'unit size'] },
+  { field: 'unitOfMeasure', aliases: ['unit of measure', 'unitofmeasure', 'uom', 'unit'] },
+  { field: 'mrp', aliases: ['m r p', 'mrp', 'mrp rate', 'maximum retail price', 'retail price'] },
+  { field: 'purchaseRate', aliases: ['p rate', 'prate', 'purchase rate', 'purchaserate', 'pur rate', 'purchase price', 'cost price', 'cost', 'buying rate'] },
+  { field: 'sellingRate', aliases: ['rate', 'sale rate', 'salerate', 'selling rate', 'sellingrate', 'sell rate', 'sale price', 'selling price'] },
+  { field: 'wholesaleRate', aliases: ['wholesale rate', 'wholesalerate', 'w rate', 'ws rate', 'wholesale price'] },
+  // IGST carries the full GST percent on an intra-state MARG export (SGST 2.5 +
+  // CGST 2.5 → IGST 5), so it is the single best column when present. SGST/CGST
+  // are captured separately and summed only as a fallback.
+  { field: 'gstRate', aliases: ['gst rate', 'gstrate', 'igst', 'gst percent', 'tax rate', 'taxrate'] },
+  { field: 'sgst', aliases: ['sgst'] },
+  { field: 'cgst', aliases: ['cgst'] },
+  // Retained even though `barcode` is no longer a template column: the alias
+  // matcher falls back to substring matching, and "barcode" CONTAINS "code",
+  // so without this group a barcode column would be silently read as the item
+  // code. Files that do carry barcodes still import them; we just stopped
+  // asking for them.
+  { field: 'barcode', aliases: ['barcode', 'bar code', 'ean', 'upc'] },
+  { field: 'rackLocation', aliases: ['rack', 'rack location', 'racklocation', 'shelf'] },
+  // Deliberately no minStock / stock group. Every sensible alias for it
+  // ('min stock', 'minstock') substring-matches a plain `Stock` column, and
+  // stock-on-hand must not enter this way — it comes from GRN only.
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Product import workbook — template + parser. Mirror of customer/supplier
@@ -71,11 +118,88 @@ export interface ParseError {
   message: string
 }
 
+/** Which of the four parser strategies actually produced the rows. */
+export type ParsePath = 'template' | 'marg' | 'marg-hsn' | 'loose'
+
 export interface ParseResult {
   categories: ParsedCategory[]
   products: ParsedProduct[]
   errors: ParseError[]
   exportMetadata?: ExportMetadata
+  parsePath?: ParsePath
+}
+
+// ─── Gap predicates ─────────────────────────────────────────────────────────
+// These mirror the backend's own definition of "missing" so the UI and any
+// generated report can describe a file WITHOUT waiting for a dry-run, and can
+// describe it correctly.
+//
+// Why not just read the warning text: ImportRowWarning carries no `field`
+// array on either of the two high-volume warnings, so the only way to know
+// which fields a row is missing would be to regex an English sentence.
+
+export interface MissingProductFields {
+  /** Non-money gaps worth mentioning. */
+  cosmetic: string[]
+  /** Money and tax. These change what the product bills at. */
+  pricing: string[]
+  all: string[]
+}
+
+/**
+ * MIRRORS WARN_ON_MISSING_TEXT / WARN_ON_MISSING_PRICE in
+ * product-import.service.ts — the text list uses `!x?.trim()` and the price
+ * list uses `=== undefined`, so a deliberately-entered 0 counts as supplied.
+ * If the backend's lists change, change this one.
+ *
+ * Only fields that mis-bill or hide a product from a filter are listed. The
+ * defaulted ones (generic_name, manufacturer, pack_size, unit_of_measure,
+ * rack_location) and wholesale_rate are deliberately silent — see the backend
+ * comment for why.
+ */
+export function missingProductFields(p: ParsedProduct): MissingProductFields {
+  const cosmetic: string[] = []
+  if (!p.saltComposition?.trim()) cosmetic.push('salt_composition')
+  if (!p.hsnCode?.trim()) cosmetic.push('hsn_code')
+  if (!p.categoryName?.trim()) cosmetic.push('category_name')
+
+  const pricing: string[] = []
+  if (p.mrp === undefined) pricing.push('mrp')
+  if (p.purchaseRate === undefined) pricing.push('purchase_rate')
+  if (p.sellingRate === undefined) pricing.push('selling_rate')
+  if (p.gstRate === undefined) pricing.push('gst_rate')
+
+  return { cosmetic, pricing, all: [...cosmetic, ...pricing] }
+}
+
+export type PricingOutcome =
+  /** Retail rate supplied and at or above cost. */
+  | 'ok'
+  /** No selling rate, but an MRP — retail bills at full MRP. */
+  | 'bills-at-mrp'
+  /** No retail rate at all, or an explicit 0 — retail bills at zero. */
+  | 'bills-at-zero'
+  /** The rate retail will actually charge is below the purchase rate. */
+  | 'below-cost'
+
+/**
+ * What the product will ACTUALLY bill at on retail, mirroring buildCreateData's
+ * `sellingRate ?? mrp ?? 0`.
+ *
+ * Judged on the EFFECTIVE rate, not on what the file supplies: a row that
+ * inherits an MRP lower than its own purchase rate is below cost even though
+ * its selling_rate cell is blank. `below-cost` is reported ahead of
+ * `bills-at-mrp` because losing money on every sale is the worse outcome.
+ *
+ * Wholesale has its own fallback (wholesaleRate ?? purchaseRate ?? 0) and is
+ * not covered by this enum — see missingProductFields().
+ */
+export function pricingOutcome(p: ParsedProduct): PricingOutcome {
+  const retail = p.sellingRate ?? p.mrp ?? 0
+  if (retail <= 0) return 'bills-at-zero'
+  if (p.purchaseRate !== undefined && retail < p.purchaseRate) return 'below-cost'
+  if (p.sellingRate === undefined) return 'bills-at-mrp'
+  return 'ok'
 }
 
 type SheetName = 'Categories' | 'Products' | 'Instructions'
@@ -113,7 +237,10 @@ const PRODUCT_COLUMNS = [
   'max_stock',
   'reorder_qty',
   'rack_location',
-  'barcode',
+  // No `barcode` column. The field still exists on Product and is still parsed
+  // when a file supplies it, but nothing in this business populates it (0 of
+  // 3,046 products) and carrying an always-blank column through the template,
+  // the export and every generated report was pure noise.
   'total_stock',
   'is_active',
 ] as const
@@ -151,7 +278,6 @@ const SAMPLE_PRODUCT_ROW: Record<string, string | number> = {
   max_stock: 500,
   reorder_qty: 100,
   rack_location: 'A1',
-  barcode: '8901030712345',
   total_stock: 0,
   is_active: 'TRUE',
 }
@@ -165,7 +291,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['Sheet: Products  (mandatory)', 'REQUIRED per row: name.  Recommended: mrp, purchase_rate, gst_rate, hsn_code, category_name. Everything else defaults if missing and can be fixed on the product form later.'],
   ['Sheet: Categories', 'Optional. REQUIRED per row: name. Pre-define categories with description/colour, or just reference a category by `category_name` on a Products row and it is auto-created.'],
   ['', ''],
-  ['Match key', 'Duplicate detection: name (case-insensitive, branch-scoped) — and barcode as a secondary key. Two products with the same name in this file → only the first imports.'],
+  ['Match key', 'Duplicate detection: name AND product_code together, branch-scoped, name compared case-insensitively. Two rows are the same product only when both match — the same name under two different codes imports as two products. Rows with no product_code fall back to name alone, so only the first of them imports.'],
   ['', ''],
   ['Allowed values', ''],
   ['schedule', 'NONE · H · H1 · X'],
@@ -177,7 +303,7 @@ const INSTRUCTIONS_ROWS: Array<[string, string]> = [
   ['category_id vs category_name', 'Either one. If both present, category_id wins. If you only have a name, we auto-create the category in your active branch.'],
   ['Defaults for missing fields', 'generic_name → "Unknown" · manufacturer → "Unknown" · pack_size → "1" · unit_of_measure → "NOS" · hsn_code → "" · rack_location → "GENERAL" · schedule → NONE · storage_condition → ROOM_TEMP'],
   ['', ''],
-  ['Duplicate handling', 'UPDATE (rewrite mutable fields on a name match), SKIP (leave existing alone), CREATE (refuses if name already exists in this branch).'],
+  ['Duplicate handling', 'UPDATE (rewrite mutable fields on a match), UPDATE_ONLY (refresh matches, skip rows with no match), SKIP (leave existing alone), CREATE (refuses a row that matches an existing product). "Match" is the Match key rule above — name AND product_code, not name alone.'],
 ]
 
 export function downloadProductImportTemplate(): void {
@@ -238,22 +364,58 @@ function toOptionalNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-function toBool(v: unknown): boolean | undefined {
+// Same blank-vs-unparseable distinction as normaliseEnum. `is_narcotic:
+// "narcotic"` used to fall through to undefined → false, so a narcotic
+// imported as non-narcotic with nothing said about it.
+function toBool(v: unknown, ctx?: CoerceCtx): boolean | undefined {
   if (v === undefined || v === '' || v === null) return undefined
   if (typeof v === 'boolean') return v
   const s = String(v).trim().toLowerCase()
   if (s === 'true' || s === 'yes' || s === '1' || s === 'y') return true
   if (s === 'false' || s === 'no' || s === '0' || s === 'n') return false
+  ctx?.errors.push({
+    sheet: ctx.sheet,
+    row: ctx.row,
+    field: ctx.field,
+    message: `"${String(v).trim()}" isn't a valid ${ctx.field}. Use TRUE or FALSE. Left blank to use the default.`,
+  })
   return undefined
 }
 
+// Context for reporting a value we couldn't parse. Optional so call sites that
+// genuinely don't care (or have no errors array in scope) stay unchanged.
+interface CoerceCtx {
+  errors: ParseError[]
+  sheet: SheetName
+  row: number
+  field: string
+}
+
+/**
+ * A blank cell and an unrecognised value both used to return `undefined`, so
+ * the importer couldn't tell "operator left this empty, apply the default"
+ * from "operator wrote something we don't understand". The second case now
+ * reports. This matters most on `schedule` and `is_narcotic`: `Schedule H`
+ * silently became NONE, quietly stripping a controlled drug's classification.
+ *
+ * Blank still returns undefined with no error — that's a deliberate "use the
+ * default" and is left alone.
+ */
 function normaliseEnum<T extends string>(
   raw: unknown,
   allowed: readonly T[],
+  ctx?: CoerceCtx,
 ): T | undefined {
   const s = toStr(raw).toUpperCase()
   if (!s) return undefined
-  return (allowed as readonly string[]).includes(s) ? (s as T) : undefined
+  if ((allowed as readonly string[]).includes(s)) return s as T
+  ctx?.errors.push({
+    sheet: ctx.sheet,
+    row: ctx.row,
+    field: ctx.field,
+    message: `"${toStr(raw)}" isn't a valid ${ctx.field}. Use one of: ${allowed.join(' · ')}. Left blank to use the default.`,
+  })
+  return undefined
 }
 
 // ─── MARG ERP price-list import ──────────────────────────────────────────────
@@ -348,8 +510,12 @@ function parseMargSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: 
       const tax = numbers.length >= 3 ? numbers[2] : undefined
       // The 4th column ("COST") is the rate the business actually sells at —
       // typically between purchase and MRP. Use it as the selling price when
-      // present; fall back to MRP (sell-at-MRP default) when the row only has
-      // purchase + MRP (+ tax).
+      // present. When the row only has purchase + MRP (+ tax) we deliberately
+      // leave sellingRate UNSET rather than copying MRP into it. The backend
+      // applies exactly the same fallback (sellingRate ?? mrp), so the stored
+      // price is identical either way — but substituting it here made the row
+      // look priced, which silenced the backend's "will bill at MRP" warning
+      // and hid the over-billing on every MARG price list we import.
       const cost = numbers.length >= 4 ? numbers[3] : undefined
       products.push({
         sourceRow: rowNum,
@@ -358,7 +524,7 @@ function parseMargSheet(aoa: unknown[][]): { products: ParsedProduct[]; errors: 
         packSize: pack,
         purchaseRate: purchase,
         mrp,
-        sellingRate: cost && cost > 0 ? cost : mrp,
+        sellingRate: cost && cost > 0 ? cost : undefined,
         gstRate: tax,
       })
     }
@@ -537,15 +703,21 @@ export async function parseProductImportWorkbook(
       subCategory: toOptionalStr(raw.sub_category),
       packSize: toOptionalStr(raw.pack_size),
       unitOfMeasure: toOptionalStr(raw.unit_of_measure),
-      schedule: normaliseEnum(raw.schedule, ['NONE', 'H', 'H1', 'X'] as const),
+      schedule: normaliseEnum(raw.schedule, ['NONE', 'H', 'H1', 'X'] as const, {
+        errors, sheet: 'Products', row: rowNum, field: 'schedule',
+      }),
       hsnCode: toOptionalStr(raw.hsn_code),
-      isNarcotic: toBool(raw.is_narcotic),
+      isNarcotic: toBool(raw.is_narcotic, {
+        errors, sheet: 'Products', row: rowNum, field: 'is_narcotic',
+      }),
       storageCondition: normaliseEnum(raw.storage_condition, [
         'ROOM_TEMP',
         'COOL_DRY',
         'REFRIGERATED',
         'FROZEN',
-      ] as const),
+      ] as const, {
+        errors, sheet: 'Products', row: rowNum, field: 'storage_condition',
+      }),
       mrp: toOptionalNumber(raw.mrp),
       purchaseRate: toOptionalNumber(raw.purchase_rate),
       sellingRate: toOptionalNumber(raw.selling_rate),
@@ -565,7 +737,7 @@ export async function parseProductImportWorkbook(
   if (products.length === 0) {
     const marg = parseMargWorkbook(wb)
     if (marg.products.length > 0) {
-      return { categories: [], products: marg.products, errors: marg.errors, exportMetadata }
+      return { categories: [], products: marg.products, errors: marg.errors, exportMetadata, parsePath: 'marg' }
     }
   }
 
@@ -574,17 +746,79 @@ export async function parseProductImportWorkbook(
   if (products.length === 0) {
     const hsn = parseMargHsnWorkbook(wb)
     if (hsn.products.length > 0) {
-      return { categories: [], products: hsn.products, errors: hsn.errors, exportMetadata }
+      return { categories: [], products: hsn.products, errors: hsn.errors, exportMetadata, parsePath: 'marg-hsn' }
     }
   }
 
-  return { categories, products, errors, exportMetadata }
+  // Fallback 3: tolerant header mapping for any other flat product sheet.
+  if (products.length === 0) {
+    for (const sheetName of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], {
+        header: 1,
+        defval: '',
+        raw: true,
+      })
+      const rows = parseLooseSheet(aoa, PRODUCT_ALIAS_GROUPS)
+      if (rows.length === 0) continue
+
+      const looseProducts: ParsedProduct[] = []
+      const looseErrors: ParseError[] = []
+      for (const { sourceRow, values: v } of rows) {
+        const name = v.name ?? ''
+        if (!name) continue // blank/total rows at the foot of a printed list
+
+        // Prefer a single combined GST column; otherwise add the state + centre
+        // halves back together.
+        let gstRate = toOptionalNumber(v.gstRate)
+        if (gstRate === undefined) {
+          const s = toOptionalNumber(v.sgst)
+          const c = toOptionalNumber(v.cgst)
+          if (s !== undefined || c !== undefined) gstRate = (s ?? 0) + (c ?? 0)
+        }
+
+        // ERP dumps leave unset rate columns as a literal 0 rather than blank.
+        // Importing that verbatim would price the product at ₹0 and it would
+        // bill at zero, so treat 0 as "not supplied" and let the backend apply
+        // its default (and its missing-price warning).
+        const rate = (x: unknown): number | undefined => {
+          const n = toOptionalNumber(x)
+          return n === undefined || n === 0 ? undefined : n
+        }
+
+        looseProducts.push({
+          sourceRow,
+          name,
+          productCode: v.productCode,
+          genericName: v.genericName,
+          saltComposition: v.saltComposition,
+          manufacturer: v.manufacturer,
+          categoryName: v.categoryName,
+          hsnCode: v.hsnCode,
+          packSize: v.packSize,
+          unitOfMeasure: v.unitOfMeasure,
+          mrp: rate(v.mrp),
+          purchaseRate: rate(v.purchaseRate),
+          sellingRate: rate(v.sellingRate),
+          wholesaleRate: rate(v.wholesaleRate),
+          gstRate,
+          barcode: v.barcode,
+          rackLocation: v.rackLocation,
+        })
+      }
+      if (looseProducts.length > 0) {
+        return { categories: [], products: looseProducts, errors: looseErrors, exportMetadata, parsePath: 'loose' }
+      }
+    }
+  }
+
+  return { categories, products, errors, exportMetadata, parsePath: 'template' }
 }
 
 // ─── Export → Re-import workflow ────────────────────────────────────────────
 
 interface ExportProductInput {
   id: string
+  productCode?: string | null
   name: string
   genericName?: string | null
   saltComposition?: string | null
@@ -637,8 +871,13 @@ export function exportProductsToWorkbook(
 ): void {
   const wb = XLSX.utils.book_new()
 
-  const productRows = payload.products.map((p, i) => ({
-    product_code: `P${String(i + 1).padStart(3, '0')}`,
+  const productRows = payload.products.map((p) => ({
+    // The product's real stored code, blank when it has none. (This used to be
+    // a fabricated row-index sequence — P001, P002… — which looked like a
+    // stable identifier but renumbered on every differently-filtered export.)
+    // Round-tripping the real value is what lets a re-import match the exact
+    // product rather than guessing from the name.
+    product_code: p.productCode ?? '',
     name: p.name,
     generic_name: p.genericName ?? '',
     salt_composition: p.saltComposition ?? '',
@@ -661,7 +900,7 @@ export function exportProductsToWorkbook(
     max_stock: p.maxStock ?? 0,
     reorder_qty: p.reorderQty ?? 0,
     rack_location: p.rackLocation ?? '',
-    barcode: p.barcode ?? '',
+    // barcode deliberately not emitted — not a template column any more.
     total_stock: p.totalStock ?? 0,
     is_active: p.isActive === false ? 'FALSE' : 'TRUE',
   }))

@@ -81,6 +81,7 @@ import { DocumentPreviewDialog } from '@/components/shared/DocumentPreviewDialog
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
 import type { Customer } from '@/types'
 import { useCustomerDetail, CUSTOMER_TAB_PAGE_SIZE, type TabRange } from '@/hooks/useCustomerDetail'
+import { PhoneListDisplay } from '@/components/shared/PhoneListDisplay'
 
 // ─────────────────────────────────────────────────────────────
 // Types & constants
@@ -510,8 +511,11 @@ export function CustomerDetailContent({ customerId, onRequestEdit }: CustomerDet
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-6 items-start">
                         <OverviewSection icon={User} title="Contact">
                           <Row label="Name" value={cust.name} />
-                          <Row label="Phone" value={cust.phone || '—'} mono />
-                          {cust.alternatePhone && <Row label="Alt Phone" value={cust.alternatePhone} mono />}
+                          {/* Every number on file, primary first and labelled.
+                              Replaces the old Phone + Alt Phone pair — falls back
+                              to those columns for customers saved before the list
+                              existed, so nothing disappears from older records. */}
+                          <Row label="Phone" mono value={<PhoneListDisplay party={cust} />} />
                           <Row label="Email" value={cust.email || '—'} />
                         </OverviewSection>
 

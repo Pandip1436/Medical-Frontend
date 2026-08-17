@@ -66,6 +66,7 @@ import { navigate, useRoute } from '@/lib/router'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID, formatExpiry} from '@/lib/utils'
 import type { Supplier } from '@/types'
 import { useSupplierDetail } from '@/hooks/useSupplierDetail'
+import { PhoneListDisplay } from '@/components/shared/PhoneListDisplay'
 
 // ─────────────────────────────────────────────────────────────
 // Types & constants
@@ -494,7 +495,10 @@ export function SupplierDetailContent({ supplierId }: SupplierDetailContentProps
                         <OverviewSection icon={Building2} title="Contact">
                           <Row label="Company" value={sup.name} />
                           <Row label="Person" value={sup.contactPerson || '—'} />
-                          <Row label="Phone" value={sup.phone || '—'} mono />
+                          {/* Every number on file, primary first and labelled —
+                              falls back to phone + alternatePhone for suppliers
+                              saved before the list existed. */}
+                          <Row label="Phone" mono value={<PhoneListDisplay party={sup} />} />
                           <Row label="Email" value={sup.email || '—'} />
                         </OverviewSection>
 

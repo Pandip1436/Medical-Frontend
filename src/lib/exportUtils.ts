@@ -34,16 +34,32 @@ export function csvText(v: unknown): string {
   return `="${s.replace(/"/g, '""')}"`
 }
 
+/**
+ * Neutralise spreadsheet formula injection. Excel and Google Sheets execute any
+ * cell whose text begins `=`, `+`, `-`, `@`, tab or CR — so a lead named
+ * `=HYPERLINK("http://evil/","Click")` becomes a live link in whoever opens the
+ * export. Prefixing a single quote makes the cell literal text; the quote isn't
+ * displayed. Plain numbers are passed through untouched so amount columns stay
+ * numeric and keep sorting (a leading `-` on -500 would otherwise make it text).
+ */
+function csvSafe(v: unknown): string {
+  const s = String(v ?? '')
+  if (s === '') return ''
+  if (/^-?\d+(\.\d+)?$/.test(s)) return s
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+}
+
 export function exportToCsv(rows: Record<string, unknown>[], filename: string): number {
   if (!rows.length) return 0
-  const headers = Object.keys(rows[0])
+  // Union of every row's keys, not just the first row's — a column that only
+  // appears on a later row would otherwise be dropped from the file silently.
+  const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r))))
   const lines = [
     headers.join(','),
     ...rows.map((row) =>
       headers
         .map((h) => {
-          const val = row[h] ?? ''
-          const str = String(val)
+          const str = csvSafe(row[h])
           // Quote if contains comma, quote, or newline
           return str.includes(',') || str.includes('"') || str.includes('\n')
             ? `"${str.replace(/"/g, '""')}"`

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, type Variants } from 'framer-motion'
 import {
   Receipt, IndianRupee, CheckCircle2, Clock, FileX2,
-  User, Package, Wallet, Printer, Download, Share2, Pencil,
+  User, Package, Wallet, Printer, Download, Pencil,
   Send, QrCode, RefreshCw,
 } from 'lucide-react'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
@@ -36,7 +36,6 @@ import { useDeepLinkParam } from '@/hooks/useDeepLinkHighlight'
 import {
   downloadInvoicePdf,
   printInvoicePdf,
-  shareInvoiceViaWhatsApp,
 } from '@/lib/pdf/invoicePdf'
 import type { Invoice } from '@/types'
 
@@ -1013,15 +1012,6 @@ export default function CustomerInvoicesPage() {
                       <Download className="h-4 w-4" />
                       <span className="hidden sm:inline">Download PDF</span>
                       <span className="sm:hidden">PDF</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="shrink-0"
-                      onClick={() => shareInvoiceViaWhatsApp(detailInvoice)}
-                      title="Share via WhatsApp"
-                    >
-                      <Share2 className="h-4 w-4" />
                     </Button>
                   </div>
 

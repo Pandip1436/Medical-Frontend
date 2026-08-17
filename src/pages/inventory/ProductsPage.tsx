@@ -18,9 +18,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
@@ -46,7 +43,6 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { cn, formatCurrency } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
-import { importFromExcel } from '@/lib/excelUtils'
 import { ImportProductsDrawer } from '@/components/products/ImportProductsDrawer'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { ExportMenu } from '@/components/shared/ExportMenu'
@@ -140,8 +136,6 @@ export default function ProductsPage() {
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const allProducts = useMasterDataStore(s => s.products)
-  const importProducts = useMasterDataStore(s => s.importProducts)
-  const importProductsHsn = useMasterDataStore(s => s.importProductsHsn)
   const isLoading = useMasterDataStore(s => s.isLoading)
 
   const [categories, setCategories] = useState<Category[]>([])
@@ -186,14 +180,10 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   // Product pending deletion — drives the premium confirm dialog.
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
-  // Legacy single-sheet Excel import dialog — kept for the Marg ERP HSN/SAC
-  // and Marg product paths. The NEW multi-sheet preview+commit drawer below
-  // is what the "Import" button now opens.
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<{ createdCount?: number; updatedCount?: number; skippedCount: number; errors: string[] } | null>(null)
-  // New multi-sheet preview/commit drawer.
+  // Multi-sheet preview/commit drawer — the only import path. (A legacy
+  // single-sheet dialog used to live here; it was unreachable, and the parser
+  // it called mis-read ordinary spreadsheets, so both were removed. MARG
+  // detection lives in parseProductImportWorkbook, which the drawer uses.)
   const [importDrawerOpen, setImportDrawerOpen] = useState(false)
 
   // When the edit drawer was opened from the split view (?fromSplit=1), remember
@@ -429,6 +419,7 @@ export default function ProductsPage() {
     const catId = product.categoryId ?? (typeof product.category === 'object' ? product.category?.id : '') ?? ''
     form.reset({
       name: product.name,
+      productCode: product.productCode ?? '',
       genericName: product.genericName,
       manufacturer: product.manufacturer,
       categoryId: catId,
@@ -530,6 +521,10 @@ export default function ProductsPage() {
       ...values,
       schedule: values.schedule.toUpperCase(),
       categoryId: values.categoryId || undefined,
+      // Blank must go to the server as null, not "". Product codes are unique
+      // per branch, and an empty string is a real value in Postgres — two
+      // products both saved with "" would collide, while NULLs never do.
+      productCode: values.productCode?.trim() || null,
     }
     try {
       if (editingProduct) {
@@ -546,7 +541,10 @@ export default function ProductsPage() {
       const msg = (error as any)?.response?.data?.message
       const text = Array.isArray(msg) ? msg[0] : msg
       if (typeof text === 'string' && text.toLowerCase().includes('already exists')) {
-        form.setError('name', { type: 'manual', message: text })
+        // Point a duplicate-code failure at the code field rather than the
+        // name field, so the message lands on the input the user must change.
+        const field = text.toLowerCase().includes('code') ? 'productCode' : 'name'
+        form.setError(field, { type: 'manual', message: text })
         return
       }
       handleApiError(error, 'Operation failed')
@@ -581,27 +579,6 @@ export default function ProductsPage() {
     }
   }
 
-  const CSV_TEMPLATE_HEADERS = [
-    'name', 'genericname', 'saltcomposition', 'manufacturer', 'category', 'subcategory',
-    'packsize', 'unitofmeasure', 'schedule', 'hsncode', 'isnarcotic', 'storagecondition',
-    'mrp', 'purchaserate', 'sellingrate', 'wholesalerate', 'gstrate',
-    'minstock', 'maxstock', 'reorderqty', 'racklocation',
-  ]
-  const CSV_TEMPLATE_EXAMPLE = [
-    'Paracetamol 500mg', 'Paracetamol', '', 'ABC Pharma', 'GENERAL', '',
-    '10 Tabs', 'TAB', 'H', '3004', 'false', 'ROOM_TEMPERATURE',
-    '25', '12', '20', '18', '12', '10', '500', '50', 'A-01',
-  ]
-
-  const handleDownloadTemplate = () => {
-    const rows = [CSV_TEMPLATE_HEADERS.join(','), CSV_TEMPLATE_EXAMPLE.join(',')]
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = 'products-import-template.csv'; a.click()
-    URL.revokeObjectURL(url)
-  }
-
   // Round-trip-compatible Excel export. Pulls the full product + category
   // tree from /products/export so the workbook matches the import template
   // and can be edited + re-uploaded.
@@ -632,36 +609,6 @@ export default function ProductsPage() {
       )
     } catch {
       toast.error('Failed to export products')
-    }
-  }
-
-  const handleImport = async () => {
-    if (!importFile) { toast.error('Please select a file'); return }
-    setImporting(true)
-    setImportResult(null)
-    try {
-      const data = await importFromExcel<any>(importFile)
-      if (!data || data.length === 0) throw new Error('No valid records found in file')
-      
-      if (data[0]?.__isHsnUpdate) {
-        const res = await importProductsHsn(data)
-        setImportResult(res)
-        if (res.updatedCount > 0) {
-          refreshPage()
-          toast.success(`Updated HSN for ${res.updatedCount} product(s)`)
-        }
-      } else {
-        const res = await importProducts(data)
-        setImportResult(res)
-        if (res.createdCount > 0) {
-          refreshPage()
-          toast.success(`Imported ${res.createdCount} product(s)`)
-        }
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Import failed')
-    } finally {
-      setImporting(false)
     }
   }
 
@@ -1399,6 +1346,13 @@ export default function ProductsPage() {
                           )} />
                           {form.formState.errors.manufacturer && <p className="text-xs text-rose-500">{form.formState.errors.manufacturer.message}</p>}
                         </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="productCode">Item Code</Label>
+                          <Input id="productCode" placeholder="e.g. 1573" {...form.register('productCode')} error={!!form.formState.errors.productCode} />
+                          {form.formState.errors.productCode
+                            ? <p className="text-xs text-rose-500">{form.formState.errors.productCode.message}</p>
+                            : <p className="text-xs text-muted-foreground">Your own code for this product. Used to match it on re-import.</p>}
+                        </div>
                       </div>
                     </div>
                     <div className="border-t border-border/40 pt-5">
@@ -1568,52 +1522,6 @@ export default function ProductsPage() {
           </form>
         </SheetContent>
       </Sheet>
-
-      {/* Import Dialog */}
-      <Dialog open={importDialogOpen} onOpenChange={open => { if (!open) { setImportFile(null); setImportResult(null) } setImportDialogOpen(open) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Import Products</DialogTitle>
-            <DialogDescription>Upload an Excel or CSV file to bulk-import products.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Button variant="outline" size="sm" className="w-full" onClick={handleDownloadTemplate}>
-              <FileDown className="mr-1.5 h-4 w-4" /> Download CSV Template
-            </Button>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Select File</Label>
-              <input
-                type="file"
-                accept=".csv,text/csv,.xlsx,.xls"
-                className="block w-full cursor-pointer rounded-lg border border-border bg-background px-3 py-2 text-sm file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:py-1 file:text-xs file:font-semibold file:text-primary-foreground"
-                onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportResult(null) }}
-              />
-            </div>
-            {importResult && (
-              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
-                <p className="font-semibold">Import complete</p>
-                {importResult.createdCount !== undefined && <p className="text-green-600 dark:text-green-400">Created: {importResult.createdCount}</p>}
-                {importResult.updatedCount !== undefined && <p className="text-emerald-600 dark:text-emerald-400">Updated: {importResult.updatedCount}</p>}
-                <p className="text-muted-foreground">Skipped: {importResult.skippedCount}</p>
-                {importResult.errors.length > 0 && (
-                  <div className="mt-2">
-                    <p className="text-destructive font-medium">Errors ({importResult.errors.length}):</p>
-                    <ul className="mt-1 max-h-28 overflow-y-auto space-y-0.5 text-xs text-destructive">
-                      {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Close</Button>
-            <Button onClick={handleImport} disabled={!importFile || importing}>
-              {importing ? 'Importing…' : 'Import'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ─── Product Import Drawer (multi-sheet preview + commit) ─── */}
       <ImportProductsDrawer

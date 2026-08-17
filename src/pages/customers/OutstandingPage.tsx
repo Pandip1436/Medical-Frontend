@@ -57,6 +57,7 @@ import {
 import api from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
+import { clampAmountInput } from '@/lib/amountInput'
 import { navigate } from '@/lib/router'
 
 // ─────────────────────────────────────────────────────────────
@@ -983,21 +984,17 @@ export default function OutstandingPage() {
                       className="h-9 font-mono text-sm"
                       value={collectAmount}
                       onChange={(e) => {
-                        const raw = e.target.value
                         // Hard-cap the input at the selected invoice's balance —
                         // backend rejects overpayment, but bouncing it on submit
-                        // is poor UX. Allow empty string so the user can clear.
-                        if (raw === '' || !selectedInvoiceId) {
-                          setCollectAmount(raw)
+                        // is poor UX. clampAmountInput also writes the capped value
+                        // back onto the element, so a field already sitting at the
+                        // balance stops accepting further digits instead of growing
+                        // while the state behind it stays put.
+                        if (!selectedInvoiceId) {
+                          setCollectAmount(e.target.value)
                         } else {
-                          const num = parseFloat(raw)
-                          if (Number.isFinite(num) && num > selectedInvoiceBalance) {
-                            setCollectAmount(selectedInvoiceBalance.toFixed(2))
-                          } else if (Number.isFinite(num) && num < 0) {
-                            setCollectAmount('0')
-                          } else {
-                            setCollectAmount(raw)
-                          }
+                          const { value } = clampAmountInput(e.currentTarget, { min: 0, max: selectedInvoiceBalance })
+                          setCollectAmount(value === null ? '' : String(value))
                         }
                         setAmountAutoFilled(false)
                       }}

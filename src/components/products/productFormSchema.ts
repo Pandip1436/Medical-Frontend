@@ -22,6 +22,9 @@ export const productSchema = z
     minStock: z.coerce.number().min(0, 'Min stock is required'),
 
     // Optional — empty defaults if the user skips them
+    // Operator's own item code (MARG ItemCode / supplier SKU). Optional, but
+    // when set it's what a re-import matches on instead of guessing by name.
+    productCode: z.string().optional().default(''),
     categoryId: z.string().optional().default(''),
     packSize: z.string().optional().default(''),
     unitOfMeasure: z.string().optional().default(''),
@@ -98,6 +101,7 @@ export const productFormDefaults = {
   sellingRate: '',
   gstRate: 5,
   minStock: '',
+  productCode: '',
   categoryId: '',
   packSize: '',
   unitOfMeasure: '',

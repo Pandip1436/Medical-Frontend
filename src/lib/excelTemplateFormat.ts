@@ -299,6 +299,16 @@ export interface ExportMetadata {
 // Build the AOA rows that go into the Instructions sheet. Called BEFORE the
 // existing template-instructions rows so the export header lands at the top.
 // Result format: a 2D array of `[label, value]` rows.
+// Each entity matches on a different key, so one shared sentence was wrong for
+// two of the three — a product workbook used to claim duplicates are detected
+// "by phone / name", and products have no phone field at all.
+const MATCH_KEY_BY_ENTITY: Record<ExportMetadata['entity'], string> = {
+  Product:
+    'Duplicate matches are detected by product name AND item code together (same name, different code = a separate product),',
+  Supplier: 'Duplicate matches are detected by phone / name,',
+  Customer: 'Duplicate matches are detected by phone / name,',
+}
+
 export function buildExportMetadataRows(
   meta: ExportMetadata,
 ): Array<[string, string]> {
@@ -320,7 +330,7 @@ export function buildExportMetadataRows(
     ['', ''],
     [
       'Round-trip',
-      'This file can be re-imported via the Import drawer. Duplicate matches will be detected by phone / name, so edits flow back via Update existing. Don\'t change the column headers.',
+      `This file can be re-imported via the Import drawer. ${MATCH_KEY_BY_ENTITY[meta.entity]} so edits flow back via Update existing. Don't change the column headers.`,
     ],
     ['', ''],
   ]
