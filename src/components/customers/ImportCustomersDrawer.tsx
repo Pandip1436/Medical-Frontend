@@ -196,7 +196,7 @@ const DUPLICATE_OPTIONS: Array<{
   {
     value: 'UPDATE',
     label: 'Update existing',
-    hint: 'If a phone matches, refresh that customer\'s details from the file.',
+    hint: 'If the phone (or, when blank, the name) matches, refresh that customer\'s details from the file.',
   },
   {
     value: 'SKIP',
@@ -206,7 +206,7 @@ const DUPLICATE_OPTIONS: Array<{
   {
     value: 'CREATE',
     label: 'Create new only',
-    hint: 'Refuse to import a row if the phone is already used. Safest option.',
+    hint: 'Refuse to import a row if the phone (or name, when phone is blank) is already used. Safest option.',
   },
 ]
 
@@ -796,7 +796,7 @@ function PreviewStage({
       {/* Duplicate handling — adjustable here too so the user can compare strategies */}
       <div className="space-y-2">
         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          On duplicate (matched by phone)
+          On duplicate (matched by phone, or name when phone is blank)
         </Label>
         <DuplicateHandlingRadio
           value={duplicateHandling}
