@@ -925,10 +925,10 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
     if (!name) {
       errors.push({ sheet: 'Customers', row: rowNum, field: 'name', message: 'Name is required.' })
     }
-    if (!phone) {
-      errors.push({ sheet: 'Customers', row: rowNum, field: 'phone', message: 'At least one phone number is required.' })
-    }
-    if (!name || !phone) return
+    // Phone is optional on import — a customer may legitimately have no number
+    // on file. Only the name is mandatory. (Phone-based dedup simply won't match
+    // rows without a number; they import as new customers.)
+    if (!name) return
 
     const c: ParsedCustomer = {
       sourceRow: rowNum,
@@ -940,9 +940,10 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       contactPerson: toOptionalStr(raw.contact_person),
       email: toOptionalStr(raw.email),
       address: toOptionalStr(raw.address),
-      type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const, {
-        errors, sheet: 'Customers', row: rowNum, field: 'type',
-      }),
+      // No error ctx: an unrecognised type isn't a failure. Left undefined here,
+      // the backend derives it (WHOLESALE if GSTIN+DL, DOCTOR if registration
+      // number, else RETAIL) and emits a *warning* — so the row still imports.
+      type: normaliseEnum(raw.type, ['RETAIL', 'WHOLESALE', 'DOCTOR'] as const),
       source: toOptionalStr(raw.source),
       doctorRef: toOptionalStr(raw.doctor_ref),
       referredBy: toOptionalStr(raw.referred_by),
@@ -1484,24 +1485,16 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
       if (!looksLikeMargAddressBook(aoa)) continue
       const abCustomers: ParsedCustomer[] = []
-      let skippedNoPhone = 0
       for (const p of parseMargAddressBook(aoa)) {
-        if (!p.phone) { skippedNoPhone++; continue }
+        if (!p.name) continue // name is the only hard requirement; phone optional
         abCustomers.push({
-          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone || '', address: p.address,
           gstin: p.gstin, dlNumber: p.dlNumber,
           invoices: [], payments: [], refunds: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
         })
       }
       if (abCustomers.length > 0) {
-        return {
-          customers: abCustomers,
-          ...emptyOrphans,
-          errors: skippedNoPhone
-            ? [{ sheet: 'Customers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
-            : [],
-          exportMetadata,
-        }
+        return { customers: abCustomers, ...emptyOrphans, errors: [], exportMetadata }
       }
     }
   }
@@ -1513,11 +1506,10 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
       if (!looksLikeMargPartyTable(aoa)) continue
       const ptCustomers: ParsedCustomer[] = []
-      let skippedNoPhone = 0
       for (const p of parseMargPartyTable(aoa)) {
-        if (!p.phone) { skippedNoPhone++; continue }
+        if (!p.name) continue // name is the only hard requirement; phone optional
         ptCustomers.push({
-          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone || '', address: p.address,
           email: p.email, gstin: p.gstin, dlNumber: p.dlNumber,
           invoices: [], payments: [], refunds: [], activities: [], prescriptions: [], quotations: [], creditNotes: [],
         })
@@ -1526,9 +1518,7 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
         return {
           customers: ptCustomers,
           ...emptyOrphans,
-          errors: skippedNoPhone
-            ? [{ sheet: 'Customers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
-            : [],
+          errors: [],
           exportMetadata,
         }
       }
@@ -1555,8 +1545,9 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
         })
         const phone = primaryOf(phones) ?? ''
         if (!name && !phone) continue
-        if (!name || !phone) {
-          looseErrors.push({ sheet: 'Customers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'At least one phone number is required.' })
+        // Phone optional on import — only the name is mandatory (see structured path).
+        if (!name) {
+          looseErrors.push({ sheet: 'Customers', row: sourceRow, field: 'name', message: 'Name is required.' })
           continue
         }
         looseCustomers.push({

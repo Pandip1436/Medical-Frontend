@@ -797,10 +797,10 @@ export async function parseSupplierImportWorkbook(
     if (!name) {
       errors.push({ sheet: 'Suppliers', row: rowNum, field: 'name', message: 'Name is required.' })
     }
-    if (!phone) {
-      errors.push({ sheet: 'Suppliers', row: rowNum, field: 'phone', message: 'At least one phone number is required.' })
-    }
-    if (!name || !phone) return
+    // Phone is optional on import — a supplier may have no number on file. Only
+    // the name is mandatory. (Phone-based dedup simply won't match rows without
+    // a number; they import as new suppliers.)
+    if (!name) return
 
     const s: ParsedSupplier = {
       sourceRow: rowNum,
@@ -1350,24 +1350,16 @@ export async function parseSupplierImportWorkbook(
       const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
       if (!looksLikeMargAddressBook(aoa)) continue
       const abSuppliers: ParsedSupplier[] = []
-      let skippedNoPhone = 0
       for (const p of parseMargAddressBook(aoa)) {
-        if (!p.phone) { skippedNoPhone++; continue }
+        if (!p.name) continue // name is the only hard requirement; phone optional
         abSuppliers.push({
-          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone || '', address: p.address,
           gstin: p.gstin, drugLicense: p.dlNumber,
           purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [], prescriptions: [],
         })
       }
       if (abSuppliers.length > 0) {
-        return {
-          suppliers: abSuppliers,
-          ...emptyOrphans,
-          errors: skippedNoPhone
-            ? [{ sheet: 'Suppliers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
-            : [],
-          exportMetadata,
-        }
+        return { suppliers: abSuppliers, ...emptyOrphans, errors: [], exportMetadata }
       }
     }
   }
@@ -1379,24 +1371,16 @@ export async function parseSupplierImportWorkbook(
       const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheetName], { header: 1, defval: '', raw: true })
       if (!looksLikeMargPartyTable(aoa)) continue
       const ptSuppliers: ParsedSupplier[] = []
-      let skippedNoPhone = 0
       for (const p of parseMargPartyTable(aoa)) {
-        if (!p.phone) { skippedNoPhone++; continue }
+        if (!p.name) continue // name is the only hard requirement; phone optional
         ptSuppliers.push({
-          sourceRow: p.sourceRow, name: p.name, phone: p.phone, address: p.address,
+          sourceRow: p.sourceRow, name: p.name, phone: p.phone || '', address: p.address,
           email: p.email, gstin: p.gstin, drugLicense: p.dlNumber,
           purchaseOrders: [], grns: [], debitNotes: [], payments: [], activities: [], batches: [], prescriptions: [],
         })
       }
       if (ptSuppliers.length > 0) {
-        return {
-          suppliers: ptSuppliers,
-          ...emptyOrphans,
-          errors: skippedNoPhone
-            ? [{ sheet: 'Suppliers', row: 0, message: `${skippedNoPhone} parties had no phone number and were skipped (phone is required).` }]
-            : [],
-          exportMetadata,
-        }
+        return { suppliers: ptSuppliers, ...emptyOrphans, errors: [], exportMetadata }
       }
     }
   }
@@ -1421,8 +1405,9 @@ export async function parseSupplierImportWorkbook(
         })
         const phone = primaryOf(phones) ?? ''
         if (!name && !phone) continue
-        if (!name || !phone) {
-          looseErrors.push({ sheet: 'Suppliers', row: sourceRow, field: !name ? 'name' : 'phone', message: !name ? 'Name is required.' : 'At least one phone number is required.' })
+        // Phone optional on import — only the name is mandatory (see structured path).
+        if (!name) {
+          looseErrors.push({ sheet: 'Suppliers', row: sourceRow, field: 'name', message: 'Name is required.' })
           continue
         }
         looseSuppliers.push({
