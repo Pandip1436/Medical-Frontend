@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import { useFormDraft } from '@/hooks/useFormDraft'
 import { useBranchStore } from '@/stores/branchStore'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -233,8 +233,8 @@ export default function PurchaseReturnsPage() {
           })),
         }))
         setGrns(mapped)
-      } catch {
-        if (!cancelled) toast.error('Failed to load goods received notes')
+      } catch (err) {
+        if (!cancelled) handleApiError(err, 'Failed to load goods received notes')
         setGrns([])
       } finally {
         if (!cancelled) setGrnsLoading(false)

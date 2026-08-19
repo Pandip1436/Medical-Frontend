@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -307,7 +307,7 @@ export function ImportCustomersDrawer({
         const msg =
           (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
           (err instanceof Error ? err.message : 'Failed to preview import')
-        toast.error(String(msg))
+        handleApiError(err, String(msg))
       }
     },
     [buildPayload],

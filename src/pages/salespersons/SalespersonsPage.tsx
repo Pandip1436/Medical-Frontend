@@ -39,7 +39,7 @@ import { SalespersonFormDialog } from '@/components/shared/SalespersonFormDialog
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminish } from '@/types'
 import { useBranchStore } from '@/stores/branchStore'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
@@ -137,8 +137,8 @@ export default function SalespersonsPage() {
       } catch {
         setSalesByPerson({})
       }
-    } catch {
-      toast.error('Failed to load salespersons')
+    } catch (err) {
+      handleApiError(err, 'Failed to load salespersons')
     } finally {
       setIsLoading(false)
     }
@@ -251,8 +251,8 @@ export default function SalespersonsPage() {
       await api.patch(`/salespersons/${sp.id}/toggle`)
       toast.success(sp.isActive ? 'Salesperson deactivated' : 'Salesperson activated')
       fetchAll()
-    } catch {
-      toast.error('Failed to update status')
+    } catch (err) {
+      handleApiError(err, 'Failed to update status')
     }
   }
 

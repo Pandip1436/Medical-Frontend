@@ -26,7 +26,7 @@ import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
 import { cn, timeAgo, daysLeftInWeek } from '@/lib/utils'
 import { MAX_REMINDER_DAY } from '@/lib/validators'
 import { goBack } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
@@ -263,8 +263,8 @@ export default function RemindersPage() {
     try {
       const res = await api.get('/reminders', { params: { branchId: activeBranchId || undefined } })
       setReminders(Array.isArray(res.data) ? res.data : [])
-    } catch {
-      toast.error('Failed to load reminders')
+    } catch (err) {
+      handleApiError(err, 'Failed to load reminders')
     } finally {
       setLoading(false)
     }
@@ -403,8 +403,8 @@ export default function RemindersPage() {
       setFormProductNames({})
       setCustomerSearch('')
       fetchReminders()
-    } catch {
-      toast.error(editingId ? 'Failed to update reminder' : 'Failed to create reminder')
+    } catch (err) {
+      handleApiError(err, editingId ? 'Failed to update reminder' : 'Failed to create reminder')
     } finally {
       setSaving(false)
     }
@@ -418,8 +418,8 @@ export default function RemindersPage() {
       setDeleteTarget(null)
       setSelectedId(null)
       fetchReminders()
-    } catch {
-      toast.error('Failed to delete reminder')
+    } catch (err) {
+      handleApiError(err, 'Failed to delete reminder')
     }
   }
 
@@ -989,7 +989,7 @@ function ReminderDetailPanel({
       setLogFollowUp('')
       onContactLogged()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to log contact')
+      handleApiError(err, 'Failed to log contact')
     } finally {
       setLogSaving(false)
     }
@@ -1014,7 +1014,7 @@ function ReminderDetailPanel({
       toast.success(`Follow-up set for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`)
       onContactLogged()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to set follow-up')
+      handleApiError(err, 'Failed to set follow-up')
     } finally {
       setSettingFollowUp(false)
     }
@@ -1029,7 +1029,7 @@ function ReminderDetailPanel({
       toast.success('Follow-up cleared')
       onContactLogged()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to clear follow-up')
+      handleApiError(err, 'Failed to clear follow-up')
     } finally {
       setClearingFollowUp(false)
     }
@@ -1050,7 +1050,7 @@ function ReminderDetailPanel({
       setStopReason('')
       onContactLogged()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to stop reminder')
+      handleApiError(err, 'Failed to stop reminder')
     } finally {
       setStopSaving(false)
     }
@@ -1063,7 +1063,7 @@ function ReminderDetailPanel({
       toast.success('Reminder reactivated')
       onContactLogged()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to reactivate reminder')
+      handleApiError(err, 'Failed to reactivate reminder')
     } finally {
       setStopSaving(false)
     }

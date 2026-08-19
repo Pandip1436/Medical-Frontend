@@ -19,7 +19,6 @@ import type { ColumnDef } from '@/types/table'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 import { SupplierSearchSelect } from '@/components/shared/SupplierSearchSelect'
 import { DatePicker } from '@/components/ui/date-picker'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -32,7 +31,7 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { navigate, useRoute } from '@/lib/router'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import type { GRN } from '@/types'
 import { GRNSplitView } from './components/GRNSplitView'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
@@ -224,8 +223,8 @@ export default function GRNListPage() {
     try {
       const res = await api.get('/grn')
       setGrns(res.data)
-    } catch {
-      toast.error('Failed to load purchase entries')
+    } catch (err) {
+      handleApiError(err, 'Failed to load purchase entries')
     } finally {
       setLoading(false)
     }

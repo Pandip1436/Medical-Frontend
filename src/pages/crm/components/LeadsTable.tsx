@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -98,7 +98,7 @@ export function LeadsTable({
       onChanged?.()
     } catch (err: unknown) {
       const e2 = err as { response?: { data?: { message?: string } } }
-      toast.error(e2?.response?.data?.message ?? 'Failed to delete lead')
+      handleApiError(err, 'Failed to delete lead')
     } finally {
       setDeleteLeadTarget(null)
     }
@@ -616,7 +616,7 @@ function InlineStagePill({
       onChanged?.()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to update stage')
+      handleApiError(err, 'Failed to update stage')
     } finally {
       setBusy(false)
       setOpen(false)
@@ -698,7 +698,7 @@ function InlineSourcePill({
       onChanged?.()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to update source')
+      handleApiError(err, 'Failed to update source')
     } finally {
       setBusy(false)
       setOpen(false)
@@ -781,7 +781,7 @@ function InlineSalesPersonPill({
       onChanged?.()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to update sales person')
+      handleApiError(err, 'Failed to update sales person')
     } finally {
       setBusy(false)
       setOpen(false)

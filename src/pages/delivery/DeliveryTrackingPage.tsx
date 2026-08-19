@@ -22,7 +22,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { StatusBadge } from '@/components/shared/StatusBadge'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 import { goBack as routerGoBack, useRoute, navigate } from '@/lib/router'
 import { toast } from 'sonner'
@@ -230,8 +230,8 @@ export default function DeliveryTrackingPage() {
       } else {
         toast.info('OCR finished — couldn’t auto-detect fields. Please enter them manually.')
       }
-    } catch {
-      toast.error('Could not read the receipt. Please enter details manually.')
+    } catch (err) {
+      handleApiError(err, 'Could not read the receipt. Please enter details manually.')
     } finally {
       setOcrRunning(false)
     }
@@ -257,7 +257,7 @@ export default function DeliveryTrackingPage() {
       hydrate(res.data)
       toast.success('Courier details saved')
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to save')
+      handleApiError(err, 'Failed to save')
     } finally {
       setSaving(false)
     }
@@ -298,7 +298,7 @@ export default function DeliveryTrackingPage() {
         toast.success(n > 0 ? `Synced ${n} new update${n === 1 ? '' : 's'} from carrier` : 'Tracking is up to date')
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to check status')
+      handleApiError(err, 'Failed to check status')
     } finally {
       setChecking(false)
     }
@@ -313,7 +313,7 @@ export default function DeliveryTrackingPage() {
       hydrate(res.data)
       toast.success('Timeline cleared')
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to clear timeline')
+      handleApiError(err, 'Failed to clear timeline')
     } finally {
       setClearing(false)
     }

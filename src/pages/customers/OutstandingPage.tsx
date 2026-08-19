@@ -54,7 +54,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { clampAmountInput } from '@/lib/amountInput'
@@ -189,7 +189,7 @@ export default function OutstandingPage() {
     } catch (err: unknown) {
       const e = err as { name?: string; code?: string }
       if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
-        toast.error('Failed to load outstanding data')
+        handleApiError(err, 'Failed to load outstanding data')
         setRows([])
       }
     } finally {
@@ -292,7 +292,7 @@ export default function OutstandingPage() {
       setSelectedIds(new Set())
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create bulk reminders'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setBulkSubmitting(false)
     }
@@ -311,7 +311,7 @@ export default function OutstandingPage() {
       toast.success(`Reminder created for ${row.customer}`)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create reminder'
-      toast.error(msg)
+      handleApiError(err, msg)
     }
   }
 
@@ -407,7 +407,7 @@ export default function OutstandingPage() {
       else setSelectedRow(null)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to record payment'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setCollectSubmitting(false)
     }

@@ -27,7 +27,7 @@ import {
 import { StatusBadge } from '@/components/shared/StatusBadge'
 
 import { useBranchStore } from '@/stores/branchStore'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { getInitials, getAvatarColor } from '@/lib/salespersonUtils'
 import type { Salesperson } from '@/types'
@@ -131,7 +131,7 @@ export function SalespersonFormDialog({
       onOpenChange(false)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save salesperson'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setSaving(false)
     }

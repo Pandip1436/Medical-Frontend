@@ -1,11 +1,10 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { toast } from 'sonner'
 import type { Invoice } from '@/types'
 import { printPdfInPage } from '@/lib/printUtils'
 import { formatDate } from '@/lib/utils'
 import { getPdfLogo } from '@/lib/pdf/logo'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 // Default company info — used only as fallback when the settings store
@@ -371,7 +370,7 @@ export async function uploadAndShareUrl(
     })
     url = res.data.url
   } catch (err) {
-    toast.error('Could not prepare share link — please try again')
+    handleApiError(err, 'Could not prepare share link — please try again')
     throw err
   }
   const message = `${headline}\n\nDownload: ${url}\n\nRegards,\n${getCompany().name}`

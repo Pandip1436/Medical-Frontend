@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { DocumentPreviewDialog } from '@/components/shared/DocumentPreviewDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
-import api, { API_SERVER_URL } from '@/lib/api'
+import api, { API_SERVER_URL, handleApiError } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 
 // Supplier documents (GST certificate, drug licence, agreements, …) are stored
@@ -116,8 +116,8 @@ export function SupplierDocumentsTab({ customerId }: { customerId?: string | nul
       setUploadOpen(false)
       resetForm()
       void load()
-    } catch {
-      toast.error('Failed to upload document')
+    } catch (err) {
+      handleApiError(err, 'Failed to upload document')
     } finally {
       setSubmitting(false)
     }
@@ -130,8 +130,8 @@ export function SupplierDocumentsTab({ customerId }: { customerId?: string | nul
       toast.success('Document deleted')
       setDeleteId(null)
       void load()
-    } catch {
-      toast.error('Failed to delete document')
+    } catch (err) {
+      handleApiError(err, 'Failed to delete document')
     }
   }
 

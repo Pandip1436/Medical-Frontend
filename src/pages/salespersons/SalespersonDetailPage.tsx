@@ -52,7 +52,7 @@ import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { SalespersonFormDialog } from '@/components/shared/SalespersonFormDialog'
 
 import { navigate, goBack, useRoute } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { getInitials, getAvatarColor, formatLastLogin } from '@/lib/salespersonUtils'
 import { useAuthStore } from '@/stores/authStore'
@@ -176,8 +176,8 @@ export default function SalespersonDetailPage() {
       const sp = (spRes.data as Salesperson[]).find((s) => s.id === salespersonId) ?? null
       setSalesperson(sp)
       setNotFound(!sp)
-    } catch {
-      toast.error('Failed to load salesperson')
+    } catch (err) {
+      handleApiError(err, 'Failed to load salesperson')
     } finally {
       setProfileLoading(false)
     }
@@ -223,8 +223,8 @@ export default function SalespersonDetailPage() {
       // Paginated contract: { data, total, hasMore }
       setRows(data?.data ?? [])
       setTotal(data?.total ?? 0)
-    } catch {
-      toast.error('Failed to load sales')
+    } catch (err) {
+      handleApiError(err, 'Failed to load sales')
       setRows([])
       setTotal(0)
     } finally {
@@ -248,8 +248,8 @@ export default function SalespersonDetailPage() {
       await api.patch(`/salespersons/${salesperson.id}/toggle`)
       toast.success(salesperson.isActive ? 'Salesperson deactivated' : 'Salesperson activated')
       void fetchProfile()
-    } catch {
-      toast.error('Failed to update status')
+    } catch (err) {
+      handleApiError(err, 'Failed to update status')
     }
   }
 
@@ -708,8 +708,8 @@ function CopyRow({ icon: Icon, label, value, mono }: { icon: typeof Mail; label:
       await navigator.clipboard.writeText(value)
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
-    } catch {
-      toast.error('Copy failed')
+    } catch (err) {
+      handleApiError(err, 'Copy failed')
     }
   }
   return (

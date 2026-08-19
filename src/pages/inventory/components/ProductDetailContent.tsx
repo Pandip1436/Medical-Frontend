@@ -20,7 +20,7 @@ import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import { ProductBatchesTab } from './ProductBatchesTab'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatCurrencyFull, formatDate } from '@/lib/utils'
 import {
@@ -161,8 +161,8 @@ export function ProductDetailContent({ productId }: { productId: string }) {
         params: { skip: 0, take: 500 },
       })
       setHistory(res.data)
-    } catch {
-      toast.error('Failed to load product history')
+    } catch (err) {
+      handleApiError(err, 'Failed to load product history')
     } finally {
       setLoading(false)
     }

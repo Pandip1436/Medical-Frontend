@@ -12,7 +12,7 @@ import {
   Building2,
 } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatDateTime } from '@/lib/utils'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -176,8 +176,8 @@ export default function UsersPage() {
           branches: u.branches ?? (u.branch ? [u.branch] : []),
         })),
       )
-    } catch {
-      toast.error('Failed to load users')
+    } catch (err) {
+      handleApiError(err, 'Failed to load users')
     } finally {
       setIsLoading(false)
     }
@@ -304,8 +304,8 @@ export default function UsersPage() {
         `User ${statusToggleCandidate.isActive ? 'deactivated' : 'activated'}`,
       )
       setStatusToggleCandidate(null)
-    } catch {
-      toast.error('Failed to update user status')
+    } catch (err) {
+      handleApiError(err, 'Failed to update user status')
     } finally {
       setStatusToggleSubmitting(false)
     }

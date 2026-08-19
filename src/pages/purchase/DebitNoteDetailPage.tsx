@@ -5,10 +5,9 @@ import { ArrowLeft, RotateCcw, FileX2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { goBack as routerGoBack, useRoute } from '@/lib/router'
 import { formatDate } from '@/lib/utils'
-import { toast } from 'sonner'
 import type { ReturnDetail } from './DebitNotesPage'
 import { DebitNoteDetailContent } from './DebitNoteDetailContent'
 
@@ -57,7 +56,7 @@ export default function DebitNoteDetailPage() {
     } catch (err: any) {
       const msg = err.response?.status === 404 ? 'Debit note not found' : 'Failed to load debit note'
       setError(msg)
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setIsLoading(false)
     }

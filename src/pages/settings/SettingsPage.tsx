@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { createPortal } from 'react-dom'
 import { useSettingsStore, type DateFormat } from '@/stores/settingsStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -23,6 +23,7 @@ import {
   Trash2,
   MessageCircle,
   AlertTriangle,
+  Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -86,6 +87,7 @@ const settingsSections: SettingsSection[] = [
   { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PE formats' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'whatsapp', label: 'WhatsApp Messages', icon: MessageCircle, description: 'Automatic customer & supplier messages', adminOnly: true },
+  { id: 'notifications', label: 'Notifications', icon: Bell, description: 'How often dues, expiry & stock alerts repeat', adminOnly: true },
   { id: 'integrations', label: 'Integrations', icon: Zap, description: 'IndiaMART & external APIs', adminOnly: true },
   { id: 'general', label: 'General', icon: Settings, description: 'App-wide preferences' },
 ]
@@ -280,6 +282,7 @@ export default function SettingsPage() {
                 activeSection === 'numbering' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
                 activeSection === 'backup' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' :
                 activeSection === 'integrations' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' :
+                activeSection === 'notifications' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
                 'bg-muted/60 text-muted-foreground'
               )}>
                 <ActiveIcon className="h-3.5 w-3.5" />
@@ -307,6 +310,7 @@ export default function SettingsPage() {
                 {activeSection === 'numbering' && <NumberingSection />}
                 {activeSection === 'backup' && <BackupDataSection />}
                 {activeSection === 'whatsapp' && isAdmin && <WhatsAppMessagesSection />}
+                {activeSection === 'notifications' && isAdmin && <NotificationCadenceSection />}
                 {activeSection === 'integrations' && isAdmin && <IntegrationsSection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
@@ -383,9 +387,9 @@ function WhatsAppMessagesSection() {
       setFlags(res.data.flags)
       setMasterEnabled(res.data.masterEnabled)
       toast.success(`${WHATSAPP_FLAGS.find(f => f.key === key)?.title} ${next ? 'enabled' : 'disabled'}`)
-    } catch {
+    } catch (err) {
       setFlags(previous)
-      toast.error('Could not save — the setting was not changed')
+      handleApiError(err, 'Could not save — the setting was not changed')
     } finally {
       setSavingKey(null)
     }
@@ -452,6 +456,173 @@ function WhatsAppMessagesSection() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Section: Notifications (reminder cadence)
+// ─────────────────────────────────────────────────────────────
+
+// Mirrors NotificationCadence in the backend's notification-cadence.ts. The
+// server clamps every value on save and returns what it stored, so this screen
+// always shows what the alert generators will actually do.
+interface Cadence {
+  customerDue: { beforeDays: number; reAlertDays: number }
+  supplierDue: { beforeDays: number; reAlertDays: number }
+  stock: { reAlertDays: number; expiredGraceDays: number }
+}
+
+type CadenceGroup = keyof Cadence
+
+interface CadenceField {
+  group: CadenceGroup
+  key: string
+  label: string
+  hint: string
+  min: number
+  max: number
+}
+
+const CADENCE_FIELDS: CadenceField[] = [
+  { group: 'customerDue', key: 'beforeDays',       label: 'Start reminding',   hint: 'days before the invoice due date (0 = on the due date)',           min: 0, max: 90 },
+  { group: 'customerDue', key: 'reAlertDays',      label: 'Alert again after', hint: 'days, if the alert was opened and it is still unpaid',            min: 1, max: 90 },
+  { group: 'supplierDue', key: 'beforeDays',       label: 'Start reminding',   hint: 'days before the payment is due to the supplier',                  min: 0, max: 90 },
+  { group: 'supplierDue', key: 'reAlertDays',      label: 'Alert again after', hint: 'days, if the alert was opened and it is still unpaid',            min: 1, max: 90 },
+  { group: 'stock',       key: 'reAlertDays',      label: 'Alert again after', hint: 'days, if the alert was opened and nothing was done',              min: 1, max: 90 },
+  { group: 'stock',       key: 'expiredGraceDays', label: 'Stop chasing expired after', hint: 'days past the expiry date (older stock assumed already dealt with)', min: 1, max: 3650 },
+]
+
+const CADENCE_GROUPS: { id: CadenceGroup; title: string; description: string }[] = [
+  { id: 'customerDue', title: 'Customer payment due', description: 'Unpaid and part-paid invoices. It keeps asking until the invoice is paid or somebody marks the alert Resolved.' },
+  { id: 'supplierDue', title: 'Supplier payment due', description: 'Money owed on purchase entries, counted from the entry\'s due date (or the supplier\'s credit term).' },
+  { id: 'stock',       title: 'Expiry & low stock',   description: 'Keeps asking while the batch is still expiring or expired, or the product is still below its minimum. Writing a batch off — or restocking — closes its alerts.' },
+]
+
+// Same rule everywhere, so it's stated once rather than repeated per group.
+const CADENCE_RULE =
+  'An alert you have not opened yet never repeats itself — it is already sitting in the list. ' +
+  'Once you have opened one, the next arrives the set number of days after it appeared, ' +
+  'and keeps coming until the invoice is paid, the batch written off, or the product restocked.'
+
+function NotificationCadenceSection() {
+  const [cadence, setCadence] = useState<Cadence | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    api.get<Cadence>('/notifications/cadence')
+      .then((res) => setCadence(res.data))
+      .catch(() => toast.error('Could not load notification settings'))
+  }, [])
+
+  const setField = (group: CadenceGroup, key: string, raw: string) => {
+    // Keep an empty box empty while typing (parsing '' as 0 fights the user);
+    // the server clamps anything out of range on save.
+    const value = raw === '' ? ('' as unknown as number) : Number(raw)
+    if (raw !== '' && !Number.isFinite(value)) return
+    setCadence((c) => (c ? { ...c, [group]: { ...c[group], [key]: value } } : c))
+    setDirty(true)
+  }
+
+  const save = async () => {
+    if (!cadence) return
+    setSaving(true)
+    try {
+      const res = await api.put<Cadence>('/notifications/cadence', cadence)
+      setCadence(res.data)
+      setDirty(false)
+      toast.success('Notification settings saved', {
+        description: 'Applied on the next alert run (nightly, or when you trigger one).',
+      })
+    } catch (err) {
+      handleApiError(err, 'Could not save notification settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Plain-English restatement of the numbers, so an admin can sanity-check the
+  // effect without reasoning about three fields at once.
+  const summary = (group: CadenceGroup): string => {
+    if (!cadence) return ''
+    if (group === 'stock') {
+      const { reAlertDays, expiredGraceDays } = cadence.stock
+      return (
+        `Asks again every ${reAlertDays} day(s) after you open it, until the batch is written off ` +
+        `or the product is restocked. Expired batches stop being chased ${expiredGraceDays} day(s) past expiry.`
+      )
+    }
+    const g = cadence[group]
+    const start = g.beforeDays > 0 ? `${g.beforeDays} day(s) before the due date` : 'on the due date'
+    return `Starts ${start}, then asks again every ${g.reAlertDays} day(s) after you open it, until it is paid or resolved.`
+  }
+
+  return (
+    <motion.div variants={itemVariants}>
+      {createPortal(
+        <Button onClick={save} disabled={!cadence || saving || !dirty} size="sm" className="gap-1.5 cursor-pointer h-8">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Save Notification Settings
+        </Button>,
+        document.getElementById('settings-save-button-portal') || document.body
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <Bell className="h-4 w-4" />
+            </div>
+            <div>
+              <CardTitle>Alert Reminders</CardTitle>
+              <CardDescription>
+                How long before an unfinished job asks you again.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <p className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs leading-relaxed text-muted-foreground dark:bg-muted/10">
+            {CADENCE_RULE}
+          </p>
+          {!cadence ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading…</span>
+            </div>
+          ) : (
+            CADENCE_GROUPS.map((g) => (
+              <div key={g.id} className="space-y-3">
+                <div className="space-y-0.5">
+                  <SectionLabel>{g.title}</SectionLabel>
+                  <p className="text-xs text-muted-foreground">{g.description}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {CADENCE_FIELDS.filter((f) => f.group === g.id).map((f) => (
+                    <div key={`${f.group}.${f.key}`} className="space-y-1.5">
+                      <Label htmlFor={`${f.group}-${f.key}`} className="text-xs">{f.label}</Label>
+                      <Input
+                        id={`${f.group}-${f.key}`}
+                        type="number"
+                        inputMode="numeric"
+                        min={f.min}
+                        max={f.max}
+                        value={String((cadence[f.group] as Record<string, number>)[f.key] ?? '')}
+                        onChange={(e) => setField(f.group, f.key, e.target.value)}
+                      />
+                      <p className="text-[11px] leading-snug text-muted-foreground">{f.hint}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground dark:bg-muted/20">
+                  {summary(g.id)}
+                </p>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
   )
 }
 
@@ -659,7 +830,7 @@ function BackupDataSection() {
       await fetchHistory()
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'Backup failed'
-      toast.error(Array.isArray(msg) ? msg[0] : msg)
+      handleApiError(err, Array.isArray(msg) ? msg[0] : msg)
       await fetchHistory() // surface the FAILED row so admin can see the error
     } finally {
       setIsBackingUp(false)
@@ -671,7 +842,7 @@ function BackupDataSection() {
       const res = await api.get<{ url: string; expiresAt: string }>(`/backups/${id}/download`)
       window.open(res.data.url, '_blank', 'noopener,noreferrer')
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? 'Failed to get download link')
+      handleApiError(err, 'Failed to get download link')
     }
   }
 
@@ -683,7 +854,7 @@ function BackupDataSection() {
       toast.success('Backup deleted')
       await fetchHistory()
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? 'Delete failed')
+      handleApiError(err, 'Delete failed')
     } finally {
       setDeletingId(null)
       setDeleteTarget(null)

@@ -4,7 +4,7 @@ import { motion, type Variants } from 'framer-motion'
 import { toast } from 'sonner'
 import { Hash, Save, Loader2, FastForward } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import {
   DOC_TYPES,
@@ -68,8 +68,8 @@ export default function NumberingPage() {
     try {
       const res = await api.get<ConfigRow[]>('/numbering/configs')
       setRows(res.data)
-    } catch {
-      toast.error('Failed to load numbering config')
+    } catch (err) {
+      handleApiError(err, 'Failed to load numbering config')
     } finally {
       setLoading(false)
     }
@@ -119,7 +119,7 @@ export default function NumberingPage() {
       toast.success('Numbering settings saved')
       await fetchConfigs()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to save')
+      handleApiError(err, 'Failed to save')
     } finally {
       setSaving(false)
     }
@@ -344,7 +344,7 @@ function StartFromDialog({
       toast.success(`Next ${docType} number will be ${n}`)
       onSaved()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to update starting number')
+      handleApiError(err, 'Failed to update starting number')
     } finally {
       setSaving(false)
     }

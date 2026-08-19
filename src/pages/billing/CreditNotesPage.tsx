@@ -47,8 +47,7 @@ import { PaginatedSelect } from '@/components/shared/PaginatedSelect'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
-import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { navigate, useRoute } from '@/lib/router'
 import { printCreditNote } from './CreditNoteDetailContent'
 import { usePageFilter } from '@/hooks/usePageFilter'
@@ -276,8 +275,8 @@ export default function CreditNotesPage() {
     try {
       const res = await api.get('/credit-notes')
       setCreditNotes(res.data.data || res.data)
-    } catch {
-      toast.error('Failed to load credit notes')
+    } catch (err) {
+      handleApiError(err, 'Failed to load credit notes')
     } finally {
       setIsLoading(false)
     }

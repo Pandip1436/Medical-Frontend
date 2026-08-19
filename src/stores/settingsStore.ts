@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { toast } from 'sonner'
 
 interface BusinessProfile {
@@ -126,8 +126,8 @@ export const useSettingsStore = create<SettingsState>()(
           await api.put('/settings/general_settings', next)
           set({ generalSettings: next })
           toast.success('General settings saved')
-        } catch {
-          toast.error('Failed to save general settings')
+        } catch (err) {
+          handleApiError(err, 'Failed to save general settings')
           throw new Error('save_failed')
         }
       },

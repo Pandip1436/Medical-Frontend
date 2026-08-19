@@ -83,7 +83,7 @@ import {
 import { cn, formatCurrency } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import type { Customer } from '@/types'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { navigate, useRoute } from '@/lib/router'
@@ -784,8 +784,8 @@ export default function CustomersPage() {
       toast.success(
         `Exported ${data.customers.length} customer${data.customers.length === 1 ? '' : 's'} with full history.`,
       )
-    } catch {
-      toast.error('Failed to export customers')
+    } catch (err) {
+      handleApiError(err, 'Failed to export customers')
     }
   }
 
@@ -828,8 +828,8 @@ export default function CustomersPage() {
         videoRef.current.srcObject = stream
         videoRef.current.play()
       }
-    } catch {
-      toast.error('Camera access denied or not available')
+    } catch (err) {
+      handleApiError(err, 'Camera access denied or not available')
       setScanOpen(false)
     }
   }, [])
@@ -927,7 +927,7 @@ export default function CustomersPage() {
     } catch (error: unknown) {
       const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
         ?? `Failed to ${next ? 'activate' : 'deactivate'} customer`
-      toast.error(msg)
+      handleApiError(error, msg)
     }
   }
 

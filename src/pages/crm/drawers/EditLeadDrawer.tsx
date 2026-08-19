@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Save, User as UserIcon } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockUpdateLead } from '../mockData'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -322,7 +322,7 @@ export function EditLeadDrawer({
       const e = err as { response?: { data?: { message?: string | string[] } } }
       const raw = e?.response?.data?.message
       const msg = Array.isArray(raw) ? raw.join(' • ') : raw
-      toast.error(msg ?? 'Failed to update lead')
+      handleApiError(err, msg ?? 'Failed to update lead')
     }
   }
 

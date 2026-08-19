@@ -27,7 +27,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { describeSendSkip } from '@/lib/whatsappSendResult'
 import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { usePageSize } from '@/hooks/usePageSize'
 import { navigate } from '@/lib/router'
@@ -238,7 +238,7 @@ export default function CustomerInvoicesPage() {
       } catch (err: unknown) {
         const e = err as { name?: string; code?: string }
         if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
-          toast.error('Failed to load invoices')
+          handleApiError(err, 'Failed to load invoices')
           setPageRows([])
           setTotal(0)
         }
@@ -297,7 +297,7 @@ export default function CustomerInvoicesPage() {
       fetchSummary()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to collect payment'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setCollectSubmitting(false)
     }
@@ -326,7 +326,7 @@ export default function CustomerInvoicesPage() {
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to send WhatsApp message'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setSendingWhatsApp(false)
     }
@@ -341,7 +341,7 @@ export default function CustomerInvoicesPage() {
       else toast.success('Payment QR generated')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to generate payment QR'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setRegeneratingQr(false)
     }
@@ -367,7 +367,7 @@ export default function CustomerInvoicesPage() {
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to reconcile payment'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setReconciling(false)
     }

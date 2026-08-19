@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
@@ -118,7 +118,7 @@ export function LeadsSplitView({
       list.refetch()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to delete lead')
+      handleApiError(err, 'Failed to delete lead')
     } finally {
       setDeleteConfirmOpen(false)
     }

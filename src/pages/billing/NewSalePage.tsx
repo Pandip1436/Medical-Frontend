@@ -98,7 +98,7 @@ import {
 
 const MotionTableRow = motion(TableRow)
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -4138,8 +4138,8 @@ export default function NewSalePage() {
       const res = await api.get(`/billing?customerId=${selectedCustomer.id}`)
       const all: Invoice[] = Array.isArray(res.data) ? res.data : (res.data.data ?? [])
       setPendingInvoices(all.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL'))
-    } catch {
-      toast.error('Failed to load pending invoices')
+    } catch (err) {
+      handleApiError(err, 'Failed to load pending invoices')
     } finally {
       setPendingInvoicesLoading(false)
     }
@@ -4196,8 +4196,8 @@ export default function NewSalePage() {
       const updated = all.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
       setPendingInvoices(updated)
       if (custRes.data) setSelectedCustomer({ ...selectedCustomer!, ...custRes.data, pendingCreditCount: updated.length })
-    } catch {
-      toast.error('Failed to record payment')
+    } catch (err) {
+      handleApiError(err, 'Failed to record payment')
     } finally {
       setPayingInvoiceId(null)
     }
@@ -4443,8 +4443,8 @@ export default function NewSalePage() {
       setReminderProductIds([])
       setReminderProductNames({})
       fetchCustomerReminders({ silent: true })
-    } catch {
-      toast.error(editingReminderId ? 'Failed to update reminder' : 'Failed to set reminder')
+    } catch (err) {
+      handleApiError(err, editingReminderId ? 'Failed to update reminder' : 'Failed to set reminder')
     } finally {
       setReminderSaving(false)
     }
@@ -4463,8 +4463,8 @@ export default function NewSalePage() {
       await api.delete(`/reminders/${deleteReminderTarget.id}`)
       toast.success('Reminder discarded')
       fetchCustomerReminders({ silent: true })
-    } catch {
-      toast.error('Failed to discard reminder')
+    } catch (err) {
+      handleApiError(err, 'Failed to discard reminder')
     } finally {
       setDeletingReminderId(null)
       setDeleteReminderTarget(null)
@@ -4511,7 +4511,7 @@ export default function NewSalePage() {
       toast.success(`Follow-up set for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`)
       fetchCustomerReminders({ silent: true })
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to set follow-up')
+      handleApiError(err, 'Failed to set follow-up')
     } finally {
       setSettingFollowUp(false)
     }
@@ -4530,7 +4530,7 @@ export default function NewSalePage() {
       setLogReminder(null)
       fetchCustomerReminders({ silent: true })
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to log contact')
+      handleApiError(err, 'Failed to log contact')
     } finally {
       setLogSaving(false)
     }
@@ -4542,8 +4542,8 @@ export default function NewSalePage() {
       await api.patch(`/reminders/${r.id}`, { followUpDate: null })
       toast.success('Follow-up cleared')
       fetchCustomerReminders({ silent: true })
-    } catch {
-      toast.error('Failed to clear follow-up')
+    } catch (err) {
+      handleApiError(err, 'Failed to clear follow-up')
     }
   }
   // Save the current bill as a server-side draft (no stock movement, no
@@ -4649,7 +4649,7 @@ export default function NewSalePage() {
     } catch (error: unknown) {
       const errorMsg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to save draft'
       console.error(error)
-      toast.error(errorMsg)
+      handleApiError(error, errorMsg)
     } finally {
       setIsSavingDraft(false)
     }
@@ -5065,8 +5065,8 @@ export default function NewSalePage() {
               await api.delete(`/delivery/${existingDeliveryId}`)
               toast.success('Courier tracking removed')
             }
-          } catch {
-            toast.error('Invoice saved, but updating courier tracking failed. Open the invoice to retry.')
+          } catch (err) {
+            handleApiError(err, 'Invoice saved, but updating courier tracking failed. Open the invoice to retry.')
           }
         }
 
@@ -5384,7 +5384,7 @@ export default function NewSalePage() {
       // product was added to the bill.
       setTableView('products')
     } catch (error: unknown) {
-      toast.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add product')
+      handleApiError(error, 'Failed to add product')
     }
   }
 

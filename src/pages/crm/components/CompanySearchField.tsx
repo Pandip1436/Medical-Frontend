@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Building2, Search as SearchIcon, X } from 'lucide-react'
-import { toast } from 'sonner'
-
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
@@ -63,7 +61,7 @@ export function CompanySearchField({
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to create company')
+      handleApiError(err, 'Failed to create company')
     } finally {
       setCreating(false)
     }

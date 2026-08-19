@@ -14,8 +14,11 @@ import {
 } from '@/components/ui/dialog'
 import { navigate } from '@/lib/router'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useAuthStore } from '@/stores/authStore'
+import { isAdminish, userRoles } from '@/types'
+import { rolePermissions } from '@/App'
 import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 
 // Shared batch-detail renderer used both by the full BatchDetailPage route
 // and by the Stock Overview side panel. Owns its own data fetch + confirm
@@ -42,6 +45,17 @@ interface BatchDetailViewProps {
 export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: BatchDetailViewProps) {
   const isPage = layout === 'page'
   const updateBatchLocally = useMasterDataStore((s) => s.updateBatchLocally)
+
+  // Writing a batch off hits PATCH /products/:id/batches/:batchId/adjust and
+  // creating a return opens /purchase/returns — both admin / inventory-manager
+  // only on the server. Pharmacists and salespeople can open this view, so
+  // without these checks they were shown buttons that could only ever answer
+  // "Forbidden resource". The route permissions mirror the backend @Roles.
+  const user = useAuthStore((s) => s.user)
+  const can = (path: string) =>
+    isAdminish(user) || userRoles(user).some((r) => (rolePermissions[r] ?? []).includes(path))
+  const canWriteOff = can('/inventory/adjustment')
+  const canCreateReturn = can('/purchase/returns')
 
   const [batch, setBatch] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -74,6 +88,11 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
   const lossAtCost = batch ? batch.quantity * Number(batch.purchaseRate) : 0
   const isExpired = daysToExpiry < 0
   const isCritical = daysToExpiry < 30 && daysToExpiry >= 0
+  // An emptied batch has nothing left to write off or return. `writeOff` is
+  // set by the API only when a stock adjustment removed the units (so we can
+  // say "written off" rather than guessing at a batch that simply sold out).
+  const isEmpty = !!batch && batch.quantity <= 0
+  const writeOff = batch?.writeOff ?? null
   const handleWriteOff = async () => {
     if (!batch) return
     setSubmitting(true)
@@ -99,8 +118,12 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
       }
       setConfirmKind(null)
       onAfterAction?.()
-    } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Action failed')
+    } catch (err) {
+      // handleApiError, not toast.error — api.ts's response interceptor has
+      // already shown a toast for this failure, and a second one here is a
+      // duplicate. The helper is a no-op in that case and only speaks up for
+      // errors the interceptor stays quiet about (404s, network failures).
+      handleApiError(err, 'Action failed')
     } finally {
       setSubmitting(false)
     }
@@ -186,6 +209,30 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
           ? 'grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-4 lg:content-start'
           : 'grid items-start gap-4 sm:grid-cols-2',
       )}>
+        {/* Emptied batch — say so up front. The action buttons are hidden in
+            this state, so without this the view looks like a live batch that
+            simply refuses to do anything. */}
+        {isEmpty && (
+          <div className={cn(
+            'flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/20',
+            isPage ? 'lg:col-span-full' : 'sm:col-span-2',
+          )}>
+            <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-sm font-medium text-foreground">
+                {writeOff ? 'This batch has already been written off' : 'This batch has no stock left'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {writeOff
+                  ? `${writeOff.quantity} unit(s) removed on ${formatDate(writeOff.at)}${
+                      writeOff.by ? ` by ${writeOff.by}` : ''
+                    } · ${writeOff.reason}${writeOff.adjustmentNo ? ` · ${writeOff.adjustmentNo}` : ''}. Nothing left to write off or return.`
+                  : 'It was fully sold or returned, so there is nothing left to write off or return.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Expiry — the headline of an expiry view, so it's the hero block:
             large date + countdown, colour-coded by status. Spans full width. */}
         <div className={cn('space-y-2', isPage ? 'lg:col-span-full' : 'sm:col-span-2')}>
@@ -350,13 +397,19 @@ export function BatchDetailView({ batchId, onAfterAction, layout = 'panel' }: Ba
               <History className="h-3.5 w-3.5" /> Product history
             </Button>
           )}
+          {/* Hidden once the batch is empty (nothing left to act on — the
+              banner above explains why) and for roles the server would reject. */}
           <div className="flex items-center gap-2 sm:ml-auto [&>button]:flex-1 sm:[&>button]:flex-none">
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfirmKind('writeoff')}>
-              <Trash2 className="h-3.5 w-3.5" /> Write Off
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={handleCreateReturn}>
-              <Undo2 className="h-3.5 w-3.5" /> Create Return
-            </Button>
+            {!isEmpty && canWriteOff && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setConfirmKind('writeoff')}>
+                <Trash2 className="h-3.5 w-3.5" /> Write Off
+              </Button>
+            )}
+            {!isEmpty && canCreateReturn && (
+              <Button size="sm" className="gap-1.5" onClick={handleCreateReturn}>
+                <Undo2 className="h-3.5 w-3.5" /> Create Return
+              </Button>
+            )}
           </div>
         </div>
       </div>

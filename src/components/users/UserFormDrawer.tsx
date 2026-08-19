@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Eye, EyeOff, UserPlus, UserCog, ChevronDown } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -438,7 +438,7 @@ function CreateUserBody({
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data
           ?.message ?? 'Failed to create user'
-      toast.error(String(msg))
+      handleApiError(err, String(msg))
     }
   }
 
@@ -661,7 +661,7 @@ function EditUserBody({
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data
           ?.message ?? 'Failed to update user'
-      toast.error(String(msg))
+      handleApiError(err, String(msg))
     }
   }
 

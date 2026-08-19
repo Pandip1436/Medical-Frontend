@@ -20,7 +20,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { DataTableFilterBar } from '@/components/shared/DataTableFilterBar'
@@ -64,8 +64,8 @@ export default function CategoriesPage() {
     try {
       const res = await api.get('/categories')
       setCategories(res.data)
-    } catch {
-      toast.error('Failed to load categories')
+    } catch (err) {
+      handleApiError(err, 'Failed to load categories')
     } finally {
       setLoading(false)
     }
@@ -114,7 +114,7 @@ export default function CategoriesPage() {
       setDialogOpen(false)
       fetchCategories()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Operation failed')
+      handleApiError(err, 'Operation failed')
     }
   }
 
@@ -130,7 +130,7 @@ export default function CategoriesPage() {
       setDeleteTarget(null)
       fetchCategories()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to delete')
+      handleApiError(err, 'Failed to delete')
     }
   }
 
@@ -158,7 +158,7 @@ export default function CategoriesPage() {
       setImportResult(res.data)
       if (res.data.created > 0) { fetchCategories(); toast.success(`Imported ${res.data.created} categor${res.data.created === 1 ? 'y' : 'ies'}`) }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Import failed')
+      handleApiError(err, 'Import failed')
     } finally {
       setImporting(false)
     }

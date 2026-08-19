@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CalendarClock, CheckCircle2, Plus, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import {
   USE_MOCK_DATA,
   mockActivitiesForLead,
@@ -61,7 +61,7 @@ export function FollowUpsTab({ lead }: FollowUpsTabProps) {
       setItems(data.filter((a) => a.status === 'PENDING'))
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to load follow-ups')
+      handleApiError(err, 'Failed to load follow-ups')
     } finally {
       setLoading(false)
     }
@@ -87,7 +87,7 @@ export function FollowUpsTab({ lead }: FollowUpsTabProps) {
       fetchItems()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Update failed')
+      handleApiError(err, 'Update failed')
     }
   }
 

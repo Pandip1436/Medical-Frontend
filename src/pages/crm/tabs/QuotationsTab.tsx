@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { FileText, Plus } from 'lucide-react'
-import { toast } from 'sonner'
-
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockQuotationsForLead } from '../mockData'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,7 +57,7 @@ export function QuotationsTab({ lead, onCreateQuote }: QuotationsTabProps) {
       setItems(Array.isArray(res.data) ? res.data : [])
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to load quotations')
+      handleApiError(err, 'Failed to load quotations')
     } finally {
       setLoading(false)
     }

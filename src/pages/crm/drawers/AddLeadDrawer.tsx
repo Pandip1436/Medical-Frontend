@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockCreateLead } from '../mockData'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -284,7 +284,7 @@ export function AddLeadDrawer({
       const e = err as { response?: { data?: { message?: string | string[] } } }
       const raw = e?.response?.data?.message
       const msg = Array.isArray(raw) ? raw.join(' • ') : raw
-      toast.error(msg ?? 'Failed to create lead')
+      handleApiError(err, msg ?? 'Failed to create lead')
     }
   }
 

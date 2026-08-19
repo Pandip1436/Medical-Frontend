@@ -50,7 +50,7 @@ import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useDeepLinkParam, useDeepLinkHighlightState } from '@/hooks/useDeepLinkHighlight'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatCurrency, generateId } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -476,7 +476,7 @@ export default function StockAdjustmentPage() {
       resetCart()
     } catch (error) {
       console.error(error)
-      toast.error('Failed to process stock adjustments')
+      handleApiError(error, 'Failed to process stock adjustments')
     } finally {
       setIsSubmitting(false)
     }

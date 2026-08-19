@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -77,7 +77,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
         toast.error(data?.errorMessage ? `WhatsApp send failed: ${data.errorMessage}` : 'WhatsApp send failed')
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to send WhatsApp message')
+      handleApiError(err, 'Failed to send WhatsApp message')
     } finally {
       setSendingWhatsApp(false)
     }
@@ -113,7 +113,7 @@ export function InvoiceDetailContent({ invoice, onClose, onUpdated }: InvoiceDet
       setCollectRef('')
       onUpdated(res.data)
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to collect payment')
+      handleApiError(err, 'Failed to collect payment')
     } finally {
       setCollectSubmitting(false)
     }

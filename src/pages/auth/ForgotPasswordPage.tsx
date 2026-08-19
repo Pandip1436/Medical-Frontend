@@ -18,7 +18,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -93,7 +93,7 @@ export default function ForgotPasswordPage({
       })
       setStep(2)
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to send OTP')
+      handleApiError(err, 'Failed to send OTP')
     } finally {
       setIsLoading(false)
     }
@@ -239,7 +239,7 @@ export default function ForgotPasswordPage({
       })
       setRedirectReady(true)
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to reset password')
+      handleApiError(err, 'Failed to reset password')
     } finally {
       setIsLoading(false)
     }

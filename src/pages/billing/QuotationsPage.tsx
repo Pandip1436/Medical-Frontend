@@ -64,7 +64,7 @@ import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate } from '@/lib/router'
 import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { shareQuotationViaWhatsApp, downloadQuotationPdf } from '@/lib/pdf/quotationPdf'
@@ -358,7 +358,7 @@ export default function QuotationsPage() {
       toast.success(`Quotation ${qt.quotationNumber} marked as ${status.toLowerCase()}`)
       fetchQuotations()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Status update failed')
+      handleApiError(err, 'Status update failed')
     }
   }
 
@@ -1142,8 +1142,8 @@ export default function QuotationsPage() {
                             await api.delete(`/quotations/${qt.id}`)
                             toast.success(`Quotation ${qt.quotationNumber} deleted`)
                             fetchQuotations()
-                          } catch {
-                            toast.error('Failed to delete quotation')
+                          } catch (err) {
+                            handleApiError(err, 'Failed to delete quotation')
                           }
                         }}
                         customActions={[

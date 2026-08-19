@@ -60,7 +60,7 @@ import {
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ImportSuppliersDrawer } from '@/components/suppliers/ImportSuppliersDrawer'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
@@ -359,8 +359,8 @@ export default function SuppliersPage() {
       toast.success(
         `Exported ${data.suppliers.length} supplier${data.suppliers.length === 1 ? '' : 's'} with full history.`,
       )
-    } catch {
-      toast.error('Failed to export suppliers')
+    } catch (err) {
+      handleApiError(err, 'Failed to export suppliers')
     }
   }
 
@@ -468,8 +468,8 @@ export default function SuppliersPage() {
       toast.success(`Supplier "${supplier.name}" ${supplier.isActive ? 'deactivated' : 'activated'} successfully`)
       await fetchMasterData()
       setStatusToggleCandidate(null)
-    } catch {
-      toast.error('Failed to update supplier status.')
+    } catch (err) {
+      handleApiError(err, 'Failed to update supplier status.')
     } finally {
       setStatusToggleSubmitting(false)
     }
@@ -486,8 +486,8 @@ export default function SuppliersPage() {
       setSelectedIds(new Set())
       await fetchMasterData()
       setBulkDeactivateOpen(false)
-    } catch {
-      toast.error('Failed to deactivate suppliers')
+    } catch (err) {
+      handleApiError(err, 'Failed to deactivate suppliers')
     }
   }
 

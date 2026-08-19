@@ -4,7 +4,7 @@ import {
   TrendingUp, TrendingDown, Package,
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight,
   IndianRupee, BarChart3, ShoppingCart, Truck, GitMerge,
-  RotateCcw, PackageX, SquarePen, AlertTriangle, Layers,
+  RotateCcw, PackageX, SquarePen, AlertTriangle, Layers, PackagePlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -23,10 +23,13 @@ import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import { ProductBatchesTab } from './components/ProductBatchesTab'
 import { useProductBatches } from './hooks/useProductBatches'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { useRoute, navigate, goBack } from '@/lib/router'
+import { useAuthStore } from '@/stores/authStore'
+import { isAdminish, userRoles } from '@/types'
+import { rolePermissions } from '@/App'
 import { cn, formatCurrency } from '@/lib/utils'
 import {
   buildProductHistoryExportRows,
@@ -132,6 +135,15 @@ function TabButton({
 export default function ProductHistoryPage() {
   const { search } = useRoute()
 
+  // Restocking shortcut for Low Stock alerts, which land on this page. Hidden
+  // for roles that can't reach Purchase Entry (pharmacist / accountant /
+  // salesperson can open product history but not /purchase/grn) — same check
+  // the sidebar and route guard use, so the button never leads to a blocked page.
+  const user = useAuthStore((s) => s.user)
+  const canCreatePurchaseEntry =
+    isAdminish(user) ||
+    userRoles(user).some((r) => (rolePermissions[r] ?? []).includes('/purchase/grn'))
+
   const [selectedProductId, setSelectedProductId] = useState<string>(() => {
     const params = new URLSearchParams(search)
     return params.get('productId') ?? ''
@@ -179,8 +191,8 @@ export default function ProductHistoryPage() {
         params: { skip: 0, take: 500 },
       })
       setHistory(res.data)
-    } catch {
-      toast.error('Failed to load product history')
+    } catch (err) {
+      handleApiError(err, 'Failed to load product history')
     } finally {
       setLoading(false)
     }
@@ -454,6 +466,17 @@ export default function ProductHistoryPage() {
         </div>
         {history && (
           <div className="flex flex-wrap items-center gap-2 self-start w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
+            {canCreatePurchaseEntry && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => navigate('/purchase/grn')}
+              >
+                <PackagePlus className="h-3.5 w-3.5" />
+                New Entry
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

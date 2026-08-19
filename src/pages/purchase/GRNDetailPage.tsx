@@ -4,9 +4,8 @@ import { ArrowLeft, FileX2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { goBack as routerGoBack, useRoute } from '@/lib/router'
-import { toast } from 'sonner'
 import type { GRN } from '@/types'
 import { GRNDetailContent } from './GRNDetailContent'
 
@@ -41,7 +40,7 @@ export default function GRNDetailPage() {
     } catch (err: any) {
       const msg = err.response?.status === 404 ? 'Purchase Entry not found' : 'Failed to load Purchase Entry'
       setError(msg)
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setIsLoading(false)
     }

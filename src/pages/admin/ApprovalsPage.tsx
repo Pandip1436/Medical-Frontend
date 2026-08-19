@@ -18,7 +18,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Label } from '@/components/ui/label'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { navigate, goBack } from '@/lib/router'
 import { cn, formatCurrency, timeAgo, formatDateTime } from '@/lib/utils'
@@ -159,8 +159,8 @@ export default function ApprovalsPage() {
     try {
       const res = await api.get('/approvals')
       setAllRequests(res.data)
-    } catch {
-      toast.error('Failed to load approval requests')
+    } catch (err) {
+      handleApiError(err, 'Failed to load approval requests')
     } finally {
       setLoading(false)
     }
@@ -249,7 +249,7 @@ export default function ApprovalsPage() {
       setReviewNote('')
       load()
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Action failed')
+      handleApiError(err, 'Action failed')
     } finally {
       setSubmitting(false)
     }

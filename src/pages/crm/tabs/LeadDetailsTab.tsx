@@ -8,7 +8,7 @@ import {
   Phone,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockSetLeadStage } from '../mockData'
 
 import { Badge } from '@/components/ui/badge'
@@ -334,7 +334,7 @@ function StagePill({
       onChanged?.()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to update stage')
+      handleApiError(err, 'Failed to update stage')
     } finally {
       setBusy(false)
       setOpen(false)

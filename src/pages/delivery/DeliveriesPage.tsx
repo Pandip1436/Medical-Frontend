@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatDate } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
@@ -126,7 +126,7 @@ export default function DeliveriesPage() {
       if (d.failed > 0) toast.warning(`${d.failed} shipment${d.failed === 1 ? '' : 's'} couldn’t be fetched.`)
       await load()
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to check shipments')
+      handleApiError(err, 'Failed to check shipments')
     } finally {
       setCheckingAll(false)
     }

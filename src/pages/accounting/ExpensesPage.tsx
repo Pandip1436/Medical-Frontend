@@ -65,7 +65,7 @@ import {
 } from '@/components/ui/select'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, dateWithCurrentTime } from '@/lib/utils'
-import api, { API_SERVER_URL } from '@/lib/api'
+import api, { API_SERVER_URL, handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import type { Expense } from '@/types'
 import {
@@ -360,8 +360,8 @@ export default function ExpensesPage() {
       await api.delete(`/expenses/${expense.id}`)
       toast.success(`Expense "${expense.description}" deleted`)
       fetchExpenses()
-    } catch {
-      toast.error('Failed to delete expense')
+    } catch (err) {
+      handleApiError(err, 'Failed to delete expense')
     }
   }
 
@@ -407,8 +407,8 @@ export default function ExpensesPage() {
       // Refresh the current page from the server so totals + breakdown stay
       // consistent (local-state patching is impossible with server pagination).
       fetchExpenses()
-    } catch {
-      toast.error('Failed to save expense')
+    } catch (err) {
+      handleApiError(err, 'Failed to save expense')
     }
   }
 

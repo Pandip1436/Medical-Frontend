@@ -55,7 +55,7 @@ import {
 import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { clampAmountInput, roundMoney } from '@/lib/amountInput'
 import { navigate, useRoute } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { GRNItem, PurchaseOrderItem } from '@/types'
@@ -661,8 +661,8 @@ export default function GRNPage() {
           else if (invAmt > 0 && paid >= invAmt - 0.01) { setPayChoice('PAID'); setPaidAmount(invAmt) }
           else { setPayChoice('PARTIAL'); setPaidAmount(paid) }
         }
-      } catch {
-        toast.error('Failed to load Purchase Entry for editing')
+      } catch (err) {
+        handleApiError(err, 'Failed to load Purchase Entry for editing')
         navigate('/purchase/grn-list')
       }
     })()
@@ -1225,7 +1225,7 @@ export default function GRNPage() {
       await fetchMasterData()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
-      toast.error(Array.isArray(msg) ? msg[0] : (msg || 'Failed to save Purchase Entry. Please try again.'));
+      handleApiError(err, Array.isArray(msg) ? msg[0] : (msg || 'Failed to save Purchase Entry. Please try again.'));
     } finally {
       setIsSubmitting(false)
     }

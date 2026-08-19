@@ -60,7 +60,7 @@ import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import type { Invoice } from '@/types'
@@ -272,7 +272,7 @@ export default function SalesListPage() {
       const res = await api.get('/billing?take=10000')
       setInvoices(res.data.data || res.data)
     } catch (error) {
-      toast.error('Failed to load invoices')
+      handleApiError(error, 'Failed to load invoices')
     } finally {
       setIsLoading(false)
     }
@@ -359,8 +359,8 @@ export default function SalesListPage() {
       }
       setCancelTarget(null)
       fetchInvoices()
-    } catch {
-      toast.error(cancelTarget?.status === 'DRAFT' ? 'Failed to discard draft' : 'Failed to cancel invoice')
+    } catch (err) {
+      handleApiError(err, cancelTarget?.status === 'DRAFT' ? 'Failed to discard draft' : 'Failed to cancel invoice')
     }
   }, [cancelTarget, fetchInvoices])
 
@@ -417,7 +417,7 @@ export default function SalesListPage() {
         fetchInvoices()
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to reconcile payment')
+      handleApiError(err, 'Failed to reconcile payment')
     } finally {
       setReconciling(false)
     }
@@ -721,8 +721,8 @@ export default function SalesListPage() {
                 a.click()
                 URL.revokeObjectURL(url)
                 toast.success('Tally XML downloaded')
-              } catch {
-                toast.error('Failed to export Tally XML')
+              } catch (err) {
+                handleApiError(err, 'Failed to export Tally XML')
               }
             }}
           >
@@ -1121,8 +1121,8 @@ export default function SalesListPage() {
                       a.click()
                       URL.revokeObjectURL(url)
                       toast.success('Tally XML downloaded')
-                    } catch {
-                      toast.error('Failed to export Tally XML')
+                    } catch (err) {
+                      handleApiError(err, 'Failed to export Tally XML')
                     }
                   }}
                 >

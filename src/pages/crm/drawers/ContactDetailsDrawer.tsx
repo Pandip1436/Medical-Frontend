@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import {
   USE_MOCK_DATA,
   mockContactById,
@@ -209,7 +209,7 @@ export function ContactDetailsDrawer({
       onOpenChange(false)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to delete contact')
+      handleApiError(err, 'Failed to delete contact')
     } finally {
       setDeleteConfirmOpen(false)
     }

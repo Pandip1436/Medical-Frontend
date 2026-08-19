@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { toast } from 'sonner'
 import {
   Shield,
   RefreshCw,
@@ -10,7 +9,7 @@ import {
   Activity,
 } from 'lucide-react'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatDate, formatDateTime } from '@/lib/utils'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -320,8 +319,8 @@ export default function AuditTrailPage() {
         setRows(payload.data ?? [])
         setTotal(payload.total ?? 0)
       }
-    } catch {
-      toast.error('Failed to load audit log')
+    } catch (err) {
+      handleApiError(err, 'Failed to load audit log')
     } finally {
       setIsLoading(false)
     }

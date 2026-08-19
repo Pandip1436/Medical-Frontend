@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { motion } from 'framer-motion'
 import { useForm, Controller } from 'react-hook-form'
@@ -299,7 +299,7 @@ export default function CashBookPage() {
       fetchCashbook()
     } catch (error: any) {
       const msg = error?.response?.data?.message ?? 'Failed to save expense'
-      toast.error(Array.isArray(msg) ? msg.join('; ') : msg)
+      handleApiError(error, Array.isArray(msg) ? msg.join('; ') : msg)
     }
   }
 

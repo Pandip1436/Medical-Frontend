@@ -459,8 +459,8 @@ export default function ProductsPage() {
           openEditDialog(res.data)
           if (fromSplit) setReturnToSplitId(fromSplit)
         }
-      } catch {
-        if (!cancelled) toast.error('Could not load that product to edit')
+      } catch (err) {
+        if (!cancelled) handleApiError(err, 'Could not load that product to edit')
       } finally {
         // Strip editId (+ fromSplit) ONLY on the live run. Doing it
         // unconditionally lets a StrictMode-cancelled first run strip the param
@@ -564,7 +564,7 @@ export default function ProductsPage() {
       setDeleteTarget(null)
       refreshPage()
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to delete product')
+      handleApiError(error, 'Failed to delete product')
     }
   }
 
@@ -575,7 +575,7 @@ export default function ProductsPage() {
       toast.success(`"${product.name}" ${isActive ? 'deactivated' : 'reactivated'}`)
       refreshPage()
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to update product status')
+      handleApiError(error, 'Failed to update product status')
     }
   }
 
@@ -607,8 +607,8 @@ export default function ProductsPage() {
       toast.success(
         `Exported ${data.products.length} product${data.products.length === 1 ? '' : 's'} (${data.categories.length} categories).`,
       )
-    } catch {
-      toast.error('Failed to export products')
+    } catch (err) {
+      handleApiError(err, 'Failed to export products')
     }
   }
 

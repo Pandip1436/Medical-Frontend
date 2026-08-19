@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { Badge } from '@/components/ui/badge'
 import { cn, formatCurrencyCompact, formatDate } from '@/lib/utils'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 
 import type { Lead, LeadStage } from '../types'
 import { STAGES } from '../types'
@@ -164,7 +164,7 @@ export function LeadsKanbanView({
       onChanged()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to update stage')
+      handleApiError(err, 'Failed to update stage')
       // Revert by dropping the optimistic entry for this lead.
       setOptimistic((prev) => {
         const { [lead.id]: _drop, ...rest } = prev

@@ -1,7 +1,7 @@
 import { Send, ArrowRightLeft, CheckCircle2, XCircle, Share2, Download, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -46,7 +46,7 @@ export function QuotationDetailContent({ quotation: qt, onUpdated }: QuotationDe
       onUpdated()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Status update failed')
+      handleApiError(err, 'Status update failed')
     }
   }
 

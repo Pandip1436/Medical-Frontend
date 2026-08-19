@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { IndianRupee, Plus } from 'lucide-react'
-import { toast } from 'sonner'
-
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockInvoicesForLead } from '../mockData'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,7 +56,7 @@ export function InvoicesTab({ lead, onCreateInvoice }: InvoicesTabProps) {
       setItems(Array.isArray(res.data) ? res.data : [])
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to load invoices')
+      handleApiError(err, 'Failed to load invoices')
     } finally {
       setLoading(false)
     }

@@ -23,7 +23,7 @@ import {
 import { cn, formatCurrency, formatDate, formatExpiry} from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { usePersistedState } from '@/hooks/usePersistedState'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import type { GRN } from '@/types'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { ShortBillingDialog, type ShortBillingItem } from './ShortBillingDialog'
@@ -122,7 +122,7 @@ function GRNPaymentDialog({
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         'Failed to record payment'
-      toast.error(Array.isArray(msg) ? msg.join(', ') : msg)
+      handleApiError(e, Array.isArray(msg) ? msg.join(', ') : msg)
     } finally {
       setSubmitting(false)
     }

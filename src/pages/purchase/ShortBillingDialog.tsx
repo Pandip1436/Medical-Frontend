@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { formatCurrency } from '@/lib/utils'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ export function ShortBillingDialog({ open, onOpenChange, grn, shortItems, onSucc
       onOpenChange(false)
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
-      toast.error(Array.isArray(msg) ? msg[0] : (msg ?? 'Failed to create short-billing debit note'))
+      handleApiError(err, Array.isArray(msg) ? msg[0] : (msg ?? 'Failed to create short-billing debit note'))
     } finally {
       setSubmitting(false)
     }

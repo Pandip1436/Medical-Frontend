@@ -66,7 +66,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { EnumSelect } from '@/components/shared/EnumSelect'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatCurrency } from '@/lib/utils'
 import { navigate } from '@/lib/router'
 import { useAuthStore } from '@/stores/authStore'
@@ -390,7 +390,7 @@ export default function BranchesPage() {
       await refetchEverything()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to delete branch'
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setDeleting(null)
     }
@@ -403,7 +403,7 @@ export default function BranchesPage() {
       await refetchEverything()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to update status'
-      toast.error(msg)
+      handleApiError(err, msg)
     }
   }
 
@@ -1070,8 +1070,8 @@ function BranchDrawerBody({
       await navigator.clipboard.writeText(text)
       setCopiedKey(key)
       setTimeout(() => setCopiedKey(null), 1200)
-    } catch {
-      toast.error('Copy failed')
+    } catch (err) {
+      handleApiError(err, 'Copy failed')
     }
   }
 

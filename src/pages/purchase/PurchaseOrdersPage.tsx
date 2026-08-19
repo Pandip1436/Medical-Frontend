@@ -72,7 +72,7 @@ import { navigate, useRoute } from '@/lib/router'
 import { downloadPoPdf, printPoPdf } from '@/lib/pdf/poPdf'
 import { ExportMenu } from '@/components/shared/ExportMenu'
 import type { PurchaseOrder, Product } from '@/types'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useIsMobile } from '@/hooks/useMediaQuery'
@@ -533,8 +533,8 @@ export default function PurchaseOrdersPage() {
     try {
       const res = await api.get('/purchase-orders')
       setPurchaseOrders(Array.isArray(res.data) ? res.data : (res.data.data ?? []))
-    } catch {
-      toast.error('Failed to load purchase orders')
+    } catch (err) {
+      handleApiError(err, 'Failed to load purchase orders')
     } finally {
       setIsLoading(false)
     }
@@ -836,7 +836,7 @@ export default function PurchaseOrdersPage() {
           await api.patch(`/purchase-orders/${po.id}`, { status: 'SENT' })
           toast.success(`PO ${po.poNumber} marked as sent`)
           fetchPOs()
-        } catch { toast.error('Failed to update PO status') }
+        } catch (err) { handleApiError(err, 'Failed to update PO status') }
         break
       case 'receive':
         navigate(`/purchase/grn?poId=${po.id}`)
@@ -847,7 +847,7 @@ export default function PurchaseOrdersPage() {
           toast.success(`PO ${po.poNumber} cancelled`)
           fetchPOs()
         } catch (err: any) {
-          toast.error(err.response?.data?.message ?? 'Failed to cancel PO')
+          handleApiError(err, 'Failed to cancel PO')
         }
         break
     }
@@ -950,7 +950,7 @@ export default function PurchaseOrdersPage() {
       fetchPOs()
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Failed to create purchase order')
+      handleApiError(err, msg ?? 'Failed to create purchase order')
     }
   }
 

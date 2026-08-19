@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { USE_MOCK_DATA, mockImportLeads } from '../mockData'
 import type { LeadSource, LeadStage } from '../types'
 import { Badge } from '@/components/ui/badge'
@@ -356,8 +356,8 @@ export function ImportLeadsDrawer({
         parsed = raw
           .map((row) => (row as unknown[]).map((c) => String(c ?? '').trim()))
           .filter((row) => row.some((c) => c.length > 0))
-      } catch {
-        toast.error('Failed to parse the .xlsx file')
+      } catch (err) {
+        handleApiError(err, 'Failed to parse the .xlsx file')
         return
       }
     } else {

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { Plus, CheckCircle2, Printer, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { navigate } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -48,8 +48,8 @@ export function DebitNoteDetailContent({ debitNote: d, onUpdated }: DebitNoteDet
       await api.patch(`/purchase-returns/${d.id}`, { status: 'SETTLED' })
       toast.success('Debit Note marked as SETTLED')
       onUpdated()
-    } catch {
-      toast.error('Failed to update status')
+    } catch (err) {
+      handleApiError(err, 'Failed to update status')
     } finally {
       setSubmitting(false)
     }

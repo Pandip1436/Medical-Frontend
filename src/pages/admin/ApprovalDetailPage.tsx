@@ -15,7 +15,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { goBack as routerGoBack, useRoute } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn, formatCurrency, formatDateTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminish } from '@/types'
@@ -72,7 +72,7 @@ export default function ApprovalDetailPage() {
     } catch (err: any) {
       const msg = err.response?.status === 404 ? 'Approval request not found' : 'Failed to load request'
       setError(msg)
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setIsLoading(false)
     }
@@ -93,7 +93,7 @@ export default function ApprovalDetailPage() {
       setReviewNote('')
       await fetchApproval(req.id)
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Action failed')
+      handleApiError(err, 'Action failed')
     } finally {
       setSubmitting(false)
     }

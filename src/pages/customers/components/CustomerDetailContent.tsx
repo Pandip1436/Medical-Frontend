@@ -75,7 +75,7 @@ import {
 } from '@/components/shared/SupplierActivityDialog'
 
 import { navigate, useRoute } from '@/lib/router'
-import api, { API_SERVER_URL } from '@/lib/api'
+import api, { API_SERVER_URL, handleApiError } from '@/lib/api'
 import { DocumentsOverviewCard } from '@/components/shared/DocumentsOverviewCard'
 import { DocumentPreviewDialog } from '@/components/shared/DocumentPreviewDialog'
 import { cn, formatCurrency, formatDate, formatLedgerBalance, LEDGER_COL_BILLED, LEDGER_COL_PAID } from '@/lib/utils'
@@ -1630,8 +1630,8 @@ function RxTabContent({
       toast.success('Document updated')
       setEditId(null)
       onRefetch()
-    } catch {
-      toast.error('Failed to update document')
+    } catch (err) {
+      handleApiError(err, 'Failed to update document')
     } finally {
       setEditSubmitting(false)
     }
@@ -1661,8 +1661,8 @@ function RxTabContent({
       setUploadOpen(false)
       resetForm()
       onRefetch()
-    } catch {
-      toast.error('Failed to upload prescription')
+    } catch (err) {
+      handleApiError(err, 'Failed to upload prescription')
     } finally {
       setSubmitting(false)
     }
@@ -1675,8 +1675,8 @@ function RxTabContent({
       toast.success('Prescription deleted')
       setDeleteId(null)
       onRefetch()
-    } catch {
-      toast.error('Failed to delete prescription')
+    } catch (err) {
+      handleApiError(err, 'Failed to delete prescription')
     }
   }
 

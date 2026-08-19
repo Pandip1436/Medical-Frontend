@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { goBack as routerGoBack, useRoute } from '@/lib/router'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type ContactStatus = 'TALKED' | 'NOT_RESPONDED' | 'DENIED' | 'NEED_TO_TALK' | 'SCHEDULED'
@@ -90,7 +90,7 @@ export default function ReminderDetailPage() {
     } catch (err: any) {
       const msg = err.response?.status === 404 ? 'Reminder not found' : 'Failed to load reminder'
       setError(msg)
-      toast.error(msg)
+      handleApiError(err, msg)
     } finally {
       setIsLoading(false)
     }
@@ -117,7 +117,7 @@ export default function ReminderDetailPage() {
       const res = await api.get(`/reminders/${reminder.id}/contacts`)
       setContacts(Array.isArray(res.data) ? res.data : [])
     } catch (err: any) {
-      toast.error(err.response?.data?.message ?? 'Failed to log contact')
+      handleApiError(err, 'Failed to log contact')
     } finally {
       setLogSaving(false)
     }

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useBranchRefresh } from '@/hooks/useBranchRefresh'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -41,7 +41,6 @@ import {
 import { cn, formatCurrency, formatDate, weekStartISO } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
-import { toast } from 'sonner'
 import { DataTablePagination } from '@/components/shared/DataTablePagination'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
@@ -247,8 +246,8 @@ export default function DebitNotesPage() {
       const data = res.data.data || res.data || []
       setAllReturns(data)
       setPastReturns(data)
-    } catch {
-      toast.error('Failed to load debit notes history')
+    } catch (err) {
+      handleApiError(err, 'Failed to load debit notes history')
     } finally {
       setReturnsLoading(false)
     }

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import {
   USE_MOCK_DATA,
   mockBulkUpdateLeads,
@@ -67,7 +67,7 @@ export function BulkActionsBar({
       onClear()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Bulk update failed')
+      handleApiError(err, 'Bulk update failed')
     } finally {
       setBusy(false)
     }
@@ -92,7 +92,7 @@ export function BulkActionsBar({
       onClear()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Bulk delete failed')
+      handleApiError(err, 'Bulk delete failed')
     } finally {
       setBusy(false)
       setDeleteConfirmOpen(false)

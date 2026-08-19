@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { toast } from 'sonner'
 import { motion, type Variants } from 'framer-motion'
 import {
   TrendingUp,
@@ -51,7 +50,7 @@ import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { cn, formatCurrency, formatCurrencyCompact, formatDate, getInitials } from '@/lib/utils'
 import { ExportMenu } from '@/components/shared/ExportMenu'
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -382,8 +381,8 @@ export default function SalespersonReportPage() {
       const { data } = await api.get('/salespersons/report', { params })
       setRows(data)
       setGeneratedAt(new Date().toISOString())
-    } catch {
-      toast.error('Failed to load report')
+    } catch (err) {
+      handleApiError(err, 'Failed to load report')
     } finally {
       setIsLoading(false)
     }

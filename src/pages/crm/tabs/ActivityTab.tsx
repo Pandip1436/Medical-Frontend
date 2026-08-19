@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import {
   USE_MOCK_DATA,
   mockActivitiesForLead,
@@ -90,7 +90,7 @@ export function ActivityTab({ lead }: ActivityTabProps) {
       setItems(data)
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Failed to load activities')
+      handleApiError(err, 'Failed to load activities')
     } finally {
       setLoading(false)
     }
@@ -143,7 +143,7 @@ export function ActivityTab({ lead }: ActivityTabProps) {
       fetchActivities()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Update failed')
+      handleApiError(err, 'Update failed')
     }
   }
 
@@ -167,7 +167,7 @@ export function ActivityTab({ lead }: ActivityTabProps) {
       fetchActivities()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } }
-      toast.error(e?.response?.data?.message ?? 'Delete failed')
+      handleApiError(err, 'Delete failed')
     } finally {
       setDeleteTarget(null)
     }

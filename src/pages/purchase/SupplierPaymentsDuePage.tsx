@@ -45,7 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import api from '@/lib/api'
+import api, { handleApiError } from '@/lib/api'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { cn, formatCurrency, formatDate } from '@/lib/utils'
 import { clampAmountInput } from '@/lib/amountInput'
@@ -163,7 +163,7 @@ export default function SupplierPaymentsDuePage() {
     } catch (err: unknown) {
       const e = err as { name?: string; code?: string }
       if (e?.name !== 'CanceledError' && e?.code !== 'ERR_CANCELED') {
-        toast.error('Failed to load payments due')
+        handleApiError(err, 'Failed to load payments due')
         setRows([])
         setSummary(EMPTY_SUMMARY)
       }
@@ -227,7 +227,7 @@ export default function SupplierPaymentsDuePage() {
       await fetchRows()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ?? 'Failed to record payment'
-      toast.error(Array.isArray(msg) ? msg.join(', ') : msg)
+      handleApiError(err, Array.isArray(msg) ? msg.join(', ') : msg)
     } finally {
       setPaySubmitting(false)
     }
