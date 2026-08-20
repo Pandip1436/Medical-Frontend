@@ -8,7 +8,8 @@ import { motion, type Variants } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { requiredGstin, requiredDrugLicense } from '@/lib/validators'
+import { requiredGstin, requiredDrugLicense, DL_MAX } from '@/lib/validators'
+import { isValidPhone } from '@/lib/phones'
 import { toast } from 'sonner'
 import {
   Building2,
@@ -96,10 +97,25 @@ const settingsSections: SettingsSection[] = [
 // Zod schemas
 // ─────────────────────────────────────────────────────────────
 
+// Room for three 10-digit numbers plus separators, with slack for a landline
+// carrying an STD code.
+const BUSINESS_PHONE_MAX = 60
+
 const businessProfileSchema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
   address: z.string().min(1, 'Address is required'),
-  phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+  // A business publishes every number it answers on — our own letterhead lists
+  // three — so this takes a comma-separated list rather than one mobile. Each
+  // entry goes through the same rule the customer/supplier phone fields use, so
+  // landlines are accepted here too.
+  phone: z
+    .string()
+    .trim()
+    .min(1, 'Phone is required')
+    .refine((v) => {
+      const parts = v.split(',').map((p) => p.trim()).filter(Boolean)
+      return parts.length > 0 && parts.every(isValidPhone)
+    }, 'Enter valid phone numbers, separated by commas'),
   email: z.string().email('Valid email required'),
   gstin: requiredGstin(),
   drugLicense: requiredDrugLicense(),
@@ -707,15 +723,18 @@ function BusinessProfileSection() {
                   <Label htmlFor="phone">Phone <span className="text-destructive">*</span></Label>
                   <Input
                     id="phone"
-                    inputMode="numeric"
-                    maxLength={10}
+                    inputMode="tel"
+                    maxLength={BUSINESS_PHONE_MAX}
+                    placeholder="9994113242, 9994173036"
                     {...register('phone')}
-                    // Accept digits only, capped at 10 (overrides register's onChange).
-                    onChange={(e) => setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
+                    // Digits plus the separators a list needs; letters dropped.
+                    onChange={(e) => setValue('phone', e.target.value.replace(/[^\d,+()\s-]/g, '').slice(0, BUSINESS_PHONE_MAX), { shouldValidate: true, shouldDirty: true })}
                     error={!!errors.phone}
                   />
-                  {errors.phone && (
+                  {errors.phone ? (
                     <p className="text-xs text-destructive">{errors.phone.message}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Separate multiple numbers with a comma.</p>
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -766,7 +785,7 @@ function BusinessProfileSection() {
                     id="drugLicense"
                     {...register('drugLicense')}
                     className="font-mono text-xs"
-                    maxLength={30}
+                    maxLength={DL_MAX}
                     error={!!errors.drugLicense}
                     onChange={(e) => setValue('drugLicense', e.target.value, { shouldValidate: true, shouldDirty: true })}
                   />

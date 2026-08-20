@@ -25,7 +25,11 @@ export const GSTIN_MESSAGE = 'Invalid GSTIN format (e.g. 33ABCDE1234F1Z5)'
 // garbage while accepting genuine formats.
 export const DL_REGEX = /^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9\-/,\s]+$/
 export const DL_MESSAGE = 'Enter a valid drug license number (e.g. MDU/4717/20B)'
-export const DL_MAX = 30
+// Two full licences separated by a space run past 40 characters — the real
+// pair on our own letterhead is 42 ("MDU/5029/4769/20B,21B  MDU/6114/6114/20,21"),
+// which the old 30-cap silently truncated as you typed. 60 leaves room for a
+// longer state format without letting the field become a free-text box.
+export const DL_MAX = 60
 
 // Optional GSTIN — blank is allowed, but anything typed must be a valid GSTIN.
 export const optionalGstin = () =>
