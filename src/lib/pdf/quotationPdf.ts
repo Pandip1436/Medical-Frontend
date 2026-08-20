@@ -2,6 +2,23 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { COMPANY, fmtINR, uploadAndShareUrl } from './invoicePdf'
 import { formatDate } from '@/lib/utils'
+import { useSettingsStore } from '@/stores/settingsStore'
+
+// Live business details, falling back to the bundled constant before the
+// settings store has loaded. This used to read COMPANY directly, so editing
+// Settings > Business Profile changed every document except the quotation.
+function getCompany() {
+  const profile = useSettingsStore.getState().businessProfile
+  if (!profile) return COMPANY
+  return {
+    name: profile.name || COMPANY.name,
+    address: profile.address || COMPANY.address,
+    phone: profile.phone || COMPANY.phone,
+    email: profile.email || COMPANY.email,
+    gstin: profile.gstin || COMPANY.gstin,
+    dlNo: profile.drugLicense || COMPANY.dlNo,
+  }
+}
 
 // Quotation list rows carry less than invoices (no batch/GST/expiry). This
 // generator targets that slim shape directly so we don't have to invent
@@ -26,28 +43,36 @@ export function generateQuotationPdf(qt: QuotationDoc) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
 
+  const company = getCompany()
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text(COMPANY.name, pageWidth / 2, 15, { align: 'center' })
+  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(COMPANY.address, pageWidth / 2, 21, { align: 'center' })
-  doc.text(`Phone: ${COMPANY.phone}  |  Email: ${COMPANY.email}`, pageWidth / 2, 26, { align: 'center' })
-  doc.text(`GSTIN: ${COMPANY.gstin}  |  DL No: ${COMPANY.dlNo}`, pageWidth / 2, 31, { align: 'center' })
+  // The address is one long line now, so wrap it rather than letting it run off
+  // both edges of the page.
+  const addr = doc.splitTextToSize(company.address, pageWidth - 28) as string[]
+  doc.text(addr, pageWidth / 2, 21, { align: 'center' })
+  const afterAddr = 21 + (addr.length - 1) * 4
+  doc.text(`Phone: ${company.phone}  |  Email: ${company.email}`, pageWidth / 2, afterAddr + 5, { align: 'center' })
+  doc.text(`GSTIN: ${company.gstin}  |  DL No: ${company.dlNo}`, pageWidth / 2, afterAddr + 10, { align: 'center' })
 
+  // Everything below the letterhead shifts with it, so a wrapped address can't
+  // collide with the rule or the title.
+  const ruleY = afterAddr + 13
   doc.setDrawColor(180)
-  doc.line(14, 34, pageWidth - 14, 34)
+  doc.line(14, ruleY, pageWidth - 14, ruleY)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
-  doc.text('QUOTATION', pageWidth / 2, 41, { align: 'center' })
+  doc.text('QUOTATION', pageWidth / 2, ruleY + 7, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   const leftX = 14
   const rightX = pageWidth / 2 + 5
-  let y = 48
+  let y = ruleY + 14
   doc.text(`Quotation No: ${qt.quotationNumber}`, leftX, y)
   doc.text(`Date: ${formatDate(qt.date)}`, rightX, y)
   y += 5

@@ -9,15 +9,25 @@ import { useSettingsStore } from '@/stores/settingsStore'
 
 // Default company info — used only as fallback when the settings store
 // hasn't loaded a business profile yet. The real values come from
-// /settings/business via useSettingsStore.
+// /settings/business via useSettingsStore (Settings > Business Profile).
 const DEFAULT_COMPANY = {
   name: 'HOSPITAL SUPPLIERS',
   city: 'Madurai',
-  address: 'Hospital Suppliers, Madurai, Tamil Nadu',
-  phone: '+91 452 234 5678',
-  email: 'contact@hospitalsuppliers.in',
-  gstin: '33AAAPL1234C1Z5',
-  dlNo: 'TN-MDU-20B-01234 / TN-MDU-21B-01234',
+  address:
+    'D.No: 12D/1, Ground Floor, North Portion, Technical School West, 4th Street, Sahaya Matha, Gnanaolipuram, Madurai - 625016',
+  phone: '9994113242, 9994173036, 8870066824',
+  email: 'hospitalsuppliers2004@gmail.com',
+  gstin: '33AFAPB0063K1Z3',
+  dlNo: 'MDU/5029/4769/20B,21B  MDU/6114/6114/20,21',
+}
+
+// Payment instructions printed under the items table, mirroring the challan
+// layout the client works from. Not in the business profile (no column for it),
+// so it lives here as one editable constant rather than being scattered through
+// the drawing code. Move it into Settings if it ever needs to change per branch.
+const PAYMENT_NOTE = {
+  title: 'Kindly deposit Payment through Our',
+  lines: ['GPAY: BABU - 99941-13242', 'OR', 'JEYA LAKSHMI - 99941-73036'],
 }
 
 function getCompany() {
@@ -53,39 +63,84 @@ const fmt = fmtINR
 const fmt2 = (n: number) =>
   `Rs. ${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boolean }) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-  const pageWidth = doc.internal.pageSize.getWidth()
-  const company = getCompany()
+// ─── Layout geometry (mm, A4 210×297) ────────────────────────────────
+// The document mirrors the client's delivery-challan stationery: one ruled
+// outer frame with every block sitting in its own bordered band, rather than
+// centred text floating on the page.
+const M = 10                 // page margin / frame inset
+const RIGHT = 200            // frame right edge
+const FRAME_TOP = 10
+const FRAME_BOTTOM = 285     // leaves room for the page-number strip
+const HEAD_BOTTOM = 40       // business block + document title
+const META_BOTTOM = 55       // invoice no/date | salesperson
+const MID = 108              // vertical divider for the two-column bands
 
-  // Business logo at top-left (skipped silently when not configured).
-  const logo = getPdfLogo()
+// Draws everything that repeats on every page: the outer frame, the business
+// header and the document title. Registered as autoTable's didDrawPage so a
+// multi-page invoice keeps its letterhead instead of only page one having it.
+function drawPageChrome(
+  doc: jsPDF,
+  company: ReturnType<typeof getCompany>,
+  title: string,
+  logo: string | null,
+) {
+  doc.setDrawColor(0)
+  doc.setLineWidth(0.4)
+  doc.rect(M, FRAME_TOP, RIGHT - M, FRAME_BOTTOM - FRAME_TOP)
+  doc.setLineWidth(0.2)
+
+  // Logo left, business details beside it, document title hard right.
+  let textX = M + 3
   if (logo) {
-    try { doc.addImage(logo, 'PNG', 14, 8, 18, 18) } catch { /* bad image — skip */ }
+    try {
+      doc.addImage(logo, 'PNG', M + 3, FRAME_TOP + 3, 22, 22)
+      textX = M + 28
+    } catch { /* bad image — fall back to text at the margin */ }
   }
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(16)
-  doc.text(company.name, pageWidth / 2, 15, { align: 'center' })
+  doc.setFontSize(13)
+  doc.text(company.name, textX, FRAME_TOP + 8)
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(company.address, pageWidth / 2, 21, { align: 'center' })
-  doc.text(
-    `Phone: ${company.phone}  |  Email: ${company.email}`,
-    pageWidth / 2,
-    26,
-    { align: 'center' },
-  )
-  doc.text(
-    `GSTIN: ${company.gstin}  |  DL No: ${company.dlNo}`,
-    pageWidth / 2,
-    31,
-    { align: 'center' },
-  )
+  doc.setFontSize(7.5)
+  // Address is one long line in the profile — wrap it inside the space left of
+  // the title so it can never run under (or past) the document title.
+  const addrLines = doc.splitTextToSize(company.address, 108) as string[]
+  let hy = FRAME_TOP + 12.5
+  for (const line of addrLines.slice(0, 3)) {
+    doc.text(line, textX, hy)
+    hy += 3.4
+  }
+  doc.text(`Phone: ${company.phone}`, textX, hy); hy += 3.4
+  doc.text(`GSTIN: ${company.gstin}   D.L.No: ${company.dlNo}`, textX, hy)
 
-  doc.setDrawColor(180)
-  doc.line(14, 34, pageWidth - 14, 34)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(19)
+  doc.text(title, RIGHT - 3, FRAME_TOP + 15, { align: 'right' })
+
+  doc.setLineWidth(0.4)
+  doc.line(M, HEAD_BOTTOM, RIGHT, HEAD_BOTTOM)
+  doc.setLineWidth(0.2)
+}
+
+// "Label : value" with the colons lined up, as on the reference challan.
+function labelled(doc: jsPDF, label: string, value: string, x: number, y: number, colonX: number) {
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.text(label, x, y)
+  doc.text(':', colonX, y)
+  doc.setFont('helvetica', 'bold')
+  doc.text(value, colonX + 2.5, y)
+  doc.setFont('helvetica', 'normal')
+}
+
+export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boolean }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const company = getCompany()
+  const logo = getPdfLogo()
 
   // A replacement invoice fulfils a REPLACEMENT credit note at no charge.
   // Detect via the flag (set on reprint) or the REPL/ number series (set at
@@ -93,205 +148,219 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   const isReplacement =
     invoice.isReplacement === true ||
     (invoice.invoiceNumber ?? '').toUpperCase().startsWith('REPL')
-
-  const title = invoice.type === 'QUOTATION' ? 'QUOTATION' : 'TAX INVOICE'
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
-  doc.text(title, pageWidth / 2, 41, { align: 'center' })
-
-  // Loud, unmissable stamp so the physical bill can't be mistaken for a
-  // chargeable sale.
-  if (isReplacement) {
-    doc.setFontSize(10)
-    doc.setTextColor(2, 132, 199) // sky-600
-    doc.text('REPLACEMENT - NO CHARGE', pageWidth / 2, 46, { align: 'center' })
-    doc.setTextColor(0, 0, 0)
-  }
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  const leftX = 14
-  const rightX = pageWidth / 2 + 5
-  // Push the detail block down a touch when the replacement stamp is present.
-  let y = isReplacement ? 53 : 48
-  doc.text(`Invoice No: ${invoice.invoiceNumber}`, leftX, y)
-  doc.text(`Date: ${formatDate(invoice.date)}`, rightX, y)
-  y += 5
-  doc.text(`Billing Type: ${invoice.billingType}`, leftX, y)
-  doc.text(`Payment Mode: ${invoice.paymentMode}`, rightX, y)
-  // Due date is a credit-invoice concept; a quotation has no payment due, so
-  // never print it on quotation bills.
-  if (invoice.dueDate && invoice.type !== 'QUOTATION') {
-    y += 5
-    doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, leftX, y)
-  }
-  y += 5
-  doc.text(`Customer: ${invoice.customerName}`, leftX, y)
-  if (invoice.doctorName) doc.text(`Doctor: ${invoice.doctorName}`, rightX, y)
-  if (invoice.customerPhone && invoice.customerPhone !== '0000000000') {
-    y += 5
-    doc.text(`Phone: ${invoice.customerPhone}`, leftX, y)
-  }
-  if (invoice.customerAddress) {
-    y += 5
-    // Wrap long addresses to the usable page width so they don't overflow.
-    const addressLines = doc.splitTextToSize(`Address: ${invoice.customerAddress}`, pageWidth - leftX - 14)
-    doc.text(addressLines, leftX, y)
-    y += (addressLines.length - 1) * 4
-  }
-  if (invoice.customerGstin) {
-    y += 5
-    doc.text(`Customer GSTIN: ${invoice.customerGstin}`, leftX, y)
-  }
-  if (invoice.salespersonName) {
-    y += 5
-    doc.text(`Salesperson: ${invoice.salespersonName}`, leftX, y)
-  }
-  y += 3
-
-  // Batch & Expiry are inventory facts — omitted on a quotation. The freed
-  // width (28mm) is redistributed so the remaining columns still fill the page.
   const isQuote = invoice.type === 'QUOTATION'
+  const title = isQuote ? 'QUOTATION' : 'TAX INVOICE'
+
+  drawPageChrome(doc, company, title, logo)
+
+  // ── Meta band: document no/date on the left, salesperson on the right ──
+  doc.line(M, META_BOTTOM, RIGHT, META_BOTTOM)
+  doc.line(MID, HEAD_BOTTOM, MID, META_BOTTOM)
+  const noLabel = isQuote ? 'Quotation No' : 'Invoice No'
+  const dateLabel = isQuote ? 'Quotation Date' : 'Invoice Date'
+  labelled(doc, noLabel, invoice.invoiceNumber, M + 3, HEAD_BOTTOM + 5.5, M + 26)
+  labelled(doc, dateLabel, formatDate(invoice.date), M + 3, HEAD_BOTTOM + 11, M + 26)
+  if (invoice.salespersonName) {
+    labelled(doc, 'Sales person', invoice.salespersonName, MID + 3, HEAD_BOTTOM + 5.5, MID + 26)
+  }
+  // Due date is a credit-invoice concept; a quotation has no payment due.
+  if (invoice.dueDate && !isQuote) {
+    labelled(doc, 'Due Date', formatDate(invoice.dueDate), MID + 3, HEAD_BOTTOM + 11, MID + 26)
+  } else {
+    labelled(doc, 'Payment', invoice.paymentMode ?? '-', MID + 3, HEAD_BOTTOM + 11, MID + 26)
+  }
+
+  // ── Party band ──
+  // Height follows the content: a walk-in with just a name gets a single-line
+  // band instead of a fixed box with a blank half.
+  const phoneSuffix =
+    invoice.customerPhone && invoice.customerPhone !== '0000000000'
+      ? ` (${invoice.customerPhone})`
+      : ''
+  const partyBits: string[] = []
+  if (invoice.customerAddress) partyBits.push(invoice.customerAddress)
+  if (invoice.customerGstin) partyBits.push(`GSTIN: ${invoice.customerGstin}`)
+  if (invoice.doctorName) partyBits.push(`Doctor: ${invoice.doctorName}`)
+  doc.setFontSize(8)
+  const partyLines = partyBits.length
+    ? (doc.splitTextToSize(partyBits.join('   |   '), RIGHT - M - 6) as string[]).slice(0, 2)
+    : []
+  const partyBottom = META_BOTTOM + 8.5 + partyLines.length * 3.8
+
+  doc.line(M, partyBottom, RIGHT, partyBottom)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text(`${invoice.customerName}${phoneSuffix}`, M + 3, META_BOTTOM + 5.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  if (partyLines.length) doc.text(partyLines, M + 3, META_BOTTOM + 10)
+  if (isReplacement) {
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(2, 132, 199)
+    doc.text('REPLACEMENT - NO CHARGE', RIGHT - 3, META_BOTTOM + 5.5, { align: 'right' })
+    doc.setTextColor(0, 0, 0)
+    doc.setFont('helvetica', 'normal')
+  }
+
+  // ── Items ──
+  // Column set follows the reference challan (#, Description, MRP, Batch, Qty,
+  // Rate, Amount) plus the two a tax invoice cannot omit: Expiry (drug
+  // traceability) and GST% (rate-wise tax). Quotations drop batch and expiry.
   const head = isQuote
-    ? ['#', 'Product', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount']
-    : ['#', 'Product', 'Batch', 'Expiry', 'Qty', 'MRP', 'Rate', 'Disc%', 'Taxable', 'GST%', 'GST Rs', 'Amount']
+    ? ['#', 'Description', 'MRP', 'Qty', 'Rate', 'GST%', 'Amount']
+    : ['#', 'Description', 'MRP', 'Batch No', 'Expiry', 'Qty', 'Rate', 'GST%', 'Amount']
   const columnStyles = (isQuote
     ? {
-        0: { halign: 'center', cellWidth: 7 },   // #
-        1: { halign: 'left',   cellWidth: 46 },  // Product
-        2: { halign: 'center', cellWidth: 9 },   // Qty
-        3: { halign: 'right',  cellWidth: 17 },  // MRP
-        4: { halign: 'right',  cellWidth: 19 },  // Rate
-        5: { halign: 'center', cellWidth: 12 },  // Disc%
-        6: { halign: 'right',  cellWidth: 21 },  // Taxable
-        7: { halign: 'center', cellWidth: 11 },  // GST%
-        8: { halign: 'right',  cellWidth: 15 },  // GST Rs
-        9: { halign: 'right',  cellWidth: 25 },  // Amount
+        0: { halign: 'center', cellWidth: 9 },
+        1: { halign: 'left',   cellWidth: 82 },
+        2: { halign: 'right',  cellWidth: 20 },
+        3: { halign: 'center', cellWidth: 16 },
+        4: { halign: 'right',  cellWidth: 22 },
+        5: { halign: 'center', cellWidth: 14 },
+        6: { halign: 'right',  cellWidth: 27 },
       }
     : {
-        0:  { halign: 'center', cellWidth: 7 },  // #
-        1:  { halign: 'left',   cellWidth: 32 }, // Product
-        2:  { halign: 'left',   cellWidth: 15 }, // Batch
-        3:  { halign: 'center', cellWidth: 13 }, // Expiry
-        4:  { halign: 'center', cellWidth: 9 },  // Qty
-        5:  { halign: 'right',  cellWidth: 15 }, // MRP
-        6:  { halign: 'right',  cellWidth: 15 }, // Rate
-        7:  { halign: 'center', cellWidth: 12 }, // Disc%
-        8:  { halign: 'right',  cellWidth: 17 }, // Taxable
-        9:  { halign: 'center', cellWidth: 11 }, // GST%
-        10: { halign: 'right',  cellWidth: 15 }, // GST Rs
-        11: { halign: 'right',  cellWidth: 21 }, // Amount
+        0: { halign: 'center', cellWidth: 9 },
+        1: { halign: 'left',   cellWidth: 58 },
+        2: { halign: 'right',  cellWidth: 17 },
+        3: { halign: 'left',   cellWidth: 22 },
+        4: { halign: 'center', cellWidth: 16 },
+        5: { halign: 'center', cellWidth: 14 },
+        6: { halign: 'right',  cellWidth: 20 },
+        7: { halign: 'center', cellWidth: 12 },
+        8: { halign: 'right',  cellWidth: 22 },
       }) as Record<number, { halign: 'left' | 'center' | 'right'; cellWidth: number }>
-  const headAlign = (isQuote
-    ? ['center', 'left', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right']
-    : ['center', 'left', 'left', 'center', 'center', 'right', 'right', 'center', 'right', 'center', 'right', 'right']) as ReadonlyArray<'left' | 'center' | 'right'>
 
   autoTable(doc, {
-    startY: y + 3,
+    startY: partyBottom,
     head: [head],
     body: invoice.items.map((it, i) => {
       const amt = Number(it.amount || 0)
-      const taxable = amt / (1 + Number(it.gstPercent) / 100)
+      const qty = `${it.quantity}`
       const tail = [
-        it.quantity,
-        Number(it.mrp).toFixed(2),
+        qty,
         Number(it.rate).toFixed(2),
-        Number(it.discountPercent).toFixed(2),
-        // Pre-GST taxable base — line amount is GST-inclusive.
-        taxable.toFixed(2),
         Number(it.gstPercent).toFixed(2),
-        // GST value in rupees = amount − taxable.
-        (amt - taxable).toFixed(2),
-        // Full line amount with paise — never rounded/hidden.
         amt.toFixed(2),
       ]
       return isQuote
-        ? [i + 1, it.productName, ...tail]
+        ? [i + 1, it.productName, Number(it.mrp).toFixed(2), ...tail]
         : [
             i + 1,
             it.productName,
-            it.batchNumber,
-            it.expiryDate ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }) : '—',
+            Number(it.mrp).toFixed(2),
+            it.batchNumber || '-',
+            it.batchNumber && it.expiryDate
+              ? new Date(it.expiryDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+              : '-',
             ...tail,
           ]
     }),
-    styles: { fontSize: 8, cellPadding: 1.5, valign: 'middle' },
-    headStyles: { fillColor: [45, 55, 72], textColor: 255 },
+    theme: 'grid',
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.6,
+      valign: 'middle',
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
+      textColor: [0, 0, 0],
+    },
+    headStyles: {
+      fillColor: [255, 255, 255],
+      textColor: [0, 0, 0],
+      fontStyle: 'bold',
+      lineWidth: 0.2,
+    },
     columnStyles,
-    // Header text is left-aligned by default — force each header cell to use its
-    // column's alignment so labels sit directly above their values.
+    // Header labels sit directly above their values.
     didParseCell: (data) => {
       if (data.section !== 'head') return
-      const align = headAlign[data.column.index]
+      const align = columnStyles[data.column.index]?.halign
       if (align) data.cell.styles.halign = align
     },
-    margin: { left: 14, right: 14 },
+    // Continuation pages get the same letterhead and start below it.
+    didDrawPage: (data) => {
+      if (data.pageNumber > 1) drawPageChrome(doc, company, title, logo)
+    },
+    margin: { left: M, right: pageWidth - RIGHT, top: HEAD_BOTTOM + 4, bottom: 60 },
   })
 
-  const afterTableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6
-  const summaryX = pageWidth - 80
+  // ── Payment note (left) + totals (right) ──
+  const tableEnd = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
+  const balanceDue = Math.max(0, Number(invoice.grandTotal) - Number(invoice.amountPaid))
 
-  const row = (label: string, value: string, yPos: number, bold = false) => {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.text(label, summaryX, yPos)
-    doc.text(value, pageWidth - 14, yPos, { align: 'right' })
-  }
-
-  let sy = afterTableY
-  row('Subtotal', fmt2(Number(invoice.subtotal)), sy); sy += 5
+  const totals: [string, string, boolean][] = [['Sub Total', fmt2(Number(invoice.subtotal)), false]]
   if (Number(invoice.productDiscount) > 0) {
-    row('Discount', `- ${fmt2(Number(invoice.productDiscount))}`, sy); sy += 5
+    totals.push(['Discount', `- ${fmt2(Number(invoice.productDiscount))}`, false])
   }
-  row('Taxable', fmt2(Number(invoice.taxableAmount)), sy); sy += 5
-  row('CGST', fmt2(Number(invoice.cgst)), sy); sy += 5
-  row('SGST', fmt2(Number(invoice.sgst)), sy); sy += 5
-  if (Number(invoice.igst) > 0) {
-    row('IGST', fmt2(Number(invoice.igst)), sy); sy += 5
-  }
+  totals.push(['Taxable', fmt2(Number(invoice.taxableAmount)), false])
+  if (Number(invoice.cgst) > 0) totals.push(['CGST', fmt2(Number(invoice.cgst)), false])
+  if (Number(invoice.sgst) > 0) totals.push(['SGST', fmt2(Number(invoice.sgst)), false])
+  if (Number(invoice.igst) > 0) totals.push(['IGST', fmt2(Number(invoice.igst)), false])
   if (Number(invoice.deliveryCharge) > 0) {
-    row('Delivery / Packaging', fmt2(Number(invoice.deliveryCharge)), sy); sy += 5
+    totals.push(['Delivery / Packaging', fmt2(Number(invoice.deliveryCharge)), false])
   }
-  // User-defined extra charges (Commission, Handling, …) — non-taxable add-ons
-  // already folded into grandTotal; each gets its own line.
   for (const c of (invoice.additionalCharges ?? [])) {
     if ((c?.label ?? '').trim() === '' || Number(c?.amount) === 0) continue
-    row(String(c.label).trim(), fmt2(Number(c.amount) || 0), sy); sy += 5
+    totals.push([String(c.label).trim(), fmt2(Number(c.amount) || 0), false])
   }
   if (Math.abs(Number(invoice.roundOff)) > 0) {
-    row('Round Off', fmt2(Number(invoice.roundOff)), sy); sy += 5
+    totals.push(['Round Off', fmt2(Number(invoice.roundOff)), false])
   }
-  sy += 2
-  doc.setDrawColor(180)
-  doc.line(summaryX - 2, sy - 1, pageWidth - 14, sy - 1)
-  row('GRAND TOTAL', fmt2(Number(invoice.grandTotal)), sy + 4, true)
-  sy += 9
-  if (Number(invoice.amountPaid) > 0) {
-    row('Paid', fmt2(Number(invoice.amountPaid)), sy); sy += 5
+  totals.push(['Total', fmt2(Number(invoice.grandTotal)), true])
+  if (Number(invoice.amountPaid) > 0) totals.push(['Paid', fmt2(Number(invoice.amountPaid)), false])
+  if (balanceDue > 0) totals.push(['Balance Due', fmt2(balanceDue), true])
+
+  const bandTop = tableEnd
+  const bandHeight = Math.max(totals.length * 5 + 6, 30)
+  const bandBottom = bandTop + bandHeight
+  // No box around this band: the payment note on the left is one tall cell that
+  // runs from the items table down to the rule under the signature, so the only
+  // rules here are the centre divider and — on the right half only — the line
+  // separating the totals from the signature panel below.
+  doc.line(MID, bandTop, MID, bandBottom)
+
+  // Payment instructions, mirroring the challan's left-hand block.
+  doc.setFont('helvetica', 'bolditalic')
+  doc.setFontSize(8.5)
+  doc.text(PAYMENT_NOTE.title, M + 3, bandTop + 6)
+  doc.setFont('helvetica', 'bold')
+  let py = bandTop + 11
+  for (const line of PAYMENT_NOTE.lines) {
+    doc.text(line, M + 3, py)
+    py += 4.5
   }
-  if (Number(invoice.changeReturned) > 0) {
-    row('Change', fmt2(Number(invoice.changeReturned)), sy); sy += 5
-  }
-  // Remaining payable after part-payment (credit / partial). Shown in bold so
-  // the balance stands out on the printed bill.
-  const balanceDue = Math.max(
-    0,
-    Number(invoice.grandTotal) - Number(invoice.amountPaid),
-  )
-  if (balanceDue > 0) {
-    row('Balance Due', fmt2(balanceDue), sy, true); sy += 5
+  doc.setFont('helvetica', 'normal')
+
+  let ty = bandTop + 6
+  for (const [label, value, bold] of totals) {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal')
+    doc.setFontSize(bold ? 9.5 : 8.5)
+    doc.text(label, MID + 4, ty)
+    doc.text(value, RIGHT - 3, ty, { align: 'right' })
+    ty += 5
   }
 
-  const footerY = doc.internal.pageSize.getHeight() - 20
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'italic')
-  doc.text(
-    'Goods once sold will not be taken back or exchanged. Subject to Madurai jurisdiction.',
-    pageWidth / 2,
-    footerY,
-    { align: 'center' },
-  )
+  // ── Signature panel ──
+  // Sits under the totals; the left column stays clear, as on the challan.
+  const signTop = bandBottom
+  const signHeight = 26
+  doc.rect(MID, signTop, RIGHT - MID, signHeight)
   doc.setFont('helvetica', 'normal')
-  doc.text('Authorised Signatory', pageWidth - 14, footerY + 8, { align: 'right' })
+  doc.setFontSize(8.5)
+  doc.text(`For ${company.name}`, (MID + RIGHT) / 2, signTop + signHeight - 4, { align: 'center' })
+
+  // A full-width rule closes the signature row. Below it the page is one open
+  // area — no centre divider — matching the challan.
+  doc.line(M, signTop + signHeight, RIGHT, signTop + signHeight)
+
+  // ── Page numbers, outside the frame like the reference ──
+  const pages = doc.getNumberOfPages()
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p)
+    doc.setFontSize(7.5)
+    doc.text(`${p} / ${pages}`, RIGHT, pageHeight - 8, { align: 'right' })
+  }
 
   if (options?.autoPrint) {
     doc.autoPrint()

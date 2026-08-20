@@ -6,13 +6,16 @@ import { getPdfLogo } from '@/lib/pdf/logo'
 
 // Fallback company info — used when the caller doesn't supply one. Real
 // values come from the business profile in settings (passed via GrnPdfData).
+// Used when the caller doesn't pass `grn.company`. Kept in step with the real
+// business details (Settings > Business Profile).
 const COMPANY_FALLBACK = {
   name: 'HOSPITAL SUPPLIERS',
-  address: 'Hospital Suppliers, Madurai, Tamil Nadu',
-  phone: '+91 452 234 5678',
-  email: 'contact@hospitalsuppliers.in',
-  gstin: '33AAAPL1234C1Z5',
-  dlNo: 'TN-MDU-20B-01234 / TN-MDU-21B-01234',
+  address:
+    'D.No: 12D/1, Ground Floor, North Portion, Technical School West, 4th Street, Sahaya Matha, Gnanaolipuram, Madurai - 625016',
+  phone: '9994113242, 9994173036, 8870066824',
+  email: 'hospitalsuppliers2004@gmail.com',
+  gstin: '33AFAPB0063K1Z3',
+  dlNo: 'MDU/5029/4769/20B,21B  MDU/6114/6114/20,21',
 }
 
 export interface GrnPdfCompany {

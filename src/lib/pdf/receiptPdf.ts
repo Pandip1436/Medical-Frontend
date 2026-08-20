@@ -61,22 +61,30 @@ export function generateReceiptPdf(
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.text(company.address, pageWidth / 2, 24, { align: 'center' })
-  doc.text(`Phone: ${company.phone}  |  Email: ${company.email}`, pageWidth / 2, 29, { align: 'center' })
-  doc.text(`GSTIN: ${company.gstin}  |  DL No: ${company.dlNo}`, pageWidth / 2, 34, { align: 'center' })
+  // Wrapped: the address is a full postal line, not the short string this
+  // header was originally sized for.
+  const addr = doc.splitTextToSize(company.address, pageWidth - 28) as string[]
+  doc.text(addr, pageWidth / 2, 24, { align: 'center' })
+  let hy = 24 + (addr.length - 1) * 4
+  doc.text(`Phone: ${company.phone}`, pageWidth / 2, hy + 5, { align: 'center' })
+  // A money receipt needs the business identity and its GSTIN; the drug-licence
+  // number belongs on documents that move stock (invoice, challan, GRN), so
+  // it's deliberately left off here.
+  doc.text(`GSTIN: ${company.gstin}`, pageWidth / 2, hy + 10, { align: 'center' })
+  hy += 13
 
   doc.setDrawColor(180)
-  doc.line(14, 37, pageWidth - 14, 37)
+  doc.line(14, hy, pageWidth - 14, hy)
 
   // ── Title ───────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
-  doc.text('PAYMENT RECEIPT', pageWidth / 2, 45, { align: 'center' })
+  doc.text('PAYMENT RECEIPT', pageWidth / 2, hy + 8, { align: 'center' })
 
   // ── Receipt meta ────────────────────────────────────────────
   const leftX = 14
   const rightX = pageWidth / 2 + 5
-  let y = 54
+  let y = hy + 17
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   doc.text(`Receipt No: ${payment.receiptNumber ?? '—'}`, leftX, y)
