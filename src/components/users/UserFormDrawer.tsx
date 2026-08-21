@@ -170,6 +170,10 @@ const createSchema = z
 const editSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
+    // Editable on edit too — it's the login identifier, so it's admin-only, and
+    // the whole /users PATCH route is already role-gated to ADMIN. Same rule as
+    // create; the server re-checks uniqueness and answers 409 on a clash.
+    email: z.string().email('Valid email required'),
     phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
     roles: rolesField,
     newPassword: z.string().min(6, 'Password must be at least 6 characters').or(z.literal('')).optional(),
@@ -634,6 +638,7 @@ function EditUserBody({
     resolver: zodResolver(editSchema),
     defaultValues: {
       name: user.name,
+      email: user.email ?? '',
       phone: user.phone,
       roles: user.roles?.length ? user.roles : (user.role ? [user.role] : []),
       newPassword: '',
@@ -646,6 +651,10 @@ function EditUserBody({
     try {
       const payload: Record<string, unknown> = {
         name: data.name,
+        // Sent only when it actually changed: the server skips its uniqueness
+        // check for an unchanged address, but not sending it at all keeps a
+        // no-op edit from touching the login identifier under any circumstance.
+        ...(data.email.trim() !== (user.email ?? '') ? { email: data.email.trim() } : {}),
         phone: data.phone,
         roles: data.roles,
         branchIds: data.roles.includes(SUPER_ADMIN) ? [] : data.branchIds,
@@ -717,15 +726,27 @@ function EditUserBody({
             </div>
           </div>
 
-          {/* Email (read-only) */}
+          {/* Email — editable. This drawer is only reachable from User
+              Management, and PATCH /users/:id is @Roles('ADMIN'), so the change
+              is admin-only by construction. */}
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Email
+              Email *
             </Label>
-            <Input value={user.email} disabled className="bg-muted/40" />
-            <p className="text-[11px] text-muted-foreground">
-              Email cannot be changed after creation.
-            </p>
+            <Input
+              type="email"
+              autoComplete="off"
+              placeholder="name@example.com"
+              {...register('email')}
+              error={!!errors.email}
+            />
+            {errors.email ? (
+              <p className="text-xs text-destructive">{errors.email.message}</p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                This is the address they sign in with — changing it changes their login.
+              </p>
+            )}
           </div>
 
           {/* Reset password */}
