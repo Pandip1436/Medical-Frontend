@@ -28,6 +28,8 @@ import {
   Plus,
   Wallet,
   Phone,
+  Pencil,
+  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -58,7 +60,9 @@ import { navigate, useRoute } from '@/lib/router'
 import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { GRNItem, PurchaseOrderItem } from '@/types'
+import type { GRNItem, PurchaseOrderItem, Supplier } from '@/types'
+import { userRoles } from '@/types'
+import { useAuthStore } from '@/stores/authStore'
 import { printGrnPdf, downloadGrnPdf, type GrnPdfData } from '@/lib/pdf/grnPdf'
 import { ShortBillingDialog, type ShortBillingItem } from './ShortBillingDialog'
 
@@ -233,6 +237,23 @@ export default function GRNPage() {
   const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false)
   const [supplierFormOpen, setSupplierFormOpen] = useState(false)
   const [productFormOpen, setProductFormOpen] = useState(false)
+  // The same dialogs double as edit forms. This page only carries the id/name
+  // of what's selected, so the full record is fetched on demand when the Edit
+  // control is used — a null value keeps the dialog in create mode.
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
+  const [loadingEditSupplier, setLoadingEditSupplier] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [loadingEditProductId, setLoadingEditProductId] = useState<string | null>(null)
+  // PATCH /suppliers/:id and PATCH /products/:id are both ADMIN +
+  // INVENTORY_MANAGER (SUPER_ADMIN clears every gate in RolesGuard). A
+  // PHARMACIST can record a GRN but not amend the master records, so the Edit
+  // controls are hidden for them rather than leading to a 403 on save.
+  // Checked against the full role set, not the display `role` — a user may
+  // hold several.
+  const canEditMasters = useAuthStore((s) => {
+    const roles = userRoles(s.user)
+    return roles.some((r) => r === 'SUPER_ADMIN' || r === 'ADMIN' || r === 'INVENTORY_MANAGER')
+  })
 
   // Backend-paginated supplier search for the Direct Entry picker.
   // Loads 10 at a time, fetches next 10 on scroll-to-bottom, debounces typing.
@@ -1298,30 +1319,91 @@ export default function GRNPage() {
   // scroll — see `panelStep`. Both are pure content; neither renders its
   // own Next/Back/Confirm buttons, which stay in the (already step-aware)
   // pinned footers below.
+  // Load the full record behind a selected id, then open the shared form in
+  // edit mode. The selector and the item rows only carry id/name/rate, and the
+  // forms need every field — sending a partial record would blank whatever it
+  // didn't include on save.
+  async function openEditSupplier(id: string) {
+    if (!id || loadingEditSupplier) return
+    setLoadingEditSupplier(true)
+    try {
+      const res = await api.get(`/suppliers/${id}`)
+      setEditingSupplier(res.data as Supplier)
+      setSupplierFormOpen(true)
+    } catch {
+      toast.error('Could not load this supplier for editing')
+    } finally {
+      setLoadingEditSupplier(false)
+    }
+  }
+
+  async function openEditProduct(id: string) {
+    if (!id || loadingEditProductId) return
+    setLoadingEditProductId(id)
+    try {
+      const res = await api.get(`/products/${id}`)
+      setEditingProduct(res.data as Product)
+      setProductFormOpen(true)
+    } catch {
+      toast.error('Could not load this product for editing')
+    } finally {
+      setLoadingEditProductId(null)
+    }
+  }
+
+  // Per-row "edit this product's master record" control. Kept quiet until the
+  // row is hovered (and always visible on touch, which has no hover) so it
+  // doesn't compete with the data in a dense table.
+  function renderEditProductButton(productId: string) {
+    if (!productId || !canEditMasters) return null
+    const busy = loadingEditProductId === productId
+    return (
+      <button
+        type="button"
+        onClick={() => void openEditProduct(productId)}
+        disabled={!!loadingEditProductId}
+        title="Edit product details"
+        aria-label="Edit product details"
+        className={cn(
+          'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/50 transition-colors',
+          'hover:bg-primary/10 hover:text-primary disabled:opacity-50',
+          'opacity-100 md:opacity-0 md:group-hover/pname:opacity-100 md:focus-visible:opacity-100',
+          busy && 'md:opacity-100',
+        )}
+      >
+        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pencil className="h-3 w-3" />}
+      </button>
+    )
+  }
+
   // Direct-entry supplier selector (card when picked, search otherwise).
   // Rendered in the header row on desktop and in the workspace on mobile.
   function renderSupplierSelector() {
     return directSupplierId ? (
-      // Click the selected supplier to change it — reopens the search picker.
-      // (Not clickable while editing an existing GRN: its supplier is fixed.)
-      <button
-        type="button"
-        disabled={editMode}
-        title={editMode ? undefined : 'Click to change supplier'}
-        onClick={() => {
-          if (editMode) return
-          setDirectSupplierId('')
-          setDirectSupplierName('')
-          setSupplierSearch('')
-          setSupplierDropdownOpen(true)
-          setTimeout(() => supplierSearchInputRef.current?.focus(), 0)
-        }}
+      // A styled row rather than one big <button>, so the Edit control can sit
+      // inside it — a button can't legally nest another button.
+      <div
         className={cn(
-          'flex w-full items-center justify-between gap-2 rounded-lg border border-border/60 bg-background px-3 py-2 text-left transition-colors',
-          !editMode && 'cursor-pointer hover:border-primary/40 hover:bg-muted/30',
+          'flex w-full items-center justify-between gap-1 rounded-lg border border-border/60 bg-background px-3 py-2 transition-colors',
+          !editMode && 'hover:border-primary/40 hover:bg-muted/30',
         )}
       >
-        <div className="min-w-0">
+        {/* Click the selected supplier to change it — reopens the search picker.
+            (Not clickable while editing an existing GRN: its supplier is fixed.) */}
+        <button
+          type="button"
+          disabled={editMode}
+          title={editMode ? undefined : 'Click to change supplier'}
+          onClick={() => {
+            if (editMode) return
+            setDirectSupplierId('')
+            setDirectSupplierName('')
+            setSupplierSearch('')
+            setSupplierDropdownOpen(true)
+            setTimeout(() => supplierSearchInputRef.current?.focus(), 0)
+          }}
+          className={cn('min-w-0 flex-1 text-left', !editMode && 'cursor-pointer')}
+        >
           <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">Selected supplier</p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className="min-w-0 flex-1 truncate text-sm font-bold text-foreground" title={directSupplierName}>{directSupplierName}</p>
@@ -1331,9 +1413,25 @@ export default function GRNPage() {
               </p>
             )}
           </div>
-        </div>
+        </button>
+        {/* Correct this supplier's details without leaving the GRN — same form
+            the Suppliers page uses, opened in edit mode. */}
+        {canEditMasters && (
+        <button
+          type="button"
+          onClick={() => void openEditSupplier(directSupplierId)}
+          disabled={loadingEditSupplier}
+          title={`Edit ${directSupplierName}`}
+          aria-label={`Edit ${directSupplierName}`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+        >
+          {loadingEditSupplier
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <Pencil className="h-3.5 w-3.5" />}
+        </button>
+        )}
         {!editMode && <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground/50" />}
-      </button>
+      </div>
     ) : (
       <div className="relative">
         <Input
@@ -2349,9 +2447,10 @@ export default function GRNPage() {
                         <tr key={item.id} className={cn(item.shortSupply ? 'bg-amber-50/30 dark:bg-amber-900/5' : item.receivedQty > 0 ? 'bg-emerald-50/20 dark:bg-emerald-900/5' : '')}>
                           <td className="px-2 py-1.5 text-center text-[10px] font-bold text-muted-foreground">{index + 1}</td>
                           <td className="px-2 py-1.5">
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="group/pname flex items-center gap-1.5 min-w-0">
                               <span className="truncate font-semibold text-[13px]" title={item.productName}>{item.productName}</span>
                               {item.shortSupply && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />}
+                              {renderEditProductButton(item.productId)}
                             </div>
                           </td>
                           <td className="px-1.5 py-1"><Input id={grnFieldId(item.id, 'receivedQty')} type="number" min={0} className="h-8 font-mono text-xs" placeholder="0" value={item.receivedQty || ''} onChange={(e) => updateItem(index, 'receivedQty', Number(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRowEnter(index, 'receivedQty') } }} /></td>
@@ -2424,8 +2523,9 @@ export default function GRNPage() {
                         )}>
                           {index + 1}
                         </div>
-                        <div className="min-w-0">
+                        <div className="group/pname flex min-w-0 items-center gap-1.5">
                           <p className="text-sm font-semibold truncate">{item.productName}</p>
+                          {renderEditProductButton(item.productId)}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -3033,10 +3133,16 @@ export default function GRNPage() {
 
       <SupplierFormDialog
         open={supplierFormOpen}
-        onOpenChange={setSupplierFormOpen}
-        editingSupplier={null}
+        // Drop edit mode on close so the next "Add New Supplier" starts blank.
+        onOpenChange={(open) => { setSupplierFormOpen(open); if (!open) setEditingSupplier(null) }}
+        editingSupplier={editingSupplier}
         onSaved={async (saved, mode) => {
-          if (mode !== 'create') return
+          if (mode === 'update') {
+            await fetchMasterData()
+            // Keep the selector label in step with a renamed supplier.
+            if (editingSupplier?.id === directSupplierId) setDirectSupplierName(saved.name)
+            return
+          }
           await fetchMasterData()
           try {
             const res = await api.get(`/suppliers?q=${encodeURIComponent(saved.name)}&take=10`)
@@ -3057,14 +3163,25 @@ export default function GRNPage() {
 
       <ProductFormDialog
         open={productFormOpen}
-        onOpenChange={setProductFormOpen}
+        // Drop edit mode on close so the next "Add New Product" starts blank.
+        onOpenChange={(open) => { setProductFormOpen(open); if (!open) setEditingProduct(null) }}
         prefillName={productSearch}
-        onSaved={async (newProduct) => {
+        editingProduct={editingProduct}
+        onSaved={async (savedProduct, mode) => {
           await fetchMasterData()
+          if (mode === 'update') {
+            // Reflect a renamed / re-rated product on the row that opened the
+            // form. Rate is only refreshed where the operator hasn't typed
+            // their own — the supplier's invoice rate beats the master's.
+            setGrnItems((prev) => prev.map((it) => it.productId === savedProduct.id
+              ? { ...it, productName: savedProduct.name, gstPercent: Number(savedProduct.gstRate ?? it.gstPercent) }
+              : it))
+            return
+          }
           // Auto-add to the GRN items table so the pharmacist can immediately
           // enter batch/qty for the just-created product — same convenience
           // the customer-add / supplier-add flows provide elsewhere.
-          addDirectItem(newProduct)
+          addDirectItem(savedProduct)
         }}
       />
     </div>

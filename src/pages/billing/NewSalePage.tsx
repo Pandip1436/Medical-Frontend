@@ -66,8 +66,21 @@ import { Textarea } from '@/components/ui/textarea'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { optionalGstin, optionalDrugLicense, GSTIN_REGEX, DL_REGEX, DL_MAX, MAX_REMINDER_DAY } from '@/lib/validators'
+import {
+  optionalGstin, optionalDrugLicense, optionalBankAccount, optionalIfsc, optionalUpi,
+  GSTIN_REGEX, DL_REGEX, DL_MAX, MAX_REMINDER_DAY,
+} from '@/lib/validators'
 import { useDuplicateFieldCheck } from '@/hooks/useDuplicateFieldCheck'
+import { PhoneListField } from '@/components/shared/PhoneListField'
+import { WhatsAppNumberField } from '@/components/shared/WhatsAppNumberField'
+import {
+  isMobileNumber,
+  isValidPhone,
+  normalizePartyPhones,
+  phoneDigits,
+  phonesForForm,
+  primaryOf,
+} from '@/lib/phones'
 import { toast } from 'sonner'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -112,7 +125,7 @@ import { ColumnsToggle } from '@/components/shared/ColumnsToggle'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import type { ColumnDef } from '@/types/table'
 import type { Product, Customer, Invoice, Quotation } from '@/types'
-import { isAdminish } from '@/types'
+import { isAdminish, userRoles } from '@/types'
 import { printInvoicePdf } from '@/lib/pdf/invoicePdf'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ProductMultiSelect } from '@/components/shared/ProductMultiSelect'
@@ -169,12 +182,27 @@ interface PaymentDetails {
 // Quotation mode requires only name + phone. Invoice mode keeps the full
 // strict ruleset (address, referredBy, type-conditional GSTIN/DL/registration).
 // The resolver is rebuilt when invoiceType flips so the form revalidates.
+// Field-for-field the same shape as the Customers page schema, so a customer
+// created or edited from the till is indistinguishable from one entered in the
+// directory. The two lists of fields must stay in step — anything added there
+// belongs here too.
 function buildCustomerSchema(mode: 'invoice' | 'quotation') {
   const base = z.object({
     name: z.string().min(1, 'Name is required'),
-    phone: z
-      .string()
-      .regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'),
+    // The list is the source of truth; `phone` below is its primary, mirrored
+    // for the server and for the callers that still read a single number.
+    // Validated per-entry rather than "10 digits starting 6-9" because a
+    // customer may legitimately have only a landline — see lib/phones.ts.
+    phones: z
+      .array(
+        z.object({
+          number: z.string(),
+          label: z.enum(['MOBILE', 'LANDLINE', 'OFFICE', 'HOME', 'OTHER']),
+          isPrimary: z.boolean(),
+        }),
+      )
+      .min(1, 'At least one phone number is required'),
+    phone: z.string().optional(),
     type: z.enum(['RETAIL', 'WHOLESALE', 'DOCTOR']),
     email: z.string().email('Invalid email').or(z.literal('')).optional(),
     address: mode === 'invoice' ? z.string().min(1, 'Address is required') : z.string().optional(),
@@ -184,13 +212,51 @@ function buildCustomerSchema(mode: 'invoice' | 'quotation') {
     referredBy: z.string().optional(),
     source: z.string().optional(),
     notes: z.string().optional(),
+    // Shared "party" fields — shown for WHOLESALE (a wholesale customer is also
+    // a supplier) and synced to the linked supplier twin.
+    contactPerson: z.string().optional(),
+    bankAccountName: z.string().optional(),
+    bankName: z.string().optional(),
+    bankAccountNumber: optionalBankAccount(),
+    bankIfsc: optionalIfsc(),
+    bankUpiId: optionalUpi(),
     // Customer-level consent for transactional WhatsApp messages. Defaults
-    // to true; the New Sale form omits the toggle for quick walk-in adds,
-    // but the value is still sent to the backend.
+    // to true; the value is always sent to the backend.
     whatsappOptIn: z.boolean().optional(),
+    // Which number WhatsApp goes to. Blank = the default (first WhatsApp-capable
+    // number in the list). Anything set must be a mobile — WhatsApp won't
+    // deliver to a landline, and storing one here would fail silently at send
+    // time. Uses the same isMobileNumber rule the field validates against live.
+    whatsappNumber: z
+      .string()
+      .optional()
+      .refine((v) => !v || !v.trim() || isMobileNumber(v), 'Enter a valid 10-digit Indian mobile number'),
   })
-  if (mode === 'quotation') return base
-  return base.superRefine((data, ctx) => {
+  // Per-entry phone validation applies in both modes — a quotation still needs
+  // a number you can actually call back on.
+  const withPhones = base.superRefine((data, ctx) => {
+    const entered = (data.phones ?? []).filter((p) => p.number.trim() !== '')
+    if (entered.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['phones', 0, 'number'], message: 'At least one phone number is required' })
+    }
+    ;(data.phones ?? []).forEach((p, i) => {
+      const num = p.number.trim()
+      if (!num) return
+      if (!isValidPhone(num)) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Enter a valid phone number' })
+        return
+      }
+      if (p.label === 'MOBILE' && !isMobileNumber(num)) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'Not a valid 10-digit Indian mobile — change the label to Landline if that is right' })
+      }
+      const dupOf = entered.findIndex((o) => phoneDigits(o.number) === phoneDigits(num))
+      if (dupOf >= 0 && entered[dupOf] !== p) {
+        ctx.addIssue({ code: 'custom', path: ['phones', i, 'number'], message: 'This number is already listed above' })
+      }
+    })
+  })
+  if (mode === 'quotation') return withPhones
+  return withPhones.superRefine((data, ctx) => {
     if (data.type === 'WHOLESALE') {
       if (!data.gstin || data.gstin.trim() === '') {
         ctx.addIssue({ code: 'custom', path: ['gstin'], message: 'GSTIN is required for Wholesale' })
@@ -223,6 +289,33 @@ const CUSTOMER_SOURCES = [
 ] as const
 
 type CustomerFormValues = z.input<typeof customerSchema>
+
+// Pristine defaults for a brand-new customer. Shared by the form init, the
+// "cancel" reset and the post-save reset so they can't drift — without it,
+// editing a customer (which reset()s to that customer's values, making them
+// RHF's new defaults) would leak those values into the next Add.
+const BLANK_CUSTOMER: CustomerFormValues = {
+  name: '',
+  phones: [{ number: '', label: 'MOBILE', isPrimary: true }],
+  phone: '',
+  type: 'RETAIL',
+  email: '',
+  address: '',
+  gstin: '',
+  dlNumber: '',
+  registrationNumber: '',
+  referredBy: '',
+  source: '',
+  notes: '',
+  contactPerson: '',
+  bankAccountName: '',
+  bankName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+  bankUpiId: '',
+  whatsappOptIn: true,
+  whatsappNumber: '',
+}
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -3019,6 +3112,19 @@ export default function NewSalePage() {
   // reclaim vertical space — handy on phones where it pushes the cart down.
   const [customerDetailsHidden, setCustomerDetailsHidden] = useState(false)
   const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false)
+  // The same inline panel doubles as the edit form: non-null means we're
+  // editing that customer (PATCH) rather than creating one (POST). Held as the
+  // whole record, not just the id, so the duplicate checks can exclude it and
+  // the header can name who is being edited.
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  // PATCH /customers/:id is ADMIN + PHARMACIST only (customers.controller.ts);
+  // SUPER_ADMIN clears every gate in RolesGuard. A SALESPERSON can still create
+  // a customer, so this gates the Edit control alone. Checked against the full
+  // role set, not the display `role` — a user may hold several.
+  const canEditCustomer = useAuthStore((s) => {
+    const roles = userRoles(s.user)
+    return roles.some((r) => r === 'SUPER_ADMIN' || r === 'ADMIN' || r === 'PHARMACIST')
+  })
   // Inline "Add New Product" — opens from the per-row product search dropdown
   // (see BillingRow). After save, the new product is auto-filled into the row
   // identified by `addProductTargetRowId` so the pharmacist returns to the
@@ -3053,14 +3159,15 @@ export default function NewSalePage() {
     setDocPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
-  const checkNsPhoneDuplicate = async (phone: string) => {
+  const checkNsPhoneDuplicate = async (phone: string, excludeId?: string) => {
     if (!/^\d{10}$/.test(phone)) { setNsPhoneCheckError(''); return }
     setNsPhoneChecking(true)
     setNsPhoneCheckError('')
     try {
       const res = await api.get(`/customers?q=${phone}`)
       const list = Array.isArray(res.data) ? res.data : []
-      const dup = list.find((c: any) => c.phone?.replace(/\D/g, '') === phone)
+      // Editing: the customer's own number is not a clash.
+      const dup = list.find((c: any) => c.phone?.replace(/\D/g, '') === phone && c.id !== excludeId)
       if (dup) setNsPhoneCheckError(`Phone already used by "${dup.name}". Please verify.`)
     } catch { /* ignore */ } finally { setNsPhoneChecking(false) }
   }
@@ -3206,24 +3313,19 @@ export default function NewSalePage() {
           }
         } else if (qt.customerName || qt.customerPhone) {
           customerForm.reset({
+            ...BLANK_CUSTOMER,
             name: qt.customerName ?? '',
+            // Seed the list, not just the mirrored `phone` — the list is what
+            // the form actually edits and submits.
+            phones: phonesForForm({ phone: qt.customerPhone ?? '' }),
             phone: qt.customerPhone ?? '',
-            type: 'RETAIL',
-            email: '',
-            address: '',
-            gstin: '',
-            dlNumber: '',
-            registrationNumber: '',
-            referredBy: '',
-            source: '',
-            notes: '',
-            whatsappOptIn: true,
           })
           // Clear any stale document selections so a previous session's file
           // doesn't auto-attach to the converted customer.
           setDocFiles([])
           setDocPreviews([])
           setNsPhoneCheckError('')
+          setEditingCustomer(null)
           setAddCustomerDialogOpen(true)
         }
         toast.info(`Items pre-loaded from quotation ${qt.quotationNumber}`)
@@ -4815,18 +4917,21 @@ export default function NewSalePage() {
     if (!selectedCustomer.id) {
       toast.error('Complete the customer details before saving as draft')
       customerForm.reset({
+        ...BLANK_CUSTOMER,
         name: selectedCustomer.name ?? '',
+        // Seed the list too — it, not `phone`, is what the form edits now.
+        phones: phonesForForm(selectedCustomer),
         phone: selectedCustomer.phone ?? '',
         type: selectedCustomer.type ?? 'RETAIL',
         email: selectedCustomer.email ?? '',
         address: selectedCustomer.address ?? '',
         gstin: selectedCustomer.gstin ?? '',
         dlNumber: selectedCustomer.dlNumber ?? '',
-        registrationNumber: '',
         referredBy: selectedCustomer.referredBy ?? '',
         source: selectedCustomer.source ?? '',
         notes: selectedCustomer.notes ?? '',
       })
+      setEditingCustomer(null)
       setAddCustomerDialogOpen(true)
       return
     }
@@ -4944,18 +5049,21 @@ export default function NewSalePage() {
     if (invoiceType !== 'quotation' && !selectedCustomer.id) {
       toast.error('Complete the customer details before saving the invoice')
       customerForm.reset({
+        ...BLANK_CUSTOMER,
         name: selectedCustomer.name ?? '',
+        // Seed the list too — it, not `phone`, is what the form edits now.
+        phones: phonesForForm(selectedCustomer),
         phone: selectedCustomer.phone ?? '',
         type: selectedCustomer.type ?? 'RETAIL',
         email: selectedCustomer.email ?? '',
         address: selectedCustomer.address ?? '',
         gstin: selectedCustomer.gstin ?? '',
         dlNumber: selectedCustomer.dlNumber ?? '',
-        registrationNumber: '',
         referredBy: selectedCustomer.referredBy ?? '',
         source: selectedCustomer.source ?? '',
         notes: selectedCustomer.notes ?? '',
       })
+      setEditingCustomer(null)
       setAddCustomerDialogOpen(true)
       return
     }
@@ -5444,21 +5552,32 @@ export default function NewSalePage() {
       const schema = buildCustomerSchema(invoiceTypeRef.current) as typeof customerSchema
       return zodResolver(schema)(values, ctx, options)
     },
-    defaultValues: {
-      name: '',
-      phone: '',
-      type: 'RETAIL',
-      email: '',
-      address: '',
-      gstin: '',
-      dlNumber: '',
-      registrationNumber: '',
-      referredBy: '',
-      source: '',
-      notes: '',
-      whatsappOptIn: true,
-    },
+    defaultValues: BLANK_CUSTOMER,
   })
+
+  // PhoneListField has no single input to hang an onBlur on, so the "already
+  // used by…" check runs off the primary number instead, debounced so typing a
+  // 10-digit number doesn't fire ten requests.
+  const nsPhonesValue = customerForm.watch('phones')
+  const nsPrimaryPhone = primaryOf(normalizePartyPhones(nsPhonesValue)) ?? ''
+  useEffect(() => {
+    if (!addCustomerDialogOpen) return
+    const t = setTimeout(() => { void checkNsPhoneDuplicate(nsPrimaryPhone, editingCustomer?.id) }, 400)
+    return () => clearTimeout(t)
+  }, [nsPrimaryPhone, addCustomerDialogOpen, editingCustomer?.id])
+
+  // Zod pins per-entry phone issues at phones[i].number; PhoneListField wants
+  // them keyed by row index so each renders under its own input.
+  const nsPhoneRowErrors = useMemo(() => {
+    const out: Record<number, string | undefined> = {}
+    const arr = customerForm.formState.errors.phones as unknown as Array<{ number?: { message?: string } }> | undefined
+    if (Array.isArray(arr)) {
+      arr.forEach((e, i) => { if (e?.number?.message) out[i] = e.number.message })
+    } else if (typeof (customerForm.formState.errors.phones as { message?: string } | undefined)?.message === 'string') {
+      out[0] = (customerForm.formState.errors.phones as { message?: string }).message
+    }
+    return out
+  }, [customerForm.formState.errors.phones])
 
   // Live "already used" check for the quick-add customer's GSTIN / drug licence
   // (Wholesale only — blank values aren't checked). Mirrors the Customer / New
@@ -5470,6 +5589,8 @@ export default function NewSalePage() {
     enabled: addCustomerDialogOpen && invoiceType !== 'quotation',
     endpoint: '/customers/check-duplicate',
     entity: 'customer',
+    // Editing: the customer's own GSTIN / DL must not be reported as taken.
+    excludeId: editingCustomer?.id,
     setError: customerForm.setError,
     clearErrors: customerForm.clearErrors,
     fields: [
@@ -5478,8 +5599,39 @@ export default function NewSalePage() {
     ],
   })
 
-  const handleAddCustomer = async (values: CustomerFormValues) => {
+  const handleAddCustomer = async (rawValues: CustomerFormValues) => {
     if (nsPhoneCheckError) { toast.error('Fix the phone number error before saving.'); return }
+
+    // Normalise the list once here — drops blank rows, collapses duplicates and
+    // guarantees exactly one primary — then mirror that primary into `phone`.
+    // The server re-runs the same normalisation; doing it here too keeps the
+    // optimistic selection below showing what was actually saved.
+    const phones = normalizePartyPhones(rawValues.phones)
+    const values: CustomerFormValues = {
+      ...rawValues,
+      phones,
+      phone: primaryOf(phones) ?? '',
+      // ' ' is WhatsAppNumberField's "Other number, not typed yet" state.
+      whatsappNumber: (rawValues.whatsappNumber ?? '').trim(),
+    }
+
+    // Editing an existing customer — PATCH in place and refresh the selection
+    // so the header strip and the invoice pick up the change immediately.
+    if (editingCustomer) {
+      try {
+        const res = await api.patch(`/customers/${editingCustomer.id}`, values, { suppressGlobalToast: true } as Record<string, unknown>)
+        toast.success(`Customer "${values.name}" updated successfully`)
+        await uploadCustomerDocs(editingCustomer.id)
+        await fetchMasterData()
+        // Prefer the server's echo; fall back to patching the record we hold so
+        // the strip never reverts to stale values if the response is empty.
+        selectCustomerFresh(res.data?.id ? res.data : { ...editingCustomer, ...values } as Customer)
+        closeCustomerPanel()
+      } catch (error: unknown) {
+        applyCustomerSaveError(error, 'Failed to update customer')
+      }
+      return
+    }
 
     // Quotation mode: don't create a Customer master record. The name + phone
     // get persisted on the Quotation row at Save Quotation time (B1 schema column).
@@ -5488,7 +5640,7 @@ export default function NewSalePage() {
       const stub: Customer = {
         id: '',
         name: values.name.trim(),
-        phone: values.phone,
+        phone: values.phone ?? '',
         type: values.type,
         email: values.email || undefined,
         address: values.address || undefined,
@@ -5502,11 +5654,7 @@ export default function NewSalePage() {
         createdAt: new Date().toISOString(),
       }
       selectCustomerFresh(stub)
-      customerForm.reset()
-      setDocFiles([])
-      setDocPreviews([])
-      setNsPhoneCheckError('')
-      setAddCustomerDialogOpen(false)
+      closeCustomerPanel()
       toast.success(`Customer "${values.name}" ready for quotation`)
       return
     }
@@ -5515,51 +5663,106 @@ export default function NewSalePage() {
       const res = await api.post('/customers', values, { suppressGlobalToast: true } as Record<string, unknown>)
       toast.success(`Customer "${values.name}" added successfully`)
       const newlyCreated = res.data
-      // Upload documents
-      if (docFiles.length > 0 && newlyCreated?.id) {
-        for (const file of docFiles) {
-          try {
-            const fd = new FormData()
-            fd.append('file', file)
-            fd.append('customerId', newlyCreated.id)
-            fd.append('doctorName', 'Document')
-            await api.post('/prescriptions/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-          } catch { toast.warning(`Failed to upload "${file.name}"`) }
-        }
-      }
+      if (newlyCreated?.id) await uploadCustomerDocs(newlyCreated.id)
       await fetchMasterData()
       if (newlyCreated) selectCustomerFresh(newlyCreated)
-      customerForm.reset()
-      setDocFiles([])
-      setDocPreviews([])
-      setNsPhoneCheckError('')
-      setAddCustomerDialogOpen(false)
+      closeCustomerPanel()
     } catch (error: unknown) {
-      const raw = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
-      const message = Array.isArray(raw) ? raw[0] : raw
-      // Pin duplicate conflicts to their field so they show inline.
-      if (message) {
-        const lower = message.toLowerCase()
-        if (lower.includes('gstin')) { customerForm.setError('gstin', { type: 'server', message }); return }
-        if (lower.includes('drug license')) { customerForm.setError('dlNumber', { type: 'server', message }); return }
-        if (lower.includes('phone')) { setNsPhoneCheckError(message); return }
-      }
-      toast.error(message || 'Failed to add customer')
+      applyCustomerSaveError(error, 'Failed to add customer')
     }
   }
 
-  const cancelAddCustomer = () => {
-    customerForm.reset()
+  // Push whatever the operator attached in the panel's upload box. Failures are
+  // reported per file and don't abort the save — the customer record itself is
+  // already persisted by the time this runs.
+  async function uploadCustomerDocs(customerId: string) {
+    for (const file of docFiles) {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('customerId', customerId)
+        fd.append('doctorName', 'Document')
+        await api.post('/prescriptions/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } catch { toast.warning(`Failed to upload "${file.name}"`) }
+    }
+  }
+
+  // Pin duplicate conflicts (GSTIN / Drug License / phone) to their field so
+  // they show inline; anything else falls back to a toast. Shared by the create
+  // and update paths so both report a clash the same way.
+  function applyCustomerSaveError(error: unknown, fallback: string) {
+    const raw = (error as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+    const message = Array.isArray(raw) ? raw[0] : raw
+    if (message) {
+      const lower = message.toLowerCase()
+      if (lower.includes('gstin')) { customerForm.setError('gstin', { type: 'server', message }); return }
+      if (lower.includes('drug license')) { customerForm.setError('dlNumber', { type: 'server', message }); return }
+      if (lower.includes('phone')) { setNsPhoneCheckError(message); return }
+    }
+    toast.error(message || fallback)
+  }
+
+  // Tear-down shared by save and cancel: reset to the pristine shape (not
+  // reset() with no argument, which would restore the *edited* customer's
+  // values as the new blanks) and drop out of edit mode.
+  function closeCustomerPanel() {
+    customerForm.reset(BLANK_CUSTOMER)
     setDocFiles([])
     setDocPreviews([])
     setNsPhoneCheckError('')
+    setEditingCustomer(null)
     setAddCustomerDialogOpen(false)
+  }
+
+  const cancelAddCustomer = () => {
+    const wasEditing = !!editingCustomer
+    closeCustomerPanel()
     setTableView('customer-history')
     if (!selectedCustomer) {
       setItems([createEmptyItem()])
     }
-    // Re-open customer picker so the user can select a customer
-    setTimeout(() => setShowCustomerDropdown(true), 50)
+    // Re-open the customer picker so the user can select one. Skipped when
+    // backing out of an edit — that customer is already selected, and popping
+    // the dropdown open over the bill they were building is just noise.
+    if (!wasEditing) setTimeout(() => setShowCustomerDropdown(true), 50)
+  }
+
+  // Open the same inline panel in edit mode, pre-filled from the selected
+  // customer. Falls back to the legacy phone + alternatePhone pair via
+  // phonesForForm so editing a record saved before `phones` existed doesn't
+  // silently drop a number.
+  const openEditCustomer = (customer: Customer) => {
+    setEditingCustomer(customer)
+    setNsPhoneCheckError('')
+    setDocFiles([])
+    setDocPreviews([])
+    customerForm.reset({
+      ...BLANK_CUSTOMER,
+      name: customer.name,
+      phones: phonesForForm(customer),
+      phone: customer.phone,
+      type: customer.type ?? 'RETAIL',
+      email: customer.email ?? '',
+      address: customer.address ?? '',
+      gstin: customer.gstin ?? '',
+      dlNumber: customer.dlNumber ?? '',
+      registrationNumber: (customer as { registrationNumber?: string }).registrationNumber ?? '',
+      referredBy: customer.referredBy ?? '',
+      source: (customer as { source?: string }).source ?? '',
+      notes: customer.notes ?? '',
+      contactPerson: (customer as { contactPerson?: string }).contactPerson ?? '',
+      bankAccountName: (customer as { bankAccountName?: string }).bankAccountName ?? '',
+      bankName: (customer as { bankName?: string }).bankName ?? '',
+      bankAccountNumber: (customer as { bankAccountNumber?: string }).bankAccountNumber ?? '',
+      bankIfsc: (customer as { bankIfsc?: string }).bankIfsc ?? '',
+      bankUpiId: (customer as { bankUpiId?: string }).bankUpiId ?? '',
+      // Records saved before this column existed are null — treat those as
+      // opted in, matching the schema default.
+      whatsappOptIn: (customer as { whatsappOptIn?: boolean }).whatsappOptIn ?? true,
+      whatsappNumber: (customer as { whatsappNumber?: string }).whatsappNumber ?? '',
+    })
+    setShowCustomerDropdown(false)
+    setAddCustomerDialogOpen(true)
   }
 
   // ── Product Form ───────────────────────────────────────
@@ -5604,6 +5807,9 @@ export default function NewSalePage() {
         ...values,
         schedule: values.schedule.toUpperCase(),
         categoryId: values.categoryId || undefined,
+        // NULL, not '' — same as the Products page. A blank code must not
+        // occupy the unique slot that a real code would.
+        productCode: values.productCode?.trim() || null,
       }
       const res = await api.post('/products', payload)
       const newProduct: Product | undefined = res.data
@@ -6055,14 +6261,22 @@ export default function NewSalePage() {
 
             {/* Customer Selector — full width on mobile (row 2), flex-1 on desktop */}
             <div ref={customerRef} className="flex-1 relative">
-              <button
-                type="button"
-                onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
+              {/* The picker used to be one big <button>. It is now a styled row
+                  holding two controls, so the Edit affordance can sit beside the
+                  type badge — a button can't legally nest another button. */}
+              <div
                 className={cn(
                   'flex items-center gap-2.5 w-full h-10 rounded-lg border bg-background px-3 text-xs transition-colors',
                   selectedCustomer
                     ? 'border-border hover:border-border/80'
                     : 'border-dashed border-amber-500/40 bg-amber-500/4 hover:border-amber-500/60'
+                )}
+              >
+              <button
+                type="button"
+                onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
+                className={cn(
+                  'flex items-center gap-2.5 flex-1 min-w-0 h-full text-left',
                 )}
               >
                 <div className={cn(
@@ -6094,8 +6308,33 @@ export default function NewSalePage() {
                     {formatCurrency(Math.abs(Number(selectedCustomer.currentOutstanding)))} credit
                   </Badge>
                 )}
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
               </button>
+              {/* Edit the selected customer in the same inline panel used to add
+                  one. Hidden for the quotation stub (id === '') — that customer
+                  has no master record to PATCH; the operator edits it by
+                  re-entering the details. Also hidden for roles the backend
+                  won't accept a PATCH from, so the control never leads to a
+                  filled-in form and a 403 on save. */}
+              {selectedCustomer && selectedCustomer.id !== '' && canEditCustomer && (
+                <button
+                  type="button"
+                  onClick={() => openEditCustomer(selectedCustomer)}
+                  title={`Edit ${selectedCustomer.name}`}
+                  aria-label={`Edit ${selectedCustomer.name}`}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-primary/10 hover:text-primary"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCustomerDropdown(!showCustomerDropdown)}
+                aria-label="Choose a customer"
+                className="shrink-0"
+              >
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/40" />
+              </button>
+              </div>
               <AnimatePresence>
                 {showCustomerDropdown && (
                   <motion.div
@@ -6202,6 +6441,12 @@ export default function NewSalePage() {
                           setSelectedCustomer(null)
                           setCustomerSearch('')
                           setItems([createEmptyItem()])
+                          // Start from blanks — the panel is shared with Edit,
+                          // so leaving stale values behind would pre-fill a new
+                          // customer with the last-edited one's details.
+                          customerForm.reset(BLANK_CUSTOMER)
+                          setEditingCustomer(null)
+                          setNsPhoneCheckError('')
                           setAddCustomerDialogOpen(true)
                           setShowCustomerDropdown(false)
                         }}
@@ -6426,14 +6671,18 @@ export default function NewSalePage() {
                   </Button>
                   <div className="flex items-center gap-2.5 flex-1 min-w-0">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-                      <UserPlus className="h-4 w-4 text-primary" />
+                      {editingCustomer
+                        ? <Pencil className="h-4 w-4 text-primary" />
+                        : <UserPlus className="h-4 w-4 text-primary" />}
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold">Add New Customer</h2>
+                      <h2 className="text-sm font-bold">{editingCustomer ? 'Edit Customer' : 'Add New Customer'}</h2>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {invoiceType === 'quotation'
-                          ? 'Quotation only — only Name and Phone are required. Won’t be saved to customer master.'
-                          : 'Name, Phone, Type and Address are required. Email and Referred By are optional.'}
+                        {editingCustomer
+                          ? `Updating “${editingCustomer.name}”. Changes apply to the customer master, not just this bill.`
+                          : invoiceType === 'quotation'
+                            ? 'Quotation only — only Name and Phone are required. Won’t be saved to customer master.'
+                            : 'Name, Phone, Type and Address are required. Email and Referred By are optional.'}
                       </p>
                     </div>
                   </div>
@@ -6444,34 +6693,13 @@ export default function NewSalePage() {
                   <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
                     {/* responsive: stack on phones, side-by-side from sm (640px+) */}
-                    {/* Row 1: Name + Phone */}
+                    {/* Row 1: Name + Type */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Name *</Label>
                         <Input {...customerForm.register('name')} placeholder="Customer name" error={!!customerForm.formState.errors.name} />
                         {customerForm.formState.errors.name && <p className="text-xs text-rose-500">{customerForm.formState.errors.name.message}</p>}
                       </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Phone *{nsPhoneChecking && <span className="ml-1 font-normal text-muted-foreground">checking…</span>}
-                        </Label>
-                        <Input
-                          {...customerForm.register('phone')}
-                          placeholder="10-digit number"
-                          inputMode="numeric"
-                          maxLength={10}
-                          error={!!customerForm.formState.errors.phone || !!nsPhoneCheckError}
-                          // Accept digits only, capped at 10 (overrides register's onChange).
-                          onChange={(e) => customerForm.setValue('phone', e.target.value.replace(/\D/g, '').slice(0, 10), { shouldValidate: true, shouldDirty: true })}
-                          onBlur={(e) => checkNsPhoneDuplicate(e.target.value)}
-                        />
-                        {customerForm.formState.errors.phone && <p className="text-xs text-rose-500">{customerForm.formState.errors.phone.message}</p>}
-                        {!customerForm.formState.errors.phone && nsPhoneCheckError && <p className="text-xs text-rose-500">{nsPhoneCheckError}</p>}
-                      </div>
-                    </div>
-
-                    {/* Row 2: Type + Email */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Type *</Label>
                         <Controller control={customerForm.control} name="type" render={({ field }) => (
@@ -6485,6 +6713,28 @@ export default function NewSalePage() {
                           </Select>
                         )} />
                       </div>
+                    </div>
+
+                    {/* Row 2: Phone numbers — one or more, one of them primary.
+                        Same control as the Customers page, replacing the single
+                        Phone box this form used to carry; a customer routinely
+                        has a mobile plus a shop landline. Full width because the
+                        field manages its own rows and "Add number" header. */}
+                    <div className="space-y-1.5">
+                      <Controller control={customerForm.control} name="phones" render={({ field }) => (
+                        <PhoneListField
+                          value={field.value ?? []}
+                          onChange={field.onChange}
+                          errors={nsPhoneRowErrors}
+                          disabled={customerForm.formState.isSubmitting}
+                        />
+                      )} />
+                      {nsPhoneChecking && <p className="text-xs text-muted-foreground">Checking if this number is already on file…</p>}
+                      {!nsPhoneChecking && nsPhoneCheckError && <p className="text-xs text-rose-500">{nsPhoneCheckError}</p>}
+                    </div>
+
+                    {/* Row 3: Email */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Email <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
                         <Input {...customerForm.register('email')} placeholder="email@example.com" type="email" error={!!customerForm.formState.errors.email} />
@@ -6522,6 +6772,67 @@ export default function NewSalePage() {
                       </div>
                     )}
 
+                    {/* WHOLESALE also = a supplier — capture the supplier-parity
+                        fields (contact person + bank details). These sync to the
+                        linked supplier twin, so leaving them out here meant a
+                        wholesale customer created at the till came out
+                        half-populated compared to one added from the directory. */}
+                    {customerForm.watch('type') === 'WHOLESALE' && (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Contact Person <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input {...customerForm.register('contactPerson')} placeholder="Primary contact name" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Account Holder Name <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input {...customerForm.register('bankAccountName')} placeholder="Name as per bank account" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bank Name <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input {...customerForm.register('bankName')} placeholder="e.g. HDFC Bank" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Account Number <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input
+                              className="font-mono"
+                              inputMode="numeric"
+                              maxLength={18}
+                              placeholder="9–18 digit account number"
+                              {...customerForm.register('bankAccountNumber')}
+                              error={!!customerForm.formState.errors.bankAccountNumber}
+                              onChange={(e) => customerForm.setValue('bankAccountNumber', e.target.value.replace(/\D/g, '').slice(0, 18), { shouldValidate: true, shouldDirty: true })}
+                            />
+                            {customerForm.formState.errors.bankAccountNumber && <p className="text-xs text-rose-500">{customerForm.formState.errors.bankAccountNumber.message}</p>}
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">IFSC Code <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input
+                              className="font-mono uppercase"
+                              maxLength={11}
+                              placeholder="e.g. HDFC0001234"
+                              {...customerForm.register('bankIfsc')}
+                              error={!!customerForm.formState.errors.bankIfsc}
+                              onChange={(e) => customerForm.setValue('bankIfsc', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11), { shouldValidate: true, shouldDirty: true })}
+                            />
+                            {customerForm.formState.errors.bankIfsc && <p className="text-xs text-rose-500">{customerForm.formState.errors.bankIfsc.message}</p>}
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">UPI ID <span className="text-muted-foreground/50 font-normal normal-case">(optional)</span></Label>
+                            <Input
+                              {...customerForm.register('bankUpiId')}
+                              placeholder="name@bank"
+                              error={!!customerForm.formState.errors.bankUpiId}
+                              onChange={(e) => customerForm.setValue('bankUpiId', e.target.value.replace(/\s/g, ''), { shouldValidate: true, shouldDirty: true })}
+                            />
+                            {customerForm.formState.errors.bankUpiId && <p className="text-xs text-rose-500">{customerForm.formState.errors.bankUpiId.message}</p>}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
                     {/* Row 3b: Registration Number — DOCTOR only */}
                     {customerForm.watch('type') === 'DOCTOR' && (
                       <div className="space-y-1.5">
@@ -6557,7 +6868,11 @@ export default function NewSalePage() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Address *</Label>
-                        <Textarea {...customerForm.register('address')} placeholder="Full address" rows={1} className="min-h-9 resize-none" />
+                        {/* Three rows: a full Indian postal address (building,
+                            street, locality, city-PIN, state) does not fit in
+                            one, and the single-row box forced the operator to
+                            scroll a 2-line field to check what they'd typed. */}
+                        <Textarea {...customerForm.register('address')} placeholder="Full address" rows={3} />
                         {customerForm.formState.errors.address && <p className="text-xs text-rose-500">{customerForm.formState.errors.address.message}</p>}
                       </div>
                     </div>
@@ -6650,6 +6965,19 @@ export default function NewSalePage() {
                         </p>
                       </div>
                     </div>
+
+                    {/* Row 9: which of the numbers above WhatsApp goes to. Only
+                        meaningful when messaging is on, so it follows the toggle. */}
+                    {customerForm.watch('whatsappOptIn') !== false && (
+                      <Controller control={customerForm.control} name="whatsappNumber" render={({ field }) => (
+                        <WhatsAppNumberField
+                          phones={customerForm.watch('phones') ?? []}
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                          disabled={customerForm.formState.isSubmitting}
+                        />
+                      )} />
+                    )}
                   </div>
 
                   {/* Sticky footer */}
@@ -6658,7 +6986,9 @@ export default function NewSalePage() {
                       Cancel
                     </Button>
                     <Button type="submit" disabled={customerForm.formState.isSubmitting || !!nsPhoneCheckError}>
-                      {customerForm.formState.isSubmitting ? 'Saving...' : 'Save Customer'}
+                      {customerForm.formState.isSubmitting
+                        ? 'Saving...'
+                        : editingCustomer ? 'Update Customer' : 'Save Customer'}
                     </Button>
                   </div>
                 </form>
@@ -6733,6 +7063,17 @@ export default function NewSalePage() {
                             <Controller control={productForm.control} name="categoryId" render={({ field }) => (
                               <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                             )} />
+                          </div>
+                          {/* Item Code is on the Products page form and was
+                              missing here, so a product created at the till came
+                              out without the operator's own code — which is what
+                              a re-import matches on instead of guessing by name. */}
+                          <div className="col-span-12 sm:col-span-6 space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Item Code <span className="text-muted-foreground/60 font-normal normal-case">(optional)</span></Label>
+                            <Input className="h-9" {...productForm.register('productCode')} placeholder="e.g. 1573" error={!!productForm.formState.errors.productCode} />
+                            {productForm.formState.errors.productCode
+                              ? <p className="text-[11px] text-rose-500">{productForm.formState.errors.productCode.message}</p>
+                              : <p className="text-[11px] text-muted-foreground">Your own code. Used to match it on re-import.</p>}
                           </div>
                         </div>
                       </div>

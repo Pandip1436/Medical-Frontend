@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { PackagePlus } from 'lucide-react'
+import { PackagePlus, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -38,11 +38,17 @@ import type { Product } from '@/types'
 interface ProductFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Optional pre-fill (e.g. the query the user typed before clicking "Add"). */
+  /** Optional pre-fill (e.g. the query the user typed before clicking "Add").
+   *  Ignored in edit mode, where the record's own values win. */
   prefillName?: string
-  /** Called after a successful POST /products. Caller decides whether to
-   *  refresh master data, auto-add to a row, etc. */
-  onSaved?: (product: Product) => void
+  /** When provided, the dialog is in edit mode and PATCHes /products/:id;
+   *  otherwise it POSTs to create. */
+  editingProduct?: Product | null
+  /** Called after a successful save, with the server's copy of the record.
+   *  Caller decides whether to refresh master data, auto-add to a row, etc.
+   *  `mode` says which happened — a caller that auto-adds the product to a
+   *  table wants to do that on create but not on every edit. */
+  onSaved?: (product: Product, mode: 'create' | 'update') => void
 }
 
 // Small inline label suffix to mark an optional field. Mirrors the wording
@@ -53,6 +59,7 @@ export function ProductFormDialog({
   open,
   onOpenChange,
   prefillName,
+  editingProduct = null,
   onSaved,
 }: ProductFormDialogProps) {
   const categories = useMasterDataStore(s => s.categories)
@@ -77,8 +84,37 @@ export function ProductFormDialog({
   // including the category they just picked.
   useEffect(() => {
     if (!open) return
+    if (editingProduct) {
+      // Numeric fields are held as strings in the form (see
+      // productFormDefaults) — feed them back as strings so an untouched field
+      // round-trips unchanged instead of being re-formatted on load. A stored 0
+      // becomes '' so the box reads empty, matching the create form.
+      const num = (v: unknown) => (v === null || v === undefined || Number(v) === 0 ? '' : String(v))
+      reset({
+        ...productFormDefaults,
+        name: editingProduct.name ?? '',
+        genericName: editingProduct.genericName ?? '',
+        manufacturer: editingProduct.manufacturer ?? '',
+        hsnCode: editingProduct.hsnCode ?? '',
+        schedule: (editingProduct.schedule ?? 'NONE') as ProductFormValues['schedule'],
+        mrp: num(editingProduct.mrp),
+        sellingRate: num(editingProduct.sellingRate),
+        gstRate: Number(editingProduct.gstRate ?? 5),
+        minStock: num(editingProduct.minStock),
+        productCode: editingProduct.productCode ?? '',
+        categoryId: editingProduct.categoryId ?? '',
+        packSize: editingProduct.packSize ?? '',
+        unitOfMeasure: editingProduct.unitOfMeasure ?? '',
+        purchaseRate: num(editingProduct.purchaseRate),
+        wholesaleRate: num(editingProduct.wholesaleRate),
+        rackLocation: editingProduct.rackLocation ?? '',
+        maxStock: num(editingProduct.maxStock),
+        reorderQty: num(editingProduct.reorderQty),
+      } as unknown as ProductFormValues)
+      return
+    }
     reset({ ...productFormDefaults, name: prefillName ?? '' })
-  }, [open, prefillName, reset])
+  }, [open, prefillName, editingProduct, reset])
 
   // Lazily fetch the category list the first time the drawer is opened. Kept
   // separate from the reset so a category change never triggers a form reset.
@@ -92,13 +128,14 @@ export function ProductFormDialog({
   useEffect(() => {
     if (!open) return
     const trimmed = (nameValue ?? '').trim().toLowerCase()
-    if (trimmed && products.some(p => p.name.trim().toLowerCase() === trimmed)) {
+    // In edit mode the product's own name is obviously not a clash.
+    if (trimmed && products.some(p => p.name.trim().toLowerCase() === trimmed && p.id !== editingProduct?.id)) {
       form.setError('name', { type: 'manual', message: 'A product with this name already exists' })
     } else if (trimmed) {
       form.clearErrors('name')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nameValue, open, products])
+  }, [nameValue, open, products, editingProduct?.id])
 
   const manufacturers = useMemo(() => {
     const fromSuppliers = suppliers.map(s => s.name)
@@ -112,10 +149,19 @@ export function ProductFormDialog({
         ...values,
         schedule: values.schedule.toUpperCase(),
         categoryId: values.categoryId || undefined,
+        // NULL, not '' — same as the Products page. A blank code must not
+        // occupy the unique slot that a real code would.
+        productCode: values.productCode?.trim() || null,
       }
-      const res = await api.post('/products', payload, { suppressGlobalToast: true } as never)
-      toast.success(`Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`)
-      onSaved?.(res.data as Product)
+      const res = editingProduct
+        ? await api.patch(`/products/${editingProduct.id}`, payload, { suppressGlobalToast: true } as never)
+        : await api.post('/products', payload, { suppressGlobalToast: true } as never)
+      toast.success(
+        editingProduct
+          ? `Product "${values.name}" updated`
+          : `Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`,
+      )
+      onSaved?.(res.data as Product, editingProduct ? 'update' : 'create')
       onOpenChange(false)
     } catch (error: unknown) {
       // Check if it's a duplicate name error and surface it inline
@@ -124,14 +170,14 @@ export function ProductFormDialog({
       if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('duplicate')) {
         form.setError('name', { type: 'manual', message: msg || 'A product with this name already exists' })
       }
-      handleApiError(error, 'Failed to add product')
+      handleApiError(error, editingProduct ? 'Failed to update product' : 'Failed to add product')
     }
   }
 
   function checkDuplicateName(name: string) {
     const trimmed = name.trim().toLowerCase()
     if (!trimmed) return
-    const duplicate = products.find(p => p.name.trim().toLowerCase() === trimmed)
+    const duplicate = products.find(p => p.name.trim().toLowerCase() === trimmed && p.id !== editingProduct?.id)
     if (duplicate) {
       form.setError('name', { type: 'manual', message: 'A product with this name already exists' })
     } else {
@@ -168,11 +214,15 @@ export function ProductFormDialog({
           <div className="flex items-center gap-4 pr-8">
             <div className="min-w-0 flex-1 space-y-1">
               <SheetTitle className="text-lg flex items-center gap-2">
-                <PackagePlus className="h-5 w-5 text-primary" />
-                Add New Product
+                {editingProduct
+                  ? <Pencil className="h-5 w-5 text-primary" />
+                  : <PackagePlus className="h-5 w-5 text-primary" />}
+                {editingProduct ? 'Edit Product' : 'Add New Product'}
               </SheetTitle>
               <SheetDescription className="text-sm">
-                Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded.
+                {editingProduct
+                  ? 'Updates the product master. Existing stock and past invoices are not changed.'
+                  : 'Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded.'}
               </SheetDescription>
             </div>
             <div className="hidden md:flex shrink-0 items-center gap-1.5 max-w-full overflow-x-auto">
@@ -252,6 +302,17 @@ export function ProductFormDialog({
                     <Controller control={control} name="categoryId" render={({ field }) => (
                       <CategorySearchDropdown value={field.value ?? ''} onChange={field.onChange} hasError={false} />
                     )} />
+                  </div>
+                  {/* Item Code is on the Products page form and was missing
+                      here, so a product created from a GRN came out without the
+                      operator's own code — which is what a re-import matches on
+                      instead of guessing by name. */}
+                  <div className="col-span-12 sm:col-span-4 space-y-1">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Item Code{OPTIONAL}</Label>
+                    <Input className="h-9" {...register('productCode')} placeholder="e.g. 1573" error={!!errors.productCode} />
+                    {errors.productCode
+                      ? <p className="text-[11px] text-rose-500">{errors.productCode.message}</p>
+                      : <p className="text-[11px] text-muted-foreground">Your own code. Used to match it on re-import.</p>}
                   </div>
                 </div>
               </div>
@@ -388,7 +449,7 @@ export function ProductFormDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Add Product'}
+              {isSubmitting ? 'Saving…' : editingProduct ? 'Update Product' : 'Add Product'}
             </Button>
           </div>
         </form>
