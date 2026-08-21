@@ -26,6 +26,11 @@ const num = (v: unknown) => Number(v ?? 0)
 
 export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
   const company = useCompany()
+  // This preview is what the operator checks before hitting Print, so it has to
+  // agree with the printed copy: same configurable title, same GSTIN / D.L.
+  // suppression. It used to say "Tax Invoice" unconditionally, which contradicted
+  // a printout headed DELIVERY CHALLAN.
+  const printOpts = useSettingsStore(s => s.invoicePrint)
   const items = invoice.items ?? []
   const isQuotation = invoice.type === 'QUOTATION'
   const phone = invoice.customerPhone && invoice.customerPhone !== '0000000000' ? invoice.customerPhone : null
@@ -65,11 +70,21 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
         </div>
         <div className="space-y-0.5 text-left text-xs text-zinc-400 dark:text-zinc-500 sm:text-right">
           <p>Ph: {company.phone} &nbsp;·&nbsp; {company.email}</p>
-          <p>GSTIN: {company.gstin} &nbsp;·&nbsp; DL No: {company.dlNo}</p>
+          {/* Each ID prints only when it exists AND isn't hidden by settings, so
+              a toggle can never leave a stranded label or separator. */}
+          {(!printOpts.hideBusinessGstin || !printOpts.hideBusinessDl) && (
+            <p>
+              {!printOpts.hideBusinessGstin && <>GSTIN: {company.gstin}</>}
+              {!printOpts.hideBusinessGstin && !printOpts.hideBusinessDl && <>&nbsp;·&nbsp;</>}
+              {!printOpts.hideBusinessDl && <>DL No: {company.dlNo}</>}
+            </p>
+          )}
         </div>
         <div className="shrink-0 sm:ml-6">
           <span className="inline-block rounded-lg bg-primary px-4 py-1.5 text-xs font-black uppercase tracking-widest text-primary-foreground">
-            {isQuotation ? 'Quotation' : 'Tax Invoice'}
+            {/* A quotation is always titled QUOTATION — it isn't the invoice
+                document, so the configured title doesn't apply to it. */}
+            {isQuotation ? 'Quotation' : (printOpts.documentTitle || 'Delivery Challan')}
           </span>
         </div>
       </div>
@@ -87,7 +102,11 @@ export function InvoiceDocument({ invoice }: { invoice: Invoice }) {
           <div className="mt-1.5 flex flex-wrap items-start gap-x-4 gap-y-0.5 text-sm text-zinc-500 dark:text-zinc-400">
             {phone && <span>{phone}</span>}
             {invoice.customerAddress && <span className="leading-relaxed">{invoice.customerAddress}</span>}
-            {invoice.customerGstin && <span className="font-mono text-xs">GSTIN: {invoice.customerGstin}</span>}
+            {/* No customer D.L. here: the invoice payload the frontend receives
+                carries customerGstin but not the drug licence, so the
+                "hide customer D.L." toggle only affects the backend-rendered
+                (WhatsApp) copy, which does have the field. */}
+            {invoice.customerGstin && !printOpts.hideCustomerGstin && <span className="font-mono text-xs">GSTIN: {invoice.customerGstin}</span>}
           </div>
           {invoice.salespersonName && (
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">

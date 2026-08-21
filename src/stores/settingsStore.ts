@@ -51,6 +51,42 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   stockTracking: true,
 }
 
+// What the printed invoice / challan shows. Persisted under the
+// `invoice_settings` GlobalSetting key and read by BOTH renderers: this app's
+// jsPDF generator (lib/pdf/invoicePdf.ts, used for browser Print / Save as PDF)
+// and the backend Handlebars template (used for the WhatsApp attachment). They
+// are separate implementations of the same document, so a change here has to be
+// applied to both or the two copies drift apart.
+//
+// Kept in the store (not fetched per call) because PDF generation is
+// synchronous — invoicePdf.ts reads it via getState(), exactly as it already
+// reads businessProfile.
+export interface InvoicePrintSettings {
+  documentTitle: string
+  hideBusinessGstin: boolean
+  hideBusinessDl: boolean
+  hideCustomerGstin: boolean
+  hideCustomerDl: boolean
+  gpay: Array<{ name: string; number: string }>
+  bankName: string
+  bankAccountNumber: string
+  bankIfsc: string
+}
+
+// Mirrors InvoicePdfService.getPrintOptions() on the backend. Keep the two in
+// step: they are the fallbacks an install sees before anything is configured.
+export const DEFAULT_INVOICE_PRINT: InvoicePrintSettings = {
+  documentTitle: 'DELIVERY CHALLAN',
+  hideBusinessGstin: false,
+  hideBusinessDl: false,
+  hideCustomerGstin: false,
+  hideCustomerDl: false,
+  gpay: [],
+  bankName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+}
+
 // Generic JSON-shaped bag for settings entries. Callers know the concrete
 // shape per-key (e.g. notification_settings, barcode_settings).
 type SettingBag = Record<string, unknown>
@@ -67,6 +103,9 @@ interface SettingsState {
 
   fetchGeneralSettings: () => Promise<void>
   updateGeneralSettings: (data: Partial<GeneralSettings>) => Promise<void>
+
+  invoicePrint: InvoicePrintSettings
+  fetchInvoicePrintSettings: () => Promise<void>
 
   // Generic key-value setting accessor. Callers cast the returned bag to the
   // expected shape per setting key. Default of `any` preserves backwards
@@ -137,6 +176,30 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
+      invoicePrint: DEFAULT_INVOICE_PRINT,
+
+      fetchInvoicePrintSettings: async () => {
+        try {
+          const res = await api.get('/settings/invoice_settings')
+          const raw = (res.data && typeof res.data === 'object' ? res.data : {}) as Partial<InvoicePrintSettings>
+          set({
+            invoicePrint: {
+              ...DEFAULT_INVOICE_PRINT,
+              ...raw,
+              // Normalise here so the PDF code never has to defend against a
+              // malformed array — it runs mid-render with nowhere to report.
+              gpay: Array.isArray(raw.gpay)
+                ? raw.gpay
+                    .map((g) => ({ name: String(g?.name ?? '').trim(), number: String(g?.number ?? '').trim() }))
+                    .filter((g) => g.name || g.number)
+                : [],
+            },
+          })
+        } catch (error) {
+          console.error('Failed to fetch invoice print settings:', error)
+        }
+      },
+
       updateGeneralSettings: async (data) => {
         try {
           const next = { ...DEFAULT_GENERAL_SETTINGS, ...(useSettingsStore.getState().generalSettings), ...data }
@@ -178,6 +241,10 @@ export const useSettingsStore = create<SettingsState>()(
         // completes). The fetchGeneralSettings() call still runs on app boot
         // and overwrites with fresh server state.
         generalSettings: state.generalSettings,
+        // Persisted for the same reason as generalSettings: PDF generation is
+        // synchronous and can fire before the boot fetch resolves, and a
+        // freshly-loaded tab must not print last-week's defaults.
+        invoicePrint: state.invoicePrint,
       }),
       // Zustand's default merge is shallow, so a `generalSettings` object
       // persisted before a new field existed would REPLACE the defaults
@@ -194,6 +261,10 @@ export const useSettingsStore = create<SettingsState>()(
           generalSettings: {
             ...DEFAULT_GENERAL_SETTINGS,
             ...(saved.generalSettings ?? {}),
+          },
+          invoicePrint: {
+            ...DEFAULT_INVOICE_PRINT,
+            ...(saved.invoicePrint ?? {}),
           },
         }
       },

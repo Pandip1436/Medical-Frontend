@@ -22,12 +22,39 @@ const DEFAULT_COMPANY = {
 }
 
 // Payment instructions printed under the items table, mirroring the challan
-// layout the client works from. Not in the business profile (no column for it),
-// so it lives here as one editable constant rather than being scattered through
-// the drawing code. Move it into Settings if it ever needs to change per branch.
-const PAYMENT_NOTE = {
-  title: 'Kindly deposit Payment through Our',
-  lines: ['GPAY: BABU - 99941-13242', 'OR', 'JEYA LAKSHMI - 99941-73036'],
+// layout the client works from. These used to be hard-coded names and numbers
+// here; they now come from Settings -> Invoice & Payment so a phone number can
+// be changed without a code change (the old comment here even said to move it
+// into Settings "if it ever needs to change" — it did).
+const PAYMENT_NOTE_TITLE = 'Kindly deposit Payment through Our'
+
+// Build the payment lines from settings. Returns [] when nothing is configured,
+// which suppresses the heading too rather than printing a bare label.
+//
+// `gapBefore` opens a blank half-line above a row. It marks the FIRST bank line
+// so the UPI numbers and the bank account read as two separate groups instead of
+// one seven-line wall — whichever bank field happens to be filled in first.
+function getPaymentLines(): Array<{ text: string; gapBefore?: boolean }> {
+  const s = useSettingsStore.getState().invoicePrint
+  const lines: Array<{ text: string; gapBefore?: boolean }> = []
+
+  s.gpay.forEach((g, i) => {
+    if (i > 0) lines.push({ text: 'OR' })
+    // "GPAY:" prefixes only the first entry, matching the challan stationery.
+    lines.push({ text: `${i === 0 ? 'GPAY: ' : ''}${g.name}${g.number ? ` - ${g.number}` : ''}` })
+  })
+
+  const bank: string[] = []
+  if (s.bankName) bank.push(s.bankName)
+  if (s.bankAccountNumber) bank.push(`A/C: ${s.bankAccountNumber}`)
+  if (s.bankIfsc) bank.push(`IFSC: ${s.bankIfsc}`)
+  bank.forEach((text, i) => {
+    // Only separate the groups when there is actually a GPay block above —
+    // bank-only settings shouldn't start with a stray blank line.
+    lines.push({ text, gapBefore: i === 0 && lines.length > 0 })
+  })
+
+  return lines
 }
 
 function getCompany() {
@@ -74,6 +101,25 @@ const FRAME_BOTTOM = 285     // leaves room for the page-number strip
 const HEAD_BOTTOM = 40       // business block + document title
 const META_BOTTOM = 55       // invoice no/date | salesperson
 const MID = 108              // vertical divider for the two-column bands
+const HEAD_GUTTER = 4        // clear space between the business block and the title
+const HEAD_MIN_INFO = 82     // address never wraps in less than this; title shrinks first
+const PAY_BADGE_PT = 9       // PAID / CREDIT / PART PAID box under the title
+const PAY_BADGE_H = 5.5
+
+// What the document says about money, in one word under the title. Derived from
+// the same two numbers the totals block prints, so the badge can never
+// contradict them. Returns null where the question doesn't apply: a quotation
+// (nothing is owed yet) and a zero-value document (a replacement, which is
+// already marked NO CHARGE).
+function paymentStatusLabel(invoice: Invoice): string | null {
+  if (invoice.type === 'QUOTATION') return null
+  const total = Number(invoice.grandTotal ?? 0)
+  const paid = Number(invoice.amountPaid ?? 0)
+  if (total <= 0.01) return null
+  if (paid >= total - 0.01) return 'PAID'
+  if (paid <= 0.01) return 'CREDIT'
+  return 'PART PAID'
+}
 
 // Draws everything that repeats on every page: the outer frame, the business
 // header and the document title. Registered as autoTable's didDrawPage so a
@@ -83,6 +129,7 @@ function drawPageChrome(
   company: ReturnType<typeof getCompany>,
   title: string,
   logo: string | null,
+  payStatus: string | null,
 ) {
   doc.setDrawColor(0)
   doc.setLineWidth(0.4)
@@ -98,26 +145,77 @@ function drawPageChrome(
     } catch { /* bad image — fall back to text at the margin */ }
   }
 
+  // The document title is operator-editable (Settings -> Invoice & Payment), so
+  // its width is not knowable at design time: "DELIVERY CHALLAN" is half again
+  // as wide as the "TAX INVOICE" this header was first laid out for, and against
+  // the old fixed 108mm address wrap it overlapped. Measure the real title,
+  // shrink it if it would squeeze the business block below readable, then wrap
+  // the address in whatever width is actually left over.
+  const avail = RIGHT - 3 - textX
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(13)
+  let titleSize = 19
+  doc.setFontSize(titleSize)
+  const maxTitleW = avail - HEAD_MIN_INFO - HEAD_GUTTER
+  while (titleSize > 10 && doc.getTextWidth(title) > maxTitleW) {
+    titleSize -= 0.5
+    doc.setFontSize(titleSize)
+  }
+  const titleW = doc.getTextWidth(title)
+  // The status badge sits under the title, so the space the address must keep
+  // clear is whichever of the two is wider — with a short title the badge is
+  // the one that would otherwise be run into.
+  doc.setFontSize(PAY_BADGE_PT)
+  const badgeW = payStatus ? doc.getTextWidth(payStatus) + 6 : 0
+  const infoW = Math.max(30, avail - Math.max(titleW, badgeW) - HEAD_GUTTER)
+
+  // Same treatment for the business name: shrink rather than run into the title
+  // or wrap onto a second line, which would push the address past HEAD_BOTTOM.
+  let nameSize = 13
+  doc.setFontSize(nameSize)
+  while (nameSize > 8 && doc.getTextWidth(company.name) > infoW) {
+    nameSize -= 0.5
+    doc.setFontSize(nameSize)
+  }
   doc.text(company.name, textX, FRAME_TOP + 8)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)
   // Address is one long line in the profile — wrap it inside the space left of
   // the title so it can never run under (or past) the document title.
-  const addrLines = doc.splitTextToSize(company.address, 108) as string[]
+  const addrLines = doc.splitTextToSize(company.address, infoW) as string[]
   let hy = FRAME_TOP + 12.5
   for (const line of addrLines.slice(0, 3)) {
     doc.text(line, textX, hy)
     hy += 3.4
   }
   doc.text(`Phone: ${company.phone}`, textX, hy); hy += 3.4
-  doc.text(`GSTIN: ${company.gstin}   D.L.No: ${company.dlNo}`, textX, hy)
+  // GSTIN / D.L. are independently suppressible (Settings -> Invoice &
+  // Payment). Built as parts so hiding one doesn't leave the other's separator
+  // stranded, and the whole line is skipped when both are off.
+  const printOpts = useSettingsStore.getState().invoicePrint
+  const idParts: string[] = []
+  if (company.gstin && !printOpts.hideBusinessGstin) idParts.push(`GSTIN: ${company.gstin}`)
+  if (company.dlNo && !printOpts.hideBusinessDl) idParts.push(`D.L.No: ${company.dlNo}`)
+  if (idParts.length) doc.text(idParts.join('   '), textX, hy)
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(19)
+  doc.setFontSize(titleSize)
   doc.text(title, RIGHT - 3, FRAME_TOP + 15, { align: 'right' })
+
+  // PAID / CREDIT / PART PAID, boxed under the title. Whether the counter staff
+  // handing this over should be collecting money is the one thing worth reading
+  // off the top of the page, so it goes with the title rather than being buried
+  // in the totals column.
+  if (payStatus) {
+    doc.setFontSize(PAY_BADGE_PT)
+    const w = doc.getTextWidth(payStatus) + 6
+    const x = RIGHT - 3 - w
+    const y = FRAME_TOP + 18.5
+    doc.setLineWidth(0.35)
+    doc.rect(x, y, w, PAY_BADGE_H)
+    doc.setLineWidth(0.2)
+    doc.text(payStatus, x + w / 2, y + 3.9, { align: 'center' })
+  }
 
   doc.setLineWidth(0.4)
   doc.line(M, HEAD_BOTTOM, RIGHT, HEAD_BOTTOM)
@@ -149,9 +247,14 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
     invoice.isReplacement === true ||
     (invoice.invoiceNumber ?? '').toUpperCase().startsWith('REPL')
   const isQuote = invoice.type === 'QUOTATION'
-  const title = isQuote ? 'QUOTATION' : 'TAX INVOICE'
+  // A quotation is always titled QUOTATION — it isn't the invoice document, so
+  // the configured title doesn't apply to it.
+  const title = isQuote
+    ? 'QUOTATION'
+    : useSettingsStore.getState().invoicePrint.documentTitle || 'DELIVERY CHALLAN'
 
-  drawPageChrome(doc, company, title, logo)
+  const payStatus = paymentStatusLabel(invoice)
+  drawPageChrome(doc, company, title, logo, payStatus)
 
   // ── Meta band: document no/date on the left, salesperson on the right ──
   doc.line(M, META_BOTTOM, RIGHT, META_BOTTOM)
@@ -179,7 +282,12 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
       : ''
   const partyBits: string[] = []
   if (invoice.customerAddress) partyBits.push(invoice.customerAddress)
-  if (invoice.customerGstin) partyBits.push(`GSTIN: ${invoice.customerGstin}`)
+  // Suppressible via Settings -> Invoice & Payment. (There is no customer D.L.
+  // on the Invoice type this renderer receives, so the matching "hide customer
+  // D.L." toggle only has an effect on the backend-rendered WhatsApp copy.)
+  if (invoice.customerGstin && !useSettingsStore.getState().invoicePrint.hideCustomerGstin) {
+    partyBits.push(`GSTIN: ${invoice.customerGstin}`)
+  }
   if (invoice.doctorName) partyBits.push(`Doctor: ${invoice.doctorName}`)
   doc.setFontSize(8)
   const partyLines = partyBits.length
@@ -280,7 +388,7 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
     },
     // Continuation pages get the same letterhead and start below it.
     didDrawPage: (data) => {
-      if (data.pageNumber > 1) drawPageChrome(doc, company, title, logo)
+      if (data.pageNumber > 1) drawPageChrome(doc, company, title, logo, payStatus)
     },
     margin: { left: M, right: pageWidth - RIGHT, top: HEAD_BOTTOM + 4, bottom: 60 },
   })
@@ -320,17 +428,22 @@ export function generateInvoicePdf(invoice: Invoice, options?: { autoPrint?: boo
   // separating the totals from the signature panel below.
   doc.line(MID, bandTop, MID, bandBottom)
 
-  // Payment instructions, mirroring the challan's left-hand block.
-  doc.setFont('helvetica', 'bolditalic')
-  doc.setFontSize(8.5)
-  doc.text(PAYMENT_NOTE.title, M + 3, bandTop + 6)
-  doc.setFont('helvetica', 'bold')
-  let py = bandTop + 11
-  for (const line of PAYMENT_NOTE.lines) {
-    doc.text(line, M + 3, py)
-    py += 4.5
+  // Payment instructions, mirroring the challan's left-hand block. Skipped
+  // entirely (heading included) when nothing is configured in Settings.
+  const paymentLines = getPaymentLines()
+  if (paymentLines.length) {
+    doc.setFont('helvetica', 'bolditalic')
+    doc.setFontSize(8.5)
+    doc.text(PAYMENT_NOTE_TITLE, M + 3, bandTop + 6)
+    doc.setFont('helvetica', 'bold')
+    let py = bandTop + 11
+    for (const line of paymentLines) {
+      if (line.gapBefore) py += 3.5
+      doc.text(line.text, M + 3, py)
+      py += 4.5
+    }
+    doc.setFont('helvetica', 'normal')
   }
-  doc.setFont('helvetica', 'normal')
 
   let ty = bandTop + 6
   for (const [label, value, bold] of totals) {

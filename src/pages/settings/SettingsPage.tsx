@@ -25,6 +25,7 @@ import {
   MessageCircle,
   AlertTriangle,
   Bell,
+  FileText,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -85,6 +86,7 @@ interface SettingsSection {
 
 const settingsSections: SettingsSection[] = [
   { id: 'business', label: 'Business Profile', icon: Building2, description: 'Company details & invoicing' },
+  { id: 'invoicePrint', label: 'Invoice & Payment', icon: FileText, description: 'Printed title, GSTIN / D.L. visibility, payment details', adminOnly: true },
   { id: 'numbering', label: 'Document Numbering', icon: Hash, description: 'Invoice / quotation / PE formats' },
   { id: 'backup', label: 'Backup & Data', icon: Database, description: 'Backups & data management' },
   { id: 'whatsapp', label: 'WhatsApp Messages', icon: MessageCircle, description: 'Automatic customer & supplier messages', adminOnly: true },
@@ -328,6 +330,7 @@ export default function SettingsPage() {
                 {activeSection === 'whatsapp' && isAdmin && <WhatsAppMessagesSection />}
                 {activeSection === 'notifications' && isAdmin && <NotificationCadenceSection />}
                 {activeSection === 'integrations' && isAdmin && <IntegrationsSection />}
+                {activeSection === 'invoicePrint' && isAdmin && <InvoicePrintSection />}
                 {activeSection === 'general' && <GeneralSettingsSection />}
               </motion.div>
             </div>
@@ -1182,6 +1185,247 @@ function IntegrationsSection() {
 // ─────────────────────────────────────────────────────────────
 // Section: General Settings
 // ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// Invoice & Payment — what the printed invoice/challan shows.
+//
+// Persisted as one JSON blob under the `invoice_settings` GlobalSetting key and
+// read at render time by InvoicePdfService.getPrintOptions(). The title, the
+// GSTIN / D.L. visibility and every payment line used to be hard-coded in
+// invoice.hbs, so changing a phone number meant editing a template and
+// redeploying.
+//
+// Business and customer GSTIN / D.L. are four independent toggles rather than
+// two: a business may be registered for one and not the other, and what you
+// must print about yourself is a separate question from what you print about
+// the buyer.
+// ─────────────────────────────────────────────────────────────
+interface InvoicePrintSettings {
+  documentTitle: string
+  hideBusinessGstin: boolean
+  hideBusinessDl: boolean
+  hideCustomerGstin: boolean
+  hideCustomerDl: boolean
+  gpay: Array<{ name: string; number: string }>
+  bankName: string
+  bankAccountNumber: string
+  bankIfsc: string
+}
+
+// Matches InvoicePdfService's fallbacks, so an untouched install prints exactly
+// what it printed before any of this was configurable.
+const INVOICE_PRINT_DEFAULTS: InvoicePrintSettings = {
+  documentTitle: 'DELIVERY CHALLAN',
+  hideBusinessGstin: false,
+  hideBusinessDl: false,
+  hideCustomerGstin: false,
+  hideCustomerDl: false,
+  gpay: [{ name: '', number: '' }, { name: '', number: '' }],
+  bankName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+}
+
+function InvoicePrintSection() {
+  const getSetting = useSettingsStore((s) => s.getSetting)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+  // Both PDF renderers read these off the store, so it has to be refreshed
+  // after a save — otherwise printing straight after saving still uses the
+  // values loaded at boot.
+  const fetchInvoicePrintSettings = useSettingsStore((s) => s.fetchInvoicePrintSettings)
+
+  const [v, setV] = useState<InvoicePrintSettings>(INVOICE_PRINT_DEFAULTS)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const raw = await getSetting<Partial<InvoicePrintSettings>>('invoice_settings')
+      if (cancelled) return
+      // Merge onto defaults so a key added later can't land as undefined and
+      // render an uncontrolled input.
+      setV({
+        ...INVOICE_PRINT_DEFAULTS,
+        ...(raw ?? {}),
+        // Always exactly two slots, so the form shape is stable even if the
+        // stored array is short, missing or over-long.
+        gpay: [0, 1].map((i) => ({
+          name: raw?.gpay?.[i]?.name ?? '',
+          number: raw?.gpay?.[i]?.number ?? '',
+        })),
+      })
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [getSetting])
+
+  const setGpay = (i: number, field: 'name' | 'number', value: string) =>
+    setV((p) => ({ ...p, gpay: p.gpay.map((g, gi) => (gi === i ? { ...g, [field]: value } : g)) }))
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await updateSetting('invoice_settings', {
+        ...v,
+        documentTitle: v.documentTitle.trim() || INVOICE_PRINT_DEFAULTS.documentTitle,
+        // Blank rows are dropped on the way out; the PDF filters again, but
+        // storing them would resurrect empty slots on the next load.
+        gpay: v.gpay
+          .map((g) => ({ name: g.name.trim(), number: g.number.trim() }))
+          .filter((g) => g.name || g.number),
+      })
+      await fetchInvoicePrintSettings()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading invoice settings…
+      </div>
+    )
+  }
+
+  return (
+    <motion.div variants={itemVariants}>
+      {document.getElementById('settings-save-button-portal') && createPortal(
+        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-1.5 cursor-pointer h-8">
+          <Save className="h-4 w-4" />
+          {saving ? 'Saving…' : 'Save Invoice Settings'}
+        </Button>,
+        document.getElementById('settings-save-button-portal')!
+      )}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted/60 dark:bg-muted/30">
+              <FileText className="h-4.5 w-4.5 text-muted-foreground" />
+            </div>
+            <div>
+              <CardTitle>Invoice &amp; Payment</CardTitle>
+              <CardDescription>What appears on the printed invoice / challan</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* Document title */}
+          <div>
+            <SectionLabel>Document</SectionLabel>
+            <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-0.5 sm:pr-4">
+                <p className="text-sm font-medium text-foreground">Printed Title</p>
+                <p className="text-xs text-muted-foreground">
+                  Shown in the top-right of every printed invoice.
+                </p>
+              </div>
+              <Input
+                value={v.documentTitle}
+                onChange={(e) => setV((p) => ({ ...p, documentTitle: e.target.value }))}
+                placeholder="DELIVERY CHALLAN"
+                className="w-full shrink-0 sm:w-56"
+              />
+            </div>
+          </div>
+
+          {/* Visibility */}
+          <div>
+            <SectionLabel>GSTIN &amp; Drug Licence</SectionLabel>
+            <div className="mt-3 space-y-2">
+              <SettingToggleRow
+                title="Hide our GSTIN"
+                description="Omits the business GSTIN from the letterhead"
+                checked={v.hideBusinessGstin}
+                onCheckedChange={(c) => setV((p) => ({ ...p, hideBusinessGstin: c }))}
+              />
+              <SettingToggleRow
+                title="Hide our D.L. No."
+                description="Omits the business drug-licence number from the letterhead"
+                checked={v.hideBusinessDl}
+                onCheckedChange={(c) => setV((p) => ({ ...p, hideBusinessDl: c }))}
+              />
+              <SettingToggleRow
+                title="Hide customer GSTIN"
+                description="Omits the buyer's GSTIN from the Bill To block"
+                checked={v.hideCustomerGstin}
+                onCheckedChange={(c) => setV((p) => ({ ...p, hideCustomerGstin: c }))}
+              />
+              <SettingToggleRow
+                title="Hide customer D.L. No."
+                description="Omits the buyer's drug-licence number from the Bill To block"
+                checked={v.hideCustomerDl}
+                onCheckedChange={(c) => setV((p) => ({ ...p, hideCustomerDl: c }))}
+              />
+            </div>
+          </div>
+
+          {/* Payment details */}
+          <div>
+            <SectionLabel>Payment Details</SectionLabel>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Printed under “Kindly deposit Payment through Our”. Leave everything blank to omit the
+              whole block.
+            </p>
+            <div className="mt-3 space-y-2">
+              {v.gpay.map((g, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center"
+                >
+                  <p className="w-28 shrink-0 text-sm font-medium text-foreground">
+                    GPay {i + 1}
+                  </p>
+                  <Input
+                    value={g.name}
+                    onChange={(e) => setGpay(i, 'name', e.target.value)}
+                    placeholder="Account holder name"
+                    className="w-full sm:flex-1"
+                  />
+                  <Input
+                    value={g.number}
+                    onChange={(e) => setGpay(i, 'number', e.target.value)}
+                    placeholder="99941-13242"
+                    className="w-full sm:w-48"
+                  />
+                </div>
+              ))}
+
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center">
+                <p className="w-28 shrink-0 text-sm font-medium text-foreground">Bank</p>
+                <Input
+                  value={v.bankName}
+                  onChange={(e) => setV((p) => ({ ...p, bankName: e.target.value }))}
+                  placeholder="Bank name"
+                  className="w-full sm:flex-1"
+                />
+              </div>
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center">
+                <p className="w-28 shrink-0 text-sm font-medium text-foreground">A/C No.</p>
+                <Input
+                  value={v.bankAccountNumber}
+                  onChange={(e) => setV((p) => ({ ...p, bankAccountNumber: e.target.value }))}
+                  placeholder="Account number"
+                  className="w-full sm:flex-1"
+                />
+              </div>
+              <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3.5 dark:bg-muted/10 sm:flex-row sm:items-center">
+                <p className="w-28 shrink-0 text-sm font-medium text-foreground">IFSC</p>
+                <Input
+                  value={v.bankIfsc}
+                  onChange={(e) => setV((p) => ({ ...p, bankIfsc: e.target.value.toUpperCase() }))}
+                  placeholder="HDFC0001234"
+                  className="w-full sm:flex-1"
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
+}
 
 function GeneralSettingsSection() {
   const storeSettings = useSettingsStore((s) => s.generalSettings)

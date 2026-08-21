@@ -60,6 +60,7 @@ export default function AppLayout({
   const showBottomNav = isMobile
   const fetchSettings = useSettingsStore((s) => s.fetchSettings)
   const fetchGeneralSettings = useSettingsStore((s) => s.fetchGeneralSettings)
+  const fetchInvoicePrintSettings = useSettingsStore((s) => s.fetchInvoicePrintSettings)
   const loadColumnPrefs = useColumnPrefsStore((s) => s.loadFromServer)
   const { search: routeSearch } = useRoute()
 
@@ -71,11 +72,14 @@ export default function AppLayout({
     if (isAuthenticated) {
       fetchSettings()
       fetchGeneralSettings()
+      // Printed-invoice options. Fetched on boot (not per PDF) because PDF
+      // generation is synchronous and reads these straight off the store.
+      fetchInvoicePrintSettings()
       // Pull the user's saved table-column choices (server wins over the
       // localStorage cache that already gave us a correct first paint).
       loadColumnPrefs()
     }
-  }, [isAuthenticated, fetchSettings, fetchGeneralSettings, loadColumnPrefs])
+  }, [isAuthenticated, fetchSettings, fetchGeneralSettings, fetchInvoicePrintSettings, loadColumnPrefs])
 
   // Apply theme class to document
   useEffect(() => {
