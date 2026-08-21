@@ -27,6 +27,14 @@ interface InvoiceSplitViewProps {
   loadingMore?: boolean
   hasMore?: boolean
   onLoadMore?: () => void
+  /**
+   * Server-driven search. When provided, the rail search box drives the
+   * parent's server query (so it can find ANY invoice, not just the ones
+   * already loaded into the rail). When omitted, the rail falls back to a
+   * local client-side filter over the loaded rows.
+   */
+  searchValue?: string
+  onSearchChange?: (value: string) => void
 }
 
 export function InvoiceSplitView({
@@ -42,8 +50,14 @@ export function InvoiceSplitView({
   tabsNode,
   isCardFieldVisible,
   isCardFieldRight,
+  searchValue,
+  onSearchChange,
 }: InvoiceSplitViewProps) {
   const [localSearch, setLocalSearch] = useState('')
+  // Server-driven when the parent passes a search handler; else local-only.
+  const serverSearch = onSearchChange !== undefined
+  const searchBoxValue = serverSearch ? (searchValue ?? '') : localSearch
+  const setSearchBoxValue = serverSearch ? onSearchChange! : setLocalSearch
   const sentinelRef = useRef<HTMLDivElement>(null)
   const pendingLoadRef = useRef(false)
   const detail = useInvoiceDetail(selectedInvoiceId)
@@ -85,8 +99,10 @@ export function InvoiceSplitView({
     onSelectInvoice(invoices[0].id)
   }, [invoices])
 
-  // Local search filters within the parent's already-filtered list.
+  // In server mode the parent already returns only matching invoices, so show
+  // them as-is. In local mode, filter within the loaded rows.
   const displayedInvoices = useMemo(() => {
+    if (serverSearch) return invoices
     const q = localSearch.trim().toLowerCase()
     if (!q) return invoices
     return invoices.filter(
@@ -95,7 +111,7 @@ export function InvoiceSplitView({
         inv.customerName.toLowerCase().includes(q) ||
         (inv.customerPhone ?? '').includes(q),
     )
-  }, [invoices, localSearch])
+  }, [invoices, localSearch, serverSearch])
 
   // Right-panel content — header strip + scrollable InvoiceDetailContent.
   const rightContent = detail.invoice ? (
@@ -152,8 +168,8 @@ export function InvoiceSplitView({
 
   return (
     <SplitViewShell
-      searchValue={localSearch}
-      onSearchChange={setLocalSearch}
+      searchValue={searchBoxValue}
+      onSearchChange={setSearchBoxValue}
       searchPlaceholder="Search invoices…"
       resultCount={displayedInvoices.length}
       resultLabel="invoice"

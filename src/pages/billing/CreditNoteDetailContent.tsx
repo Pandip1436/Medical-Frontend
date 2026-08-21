@@ -65,7 +65,7 @@ export function printCreditNote(cn: CreditNote, businessProfile?: { name?: strin
       <div><div class="label">Credit Note No</div><div class="value">${cn.creditNoteNo}</div></div>
       <div><div class="label">Date</div><div class="value">${formatDate(cn.date)}</div></div>
       <div><div class="label">Customer</div><div class="value">${cn.customerName}</div></div>
-      <div><div class="label">Against Invoice</div><div class="value">${cn.invoiceNumber}</div></div>
+      <div><div class="label">Against Invoice</div><div class="value">${cn.invoiceNumber ?? '—'}</div></div>
       <div><div class="label">Settlement</div><div class="value">${settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode}</div></div>
       <div><div class="label">Reason</div><div class="value">${cn.reason}</div></div>
     </div>
@@ -259,7 +259,7 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
         </div>
         <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3 sm:border-l sm:border-border/40">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Against Invoice</p>
-          <p className="mt-0.5 font-mono text-xs font-medium truncate" title={creditNote.invoiceNumber}>{creditNote.invoiceNumber}</p>
+          <p className="mt-0.5 font-mono text-xs font-medium truncate" title={creditNote.invoiceNumber ?? undefined}>{creditNote.invoiceNumber ?? <span className="not-italic text-muted-foreground">Standalone (no invoice)</span>}</p>
         </div>
         <div className="flex min-w-0 flex-1 basis-0 flex-col justify-center bg-muted/20 px-4 py-3 sm:border-l sm:border-border/40">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Reason</p>
@@ -529,15 +529,17 @@ export function CreditNoteDetailContent({ creditNote, onUpdated }: CreditNoteDet
                 <span className="sm:hidden">Replacement</span>
               </Button>
             )}
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => navigate(`/customers/invoices/detail?id=${encodeURIComponent(creditNote.invoiceId)}`)}
-            >
-              <ExternalLink className="h-4 w-4" />
-              <span className="hidden sm:inline">View Invoice</span>
-              <span className="sm:hidden">Invoice</span>
-            </Button>
+            {creditNote.invoiceId && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => navigate(`/customers/invoices/detail?id=${encodeURIComponent(creditNote.invoiceId!)}`)}
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span className="hidden sm:inline">View Invoice</span>
+                <span className="sm:hidden">Invoice</span>
+              </Button>
+            )}
             <Button className="gap-2" onClick={() => printCreditNote(creditNote, businessProfile)}>
               <Printer className="h-4 w-4" />
               Print

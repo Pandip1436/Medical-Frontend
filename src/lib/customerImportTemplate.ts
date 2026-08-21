@@ -152,7 +152,9 @@ export interface ParsedCustomer {
 export interface ParsedCreditNote {
   sourceRow: number
   creditNoteNo?: string
-  invoiceNumber: string
+  // Optional: a standalone credit note (general credit/adjustment, or legacy
+  // data with no linkable invoice) has no invoice number.
+  invoiceNumber?: string
   date?: string
   reason?: string
   notes?: string
@@ -1371,21 +1373,14 @@ export async function parseCustomerImportWorkbook(file: File): Promise<ParseResu
       })
       return
     }
-    const invoiceNumber = toStr(raw.invoice_number)
-    if (!invoiceNumber) {
-      errors.push({
-        sheet: 'Credit Notes',
-        row: rowNum,
-        field: 'invoice_number',
-        message: 'invoice_number is required — every credit note is against a specific invoice.',
-      })
-      return
-    }
+    // invoice_number is optional. A blank one just means the credit note has no
+    // linkable invoice — it still imports as a standalone credit note, so the
+    // count matches the source file exactly (no rows silently dropped).
     const cnRef = toOptionalStr(raw.credit_note_ref)
     customer.creditNotes.push({
       sourceRow: rowNum,
       creditNoteNo: toOptionalStr(raw.credit_note_no),
-      invoiceNumber,
+      invoiceNumber: toOptionalStr(raw.invoice_number),
       date: toISODate(raw.date),
       reason: toOptionalStr(raw.reason),
       notes: toOptionalStr(raw.notes),

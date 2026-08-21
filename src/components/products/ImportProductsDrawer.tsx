@@ -162,11 +162,10 @@ const DUPLICATE_OPTIONS: Array<{
 
 // The one place the match rule is spelled out, reused by both stages so the
 // wording can never drift between them. It mirrors resolveExisting() in
-// product-import.service.ts: the name must match, and the item codes must not
-// contradict each other — a blank code on either side still matches on name,
-// but two different codes mean two different products.
+// product-import.service.ts: a row matches an existing product by NAME — the
+// item code is not used to tell products apart.
 const MATCH_RULE =
-  'A row matches an existing product when the names are the same and the item codes agree (a blank code on either side still matches on name). Same name, different item code = a separate product.'
+  'A row matches an existing product when the NAME is the same — the item code is not used to tell products apart. A product listed twice (even under different codes) is treated as one.'
 
 export function ImportProductsDrawer({
   open,
@@ -747,7 +746,7 @@ function PreviewStage({
 
       <div className="space-y-2">
         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          On duplicate (matched by name + item code)
+          On duplicate (matched by name)
         </Label>
         <DuplicateHandlingRadio
           value={duplicateHandling}

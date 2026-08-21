@@ -62,6 +62,7 @@ import { resolveListView } from '@/lib/listView'
 import { toast } from 'sonner'
 import api, { handleApiError } from '@/lib/api'
 import { usePageFilter } from '@/hooks/usePageFilter'
+import { useDebounce } from '@/hooks/useDebounce'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import type { Invoice } from '@/types'
 import {
@@ -253,30 +254,124 @@ export default function SalesListPage() {
   const [pageSize, setPageSize] = usePageSize('pbims.invoices.pageSize', PAGE_SIZE)
 
 
-  // Real Data State
+  // ── Server-side data ──────────────────────────────────────────────
+  // The list is paged on the SERVER: the browser only holds the current page
+  // (table view) or the pages scrolled-to so far (split view), never all N
+  // invoices. Stat cards + tab counts come from /billing/summary (aggregated
+  // server-side) so they stay correct without loading every row.
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const invoicesRef = useRef<Invoice[]>([])
+  invoicesRef.current = invoices
+  const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [summaryData, setSummaryData] = useState<{
+    totalInvoices: number; totalAmount: number; paidCount: number; paidTotal: number
+    outstandingAmount: number; outstandingCount: number; returnsCount: number
+    statusCounts: Record<string, number>; statusTotal: number
+  } | null>(null)
   const { customers, fetchMasterData } = useMasterDataStore()
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchMasterData()
-  }, [])
+  useEffect(() => { fetchMasterData() }, [])
 
-  const fetchInvoices = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      // This page is fully client-side (period filter, stat cards, tab counts
-      // and search all run over the loaded array), so it must load the FULL set
-      // — the old default cap of 200 silently truncated the list AND the stats.
-      const res = await api.get('/billing?take=10000')
-      setInvoices(res.data.data || res.data)
-    } catch (error) {
-      handleApiError(error, 'Failed to load invoices')
-    } finally {
-      setIsLoading(false)
+  // Debounce the search box so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebounce(searchQuery, 300)
+
+  // Period → concrete from/to ISO boundaries on the LOCAL calendar day, matching
+  // the old client-side period filter (so "today" is still the local day, not UTC).
+  const periodRange = useMemo<{ from?: string; to?: string }>(() => {
+    const now = new Date()
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    switch (period) {
+      case 'today': return { from: ymd(now), to: ymd(now) }
+      case 'week': return { from: weekStartISO(now) }
+      case 'month': return { from: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01` }
+      case 'quarter': {
+        const qMonth = Math.floor(now.getMonth() / 3) * 3
+        return { from: `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01` }
+      }
+      case 'custom': return { from: dateFrom || undefined, to: dateTo || undefined }
+      default: return {}
     }
-  }, [])
+  }, [period, dateFrom, dateTo])
+
+  // Effective single status for the LIST query. The tab wins over the stat-card
+  // drill-down, which wins over the status dropdown (they compose in practice).
+  const listStatus = useMemo<string | undefined>(() => {
+    if (statusTab !== 'all') return statusTab
+    if (cardFilter === 'paid') return 'PAID'
+    if (cardFilter === 'pending') return 'PENDING' // backend expands → UNPAID+PARTIAL
+    if (cardFilter === 'returns') return 'RETURNED'
+    if (selectedStatus !== 'all') return selectedStatus
+    return undefined
+  }, [statusTab, cardFilter, selectedStatus])
+
+  // Params shared by the summary (stat cards + tab counts): period + search +
+  // payment + salesperson + status-dropdown. NOT the card/tab drill-down — those
+  // are derived client-side from the returned per-status counts.
+  const scopeParams = useMemo<Record<string, string>>(() => ({
+    ...(periodRange.from ? { from: periodRange.from } : {}),
+    ...(periodRange.to ? { to: periodRange.to } : {}),
+    ...(debouncedSearch.trim() ? { q: debouncedSearch.trim() } : {}),
+    ...(selectedPaymentMode !== 'all' ? { paymentMode: selectedPaymentMode } : {}),
+    ...(selectedSalespersonId !== 'all' ? { salespersonId: selectedSalespersonId } : {}),
+    ...(selectedStatus !== 'all' ? { status: selectedStatus } : {}),
+  }), [periodRange, debouncedSearch, selectedPaymentMode, selectedSalespersonId, selectedStatus])
+
+  // Params for the LIST query — the scope plus the effective drill-down status.
+  const listParams = useMemo<Record<string, string>>(() => {
+    const p = { ...scopeParams }
+    if (listStatus) p.status = listStatus
+    return p
+  }, [scopeParams, listStatus])
+  const listParamsSig = useMemo(() => JSON.stringify(listParams), [listParams])
+
+  // Load a page of the list. append=false replaces (table page / split reset);
+  // append=true tacks the next chunk onto the split-view rail (infinite scroll).
+  const reqSeq = useRef(0)
+  const loadList = useCallback(async (append: boolean) => {
+    const seq = ++reqSeq.current
+    if (append) setLoadingMore(true); else setIsLoading(true)
+    try {
+      const isSplit = resolveListView(new URLSearchParams(window.location.search).get('view')) === 'split'
+      const take = isSplit ? SPLIT_PAGE_SIZE : pageSize
+      const skip = append ? invoicesRef.current.length : (isSplit ? 0 : (currentPage - 1) * pageSize)
+      const res = await api.get('/billing', { params: { ...listParams, skip, take } })
+      if (seq !== reqSeq.current) return // a newer request superseded this one
+      const data: Invoice[] = res.data?.data ?? res.data ?? []
+      const t: number = typeof res.data?.total === 'number' ? res.data.total : data.length
+      setTotal(t)
+      setInvoices((prev) => (append ? [...prev, ...data] : data))
+    } catch {
+      if (seq === reqSeq.current && !append) { setInvoices([]); setTotal(0) }
+      if (seq === reqSeq.current) toast.error('Failed to load invoices')
+    } finally {
+      if (seq === reqSeq.current) { setIsLoading(false); setLoadingMore(false) }
+    }
+  }, [listParams, currentPage, pageSize])
+
+  // Fetch the aggregate summary (stat cards + per-status tab counts) for the
+  // current scope filters — independent of pagination / drill-down.
+  const summarySeq = useRef(0)
+  const loadSummary = useCallback(async () => {
+    const seq = ++summarySeq.current
+    try {
+      const res = await api.get('/billing/summary', { params: scopeParams })
+      if (seq === summarySeq.current) setSummaryData(res.data)
+    } catch {
+      if (seq === summarySeq.current) setSummaryData(null)
+    }
+  }, [scopeParams])
+
+  // Imperative reload of the current view — list AND summary (used by
+  // branch-switch, post-mutation refresh, and payment reconcile). Branch is
+  // resolved server-side from the token, so it isn't in scopeParams and won't
+  // retrigger the effect below on its own; reloading both here covers it.
+  const refresh = useCallback(() => { loadList(false); loadSummary() }, [loadList, loadSummary])
+
+  // Refetch the summary whenever the scope filters change.
+  useEffect(() => { loadSummary() }, [loadSummary])
 
   // No phone lookup needed any more: the backend resolves the recipient itself
   // from the invoice's customer (whatsappNumber, else phone), so the client
@@ -358,15 +453,13 @@ export default function SalesListPage() {
         toast.success('Invoice cancelled')
       }
       setCancelTarget(null)
-      fetchInvoices()
-    } catch (err) {
-      handleApiError(err, cancelTarget?.status === 'DRAFT' ? 'Failed to discard draft' : 'Failed to cancel invoice')
+      refresh()
+    } catch {
+      toast.error(cancelTarget?.status === 'DRAFT' ? 'Failed to discard draft' : 'Failed to cancel invoice')
     }
-  }, [cancelTarget, fetchInvoices])
+  }, [cancelTarget, refresh])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchInvoices() }, [])
-  useBranchRefresh(fetchInvoices)
+  useBranchRefresh(refresh)
 
   useEffect(() => {
     // The salesperson filter is optional and not every role can list
@@ -386,6 +479,62 @@ export default function SalesListPage() {
   // Split view is the default. Pass ?view=table to switch to table mode.
   const effectiveView = resolveListView(urlParams.get('view'))
   const selectedInvoiceId = urlParams.get('invoiceId')
+
+  // Reactive list fetch: reload the current page whenever the filters, page,
+  // page-size, or view change. In split view this fetches the first chunk
+  // (further chunks are appended by the rail's infinite scroll via onLoadMore).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadList(false) }, [listParamsSig, currentPage, pageSize, effectiveView])
+
+  // A filter change must snap back to page 1 — otherwise a narrower result set
+  // could leave you stranded on a now-empty page.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setCurrentPage(1) }, [listParamsSig, pageSize])
+
+  // Split-view rail infinite scroll: append the next chunk. hasMore compares the
+  // rows loaded so far against the server's total for the current filters.
+  const hasMore = invoices.length < total
+  const loadMore = useCallback(() => { if (!isLoading && !loadingMore) loadList(true) }, [isLoading, loadingMore, loadList])
+
+  // Export: fetch EVERY row matching the current filters (not just the loaded
+  // page). Cached by the filter signature so Print + Excel from one open menu
+  // don't fetch twice. Returned to ExportMenu as an async row-source.
+  const exportCacheRef = useRef<{ sig: string; rows: Invoice[] } | null>(null)
+  const fetchAllMatching = useCallback(async (): Promise<Invoice[]> => {
+    if (exportCacheRef.current?.sig === listParamsSig) return exportCacheRef.current.rows
+    const res = await api.get('/billing', { params: { ...listParams, take: 100000 } })
+    const rows: Invoice[] = res.data?.data ?? res.data ?? []
+    exportCacheRef.current = { sig: listParamsSig, rows }
+    return rows
+  }, [listParams, listParamsSig])
+  const exportRow = (inv: Invoice) => ({
+    Invoice: inv.invoiceNumber,
+    Date: formatDate(inv.date),
+    Customer: inv.customerName,
+    Phone: inv.customerPhone ?? '',
+    Items: inv.items?.length ?? 0,
+    Total: formatCurrency(inv.grandTotal),
+    Paid: formatCurrency(inv.amountPaid),
+    Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
+    'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
+    'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+    Status: inv.status,
+  })
+  const exportExcelRow = (inv: Invoice) => ({
+    Invoice: inv.invoiceNumber,
+    Date: formatDate(inv.date),
+    Customer: inv.customerName,
+    Phone: inv.customerPhone ?? '',
+    Items: inv.items?.length ?? 0,
+    Total: inv.grandTotal,
+    Paid: inv.amountPaid,
+    Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
+    'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
+    'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
+    Status: inv.status,
+  })
+  const exportRowsSource = () => fetchAllMatching().then((rows) => rows.map(exportRow))
+  const exportExcelRowsSource = () => fetchAllMatching().then((rows) => rows.map(exportExcelRow))
 
   // Navigate to set / clear the split-view URL params.
   const selectInvoice = useCallback((id: string | null) => {
@@ -414,14 +563,14 @@ export default function SalesListPage() {
         toast.info('No new payments found at the gateway')
       } else {
         toast.success(`Reconciled ${fresh.length} payment${fresh.length === 1 ? '' : 's'} from gateway`)
-        fetchInvoices()
+        refresh()
       }
     } catch (err: any) {
       handleApiError(err, 'Failed to reconcile payment')
     } finally {
       setReconciling(false)
     }
-  }, [selectedInvoiceId, fetchInvoices])
+  }, [selectedInvoiceId, refresh])
 
   const clearFilters = () => {
     setPeriod('today')
@@ -436,116 +585,24 @@ export default function SalesListPage() {
 
   // ── Filtering logic ──
 
-  // Invoices within the selected period only — drives both the summary cards
-  // and the list (so the cards always reflect the period, independent of the
-  // card-click / search / status narrowing applied to the table below).
-  const periodInvoices = useMemo(() => {
-    let result = [...invoices]
-    const now = new Date()
-    // Compare on the LOCAL calendar day, not the UTC day. inv.date is a UTC
-    // ISO timestamp, so slice(0,10) yields its UTC date — which is the previous
-    // day for invoices created between midnight and 05:30 IST. The period
-    // boundaries below are all built from local `now`, and the list displays
-    // formatDate(inv.date) (local), so the filter must match on local dates too
-    // or a "today" invoice made just after midnight silently disappears.
-    const localDay = (d: string | Date) => {
-      const dt = typeof d === 'string' ? new Date(d) : d
-      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-    }
-    const todayStr = localDay(now)
-    switch (period) {
-      case 'today':
-        result = result.filter((inv) => localDay(inv.date) === todayStr)
-        break
-      case 'week': {
-        const weekStr = weekStartISO(now)
-        result = result.filter((inv) => localDay(inv.date) >= weekStr)
-        break
-      }
-      case 'month': {
-        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        result = result.filter((inv) => localDay(inv.date) >= monthStart)
-        break
-      }
-      case 'quarter': {
-        const qMonth = Math.floor(now.getMonth() / 3) * 3
-        const quarterStart = `${now.getFullYear()}-${String(qMonth + 1).padStart(2, '0')}-01`
-        result = result.filter((inv) => localDay(inv.date) >= quarterStart)
-        break
-      }
-      case 'custom':
-        if (dateFrom) result = result.filter((inv) => localDay(inv.date) >= dateFrom)
-        if (dateTo) result = result.filter((inv) => localDay(inv.date) <= dateTo)
-        break
-    }
-    return result
-  }, [invoices, period, dateFrom, dateTo])
+  // ── Derived view state (server-driven) ──
+  // The list arrives already filtered + paged from the server (see loadList),
+  // so `filteredInvoices` is simply the loaded page(s). Tab counts and stat
+  // totals come from the aggregated /billing/summary response.
+  const filteredInvoices = invoices
 
-  // Invoices after every filter EXCEPT the stat-card drill-down (period +
-  // search + payment + status + salesperson). Drives the stat cards so they
-  // reflect the active filters; the table layers the card drill-down on top.
-  const statsBaseInvoices = useMemo(() => {
-    let result = [...periodInvoices]
-
-    // Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (inv) =>
-          inv.invoiceNumber.toLowerCase().includes(q) ||
-          inv.customerName.toLowerCase().includes(q)
-      )
-    }
-
-    // Payment mode
-    if (selectedPaymentMode && selectedPaymentMode !== 'all') {
-      result = result.filter((inv) => inv.paymentMode === selectedPaymentMode)
-    }
-
-    // Status
-    if (selectedStatus && selectedStatus !== 'all') {
-      result = result.filter((inv) => inv.status === selectedStatus)
-    }
-
-    // Salesperson
-    if (selectedSalespersonId && selectedSalespersonId !== 'all') {
-      result = result.filter((inv) => inv.salespersonId === selectedSalespersonId)
-    }
-
-    return result
-  }, [
-    periodInvoices,
-    searchQuery,
-    selectedPaymentMode,
-    selectedStatus,
-    selectedSalespersonId,
-  ])
-
-  // After cardFilter drill-down but BEFORE statusTab — used to compute per-tab counts
-  // so the tab badges always reflect "how many in this tab given all other filters".
-  const preTabInvoices = useMemo(() => {
-    let result = statsBaseInvoices
-    if (cardFilter === 'paid') {
-      result = result.filter((inv) => inv.status === 'PAID')
-    } else if (cardFilter === 'pending') {
-      result = result.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
-    } else if (cardFilter === 'returns') {
-      result = result.filter((inv) => inv.status === 'RETURNED')
-    }
-    return result
-  }, [statsBaseInvoices, cardFilter])
-
-  const tabCounts = useMemo(() => ({
-    all: preTabInvoices.length,
-    PAID: preTabInvoices.filter((i) => i.status === 'PAID').length,
-    PARTIAL: preTabInvoices.filter((i) => i.status === 'PARTIAL').length,
-    UNPAID: preTabInvoices.filter((i) => i.status === 'UNPAID').length,
-  }), [preTabInvoices])
-
-  const filteredInvoices = useMemo(() => {
-    if (statusTab === 'all') return preTabInvoices
-    return preTabInvoices.filter((inv) => inv.status === statusTab)
-  }, [preTabInvoices, statusTab])
+  // Per-tab counts derived from the server's per-status breakdown, narrowed by
+  // the active stat-card drill-down so the tab badges match what the list shows.
+  const tabCounts = useMemo(() => {
+    const sc = summaryData?.statusCounts ?? {}
+    const paid = sc.PAID ?? 0
+    const partial = sc.PARTIAL ?? 0
+    const unpaid = sc.UNPAID ?? 0
+    if (cardFilter === 'paid') return { all: paid, PAID: paid, PARTIAL: 0, UNPAID: 0 }
+    if (cardFilter === 'pending') return { all: partial + unpaid, PAID: 0, PARTIAL: partial, UNPAID: unpaid }
+    if (cardFilter === 'returns') { const r = sc.RETURNED ?? 0; return { all: r, PAID: 0, PARTIAL: 0, UNPAID: 0 } }
+    return { all: summaryData?.statusTotal ?? 0, PAID: paid, PARTIAL: partial, UNPAID: unpaid }
+  }, [summaryData, cardFilter])
 
   const enterSplitView = useCallback(() => {
     const firstId = filteredInvoices[0]?.id
@@ -586,43 +643,23 @@ export default function SalesListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredInvoices, isLoading])
 
-  // ── Stats ── (reflect period + search + payment + status + salesperson, but
-  // NOT the card drill-down — so clicking a card never rewrites its own total)
+  // ── Stats ── (from the server summary: reflect period + search + payment +
+  // status + salesperson, but NOT the card drill-down — so clicking a card
+  // never rewrites its own total)
+  const stats = useMemo(() => ({
+    totalSales: summaryData?.totalAmount ?? 0,
+    totalInvoices: summaryData?.totalInvoices ?? 0,
+    paidCount: summaryData?.paidCount ?? 0,
+    paidTotal: summaryData?.paidTotal ?? 0,
+    creditCount: summaryData?.outstandingCount ?? 0,
+    pendingTotal: summaryData?.outstandingAmount ?? 0,
+    returnsCount: summaryData?.returnsCount ?? 0,
+  }), [summaryData])
 
-  const stats = useMemo(() => {
-    // Real, posted sales only — DRAFT (never posted) and CANCELLED (voided)
-    // must not count toward sales / collection / outstanding totals.
-    const invs = statsBaseInvoices.filter(
-      (inv) => inv.type === 'INVOICE' && inv.status !== 'DRAFT' && inv.status !== 'CANCELLED',
-    )
-    const totalSales = invs.reduce((sum, inv) => sum + Number(inv.grandTotal), 0)
-    // Collected = actual cash received across every invoice, including
-    // part-payments on PARTIAL invoices (not just fully-paid ones).
-    const paidTotal = invs.reduce((sum, inv) => sum + Number(inv.amountPaid ?? 0), 0)
-    // Outstanding = the unpaid balance (grandTotal − amountPaid) on open
-    // invoices, NOT the full invoice value — a PARTIAL invoice only owes its
-    // remaining balance.
-    const pendingTotal = invs
-      .filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL')
-      .reduce((sum, inv) => sum + Math.max(0, Number(inv.grandTotal) - Number(inv.amountPaid ?? 0)), 0)
-    return {
-      totalSales,
-      totalInvoices: invs.length,
-      paidCount: invs.filter((inv) => inv.status === 'PAID').length,
-      paidTotal,
-      creditCount: invs.filter((inv) => inv.status === 'UNPAID' || inv.status === 'PARTIAL').length,
-      pendingTotal,
-      returnsCount: invs.filter((inv) => inv.status === 'RETURNED').length,
-    }
-  }, [statsBaseInvoices])
-
-  // ── Pagination ──
-
-  const totalPages = Math.ceil(filteredInvoices.length / pageSize)
-  const paginatedInvoices = filteredInvoices.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  )
+  // ── Pagination ── (server-side: `invoices` already holds only the current
+  // page in table view; `total` is the full filtered count from the server)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const paginatedInvoices = filteredInvoices
 
 
   // ── Bulk select ──
@@ -677,32 +714,8 @@ export default function SalesListPage() {
         filename="sales-invoices"
         noun="invoice"
         showCountInHeader
-        rows={filteredInvoices.map((inv) => ({
-          Invoice: inv.invoiceNumber,
-          Date: formatDate(inv.date),
-          Customer: inv.customerName,
-          Phone: inv.customerPhone ?? '',
-          Items: inv.items?.length ?? 0,
-          Total: formatCurrency(inv.grandTotal),
-          Paid: formatCurrency(inv.amountPaid),
-          Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
-          'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
-          'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-          Status: inv.status,
-        }))}
-        excelRows={filteredInvoices.map((inv) => ({
-          Invoice: inv.invoiceNumber,
-          Date: formatDate(inv.date),
-          Customer: inv.customerName,
-          Phone: inv.customerPhone ?? '',
-          Items: inv.items?.length ?? 0,
-          Total: inv.grandTotal,
-          Paid: inv.amountPaid,
-          Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
-          'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
-          'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-          Status: inv.status,
-        }))}
+        rows={exportRowsSource}
+        excelRows={exportExcelRowsSource}
         extraItems={
           <DropdownMenuItem
             className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
@@ -938,10 +951,15 @@ export default function SalesListPage() {
           <InvoiceSplitView
             invoices={filteredInvoices}
             loading={isLoading}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            searchValue={searchQuery}
+            onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
             selectedInvoiceId={selectedInvoiceId}
             onSelectInvoice={selectInvoice}
             onExitSplitView={exitSplitView}
-            onRefresh={fetchInvoices}
+            onRefresh={refresh}
             isCardFieldVisible={cardCols.isVisible}
             tabsNode={
               <StatusTabs
@@ -1053,7 +1071,7 @@ export default function SalesListPage() {
         searchQuery={searchQuery}
         onSearchChange={(val) => { setSearchQuery(val); setCurrentPage(1) }}
         searchPlaceholder="Search invoice# or customer..."
-        resultsCount={filteredInvoices.length}
+        resultsCount={total}
         activeFilterCount={activeFilterCount}
         open={tableFiltersOpen}
         onOpenChange={setTableFiltersOpen}
@@ -1077,32 +1095,8 @@ export default function SalesListPage() {
               filename="sales-invoices"
               noun="invoice"
               showCountInHeader
-              rows={filteredInvoices.map((inv) => ({
-                Invoice: inv.invoiceNumber,
-                Date: formatDate(inv.date),
-                Customer: inv.customerName,
-                Phone: inv.customerPhone ?? '',
-                Items: inv.items?.length ?? 0,
-                Total: formatCurrency(inv.grandTotal),
-                Paid: formatCurrency(inv.amountPaid),
-                Balance: formatCurrency(Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0)),
-                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '—',
-                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                Status: inv.status,
-              }))}
-              excelRows={filteredInvoices.map((inv) => ({
-                Invoice: inv.invoiceNumber,
-                Date: formatDate(inv.date),
-                Customer: inv.customerName,
-                Phone: inv.customerPhone ?? '',
-                Items: inv.items?.length ?? 0,
-                Total: inv.grandTotal,
-                Paid: inv.amountPaid,
-                Balance: Number(inv.grandTotal ?? 0) - Number(inv.amountPaid ?? 0),
-                'Due Date': inv.dueDate ? formatDate(inv.dueDate) : '',
-                'Payment Mode': paymentModeLabels[inv.paymentMode] || inv.paymentMode,
-                Status: inv.status,
-              }))}
+              rows={exportRowsSource}
+              excelRows={exportExcelRowsSource}
               extraItems={
                 <DropdownMenuItem
                   className="gap-3 rounded-md py-2 cursor-pointer focus:bg-amber-500/10"
@@ -1596,7 +1590,7 @@ export default function SalesListPage() {
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={setCurrentPage}
-          totalItems={filteredInvoices.length}
+          totalItems={total}
           itemsPerPage={pageSize}
           pageSize={pageSize}
           onPageSizeChange={(n) => { setPageSize(n); setCurrentPage(1) }}

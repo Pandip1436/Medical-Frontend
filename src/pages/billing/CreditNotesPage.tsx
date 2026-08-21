@@ -76,8 +76,8 @@ export interface CreditNote {
   id: string
   creditNoteNo: string
   date: string
-  invoiceId: string
-  invoiceNumber: string
+  invoiceId: string | null
+  invoiceNumber: string | null
   customerId?: string
   customerName: string
   customerPhone?: string | null
@@ -471,7 +471,7 @@ export default function CreditNotesPage() {
       result = result.filter(cn =>
         cn.creditNoteNo.toLowerCase().includes(q) ||
         cn.customerName.toLowerCase().includes(q) ||
-        cn.invoiceNumber.toLowerCase().includes(q)
+        (cn.invoiceNumber?.toLowerCase().includes(q) ?? false)
       )
     }
 
@@ -646,7 +646,7 @@ export default function CreditNotesPage() {
               'Credit Note #': cn.creditNoteNo,
               Date: formatDate(cn.date),
               Customer: cn.customerName,
-              'Invoice #': cn.invoiceNumber,
+              'Invoice #': cn.invoiceNumber ?? '',
               Reason: cn.reason,
               Status: statusConfig[cn.status]?.label ?? cn.status,
               Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
@@ -903,7 +903,7 @@ export default function CreditNotesPage() {
                 Date: formatDate(cn.date),
                 Customer: cn.customerName,
                 Phone: cn.customerPhone ?? '',
-                'Invoice #': cn.invoiceNumber,
+                'Invoice #': cn.invoiceNumber ?? '',
                 Reason: cn.reason,
                 Status: statusConfig[cn.status]?.label ?? cn.status,
                 Settlement: settlementConfig[cn.settlementMode]?.label ?? cn.settlementMode,
