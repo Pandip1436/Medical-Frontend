@@ -20,6 +20,7 @@ import {
 import { usePaginatedSearch } from '@/hooks/usePaginatedSearch'
 import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useStockTracking } from '@/stores/settingsStore'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate, timeAgo, formatExpiry} from '@/lib/utils'
 import { assignExpiryBucket, daysToExpiry as computeDaysToExpiry, type ExpiryBucket } from '@/lib/inventory'
@@ -138,6 +139,10 @@ function batchStatus(daysToExpiry: number): {
 // ─────────────────────────────────────────────────────────────
 
 export default function ExpiryManagementPage() {
+  // OFF ⇒ every quantity and value on this page is a frozen snapshot, and the
+  // expiry alerts that would normally point here are suppressed; see the
+  // banner below and NotificationsService.generateExpiryAlerts.
+  const stockTracking = useStockTracking()
   const [folder, setFolder] = usePageFilter<FolderKey>('inventory.expiry', 'folder', 'expired')
   const [search, setSearch] = usePageFilter<string>('inventory.expiry', 'search', '')
   const [selectedSupplier, setSelectedSupplier] = usePageFilter<SupplierLite | null>('inventory.expiry', 'supplier', null)
@@ -345,6 +350,27 @@ export default function ExpiryManagementPage() {
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-5">
+      {/* Stock tracking off — the batches and their expiry dates are real, but
+          the quantities beside them are a frozen snapshot: sales stopped
+          drawing batches down when the switch was turned off, so a batch long
+          since sold out still shows its last known qty (and inflates the
+          at-risk value). Expiry alerts are muted for the same reason. The page
+          stays open — someone deliberately came here to look — but says
+          plainly why the numbers are stale, rather than letting a reorder or a
+          write-off be planned off them. Mirrors the banner on Stock Overview. */}
+      {!stockTracking && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            Stock tracking is off — these quantities are frozen
+          </p>
+          <p className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-400/90">
+            Sales no longer reduce batch quantities, so the quantities and at-risk values below
+            reflect the last state before tracking was switched off, and expiry alerts stay
+            muted. Turn it back on in Settings → General → Inventory to resume counting.
+          </p>
+        </div>
+      )}
+
       {/* ── KPI cards ── */}
       {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">

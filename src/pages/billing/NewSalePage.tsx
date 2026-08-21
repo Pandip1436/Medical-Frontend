@@ -42,6 +42,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { CustomerNameLine } from '@/components/shared/CustomerNameLine'
 import { Input } from '@/components/ui/input'
 import { DatePicker } from '@/components/ui/date-picker'
+import { MonthYearPicker } from '@/components/ui/month-year-picker'
 import { DayOfMonthPicker } from '@/components/ui/day-of-month-picker'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -102,7 +103,7 @@ import api, { handleApiError } from '@/lib/api'
 import { useMasterDataStore } from '@/stores/masterDataStore'
 import { useBranchStore } from '@/stores/branchStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useSettingsStore, useStockTracking, isStockTrackingOn } from '@/stores/settingsStore'
 // Billing screen shows exact paise (formatCurrencyFull) so the GST breakdown
 // and line amounts are never rounded/hidden — the figures visibly add up to the
 // grand total. Aliased to `formatCurrency` to keep the call sites unchanged.
@@ -321,15 +322,29 @@ function resolveLineRate(opts: {
   return masterRate || 0
 }
 
-// Look the line's batch up in the master store and report whether its unit rate
-// is below that batch's purchase cost — a below-cost sale the backend rejects
-// unless the operator has explicitly accepted it (allowBelowCost). Returns
-// false when there's no batch or no cost on file (legacy batch).
-function isLineBelowCost(item: { batchId?: string; rate: number | string }): boolean {
-  if (!item.batchId) return false
-  const batch = useMasterDataStore.getState().batches.find((b) => b.id === item.batchId)
-  if (!batch) return false
-  const cost = Number(batch.purchaseRate ?? 0)
+// Report whether the line's unit rate is below its purchase cost — a below-cost
+// sale the backend rejects unless the operator has explicitly accepted it
+// (allowBelowCost).
+//
+// Cost reference mirrors the backend exactly: the chosen BATCH's purchase rate
+// when there is one, otherwise the PRODUCT MASTER's. The master fallback is what
+// covers sales made with Stock Tracking off — those lines never carry a batch,
+// and without it this returned false, allowBelowCost was never set, and the
+// backend's master-price guard would reject the sale with no way for the
+// operator to confirm it. Returns false when no cost is on file (unset = 0).
+function isLineBelowCost(item: {
+  productId?: string
+  batchId?: string
+  rate: number | string
+}): boolean {
+  const store = useMasterDataStore.getState()
+  let cost = 0
+  if (item.batchId) {
+    cost = Number(store.batches.find((b) => b.id === item.batchId)?.purchaseRate ?? 0)
+  }
+  if (!(cost > 0) && item.productId) {
+    cost = Number(store.products.find((p) => p.id === item.productId)?.purchaseRate ?? 0)
+  }
   return cost > 0 && Number(item.rate) < cost - 0.01
 }
 
@@ -408,6 +423,104 @@ const BILLING_COLUMNS: ColumnDef[] = [
   { id: 'gstAmount', label: 'GST ₹', defaultVisible: true },
 ]
 
+// Does this line's typed batch number already exist as a real batch of the same
+// product? Shared by the row renderers so the inline notice and any future
+// caller agree on what "already exists" means. Case- and whitespace-insensitive,
+// because the operator is copying a code off a carton by eye.
+//
+// Note the batches ARE in the store even with tracking off —
+// syncProductBatchesIntoStore() loads them on product select; what stock
+// tracking disables is *attaching* a line to one, not knowing they exist.
+function findExistingBatch(
+  batches: ReturnType<typeof useMasterDataStore.getState>['batches'],
+  productId: string,
+  typedBatchNumber?: string,
+) {
+  const typed = (typedBatchNumber ?? '').trim().toLowerCase()
+  if (!typed || !productId) return null
+  return (
+    batches.find(
+      (b) => b.productId === productId && (b.batchNumber ?? '').trim().toLowerCase() === typed,
+    ) ?? null
+  )
+}
+
+// Batch No. + Expiry as free text — used by both the desktop row and the mobile
+// card when stock tracking is OFF. With no batch records to pick from there is
+// nothing to populate a dropdown, but a pharmacy invoice still prints both
+// columns, so the operator types them per line.
+//
+// Batch is OPTIONAL (blank prints as an em dash — see invoice.hbs) but EXPIRY IS
+// REQUIRED: an invoice can't be created without it. Enforced again server-side,
+// since the frontend is not a trust boundary.
+//
+// Expiry uses the shared MonthYearPicker — the same control Purchase Entry uses
+// for a GRN line — rather than a raw <input type="month">, whose native browser
+// popup doesn't match anything else in the app. It captures MM/YYYY (a drug
+// expires by month; the day is meaningless) and emits an ISO date pinned to the
+// LAST day of that month, which is what "EXP 03/2027" on a pack means and what
+// keeps isExpired() flipping on the right date.
+function BatchExpiryFreeText({
+  item,
+  onUpdate,
+}: {
+  item: BillingItem
+  onUpdate: (id: string, updates: Partial<BillingItem>) => void
+}) {
+  const batches = useMasterDataStore((s) => s.batches)
+
+  const existingBatch = useMemo(
+    () => findExistingBatch(batches, item.productId, item.batchNumber),
+    [batches, item.productId, item.batchNumber],
+  )
+  // Flagged the moment a product is chosen, not deferred to a save attempt: the
+  // line is already incomplete, so saying so immediately beats letting the
+  // operator finish the bill and get rejected at the end.
+  const expiryMissing = !!item.productId && !item.expiryDate
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1">
+        <input
+          value={item.batchNumber ?? ''}
+          onChange={(e) => onUpdate(item.id, { batchNumber: e.target.value })}
+          placeholder="Batch no."
+          disabled={!item.productId}
+          className={cn(
+            'h-7 w-24 shrink-0 rounded-lg border bg-muted/30 px-2 font-mono text-[11px] font-semibold tracking-tight transition-all placeholder:font-sans placeholder:font-normal placeholder:italic placeholder:tracking-normal placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-50',
+            existingBatch ? 'border-amber-500/60' : 'border-border/30',
+          )}
+        />
+        {/* Deliberately no `min` (Purchase Entry passes today's date): the
+            operator is recording what's printed on a pack they already hold, so
+            a hard UI floor would reject a legitimately short-dated carton. The
+            picker still won't navigate to years before the current one — that's
+            its own built-in "expiry is in the future" assumption, not set here. */}
+        <MonthYearPicker
+          value={item.expiryDate || null}
+          onChange={(iso) => onUpdate(item.id, { expiryDate: iso })}
+          disabled={!item.productId}
+          placeholder="Expiry *"
+          error={expiryMissing}
+          className="h-7 min-w-0 flex-1 px-1.5 text-[11px]"
+        />
+      </div>
+      {/* One line, two possible notices. The duplicate wins the text because a
+          colour alone can't explain it, while the missing expiry already reads
+          clearly from the picker's red border. */}
+      <div className="min-h-3.5 text-center text-[10px] leading-3.5">
+        {existingBatch ? (
+          <span className="font-medium text-amber-600 dark:text-amber-400">
+            Batch already exists
+          </span>
+        ) : expiryMissing ? (
+          <span className="font-medium text-rose-600 dark:text-rose-400">Expiry required</span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function BillingRow({
   item,
   index,
@@ -445,6 +558,16 @@ function BillingRow({
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
   const isLoading = useMasterDataStore(s => s.isLoading)
+  // Master switch (Settings → General → Inventory). When OFF the line behaves
+  // much like a quotation line — no batch tie, no stock clamp — except that
+  // batch/expiry are still captured as free text for the printed invoice.
+  const stockTracking = useStockTracking()
+
+  // "This line is bound to a stock batch." False for quotations (they never
+  // draw stock) and false when stock tracking is off (there is no stock to draw
+  // from). Everything downstream that clamps a quantity, disables a control, or
+  // demands a batch keys off this one flag.
+  const stockBound = invoiceType === 'invoice' && stockTracking
 
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
@@ -533,6 +656,10 @@ function BillingRow({
 
   // Alternative suggestions: same salt composition, different product, has stock
   const alternatives = useMemo(() => {
+    // Stock tracking off ⇒ nothing is ever short, so there's no "we're out,
+    // try this instead" to offer. Suggesting substitutes off frozen stock
+    // figures would be actively misleading.
+    if (!stockTracking) return []
     const selected = products.find((p) => p.id === item.productId)
     if (!selected || !selected.saltComposition) return []
     if (selected.totalStock > selected.minStock) return [] // only show when low/out
@@ -543,7 +670,7 @@ function BillingRow({
         p.saltComposition.toLowerCase() === selected.saltComposition!.toLowerCase() &&
         p.totalStock > 0
     ).slice(0, 4)
-  }, [item.productId, products])
+  }, [item.productId, products, stockTracking])
 
   // `batches` MUST be in the deps: on page refresh the row restores with
   // item.productId set before the store's batches have been re-hydrated (the
@@ -618,9 +745,18 @@ function BillingRow({
       // Ensure the selected product's batches and full record are in the
       // store before we read FEFO/MRP from them.
       syncProductBatchesIntoStore(product)
-      const productBatches = useMasterDataStore.getState().batches
-        .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
-        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+      // Stock tracking off ⇒ never auto-attach a batch (mirrors
+      // MobileBillingCard.handleProductSelect). The stored batch rows are frozen
+      // leftovers that no sale will ever draw down, so binding a line to one
+      // implies stock movement that can't happen — and it visibly leaks: the row
+      // would show "99 left", cap the quantity at that frozen figure (defeating
+      // the whole point of unlimited stock), and pre-fill the operator's
+      // free-text batch/expiry with values they never typed.
+      const productBatches = stockTracking
+        ? useMasterDataStore.getState().batches
+            .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
+            .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+        : []
 
       // Skip batches already taken by other rows so re-adding the same product
       // lands on a FRESH batch (and doesn't oversell one batch across two lines).
@@ -721,10 +857,13 @@ function BillingRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleQtyChange = useCallback(
     (qty: number) => {
-      // Quotation mode: no stock clamp — the product may not even be in
-      // inventory yet (the whole point of quoting before procuring).
+      // No stock clamp when the line isn't bound to a batch:
+      //  - Quotation: the product may not even be in inventory yet (the whole
+      //    point of quoting before procuring).
+      //  - Stock tracking OFF: stock is unlimited, so there's no ceiling to
+      //    clamp against.
       let nextQty: number
-      if (invoiceType === 'quotation') {
+      if (!stockBound) {
         nextQty = Math.max(0, qty)
       } else {
         const selectedBatch = batches.find((b) => b.id === item.batchId)
@@ -740,7 +879,7 @@ function BillingRow({
       updates.amount = calculateItemAmount(tempItem)
       onUpdate(item.id, updates)
     },
-    [item, onUpdate, invoiceType, batches, editStockCredit]
+    [item, onUpdate, stockBound, batches, editStockCredit]
   )
 
   const handleDiscountChange = useCallback(
@@ -811,8 +950,15 @@ function BillingRow({
   // fully-depleted batch the API dropped, shown via the synthesized picker entry).
   const selectedBatchAvail =
     (selectedBatch?.quantity ?? 0) + (item.batchId ? (editStockCredit?.[item.batchId] ?? 0) : 0)
-  // Quotation mode: no batch tie, so we never flag qty as exceeding stock.
-  const qtyExceeds = invoiceType === 'invoice' && item.batchId ? item.quantity > selectedBatchAvail : false
+  // No batch tie (quotation, or stock tracking off) ⇒ nothing to exceed.
+  const qtyExceeds = stockBound && item.batchId ? item.quantity > selectedBatchAvail : false
+
+  // A stock-bound line can't carry a quantity until a batch is chosen — you
+  // can't sell what isn't drawn from a batch. With stock tracking off there is
+  // no batch to wait for, so only a product is required.
+  const qtyLocked = stockBound
+    ? !item.productId || !item.batchId
+    : invoiceType === 'invoice' && !item.productId
 
   return (
     <>
@@ -1023,9 +1169,14 @@ function BillingRow({
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             <span className="text-xs font-black font-mono text-foreground/80">₹{p.mrp}</span>
-                            <Badge variant={p.totalStock <= p.minStock ? 'destructive' : p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
-                              {p.totalStock === 0 ? 'OUT' : `Stk: ${p.totalStock}`}
-                            </Badge>
+                            {/* Stock badge hidden when tracking is off — the
+                                figure is frozen, so every product would read
+                                "OUT" forever and mean nothing. */}
+                            {stockTracking && (
+                              <Badge variant={p.totalStock <= p.minStock ? 'destructive' : p.totalStock > 20 ? 'secondary' : 'warning'} className="text-[9px] px-1 h-3.5">
+                                {p.totalStock === 0 ? 'OUT' : `Stk: ${p.totalStock}`}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1092,13 +1243,19 @@ function BillingRow({
         </div>
       </TableCell>
 
-      {/* Batch + Expiry — helper on top, control below */}
-      <TableCell className="w-32 px-2 py-2.5 align-middle">
+      {/* Batch + Expiry — helper on top, control below. Widened when stock
+          tracking is off: the batch box and the expiry picker sit side by side
+          there, which won't fit the w-32 the batch dropdown needs. Keep this in
+          step with the matching <TableHead>. */}
+      <TableCell className={cn('px-2 py-2.5 align-middle', !stockTracking && invoiceType !== 'quotation' ? 'w-64' : 'w-32')}>
         <div className="flex flex-col gap-0.5">
           {/* Helper row (top) — expiry chip. Hidden for quotations: a quote
-              doesn't draw a batch, so batch/expiry are irrelevant there. */}
+              doesn't draw a batch, so batch/expiry are irrelevant there. Also
+              hidden when tracking is off — BatchExpiryFreeText carries its own
+              notice line, and a second empty row would just add dead height. */}
+          {(stockTracking || invoiceType === 'quotation') && (
           <div className="h-3.5 flex items-center justify-center">
-            {invoiceType !== 'quotation' && item.batchId && item.expiryDate ? (
+            {stockBound && item.batchId && item.expiryDate ? (
               <span
                 className={cn(
                   'inline-flex items-center gap-0.5 text-[11px] font-semibold tabular-nums',
@@ -1113,12 +1270,20 @@ function BillingRow({
               </span>
             ) : null}
           </div>
+          )}
           {/* Main control — batch is inventory-only; a quotation doesn't draw
               stock, so no batch selection is shown (or required) for one. */}
           {invoiceType === 'quotation' ? (
             <div className="flex h-8 w-full items-center justify-center rounded-lg border border-dashed border-border/40 bg-muted/20 text-[11px] italic text-muted-foreground/50">
               Not needed
             </div>
+          ) : !stockTracking ? (
+            /* Stock tracking OFF — there are no batches to pick from, but a
+               pharmacy invoice still wants Batch No. and Expiry printed on it.
+               So both become free text the operator types per line: batch
+               optional (blank prints as an em dash — see invoice.hbs), expiry
+               required. */
+            <BatchExpiryFreeText item={item} onUpdate={onUpdate} />
           ) : (
           <Select
             value={item.batchId}
@@ -1255,7 +1420,11 @@ function BillingRow({
         at qty 0 (so it reads e.g. "1328 left" the moment a batch is picked).
         Turns amber at zero (batch fully consumed), red if the qty exceeds stock. */}
     <div className="min-h-4 flex items-center justify-center">
-      {invoiceType !== 'quotation' && item.batchId && (() => {
+      {/* `stockBound`, not just `item.batchId` — with tracking off a line can
+          still carry a stale batchId (a restored draft, a repeat order), and
+          reading a frozen batch's quantity back as "N left" would state a limit
+          that isn't real. */}
+      {stockBound && item.batchId && (() => {
         const remaining = selectedBatchAvail - item.quantity
         return (
           <span
@@ -1288,12 +1457,7 @@ function BillingRow({
       <button
         type="button"
         onClick={() => handleQtyChange(item.quantity - 1)}
-        disabled={
-          // Invoice lines can't carry a quantity until a stock batch is chosen —
-          // you can't sell what isn't drawn from a batch. Quotations are exempt.
-          (invoiceType === "invoice" && (!item.productId || !item.batchId)) ||
-          item.quantity <= 0
-        }
+        disabled={qtyLocked || item.quantity <= 0}
         className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
       >
         <Minus className="h-3.5 w-3.5" />
@@ -1305,9 +1469,9 @@ function BillingRow({
         type="number"
         min={0}
         max={
-          invoiceType === "quotation"
-            ? undefined
-            : item.batchId ? selectedBatchAvail : 9999
+          // Only a stock-bound line has a real ceiling. With tracking off the
+          // quantity is unlimited, so a stale batchId must not cap it.
+          stockBound && item.batchId ? selectedBatchAvail : undefined
         }
         value={item.quantity || ""}
         placeholder="0"
@@ -1329,9 +1493,7 @@ function BillingRow({
             next?.focus()
           }
         }}
-        disabled={
-          invoiceType === "invoice" && (!item.productId || !item.batchId)
-        }
+        disabled={qtyLocked}
         className={cn(
           "h-8 w-10 flex-1 border-0 bg-transparent",
           "text-center text-sm font-bold tabular-nums",
@@ -1348,9 +1510,7 @@ function BillingRow({
       <button
         type="button"
         onClick={() => handleQtyChange(item.quantity + 1)}
-        disabled={
-          invoiceType === "invoice" && (!item.productId || !item.batchId)
-        }
+        disabled={qtyLocked}
         className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-background hover:text-foreground transition disabled:opacity-30"
       >
         <Plus className="h-3.5 w-3.5" />
@@ -1385,10 +1545,17 @@ function BillingRow({
     const overMrp =
       item.mrp > 0 && Number(item.rate) > item.mrp;
 
-    // Below the chosen batch's purchase cost — a loss sale. Allowed (the backend
-    // accepts it once the operator has seen this warning), but flagged so it's
-    // never silent. purchaseRate 0 = legacy batch with no cost on file.
-    const batchCost = Number(selectedBatch?.purchaseRate ?? 0);
+    // Below the line's purchase cost — a loss sale. Allowed (the backend accepts
+    // it once the operator has seen this warning), but flagged so it's never
+    // silent. Cost 0 = no cost on file (legacy batch, or an unpriced master).
+    //
+    // Falls back to the product master when the line has no batch, which is
+    // every line billed with Stock Tracking off. Without the fallback the
+    // warning simply never appeared in that mode, yet the backend still applied
+    // the guard — so the operator would hit a rejection they'd had no warning of.
+    const batchCost =
+      Number(selectedBatch?.purchaseRate ?? 0) ||
+      Number(selectedProduct?.purchaseRate ?? 0);
     const belowCost =
       !overMrp && batchCost > 0 && Number(item.rate) < batchCost - 0.01;
 
@@ -1831,6 +1998,10 @@ function MobileBillingCard({
 }) {
   const products = useMasterDataStore(s => s.products)
   const batches = useMasterDataStore(s => s.batches)
+  // Mirrors BillingRow — see the notes there. Both row renderers must agree,
+  // otherwise the same bill behaves differently on desktop and mobile.
+  const stockTracking = useStockTracking()
+  const stockBound = invoiceType === 'invoice' && stockTracking
 
   const [productSearch, setProductSearch] = useState(item.productName)
   const [showProductDropdown, setShowProductDropdown] = useState(false)
@@ -1885,9 +2056,14 @@ function MobileBillingCard({
 
   const handleProductSelect = (product: Product) => {
     syncProductBatchesIntoStore(product)
-    const pBatches = useMasterDataStore.getState().batches
-      .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
-      .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+    // Stock tracking off ⇒ never auto-attach a batch. The stored batch rows are
+    // frozen leftovers, so binding a line to one would imply stock movement
+    // that will never happen. Batch/expiry are typed by the operator instead.
+    const pBatches = stockTracking
+      ? useMasterDataStore.getState().batches
+          .filter((b) => b.productId === product.id && b.quantity > 0 && !isExpired(b.expiryDate))
+          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+      : []
 
     const firstBatch = pBatches[0]
     // Per-batch pricing: prefer the chosen batch's own rate, fall back to master.
@@ -1918,6 +2094,12 @@ function MobileBillingCard({
     updates.amount = calculateItemAmount(tempItem)
     onUpdate(item.id, updates)
   }
+
+  // Same rule as BillingRow: a stock-bound line needs a batch before it can
+  // carry a quantity; otherwise a product is enough.
+  const qtyLocked = stockBound
+    ? !item.productId || !item.batchId
+    : invoiceType === 'invoice' && !item.productId
 
   const handleRateChange = (rate: number) => {
     let clamped = Math.max(0, rate)
@@ -2017,6 +2199,10 @@ function MobileBillingCard({
               <div className="flex h-9 items-center rounded-md border border-dashed border-border/40 bg-muted/20 px-2 text-xs italic text-muted-foreground/50">
                 Not needed for quotation
               </div>
+            ) : !stockTracking ? (
+              /* No batch records to pick from — operator types both. Mirrors
+                 the desktop row. */
+              <BatchExpiryFreeText item={item} onUpdate={onUpdate} />
             ) : (
             <Select value={item.batchId} onValueChange={(vid) => {
               const b = batches.find(x => x.id === vid)
@@ -2065,17 +2251,19 @@ function MobileBillingCard({
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quantity</Label>
             <div className="flex items-center gap-1">
-              {/* Qty locked until a batch is chosen (invoice mode) — matches the desktop row. */}
-              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId) || item.quantity <= 0} onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
+              {/* Qty locked until a batch is chosen (invoice mode) — matches the
+                  desktop row. With stock tracking off there's no batch to wait
+                  for, so only a product is required. */}
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={qtyLocked || item.quantity <= 0} onClick={() => handleQtyChange(item.quantity - 1)}>−</Button>
               <input
                 type="number"
                 min={0}
                 value={item.quantity}
-                disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId)}
+                disabled={qtyLocked}
                 onChange={(e) => handleQtyChange(parseInt(e.target.value) || 0)}
                 className="w-full h-9 text-center bg-muted/40 border-0 text-sm font-semibold font-mono tabular-nums focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md disabled:opacity-40"
               />
-              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={invoiceType === 'invoice' && (!item.productId || !item.batchId)} onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
+              <Button size="icon-sm" variant="outline" className="h-9 w-9 shrink-0" disabled={qtyLocked} onClick={() => handleQtyChange(item.quantity + 1)}>+</Button>
             </div>
           </div>
         </div>
@@ -2497,6 +2685,10 @@ export default function NewSalePage() {
   const products = useMasterDataStore(s => s.products)
   const customers = useMasterDataStore(s => s.customers)
   const batches = useMasterDataStore(s => s.batches)
+  // Master switch (Settings → General → Inventory). OFF ⇒ unlimited stock: no
+  // batch is required on a line, quantities aren't clamped, and out-of-stock
+  // signalling is hidden. See GeneralSettings.stockTracking.
+  const stockTracking = useStockTracking()
   const fetchMasterData = useMasterDataStore(s => s.fetchMasterData)
   const activeBranchId = useBranchStore(s => s.activeBranchId)
   const { sidebarCollapsed, toggleSidebar, user: authUser } = useAuthStore()
@@ -3061,6 +3253,15 @@ export default function NewSalePage() {
           const resolvedNested = await Promise.all(
             repurchaseItems.map(async (it): Promise<BillingItem[]> => {
               if (!it.productId) return [it]
+              // Stock tracking off: nothing to FEFO-resolve or cap against, so
+              // the repurchased line carries over at its full quantity as a
+              // single row. Batch/expiry are dropped — the old invoice's values
+              // aren't tied to anything the operator can verify now.
+              if (!isStockTrackingOn()) {
+                const u = { ...it, batchId: '', batchNumber: '', expiryDate: '' }
+                u.amount = calculateItemAmount(u)
+                return [u]
+              }
               try {
                 const res = await api.get(`/products/${it.productId}`)
                 syncProductBatchesIntoStore(res.data)
@@ -3810,6 +4011,41 @@ export default function NewSalePage() {
       let outOfStock = false
       setItems((prev) => {
         const nonEmpty = prev.filter((i) => i.productId)
+
+        // Stock tracking OFF: there are no batches to spread a line across, so
+        // it's one row per product and a repeat click simply bumps its quantity.
+        // The multi-batch fan-out below exists purely to drain real stock
+        // FEFO-style, which is meaningless when stock is unlimited. Read
+        // non-reactively so a stale closure can't flip the branch.
+        if (!isStockTrackingOn()) {
+          const existing = nonEmpty.find((i) => i.productId === product.id)
+          if (existing) {
+            bumped = true
+            return nonEmpty.map((i) => {
+              if (i.id !== existing.id) return i
+              const updated = { ...i, quantity: (Number(i.quantity) || 0) + 1 }
+              updated.amount = calculateItemAmount(updated)
+              return updated
+            })
+          }
+          const untrackedItem: BillingItem = {
+            ...createEmptyItem(),
+            productId: product.id,
+            productName: product.name,
+            gstPercent: product.gstRate,
+            mrp: Number(product.mrp) || 0,
+            rate: resolveLineRate({ product, batch: undefined, billingType, customerLastRate: lastRate }),
+            schedule: product.schedule,
+            // Batch/expiry stay empty for the operator to type in (optional).
+            batchId: '',
+            batchNumber: '',
+            expiryDate: '',
+            quantity: 1,
+          }
+          untrackedItem.amount = calculateItemAmount(untrackedItem)
+          return [...nonEmpty, untrackedItem]
+        }
+
         // This product's in-stock, non-expired batches, keyed for lookup.
         const batchById = new Map(productBatches.map((b) => [b.id, b]))
 
@@ -4673,17 +4909,19 @@ export default function NewSalePage() {
       return;
     }
 
-    // Restriction: a PHARMACIST may not sell an invoice line below its batch's
-    // purchase cost (a loss sale) — the same "Below cost" threshold the rate
-    // cell warns on, now enforced as a hard block. Admins (and other roles) can
-    // override. Quotations are exempt, and legacy batches with no cost on file
-    // (purchaseRate 0) are skipped.
+    // Restriction: a PHARMACIST may not sell an invoice line below its purchase
+    // cost (a loss sale) — the same "Below cost" threshold the rate cell warns
+    // on, now enforced as a hard block. Admins (and other roles) can override.
+    // Quotations are exempt, and lines with no cost on file (purchaseRate 0) are
+    // skipped.
+    //
+    // Uses isLineBelowCost so the cost reference matches the backend and the
+    // rate-cell warning: the batch's cost when there is a batch, the product
+    // master's otherwise. The old inline check bailed on `!i.batchId`, which
+    // meant this restriction silently didn't apply to any sale made with Stock
+    // Tracking off — every line there is batchless.
     if (invoiceType !== 'quotation' && isPharmacist) {
-      const belowCostItems = activeItems.filter((i) => {
-        if (!i.batchId) return false
-        const cost = Number(batches.find((b) => b.id === i.batchId)?.purchaseRate ?? 0)
-        return cost > 0 && Number(i.rate) < cost - 0.01
-      })
+      const belowCostItems = activeItems.filter((i) => isLineBelowCost(i))
       if (belowCostItems.length > 0) {
         const names = belowCostItems.map((i) => i.productName).filter(Boolean).join(', ')
         toast.error(
@@ -4767,12 +5005,28 @@ export default function NewSalePage() {
       return
     }
 
+    // Expiry is mandatory on every line of an invoice billed with stock tracking
+    // OFF. With tracking on the batch supplies it; with tracking off nothing
+    // does, and normalizeItem would otherwise quietly default it to today —
+    // stamping a fabricated expiry on a real pharmacy invoice. Batch number
+    // stays optional (it prints as an em dash). Quotations are exempt: they
+    // don't capture batch/expiry at all. Re-checked server-side.
+    if (invoiceType !== 'quotation' && !stockTracking) {
+      const missingExpiry = activeItems.find((i) => !i.expiryDate)
+      if (missingExpiry) {
+        toast.error(`Enter the expiry date for "${missingExpiry.productName}"`)
+        return
+      }
+    }
+
     // Validate qty against batch stock — skipped for quotations because the
     // product may not be in inventory yet (the whole point of quoting first).
     // Availability includes the edit-mode credit (the stock this invoice already
     // holds, which the backend restores on save) so an edited line on a batch
     // it drew down to 0 isn't wrongly rejected.
-    if (invoiceType !== 'quotation') {
+    // Also skipped when stock tracking is off: stock is unlimited, and the
+    // frozen batch figures a line might still reference are not a real ceiling.
+    if (invoiceType !== 'quotation' && stockTracking) {
       for (const item of activeItems) {
         if (!item.batchId) continue
         const batch = batches.find((b) => b.id === item.batchId)
@@ -4782,7 +5036,7 @@ export default function NewSalePage() {
           return
         }
       }
-    } else {
+    } else if (invoiceType === 'quotation') {
       // Quotation-only validation: name + 10-digit phone on the customer stub.
       if (!selectedCustomer.name?.trim() || !/^\d{10}$/.test(selectedCustomer.phone || '')) {
         toast.error('Quotation customer needs a name and 10-digit phone')
@@ -5353,7 +5607,14 @@ export default function NewSalePage() {
       }
       const res = await api.post('/products', payload)
       const newProduct: Product | undefined = res.data
-      toast.success(`Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`)
+      // With stock tracking off the product is immediately sellable — telling
+      // the operator to record a GRN first would be wrong, since purchase entry
+      // isn't part of their flow at all.
+      toast.success(
+        stockTracking
+          ? `Product "${values.name}" added — add stock via a Goods Received Note (GRN) to bill this item`
+          : `Product "${values.name}" added — ready to bill`,
+      )
       await fetchMasterData()
       // Auto-fill the row that triggered the create. The new product has no
       // batches yet, so we set the product reference + pricing only; the
@@ -5732,18 +5993,23 @@ export default function NewSalePage() {
                                     >
                                       {source === 'last' ? 'Last sale' : source}
                                     </span>
-                                    <span
-                                      className={cn(
-                                        'inline-flex items-center rounded-full px-1.5 py-0 text-[8px] font-semibold tabular-nums whitespace-nowrap',
-                                        p.totalStock === 0
-                                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                                          : p.totalStock <= (p.minStock ?? 0)
-                                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                            : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                      )}
-                                    >
-                                      {p.totalStock === 0 ? 'Out' : `Stk ${p.totalStock}`}
-                                    </span>
+                                    {/* Hidden when stock tracking is off — the
+                                        figure is frozen, so it would read "Out"
+                                        forever and mean nothing. */}
+                                    {stockTracking && (
+                                      <span
+                                        className={cn(
+                                          'inline-flex items-center rounded-full px-1.5 py-0 text-[8px] font-semibold tabular-nums whitespace-nowrap',
+                                          p.totalStock === 0
+                                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                            : p.totalStock <= (p.minStock ?? 0)
+                                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                        )}
+                                      >
+                                        {p.totalStock === 0 ? 'Out' : `Stk ${p.totalStock}`}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -6417,7 +6683,9 @@ export default function NewSalePage() {
                     <div className="min-w-0">
                       <h2 className="text-sm font-bold">Add New Product</h2>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded — add stock to bill this item.
+                        {stockTracking
+                          ? 'Saves to product master. Stock will be 0 until a Goods Received Note (GRN) is recorded — add stock to bill this item.'
+                          : 'Saves to product master. Ready to bill straight away — stock tracking is off.'}
                       </p>
                     </div>
                   </div>
@@ -6766,7 +7034,10 @@ export default function NewSalePage() {
                             <TableRow className="border-b border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 hover:bg-transparent whitespace-nowrap">
                               <TableHead className="w-10 px-2 py-3.5 text-center h-auto items-center justify-center whitespace-nowrap">#</TableHead>
                               <TableHead className="min-w-32 px-3 py-3.5 text-left h-auto whitespace-nowrap">Product</TableHead>
-                              <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Batch &amp; Expiry</TableHead>
+                              {/* Width mirrors the matching <TableCell> in BillingRow —
+                                  wider with tracking off, where batch + expiry sit
+                                  side by side instead of a single dropdown. */}
+                              <TableHead className={cn('px-2 py-3.5 text-center h-auto whitespace-nowrap', !stockTracking && invoiceType !== 'quotation' ? 'w-64' : 'w-32')}>Batch &amp; Expiry</TableHead>
                               <TableHead className="w-20 px-2 py-3.5 text-right h-auto whitespace-nowrap">MRP</TableHead>
                               <TableHead className="w-28 px-2 py-3.5 text-center h-auto whitespace-nowrap">Qty</TableHead>
                               <TableHead className="w-32 px-2 py-3.5 text-center h-auto whitespace-nowrap">Rate</TableHead>
@@ -7358,6 +7629,13 @@ export default function NewSalePage() {
                               const repurchaseNested = await Promise.all(
                                 selectedHistoryInvoice.items.map(async (it): Promise<BillingItem[]> => {
                                   if (!it.productId) return [makeLine(it, {})]
+                                  // Stock tracking off: nothing to FEFO-resolve
+                                  // or cap against — carry the line over whole,
+                                  // minus the old batch/expiry (they're tied to
+                                  // stock the operator can't verify now).
+                                  if (!isStockTrackingOn()) {
+                                    return [makeLine(it, { batchId: '', batchNumber: '', expiryDate: '' })]
+                                  }
                                   try {
                                     const res = await api.get(`/products/${it.productId}`)
                                     syncProductBatchesIntoStore(res.data)

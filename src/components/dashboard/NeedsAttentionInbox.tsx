@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { parseISO } from 'date-fns'
 import {
@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrencyCompact } from '@/lib/utils'
+import { useStockTracking } from '@/stores/settingsStore'
 import type { ExpiringBatch, LowStockItem, OverdueCustomer } from './types'
 
 export type FilterTag = 'all' | 'due' | 'low' | 'exp'
@@ -180,15 +181,33 @@ export function NeedsAttentionInbox({
     [lowStockItems, expiringBatches, overdueCustomers],
   )
   const [filter, setFilter] = useState<FilterTag>('all')
+  // Both stock tabs disappear when tracking is off — nothing can ever populate
+  // them, so they're two dead controls next to live ones.
+  //
+  // Gated on the SETTING, not on the count being zero: with tracking on, "Low 0"
+  // is a real answer ("nothing is below reorder level"), and hiding the tab
+  // whenever it happened to be empty would throw that signal away.
+  const stockTracking = useStockTracking()
 
   // Tab totals use BACKEND counts so users see true magnitudes (the row list
   // grows as pages are lazy-loaded on scroll).
   const tabs: Array<{ value: FilterTag; label: string; count: number }> = [
     { value: 'all', label: 'All', count: lowStockTotal + expiringTotal + overdueTotal },
     { value: 'due', label: 'Due', count: overdueTotal },
-    { value: 'low', label: 'Low', count: lowStockTotal },
-    { value: 'exp', label: 'Exp', count: expiringTotal },
+    ...(stockTracking
+      ? ([
+          { value: 'low', label: 'Low', count: lowStockTotal },
+          { value: 'exp', label: 'Exp', count: expiringTotal },
+        ] as const)
+      : []),
   ]
+
+  // A stock tab can't stay selected after tracking is switched off mid-session:
+  // its rows are gone and its tab is no longer rendered, which would strand the
+  // card on an empty filter with no visible control to leave it.
+  useEffect(() => {
+    if (!stockTracking && (filter === 'low' || filter === 'exp')) setFilter('all')
+  }, [stockTracking, filter])
 
   const filteredRows = useMemo(() => {
     switch (filter) {

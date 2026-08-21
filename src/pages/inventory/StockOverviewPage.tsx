@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/sheet'
 
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useStockTracking } from '@/stores/settingsStore'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatDate, formatNumber, formatExpiry} from '@/lib/utils'
 import { BatchDetailView } from './BatchDetailView'
@@ -129,6 +130,8 @@ interface StockRow {
 // ─────────────────────────────────────────────────────────────
 
 export default function StockOverviewPage() {
+  // OFF ⇒ every figure on this page is a frozen snapshot; see the banner below.
+  const stockTracking = useStockTracking()
   const storeCategories = useMasterDataStore((s) => s.categories)
   const fetchCategories = useMasterDataStore((s) => s.fetchCategories)
   const PAGE_SIZE = 15
@@ -422,6 +425,23 @@ export default function StockOverviewPage() {
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="space-y-5"
     >
+      {/* Stock tracking off — the page still works and the history is intact,
+          but every figure on it is a frozen snapshot: sales stopped moving
+          stock when the switch was turned off. Say so plainly at the top rather
+          than hide the page, so nobody plans a reorder off a stale number. */}
+      {!stockTracking && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            Stock tracking is off — these figures are frozen
+          </p>
+          <p className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-400/90">
+            Sales no longer reduce stock, so everything below reflects the last state before
+            tracking was switched off. Turn it back on in Settings → General → Inventory to
+            resume counting.
+          </p>
+        </div>
+      )}
+
       {/* ── Summary Cards ── */}
       {/* responsive: 2-up on phones (was 1-per-row) so the KPIs stay compact */}
       <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">

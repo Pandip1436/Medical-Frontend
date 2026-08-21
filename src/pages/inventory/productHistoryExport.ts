@@ -38,7 +38,9 @@ interface TimelineExportSource {
   batch: string
   qty: number
   amount: number
-  runningStock: number
+  // Null for a row that moved no inventory (a sale billed while Stock Tracking
+  // was off) — exported as an em dash to match the on-screen column.
+  runningStock: number | null
 }
 
 export type ProductHistoryExportTab = 'sales' | 'purchases' | 'timeline' | 'overview'
@@ -92,7 +94,7 @@ export function buildProductHistoryExportRows(
       Batch: r.batch,
       Qty: r.qty,
       Amount: r.amount,
-      Stock: r.runningStock,
+      Stock: r.runningStock === null ? '—' : r.runningStock,
     }))
   }
   return []

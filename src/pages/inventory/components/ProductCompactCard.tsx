@@ -1,6 +1,7 @@
 import { Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatCurrency } from '@/lib/utils'
+import { useStockTracking } from '@/stores/settingsStore'
 import type { Product, Category } from '@/types'
 
 function getCategoryName(cat: Product['category']): string {
@@ -20,8 +21,12 @@ interface ProductCompactCardProps {
 
 export function ProductCompactCard({ product, selected, onClick, isFieldVisible, isFieldRight: _isFieldRight }: ProductCompactCardProps) {
   const initial = (product.name || 'P').charAt(0).toUpperCase()
-  const isOutOfStock = product.totalStock <= 0
-  const isLowStock = !isOutOfStock && product.totalStock <= product.minStock
+  // Stock tracking off ⇒ stock is unlimited and the stored figure is frozen, so
+  // "Out of Stock" / "Low Stock" would brand every product with a state that
+  // can never change. The raw number still shows; only the verdict is dropped.
+  const stockTracking = useStockTracking()
+  const isOutOfStock = stockTracking && product.totalStock <= 0
+  const isLowStock = stockTracking && !isOutOfStock && product.totalStock <= product.minStock
   const stockColor = isOutOfStock
     ? 'text-rose-600 dark:text-rose-400'
     : isLowStock

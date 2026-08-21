@@ -25,6 +25,21 @@ export interface GeneralSettings {
   autoPrint: boolean
   fefoEnforcement: boolean
   sessionTimeoutMinutes: number
+  // Master switch for the whole inventory side of the app (admin-only, set in
+  // Settings → General → Inventory). TRUE is the historical behaviour: a sale
+  // must pick a batch that holds enough stock, and billing decrements it.
+  //
+  // FALSE puts the app in "infinite stock" mode, for operators who never record
+  // purchases and only ever sell. Then: no batch is required on a sale line, no
+  // quantity is clamped, batches and totalStock are frozen (never mutated), and
+  // out-of-stock / low-stock signals are hidden because every product would
+  // otherwise read as permanently out of stock. Batch No. and Expiry become
+  // free-text fields the operator fills in per line so the printed invoice can
+  // still carry them.
+  //
+  // The backend enforces the same flag off the same GlobalSetting row — see
+  // SettingsService.isStockTrackingEnabled. This copy only drives the UI.
+  stockTracking: boolean
 }
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
@@ -32,6 +47,8 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   autoPrint: true,
   fefoEnforcement: true,
   sessionTimeoutMinutes: 60,
+  // Defaults ON so an install that predates this setting keeps stock control.
+  stockTracking: true,
 }
 
 // Generic JSON-shaped bag for settings entries. Callers know the concrete
@@ -162,6 +179,35 @@ export const useSettingsStore = create<SettingsState>()(
         // and overwrites with fresh server state.
         generalSettings: state.generalSettings,
       }),
+      // Zustand's default merge is shallow, so a `generalSettings` object
+      // persisted before a new field existed would REPLACE the defaults
+      // wholesale and leave that field `undefined` until the network fetch
+      // lands. For a boolean like `stockTracking` an undefined first paint
+      // reads as "off" and would briefly drop every stock guard in the sale
+      // screen. Re-merge onto the defaults so a missing field always falls back
+      // to its default rather than undefined.
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<SettingsState>
+        return {
+          ...current,
+          ...saved,
+          generalSettings: {
+            ...DEFAULT_GENERAL_SETTINGS,
+            ...(saved.generalSettings ?? {}),
+          },
+        }
+      },
     }
   )
 )
+
+// Is the app counting stock at all? Read this instead of reaching into
+// generalSettings directly — see GeneralSettings.stockTracking for what the
+// two modes mean. Component-level subscription: re-renders on an admin flip.
+export const useStockTracking = () =>
+  useSettingsStore((s) => s.generalSettings.stockTracking)
+
+// Non-reactive read, for event handlers and callbacks that just need the
+// current value (mirrors how NewSalePage reads fefoEnforcement/autoPrint).
+export const isStockTrackingOn = () =>
+  useSettingsStore.getState().generalSettings.stockTracking !== false

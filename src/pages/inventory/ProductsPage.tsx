@@ -7,7 +7,9 @@ import {
   Plus, Upload,
   FileDown,
   Package, AlertTriangle, Layers, PowerOff, Power,
-  Filter, BarChart3, X,
+  // Aliased: the icon is literally named `Infinity`, which would shadow the
+  // global of the same name in this module.
+  Filter, BarChart3, X, Infinity as InfinityIcon,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -40,6 +42,7 @@ import { usePageFilter } from '@/hooks/usePageFilter'
 import { usePageSize } from '@/hooks/usePageSize'
 import { useFilterPrefsStore } from '@/stores/useFilterPrefsStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
+import { useStockTracking } from '@/stores/settingsStore'
 import { cn, formatCurrency } from '@/lib/utils'
 import { resolveListView } from '@/lib/listView'
 import { navigate, useRoute } from '@/lib/router'
@@ -99,6 +102,12 @@ function StockStatusTabs({ tab, onChange, counts }: {
   onChange: (t: StockTabKey) => void
   counts: Record<StockTabKey, number>
 }) {
+  // Stock tracking off ⇒ every product is effectively in stock and the stored
+  // figures are frozen, so In Stock / Low Stock / Out of Stock are three ways of
+  // slicing a number that never moves. Hide the whole bar rather than offer
+  // filters that can only mislead.
+  const stockTracking = useStockTracking()
+  if (!stockTracking) return null
   return (
     <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-1 shadow-sm shadow-black/2">
       {STOCK_TABS.map((t) => {
@@ -133,6 +142,9 @@ function StockStatusTabs({ tab, onChange, counts }: {
 export default function ProductsPage() {
   const cols = useColumnVisibility('inventory.products', PRODUCT_COLUMNS)
   const cardCols = useColumnVisibility('inventory.products.card', CARD_FIELDS)
+  // Settings → General → Inventory. OFF hides the stock-status tabs and swaps
+  // the Low/Out summary cards — see StockStatusTabs and the summary strips.
+  const stockTracking = useStockTracking()
   const suppliers = useMasterDataStore(s => s.suppliers)
   const fetchSuppliers = useMasterDataStore(s => s.fetchSuppliers)
   const allProducts = useMasterDataStore(s => s.products)
@@ -669,8 +681,17 @@ export default function ProductsPage() {
               <div className="grid grid-cols-2 gap-4 p-1 sm:grid-cols-4">
                 {[
                   { label: 'Total Products', value: summaryStats.total, subtitle: 'in catalog', icon: Package, iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', borderAccent: 'border-l-blue-500' },
-                  { label: 'Low Stock', value: summaryStats.lowStock, subtitle: 'below min level', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
-                  { label: 'Out of Stock', value: summaryStats.outOfStock, subtitle: 'zero stock', icon: Package, iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500' },
+                  // Low / Out counts are derived from frozen figures when stock
+                  // tracking is off, so they'd sit at an alarming number nobody
+                  // can clear. Swapped for one card that states the mode.
+                  ...(stockTracking
+                    ? [
+                        { label: 'Low Stock', value: summaryStats.lowStock, subtitle: 'below min level', icon: AlertTriangle, iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', borderAccent: 'border-l-amber-500' },
+                        { label: 'Out of Stock', value: summaryStats.outOfStock, subtitle: 'zero stock', icon: Package, iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', borderAccent: 'border-l-rose-500' },
+                      ]
+                    : [
+                        { label: 'Stock Tracking', value: 'Off' as unknown as number, subtitle: 'selling unlimited', icon: InfinityIcon, iconBg: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', borderAccent: 'border-l-slate-500' },
+                      ]),
                   { label: 'Categories', value: summaryStats.categories, subtitle: 'product groups', icon: Layers, iconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400', borderAccent: 'border-l-purple-500' },
                 ].map((stat) => (
                   <Card key={stat.label} hover className={cn('border-l-[3px]', stat.borderAccent)}>
@@ -847,22 +868,36 @@ export default function ProductsPage() {
             iconBg: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
             borderAccent: 'border-l-blue-500',
           },
-          {
-            label: 'Low Stock',
-            value: String(summaryStats.lowStock),
-            subtitle: 'below min level',
-            icon: AlertTriangle,
-            iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-            borderAccent: 'border-l-amber-500',
-          },
-          {
-            label: 'Out of Stock',
-            value: String(summaryStats.outOfStock),
-            subtitle: 'zero stock',
-            icon: Package,
-            iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-            borderAccent: 'border-l-rose-500',
-          },
+          // Mirrors the desktop summary strip above — see the note there.
+          ...(stockTracking
+            ? [
+                {
+                  label: 'Low Stock',
+                  value: String(summaryStats.lowStock),
+                  subtitle: 'below min level',
+                  icon: AlertTriangle,
+                  iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                  borderAccent: 'border-l-amber-500',
+                },
+                {
+                  label: 'Out of Stock',
+                  value: String(summaryStats.outOfStock),
+                  subtitle: 'zero stock',
+                  icon: Package,
+                  iconBg: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+                  borderAccent: 'border-l-rose-500',
+                },
+              ]
+            : [
+                {
+                  label: 'Stock Tracking',
+                  value: 'Off',
+                  subtitle: 'selling unlimited',
+                  icon: InfinityIcon,
+                  iconBg: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
+                  borderAccent: 'border-l-slate-500',
+                },
+              ]),
           {
             label: 'Categories',
             value: String(summaryStats.categories),

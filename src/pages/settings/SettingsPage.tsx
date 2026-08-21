@@ -1198,7 +1198,13 @@ function GeneralSettingsSection() {
   const [autoPrint, setAutoPrint] = useState(storeSettings.autoPrint)
   const [fefoEnforcement, setFefoEnforcement] = useState(storeSettings.fefoEnforcement)
   const [sessionTimeout, setSessionTimeout] = useState(String(storeSettings.sessionTimeoutMinutes))
+  const [stockTracking, setStockTracking] = useState(storeSettings.stockTracking)
   const [saving, setSaving] = useState(false)
+
+  // Stock Tracking changes how billing behaves for everyone, so it's
+  // admin-only. Non-admins don't see the row at all and their save carries the
+  // stored value through untouched (see handleSave).
+  const isAdmin = useAuthStore((s) => isAdminish(s.user))
 
   useEffect(() => { fetchGeneralSettings() }, [fetchGeneralSettings])
 
@@ -1208,6 +1214,7 @@ function GeneralSettingsSection() {
     setAutoPrint(storeSettings.autoPrint)
     setFefoEnforcement(storeSettings.fefoEnforcement)
     setSessionTimeout(String(storeSettings.sessionTimeoutMinutes))
+    setStockTracking(storeSettings.stockTracking)
   }, [storeSettings])
 
   const handleSave = async () => {
@@ -1223,6 +1230,10 @@ function GeneralSettingsSection() {
         autoPrint,
         fefoEnforcement,
         sessionTimeoutMinutes: minutes,
+        // A non-admin never sees the toggle, so send back what's stored rather
+        // than this component's draft — otherwise a pharmacist saving an
+        // unrelated preference could write a stale value over an admin's flip.
+        stockTracking: isAdmin ? stockTracking : storeSettings.stockTracking,
       })
     } catch { /* error toast already shown by store */ }
     finally { setSaving(false) }
@@ -1320,6 +1331,37 @@ function GeneralSettingsSection() {
               />
             </div>
           </div>
+
+          {/* Inventory — admin only. This is the master switch for whether the
+              app counts stock at all, so it gets its own section (and a warning
+              panel when off) rather than sitting among the automation toggles. */}
+          {isAdmin && (
+            <div>
+              <SectionLabel>Inventory</SectionLabel>
+              <div className="mt-3 space-y-2">
+                <SettingToggleRow
+                  title="Stock Tracking"
+                  description="Require available stock to bill an item. Turn OFF to sell without stock — products become unlimited and purchase entry is no longer needed."
+                  checked={stockTracking}
+                  onCheckedChange={setStockTracking}
+                />
+                {!stockTracking && (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3.5">
+                    <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                      Stock tracking is off — products sell as unlimited
+                    </p>
+                    <ul className="mt-1.5 space-y-1 text-xs text-amber-700/90 dark:text-amber-400/90">
+                      <li>• Sales no longer check or reduce stock. Current stock figures are frozen, not zeroed — switch this back on and they pick up where they left off.</li>
+                      <li>• Batch and expiry become free-text fields on each sale line, so the printed invoice can still carry them.</li>
+                      <li>• Out-of-stock and low-stock alerts are hidden, since every product would otherwise read as permanently out of stock.</li>
+                      <li>• Sales returns refund the customer but add nothing back to stock — the sale never took any.</li>
+                      <li>• Purchase Entry, Purchase Orders and Batches stay available, but nothing requires them.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Session */}
           <div>

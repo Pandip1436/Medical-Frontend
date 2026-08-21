@@ -6,7 +6,7 @@ import { useBranchRefresh } from '@/hooks/useBranchRefresh'
 import api from '@/lib/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useMasterDataStore } from '@/stores/masterDataStore'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useSettingsStore, useStockTracking } from '@/stores/settingsStore'
 
 import {
   ActivityTimeline,
@@ -52,6 +52,11 @@ interface DashData {
 
 type RecentInvoice = { id?: string; invoiceNumber: string; customerName: string; customerPhone?: string | null; date?: string }
 
+// KPI tiles whose value is derived from batch quantities / totalStock. Both
+// freeze when stock tracking is off (see GeneralSettings.stockTracking), so
+// both are dropped from the strip in that mode — see buildKpiTiles.
+const FROZEN_STOCK_TILES = new Set(['lowStock', 'expiring'])
+
 // Drop duplicates by key when appending a lazily-loaded page — a defensive
 // guard in case a page is fetched twice (e.g. rapid scroll).
 function appendUnique<T>(prev: T[], next: T[], key: (x: T) => string): T[] {
@@ -59,7 +64,7 @@ function appendUnique<T>(prev: T[], next: T[], key: (x: T) => string): T[] {
   return [...prev, ...next.filter((x) => !seen.has(key(x)))]
 }
 
-function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
+function buildKpiTiles(dashData: DashData | null, stockTracking: boolean): KpiTileData[] {
   // No `delta` field: backend doesn't return period-over-period yet, so the
   // chips stay off until /reports/dashboard exposes real history.
   return [
@@ -69,7 +74,11 @@ function buildKpiTiles(dashData: DashData | null): KpiTileData[] {
     { key: 'lowStock',     title: 'Low Stock Items',      value: dashData?.lowStockAlertsCount ?? 0,subtitle: 'products below reorder', icon: AlertTriangle, sparkColor: '#f43f5e', iconBg: 'bg-rose-500/15',    iconColor: 'text-rose-600 dark:text-rose-400',     href: '/inventory/stock',      isCurrency: false },
     { key: 'expiring',     title: 'Near-Expiry (90d)',    value: dashData?.expiringBatchesCount ?? 0,subtitle: 'batches need attention',icon: Clock,         sparkColor: '#f97316', iconBg: 'bg-orange-500/15',  iconColor: 'text-orange-600 dark:text-orange-400', href: '/inventory/expiry',     isCurrency: false },
     { key: 'products',     title: 'Total Products',       value: dashData?.totalProducts ?? 0,      subtitle: 'in catalog',             icon: Package,       sparkColor: '#10b981', iconBg: 'bg-emerald-500/15', iconColor: 'text-emerald-600 dark:text-emerald-400', href: '/inventory/products', isCurrency: false },
-  ]
+  // Stock tracking off ⇒ both stock counts are computed from frozen figures and
+  // would read as a permanent alarm nobody can clear: nothing draws a batch
+  // down, so low stock never recovers and near-expiry never empties out. Drop
+  // the tiles rather than show numbers that can never go down.
+  ].filter((t) => stockTracking || !FROZEN_STOCK_TILES.has(t.key))
 }
 
 function buildActivities(recentInvoices: RecentInvoice[]): ActivityItem[] {
@@ -155,6 +164,11 @@ function DashboardBody() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Settings → General → Inventory. OFF hides every stock-derived signal on
+  // this page — the Low Stock and Near-Expiry tiles, and their rows in the
+  // inbox (see buildKpiTiles and NeedsAttentionInbox below).
+  const stockTracking = useStockTracking()
+
   // ── Lazy-load handlers — fetch the next page and append ────────
   const activityTotal = dashData?.recentInvoicesCount ?? activities.length
   const lowStockTotal = dashData?.lowStockAlertsCount ?? 0
@@ -207,14 +221,18 @@ function DashboardBody() {
   }, [overdueCustomers.length, overdueTotal, loadingOverdue])
 
   // The inbox calls this with its active filter; 'all' extends every source
-  // that still has rows, single-type tabs page just that source.
+  // that still has rows, single-type tabs page just that source. The stock
+  // sources are skipped outright when tracking is off — their rows are dropped
+  // before they reach the inbox, so paging them would only burn a round-trip
+  // on data nothing renders.
   const loadMoreAttention = useCallback((filter: FilterTag) => {
     if (filter === 'due' || filter === 'all') loadMoreOverdue()
+    if (!stockTracking) return
     if (filter === 'low' || filter === 'all') loadMoreLow()
     if (filter === 'exp' || filter === 'all') loadMoreExp()
-  }, [loadMoreOverdue, loadMoreLow, loadMoreExp])
+  }, [stockTracking, loadMoreOverdue, loadMoreLow, loadMoreExp])
 
-  const kpiTiles = buildKpiTiles(dashData)
+  const kpiTiles = buildKpiTiles(dashData, stockTracking)
   const hasLoadError = !isLoading && !dashData && loadStatus !== 'idle'
 
   return (
@@ -267,12 +285,19 @@ function DashboardBody() {
             so both stay equal even when one filter has 1 item and the other 20. */}
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12 lg:col-span-7">
+            {/* Low-stock AND near-expiry rows are dropped when stock tracking
+                is off: both read off frozen batch quantities, so every product
+                and every leftover batch would sit in this inbox forever with
+                nothing the operator could act on — they can neither sell a
+                batch down nor write it off without the tracking that's
+                switched off. Overdue customers are money, not stock, so they
+                are unaffected. */}
             <NeedsAttentionInbox
-              lowStockItems={lowStockItems}
-              expiringBatches={expiringBatches}
+              lowStockItems={stockTracking ? lowStockItems : []}
+              expiringBatches={stockTracking ? expiringBatches : []}
               overdueCustomers={overdueCustomers}
-              lowStockTotal={lowStockTotal}
-              expiringTotal={expiringTotal}
+              lowStockTotal={stockTracking ? lowStockTotal : 0}
+              expiringTotal={stockTracking ? expiringTotal : 0}
               overdueTotal={overdueTotal}
               isLoadingMore={loadingLow || loadingExp || loadingOverdue}
               onLoadMore={loadMoreAttention}

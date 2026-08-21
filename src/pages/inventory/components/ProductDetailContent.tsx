@@ -21,6 +21,7 @@ import { ExportMenu } from '@/components/shared/ExportMenu'
 import { ProductDocumentDrawer, type ProductDocType } from '@/components/inventory/ProductDocumentDrawer'
 import { ProductBatchesTab } from './ProductBatchesTab'
 import api, { handleApiError } from '@/lib/api'
+import { useStockTracking } from '@/stores/settingsStore'
 import { navigate } from '@/lib/router'
 import { cn, formatCurrency, formatCurrencyFull, formatDate } from '@/lib/utils'
 import {
@@ -43,9 +44,15 @@ interface TimelineRow {
   partyId?: string
   partyKind: PartyKind
   batch: string
-  qty: number      // positive = stock IN, negative = stock OUT
+  qty: number      // always positive — direction is conveyed by `type` + colour
   amount: number
-  runningStock: number
+  // Running stock AFTER this row. Null for a row that moved no inventory (a
+  // sale billed while Stock Tracking was off): there is no balance to report,
+  // so the column renders an em dash rather than a number that didn't change.
+  runningStock: number | null
+  // False only for a sale billed while Stock Tracking was off. Absent/true for
+  // every other row — purchases, returns and normal sales always move stock.
+  movesStock?: boolean
   note?: string    // e.g. reason or settlement mode
   docType: ProductDocType  // which document this row points at
   docId?: string           // parent document id for click-through
@@ -77,6 +84,10 @@ function goToParty(kind: PartyKind, id?: string) {
 
 // ─── Stock status badge ──────────────────────────────────────
 function StockStatusBadge({ product }: { product: { totalStock: number; minStock: number } }) {
+  // Stock tracking off ⇒ the figure is frozen and the product is sellable
+  // regardless, so a verdict on it would be wrong in both directions.
+  const stockTracking = useStockTracking()
+  if (!stockTracking) return null
   if (product.totalStock <= 0) {
     return <Badge variant="destructive" size="sm">OUT OF STOCK</Badge>
   }
@@ -270,6 +281,10 @@ export function ProductDetailContent({ productId }: { productId: string }) {
         partyKind: 'customer' as PartyKind, partyId: s.customerId,
         batch: s.batchNumber, qty: s.quantity, amount: s.amount,
         docType: 'invoice' as ProductDocType, docId: s.invoiceId,
+        // Sales are the only movement that can be non-stock-moving (billed with
+        // Stock Tracking off). Older API responses omit the field — treat a
+        // missing value as "did move stock", matching the column default.
+        movesStock: s.stockApplied !== false,
       })),
       ...(history.salesReturns ?? []).map((r: any) => ({
         type: 'SALES_RETURN' as const, date: new Date(r.date),
@@ -277,6 +292,9 @@ export function ProductDetailContent({ productId }: { productId: string }) {
         partyKind: 'customer' as PartyKind, partyId: r.customerId,
         batch: r.batchNumber, qty: r.returnedQty, amount: r.amount,
         note: r.reason, docType: 'credit-note' as ProductDocType, docId: r.creditNoteId,
+        // A return only puts stock back if the approval actually restored it —
+        // not when tracking was off, or the batch had since vanished.
+        movesStock: r.stockRestored !== false,
       })),
       ...history.purchases.map((p: any) => ({
         type: 'PURCHASE' as const, date: new Date(p.date),
@@ -296,11 +314,18 @@ export function ProductDetailContent({ productId }: { productId: string }) {
         })),
     ].sort((a, b) => a.date.getTime() - b.date.getTime())
 
-    const netChange = (type: string, qty: number) => {
-      if (type === 'PURCHASE' || type === 'SALES_RETURN') return qty
-      return -qty
+    // How much a row shifts the stock balance. A row that moved no inventory
+    // (a sale billed with Stock Tracking off) contributes ZERO — it must not
+    // shift the balance, or the reconciliation below invents an opening balance
+    // out of thin air to make the numbers add up. That was the cause of the
+    // phantom "Opening balance 3" appearing against a product whose only
+    // movement was a tracking-off sale.
+    const netChange = (row: { type: string; qty: number; movesStock?: boolean }) => {
+      if (row.movesStock === false) return 0
+      if (row.type === 'PURCHASE' || row.type === 'SALES_RETURN') return row.qty
+      return -row.qty
     }
-    const totalNet = rows.reduce((s, r) => s + netChange(r.type, r.qty), 0)
+    const totalNet = rows.reduce((s, r) => s + netChange(r), 0)
     const currentStock: number = history.summary.currentStock ?? 0
     // Opening balance = stock that existed before the earliest recorded move
     // (carried-forward stock / migration opening / adjustments not in the feed).
@@ -310,7 +335,11 @@ export function ProductDetailContent({ productId }: { productId: string }) {
     let runningStock = openingStock
 
     const movement: TimelineRow[] = rows.map(row => {
-      runningStock += netChange(row.type, row.qty)
+      // Non-stock-moving rows leave the balance untouched and report null, so
+      // the column shows "—" instead of repeating the unchanged figure (which
+      // would read as if the sale had been counted).
+      if (row.movesStock === false) return { ...row, runningStock: null }
+      runningStock += netChange(row)
       return { ...row, runningStock }
     })
 
@@ -939,12 +968,16 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                   </TableHeader>
                   <TableBody>
                     {visibleTimeline.map((row, i) => {
+                      // No +/− prefix on the quantity: it's always a plain
+                      // count. Direction is carried by qtyColor (green in, red
+                      // out) alongside the row's icon and TYPE badge, so a sign
+                      // on top of that only reads as a negative number.
                       const TYPE_STYLE = {
-                        SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/70 dark:hover:bg-rose-950/40',         accent: 'border-l-rose-400 dark:border-l-rose-500/60',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
-                        PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/40', accent: 'border-l-emerald-400 dark:border-l-emerald-500/60', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
-                        SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30', accent: 'border-l-emerald-300 dark:border-l-emerald-500/40', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtySign: '+', qtyColor: 'text-emerald-700 dark:text-emerald-300' },
-                        PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-100/60 dark:hover:bg-rose-950/30',      accent: 'border-l-rose-300 dark:border-l-rose-500/40',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtySign: '−', qtyColor: 'text-rose-700 dark:text-rose-300' },
-                        OPENING:         { rowBg: 'bg-slate-50/60 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/40',  accent: 'border-l-slate-300 dark:border-l-slate-600/60',      badge: 'bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300', icon: Package,    label: 'Opening Stock',   qtySign: '',  qtyColor: 'text-slate-600 dark:text-slate-300' },
+                        SALE:            { rowBg: 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/70 dark:hover:bg-rose-950/40',         accent: 'border-l-rose-400 dark:border-l-rose-500/60',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: TrendingDown, label: 'Sale',            qtyColor: 'text-rose-700 dark:text-rose-300' },
+                        PURCHASE:        { rowBg: 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/40', accent: 'border-l-emerald-400 dark:border-l-emerald-500/60', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: TrendingUp, label: 'Purchase',        qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                        SALES_RETURN:    { rowBg: 'bg-emerald-50/30 dark:bg-emerald-950/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/30', accent: 'border-l-emerald-300 dark:border-l-emerald-500/40', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300', icon: RotateCcw, label: 'Sale Return',   qtyColor: 'text-emerald-700 dark:text-emerald-300' },
+                        PURCHASE_RETURN: { rowBg: 'bg-rose-50/30 dark:bg-rose-950/10 hover:bg-rose-100/60 dark:hover:bg-rose-950/30',      accent: 'border-l-rose-300 dark:border-l-rose-500/40',       badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',     icon: PackageX,   label: 'Purchase Return', qtyColor: 'text-rose-700 dark:text-rose-300' },
+                        OPENING:         { rowBg: 'bg-slate-50/60 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/40',  accent: 'border-l-slate-300 dark:border-l-slate-600/60',      badge: 'bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300', icon: Package,    label: 'Opening Stock',   qtyColor: 'text-slate-600 dark:text-slate-300' },
                       }
                       const style = TYPE_STYLE[row.type]
                       const Icon = style.icon
@@ -998,18 +1031,31 @@ export function ProductDetailContent({ productId }: { productId: string }) {
                           </TableCell>
                           <TableCell className="text-sm font-medium font-mono group-hover:text-primary transition-colors">{row.ref}</TableCell>
                           <TableCell className={cn('text-right text-[15px] font-mono font-semibold', style.qtyColor)}>
-                            {style.qtySign}{row.qty}
+                            {row.qty}
                           </TableCell>
                           <TableCell className="text-right text-sm font-mono">{formatCurrency(row.amount)}</TableCell>
                           <TableCell className="text-right">
-                            <span className={cn(
-                              'inline-block rounded-md px-2 py-0.5 text-sm font-mono font-semibold',
-                              row.runningStock <= 0
-                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
-                                : 'bg-muted text-foreground',
-                            )}>
-                              {row.runningStock}
-                            </span>
+                            {/* No balance for a row that moved no inventory (a
+                                sale billed with Stock Tracking off). Showing
+                                the unchanged figure there would imply the sale
+                                had been counted against stock — it wasn't. */}
+                            {row.runningStock === null ? (
+                              <span
+                                className="text-sm text-muted-foreground/50"
+                                title="Billed while stock tracking was off — this sale did not change stock"
+                              >
+                                —
+                              </span>
+                            ) : (
+                              <span className={cn(
+                                'inline-block rounded-md px-2 py-0.5 text-sm font-mono font-semibold',
+                                row.runningStock <= 0
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                                  : 'bg-muted text-foreground',
+                              )}>
+                                {row.runningStock}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell className="w-8 pr-3 text-right">
                             <ChevronRight className="h-4 w-4 text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100" />
